@@ -10,10 +10,18 @@ class VerificationResult:
     """
 
     success: bool
-    confidence_score: float
-    liveness_score: float
-    method: str  # 'face' or 'dev_stub'
+    confidence_score: float = 0.0
+    liveness_score: float = 0.0
+    method: str = "face"  # 'face' or 'dev_stub'
     error_reason: Optional[str] = None
+    similarity_score: float = 0.0
+    quality_passed: bool = True
+
+    def __post_init__(self):
+        if self.similarity_score and not self.confidence_score:
+            object.__setattr__(self, "confidence_score", self.similarity_score)
+        elif self.confidence_score and not self.similarity_score:
+            object.__setattr__(self, "similarity_score", self.confidence_score)
 
 
 class FaceVerifier(Protocol):

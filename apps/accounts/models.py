@@ -1,4 +1,8 @@
-from django.contrib.auth.models import AbstractBaseUser, BaseUserManager, PermissionsMixin
+from django.contrib.auth.models import (
+    AbstractBaseUser,
+    BaseUserManager,
+    PermissionsMixin,
+)
 from django.core.exceptions import ValidationError
 from django.db import models
 
@@ -48,14 +52,18 @@ class CustomUser(AbstractBaseUser, PermissionsMixin):
     class Role(models.TextChoices):
         SUPER_ADMIN = "super_admin", "Super Admin"
         ADMIN = "admin", "Admin"
+        HR = "hr", "Human Resources"
         MANAGER = "manager", "Manager"
         EMPLOYEE = "employee", "Employee"
         INTERN = "intern", "Intern"
 
     class Status(models.TextChoices):
         INVITED = "invited", "Invited"
-        ONBOARDING = "onboarding", "Onboarding"
+        ACTIVATING = "activating", "Activating"
         ACTIVE = "active", "Active"
+        LOCKED = "locked", "Locked"
+        DISABLED = "disabled", "Disabled"
+        ONBOARDING = "onboarding", "Onboarding"
         INACTIVE = "inactive", "Inactive"
         SUSPENDED = "suspended", "Suspended"
         EXITED = "exited", "Exited"
@@ -68,7 +76,7 @@ class CustomUser(AbstractBaseUser, PermissionsMixin):
         max_length=32,
         unique=True,
         db_index=True,
-        help_text="Unique company identifier (e.g., EMP001). Immutable once created.",
+        help_text="Unique company identifier (e.g., ST-EMP-0001). Immutable once created.",
     )
     email = models.EmailField(unique=True, null=True, blank=True)
     full_name = models.CharField(max_length=128)
@@ -81,10 +89,6 @@ class CustomUser(AbstractBaseUser, PermissionsMixin):
     )
     start_date = models.DateField(null=True, blank=True)
     end_date = models.DateField(null=True, blank=True)
-
-    must_change_password = models.BooleanField(default=False)
-    failed_login_attempts = models.PositiveIntegerField(default=0)
-    locked_until = models.DateTimeField(null=True, blank=True)
 
     is_active = models.BooleanField(default=True)
     is_staff = models.BooleanField(default=False)
@@ -120,67 +124,130 @@ class CustomUser(AbstractBaseUser, PermissionsMixin):
         super().save(*args, **kwargs)
 
 
-class LoginHistory(models.Model):
-    """Immutable audit trail of authentication attempts."""
+class ActivationCode(models.Model):
+    """
+    One-time administrator-issued passcodes.
+    Stored as keyed HMAC-SHA256 hashes.
+    Uses nullable marker 'is_live' for TiDB index uniqueness.
+    """
 
-    class Status(models.TextChoices):
-        SUCCESS = "success", "Success"
-        FAILURE = "failure", "Failure"
-        LOCKED = "locked", "Locked Out"
+    class Purpose(models.TextChoices):
+        ACTIVATION = "activation", "Activation"
+        PASSWORD_RESET = "password_reset", "Password Reset"
+        MFA_RESET = "mfa_reset", "MFA Reset"
 
-    user = models.ForeignKey(
-        CustomUser, on_delete=models.SET_NULL, null=True, blank=True, related_name="login_logs"
+    user = models.ForeignKey(CustomUser, on_delete=models.CASCADE, related_name="activation_codes")
+    purpose = models.CharField(max_length=32, choices=Purpose.choices, default=Purpose.ACTIVATION)
+    keyed_hash = models.CharField(max_length=64, db_index=True)
+    expires_at = models.DateTimeField(db_index=True)
+    attempts = models.PositiveSmallIntegerField(default=0)
+    consumed_at = models.DateTimeField(null=True, blank=True)
+    issued_by = models.ForeignKey(
+        CustomUser, on_delete=models.SET_NULL, null=True, blank=True, related_name="issued_codes"
     )
-    employee_id_entered = models.CharField(max_length=32, db_index=True)
-    ip_address = models.GenericIPAddressField(null=True, blank=True)
-    user_agent = models.CharField(max_length=255, blank=True)
-    status = models.CharField(max_length=16, choices=Status.choices)
+    is_live = models.PositiveSmallIntegerField(
+        null=True, blank=True, default=1, help_text="Set to 1 for active code, NULL otherwise."
+    )
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
         ordering = ["-created_at"]
-        verbose_name = "Login History"
-        verbose_name_plural = "Login Histories"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["user", "purpose", "is_live"],
+                name="unique_live_code_per_user_and_purpose",
+            )
+        ]
+        verbose_name = "Activation Code"
+        verbose_name_plural = "Activation Codes"
 
     def __str__(self):
-        return f"{self.employee_id_entered} [{self.status}] at {self.created_at}"
+        return f"Code for {self.user.employee_id} [{self.purpose}] (Live={self.is_live == 1})"
 
 
-class UserTOTPDevice(models.Model):
-    """TOTP MFA secret and status per user."""
+class TOTPCredential(models.Model):
+    """
+    Encrypted RFC 6238 TOTP credential.
+    Secret is encrypted at rest using AES-256-GCM.
+    """
 
-    user = models.OneToOneField(CustomUser, on_delete=models.CASCADE, related_name="totp_device")
-    secret_base32 = models.CharField(max_length=64)
-    is_confirmed = models.BooleanField(default=False)
+    user = models.OneToOneField(
+        CustomUser, on_delete=models.CASCADE, related_name="totp_credential"
+    )
+    encrypted_secret = models.BinaryField()
+    nonce = models.BinaryField()
+    key_id = models.CharField(max_length=32)
+    confirmed_at = models.DateTimeField(null=True, blank=True)
+    last_used_step = models.BigIntegerField(default=0)
     created_at = models.DateTimeField(auto_now_add=True)
-    last_verified_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
-        verbose_name = "TOTP MFA Device"
-        verbose_name_plural = "TOTP MFA Devices"
+        verbose_name = "TOTP Credential"
+        verbose_name_plural = "TOTP Credentials"
 
     def __str__(self):
-        return f"TOTP ({'Active' if self.is_confirmed else 'Pending'}) for {self.user.employee_id}"
+        status = "Confirmed" if self.confirmed_at else "Pending"
+        return f"TOTP [{status}] for {self.user.employee_id}"
 
 
 class RecoveryCode(models.Model):
-    """One-time hashed MFA recovery codes."""
+    """Single-use recovery codes stored as keyed HMAC-SHA256."""
 
     user = models.ForeignKey(CustomUser, on_delete=models.CASCADE, related_name="recovery_codes")
-    code_hash = models.CharField(max_length=128)
-    is_used = models.BooleanField(default=False)
+    keyed_hash = models.CharField(max_length=64, db_index=True, default="")
     used_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
         ordering = ["created_at"]
-        verbose_name = "MFA Recovery Code"
-        verbose_name_plural = "MFA Recovery Codes"
+        verbose_name = "Recovery Code"
+        verbose_name_plural = "Recovery Codes"
 
     def __str__(self):
-        return (
-            f"RecoveryCode for {self.user.employee_id} ({'Used' if self.is_used else 'Available'})"
-        )
+        status = "Used" if self.used_at else "Available"
+        return f"RecoveryCode for {self.user.employee_id} [{status}]"
+
+
+class LoginAttempt(models.Model):
+    """Database-backed counter for lockout enforcement across multiple worker processes."""
+
+    key = models.CharField(max_length=128, unique=True, db_index=True)
+    counter = models.PositiveSmallIntegerField(default=0)
+    locked_until = models.DateTimeField(null=True, blank=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "Login Attempt Tracker"
+        verbose_name_plural = "Login Attempt Trackers"
+
+    def __str__(self):
+        return f"Attempts for {self.key}: {self.counter}"
+
+
+class AuthEvent(models.Model):
+    """
+    Append-only structured diagnostic and security audit log.
+    Captures reference IDs and sanitized error context. Never secrets or passwords.
+    """
+
+    time = models.DateTimeField(auto_now_add=True, db_index=True)
+    event = models.CharField(max_length=64, db_index=True)
+    code = models.CharField(max_length=32, db_index=True)  # e.g., AUTH-ACT-001
+    step = models.CharField(max_length=64)
+    employee_id = models.CharField(max_length=32, db_index=True, blank=True)
+    reference_id = models.CharField(max_length=32, db_index=True)
+    network_address = models.GenericIPAddressField(null=True, blank=True)
+    exception_class = models.CharField(max_length=128, blank=True)
+    message = models.TextField(blank=True)
+    duration_ms = models.FloatField(default=0.0)
+
+    class Meta:
+        ordering = ["-time"]
+        verbose_name = "Auth Event"
+        verbose_name_plural = "Auth Events"
+
+    def __str__(self):
+        return f"[{self.time}] {self.code} ({self.reference_id}) - {self.event}"
 
 
 class UserSession(models.Model):
@@ -190,8 +257,9 @@ class UserSession(models.Model):
     session_key = models.CharField(max_length=40, unique=True, db_index=True)
     ip_address = models.GenericIPAddressField(null=True, blank=True)
     user_agent = models.CharField(max_length=255, blank=True)
-    last_activity = models.DateTimeField(auto_now=True)
+    mfa_verified = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
+    last_activity = models.DateTimeField(auto_now=True)
 
     class Meta:
         ordering = ["-last_activity"]
@@ -199,4 +267,5 @@ class UserSession(models.Model):
         verbose_name_plural = "User Sessions"
 
     def __str__(self):
-        return f"Session {self.session_key[:8]}... for {self.user.employee_id}"
+        emp_id = self.user.employee_id
+        return f"Session {self.session_key[:8]}... for {emp_id} (MFA={self.mfa_verified})"

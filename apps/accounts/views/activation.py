@@ -1,0 +1,154 @@
+"""
+First-Time Employee Activation Views.
+Mandatory flow:
+/activate -> /activate/password -> /activate/mfa/setup
+          -> /activate/mfa/verify -> /activate/recovery-codes -> dashboard.
+"""
+
+from django.contrib import messages
+from django.shortcuts import redirect, render
+
+from apps.accounts.auth.activation import verify_and_consume_code
+from apps.accounts.auth.errors import AuthException
+from apps.accounts.auth.mfa_totp import get_or_create_pending_totp, verify_totp_code
+from apps.accounts.auth.passwords import set_user_password
+from apps.accounts.auth.recovery_codes import generate_ten_recovery_codes
+from apps.accounts.auth.sessions import create_verified_session
+from apps.accounts.models import CustomUser
+
+ACTIVATION_SESSION_KEY = "_salow_act_user_id"
+
+
+def activate_code_view(request):
+    """Step 1: Enter Employee ID and one-time activation code."""
+    if request.user.is_authenticated:
+        return redirect("attendance:panel")
+
+    error = None
+    if request.method == "POST":
+        emp_id = request.POST.get("employee_id", "").strip()
+        code = request.POST.get("activation_code", "").strip()
+        ip_addr = request.META.get("REMOTE_ADDR")
+
+        try:
+            _, user = verify_and_consume_code(
+                employee_id=emp_id,
+                raw_code=code,
+                ip_address=ip_addr,
+            )
+            request.session[ACTIVATION_SESSION_KEY] = user.id
+            request.session.set_expiry(1800)  # 30 minute activation session
+            return redirect("accounts:activate_password")
+        except AuthException as e:
+            error = e.user_message
+
+    return render(request, "accounts/activate/code.html", {"error": error})
+
+
+def activate_password_view(request):
+    """Step 2: Person chooses their own permanent password."""
+    user_id = request.session.get(ACTIVATION_SESSION_KEY)
+    if not user_id:
+        messages.error(request, "Activation session expired. Please enter your code again.")
+        return redirect("accounts:activate")
+
+    user = CustomUser.objects.filter(id=user_id).first()
+    if not user:
+        return redirect("accounts:activate")
+
+    error = None
+    if request.method == "POST":
+        pass1 = request.POST.get("password", "")
+        pass2 = request.POST.get("confirm_password", "")
+
+        if pass1 != pass2:
+            error = "Passwords do not match."
+        else:
+            try:
+                set_user_password(user, pass1)
+                return redirect("accounts:activate_mfa_setup")
+            except AuthException as e:
+                error = e.user_message
+
+    return render(request, "accounts/activate/password.html", {"user": user, "error": error})
+
+
+def activate_mfa_setup_view(request):
+    """Step 3: Setup authenticator app with pure SVG QR code."""
+    user_id = request.session.get(ACTIVATION_SESSION_KEY)
+    if not user_id:
+        return redirect("accounts:activate")
+
+    user = CustomUser.objects.filter(id=user_id).first()
+    if not user:
+        return redirect("accounts:activate")
+
+    secret, uri, svg_qr = get_or_create_pending_totp(user)
+    # Format secret into groups of 4 for easy human typing
+    grouped_secret = " ".join([secret[i : i + 4] for i in range(0, len(secret), 4)])
+
+    return render(
+        request,
+        "accounts/activate/mfa_setup.html",
+        {
+            "user": user,
+            "secret": grouped_secret,
+            "raw_secret": secret,
+            "svg_qr": svg_qr,
+        },
+    )
+
+
+def activate_mfa_verify_view(request):
+    """Step 4: Enter first 6-digit authenticator code to confirm setup."""
+    user_id = request.session.get(ACTIVATION_SESSION_KEY)
+    if not user_id:
+        return redirect("accounts:activate")
+
+    user = CustomUser.objects.filter(id=user_id).first()
+    if not user:
+        return redirect("accounts:activate")
+
+    error = None
+    if request.method == "POST":
+        code = request.POST.get("code", "")
+        try:
+            verify_totp_code(user, code, allow_unconfirmed=True)
+            return redirect("accounts:activate_recovery_codes")
+        except AuthException as e:
+            error = e.user_message
+
+    return render(request, "accounts/activate/mfa_verify.html", {"user": user, "error": error})
+
+
+def activate_recovery_codes_view(request):
+    """Step 5: View 10 recovery codes and activate account."""
+    user_id = request.session.get(ACTIVATION_SESSION_KEY)
+    if not user_id:
+        return redirect("accounts:activate")
+
+    user = CustomUser.objects.filter(id=user_id).first()
+    if not user:
+        return redirect("accounts:activate")
+
+    if request.method == "POST":
+        confirmed_saved = request.POST.get("confirmed_saved") == "1"
+        if not confirmed_saved:
+            messages.error(request, "You must check the box confirming you have saved these codes.")
+        else:
+            # Complete activation
+            user.status = CustomUser.Status.ACTIVE
+            user.save(update_fields=["status", "updated_at"])
+            request.session.pop(ACTIVATION_SESSION_KEY, None)
+
+            # Establish verified session
+            create_verified_session(request, user)
+            messages.success(request, f"Welcome to Salowtech Workspace, {user.full_name}!")
+            return redirect("attendance:panel")
+
+    recovery_codes = generate_ten_recovery_codes(user)
+    return render(
+        request,
+        "accounts/activate/recovery_codes.html",
+        {"user": user, "recovery_codes": recovery_codes},
+    )

@@ -1,0 +1,78 @@
+{% extends "base.html" %}
+
+{% block title %}Attendance Report — Salow Workspace{% endblock %}
+
+{% block content %}
+<div class="topbar">
+  <div>
+    <h1 style="font-size: var(--text-2xl); font-weight: 700;">Attendance Report</h1>
+    <p style="color: var(--color-text-muted); font-size: var(--text-sm);">
+      Aggregated attendance summary for {{ report.start_date }} to {{ report.end_date }}
+    </p>
+  </div>
+  <a href="{% url 'attendance:panel' %}" class="btn btn-secondary">&larr; Back to Panel</a>
+</div>
+
+<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: var(--space-4); margin-bottom: var(--space-6);">
+  <div class="card" style="margin-bottom: 0;">
+    <div style="font-size: var(--text-sm); color: var(--color-text-muted);">Total Sessions</div>
+    <div style="font-size: var(--text-2xl); font-weight: 700; color: var(--color-primary); margin-top: var(--space-2);">
+      {{ report.total_sessions }}
+    </div>
+  </div>
+  <div class="card" style="margin-bottom: 0;">
+    <div style="font-size: var(--text-sm); color: var(--color-text-muted);">Completed Sessions</div>
+    <div style="font-size: var(--text-2xl); font-weight: 700; color: var(--color-success-text); margin-top: var(--space-2);">
+      {{ report.completed_sessions }}
+    </div>
+  </div>
+  <div class="card" style="margin-bottom: 0;">
+    <div style="font-size: var(--text-sm); color: var(--color-text-muted);">Total Hours Logged</div>
+    <div style="font-size: var(--text-2xl); font-weight: 700; color: var(--color-text-main); margin-top: var(--space-2);">
+      {{ report.total_hours_worked }}h
+    </div>
+  </div>
+  <div class="card" style="margin-bottom: 0;">
+    <div style="font-size: var(--text-sm); color: var(--color-text-muted);">Manual Exceptions</div>
+    <div style="font-size: var(--text-2xl); font-weight: 700; color: var(--color-warning-text); margin-top: var(--space-2);">
+      {{ report.manual_exceptions_count }}
+    </div>
+  </div>
+</div>
+
+<div class="card">
+  <h2 class="card-title">Session Details</h2>
+  {% if recent_sessions %}
+    <div class="table-container">
+      <table>
+        <thead>
+          <tr>
+            <th>Work Date</th>
+            <th>Check In (UTC)</th>
+            <th>Check Out (UTC)</th>
+            <th>Method</th>
+            <th>Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for session in recent_sessions %}
+            <tr>
+              <td style="font-weight: 500;">{{ session.work_date }}</td>
+              <td>{{ session.check_in_at|date:"Y-m-d H:i:s" }}</td>
+              <td>{% if session.check_out_at %}{{ session.check_out_at|date:"Y-m-d H:i:s" }}{% else %}&mdash;{% endif %}</td>
+              <td><span class="badge">{{ session.get_verification_method_display }}</span></td>
+              <td>
+                <span class="badge {% if session.state == 'completed' %}badge-success{% else %}badge-dev{% endif %}">
+                  {{ session.get_state_display }}
+                </span>
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% else %}
+    <p style="color: var(--color-text-muted); font-size: var(--text-sm);">No session records found in this range.</p>
+  {% endif %}
+</div>
+{% endblock %}

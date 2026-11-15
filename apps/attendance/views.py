@@ -3,23 +3,38 @@ from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import ValidationError
 from django.shortcuts import redirect, render
+from django.utils import timezone
 
-from apps.attendance.selectors import get_open_session, get_user_sessions
-from apps.attendance.services import check_in, check_out
+from apps.attendance.models import AttendanceFallbackRequest
+from apps.attendance.selectors import (
+    get_attendance_report,
+    get_open_session,
+    get_user_sessions,
+)
+from apps.attendance.services import (
+    check_in,
+    check_out,
+    create_fallback_request,
+    get_current_kolkata_date,
+)
 from apps.face.engine.stub import StubVerifier
 
 
 @login_required
 def panel_view(request):
     """
-    Renders personal attendance dashboard with active session and history.
+    Renders personal attendance dashboard with active session, history, and fallback requests.
     """
     open_session = get_open_session(request.user)
     recent_sessions = get_user_sessions(request.user, limit=10)
+    my_requests = AttendanceFallbackRequest.objects.filter(user=request.user).order_by(
+        "-created_at"
+    )[:5]
 
     context = {
         "open_session": open_session,
         "recent_sessions": recent_sessions,
+        "my_requests": my_requests,
         "dev_verifier_active": getattr(settings, "DEV_VERIFIER", False),
     }
     return render(request, "attendance/panel.html", context)
@@ -34,7 +49,6 @@ def check_in_view(request):
         return redirect("attendance:panel")
 
     try:
-        # M0 uses development stub verifier
         is_dev = getattr(settings, "DEV_VERIFIER", False)
         verifier = StubVerifier(allowed=is_dev)
         result = verifier.verify(
@@ -75,3 +89,45 @@ def check_out_view(request):
         messages.error(request, f"Check-out failed: {exc}")
 
     return redirect("attendance:panel")
+
+
+@login_required
+def fallback_request_view(request):
+    """
+    Submit manual attendance request when biometric verification fails.
+    """
+    if request.method == "POST":
+        req_type = request.POST.get("request_type", "check_in")
+        reason = request.POST.get("reason", "").strip()
+        requested_time = timezone.now()
+        work_date = get_current_kolkata_date(requested_time)
+
+        try:
+            create_fallback_request(
+                user=request.user,
+                request_type=req_type,
+                work_date=work_date,
+                requested_time=requested_time,
+                reason=reason,
+            )
+            messages.success(
+                request,
+                "Manual attendance request submitted successfully. Pending manager review.",
+            )
+        except ValidationError as e:
+            messages.error(request, str(e.message if hasattr(e, "message") else e))
+
+    return redirect("attendance:panel")
+
+
+@login_required
+def report_view(request):
+    """
+    Aggregated attendance report view for the user.
+    """
+    report = get_attendance_report(user=request.user)
+    context = {
+        "report": report,
+        "recent_sessions": get_user_sessions(request.user, limit=30),
+    }
+    return render(request, "attendance/report.html", context)

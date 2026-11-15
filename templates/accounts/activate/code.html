@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+
+{% block title %}Account Activation — Salowtech Workspace{% endblock %}
+
+{% block content %}
+<div class="card" style="max-width: 440px; margin: 3rem auto; text-align: center;">
+    <div style="margin-bottom: 1.5rem;">
+        <img src="/static/img/logo.jpg" alt="Salowtech Logo" style="height: 64px; width: 64px; object-fit: contain; margin-bottom: 0.5rem;">
+        <h2 style="margin: 0; font-size: 1.4rem; color: var(--color-primary-600);">Activate Your Account</h2>
+        <p style="color: var(--color-text-muted); font-size: 0.9rem; margin-top: 0.25rem;">
+            Enter your employee ID and the one-time activation code issued by your administrator.
+        </p>
+    </div>
+
+    {% if error %}
+    <div class="alert alert-danger" style="margin-bottom: 1rem; text-align: left;">
+        {{ error }}
+    </div>
+    {% endif %}
+
+    <form method="post" class="space-y-4" style="text-align: left;">
+        {% csrf_token %}
+        <div class="form-group">
+            <label for="employee_id" class="form-label">Employee ID</label>
+            <input type="text" id="employee_id" name="employee_id" class="form-input" placeholder="e.g. ST-EMP-0001" required autofocus>
+        </div>
+
+        <div class="form-group">
+            <label for="activation_code" class="form-label">One-Time Activation Code</label>
+            <input type="text" id="activation_code" name="activation_code" class="form-input" placeholder="XXXXX-XXXXX" maxlength="11" required style="letter-spacing: 2px; font-family: var(--font-mono); font-weight: 600;">
+        </div>
+
+        <button type="submit" class="btn btn-primary" style="width: 100%;">Verify Activation Code</button>
+    </form>
+
+    <div style="margin-top: 1.5rem; font-size: 0.85rem; color: var(--color-text-muted);">
+        Already activated? <a href="{% url 'accounts:login' %}" style="color: var(--color-primary-600); font-weight: 600;">Sign in here</a>
+    </div>
+</div>
+{% endblock %}

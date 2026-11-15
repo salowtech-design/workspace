@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+
+{% block title %}Security Verification — Salowtech Workspace{% endblock %}
+
+{% block content %}
+<div class="card" style="max-width: 420px; margin: 3rem auto; text-align: center;">
+    <div style="margin-bottom: 1.5rem;">
+        <div style="width: 52px; height: 52px; border-radius: 50%; background: var(--color-primary-100); color: var(--color-primary-700); display: flex; align-items: center; justify-content: center; font-size: 1.5rem; margin: 0 auto 0.75rem;">
+            🔐
+        </div>
+        <h2 style="margin: 0; font-size: 1.4rem; color: var(--color-primary-600);">Two-Step Verification</h2>
+        <p style="color: var(--color-text-muted); font-size: 0.9rem; margin-top: 0.25rem;">
+            Enter the 6-digit code from your authenticator app for <strong>{{ user.employee_id }}</strong>.
+        </p>
+    </div>
+
+    {% if error %}
+    <div class="alert alert-danger" style="margin-bottom: 1.25rem; text-align: left;">
+        {{ error }}
+    </div>
+    {% endif %}
+
+    <form method="post" class="space-y-4" style="text-align: left;">
+        {% csrf_token %}
+        <div class="form-group">
+            <label for="token" class="form-label">Authenticator Code</label>
+            <input type="text" id="token" name="token" class="form-input" placeholder="000000" maxlength="6" autofocus style="text-align: center; font-size: 1.5rem; letter-spacing: 4px; font-family: var(--font-mono);">
+        </div>
+
+        <div style="text-align: center; color: var(--color-text-muted); font-size: 0.8rem; margin: 0.75rem 0;">
+            — OR USE ONE-TIME BACKUP CODE —
+        </div>
+
+        <div class="form-group">
+            <label for="recovery_code" class="form-label">Backup Recovery Code</label>
+            <input type="text" id="recovery_code" name="recovery_code" class="form-input" placeholder="ABC12-DEF34" style="text-align: center; font-family: var(--font-mono); letter-spacing: 1px;">
+        </div>
+
+        <button type="submit" class="btn btn-primary" style="width: 100%; font-size: 1rem; padding: 0.75rem;">
+            Verify Identity & Sign In
+        </button>
+    </form>
+
+    <div style="margin-top: 1.5rem; font-size: 0.85rem; color: var(--color-text-muted);">
+        <a href="{% url 'accounts:login' %}" style="color: var(--color-text-muted);">← Use a different account</a>
+    </div>
+</div>
+{% endblock %}

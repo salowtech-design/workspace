@@ -1,42 +1,45 @@
 /* ==========================================================================
    SALOW WORKSPACE DESIGN TOKENS
+   Brand Palette:
+   - Primary: #AD8B73 (Warm Camel / Sandstone)
+   - Background: #FFFBE9 (Warm Cream)
    No hard-coded one-off styles. Central source of truth for UI properties.
    ========================================================================== */
 
 :root {
   /* Color Palette - Neutrals */
-  --color-bg-base: #f8fafc;
-  --color-bg-surface: #ffffff;
-  --color-bg-subtle: #f1f5f9;
-  --color-bg-elevated: #ffffff;
+  --color-bg-base: #FFFBE9;
+  --color-bg-surface: #FFFFFF;
+  --color-bg-subtle: #F6F0DC;
+  --color-bg-elevated: #FFFFFF;
 
-  --color-text-main: #0f172a;
-  --color-text-muted: #64748b;
-  --color-text-subtle: #94a3b8;
-  --color-text-inverse: #ffffff;
+  --color-text-main: #2A241F;
+  --color-text-muted: #6B6157;
+  --color-text-subtle: #968B80;
+  --color-text-inverse: #FFFFFF;
 
-  --color-border-subtle: #e2e8f0;
-  --color-border-strong: #cbd5e1;
+  --color-border-subtle: #E8E2CF;
+  --color-border-strong: #D1C9B4;
 
   /* Brand / Primary */
-  --color-primary-50: #eef2ff;
-  --color-primary-100: #e0e7ff;
-  --color-primary-500: #6366f1;
-  --color-primary-600: #4f46e5;
-  --color-primary-700: #4338ca;
+  --color-primary-50: #F9F5F0;
+  --color-primary-100: #F2EAE1;
+  --color-primary-500: #AD8B73;
+  --color-primary-600: #96745C;
+  --color-primary-700: #7F6049;
 
   /* Feedback Colors */
-  --color-success-bg: #ecfdf5;
-  --color-success-border: #a7f3d0;
-  --color-success-text: #065f46;
+  --color-success-bg: #EAF7ED;
+  --color-success-border: #A3D9B1;
+  --color-success-text: #1B5E20;
 
-  --color-danger-bg: #fef2f2;
-  --color-danger-border: #fecaca;
-  --color-danger-text: #991b1b;
+  --color-danger-bg: #FDF0ED;
+  --color-danger-border: #F5BDB5;
+  --color-danger-text: #9E2A2B;
 
-  --color-warning-bg: #fffbeb;
-  --color-warning-border: #fde68a;
-  --color-warning-text: #92400e;
+  --color-warning-bg: #FFF8E7;
+  --color-warning-border: #F5DC9E;
+  --color-warning-text: #8A5D00;
 
   /* Typography */
   --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
@@ -64,8 +67,8 @@
   --radius-lg: 0.5rem;
   --radius-full: 9999px;
 
-  --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
-  --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+  --shadow-sm: 0 1px 3px 0 rgb(42 36 31 / 0.06);
+  --shadow-md: 0 4px 6px -1px rgb(42 36 31 / 0.08), 0 2px 4px -2px rgb(42 36 31 / 0.06);
 
   /* Accessible Focus Ring */
   --focus-ring: 0 0 0 2px var(--color-bg-surface), 0 0 0 4px var(--color-primary-500);

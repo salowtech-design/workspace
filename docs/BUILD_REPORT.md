@@ -56,3 +56,65 @@
 - **Tests & Verification**:
   - `uv run pytest tests/unit -v`: 11 passed (100% pass rate).
   - `uv run pip-audit`: 0 known vulnerabilities against Django 5.2.19 (LTS).
+
+### Work Package M1: Authentication, Activation, MFA & Directory
+- **Status**: COMPLETED & VERIFIED
+- **Requirement**: "Salowtech Workspace: Authentication Design and Build Instructions" (v1.0) & Phase 1 Baseline
+- **Subsystems Implemented**:
+  - **Employee Activation**: Crockford Base32 10-char codes (`XXXXX-XXXXX`, keyed HMAC-SHA256, 48h TTL, 5-attempt lock, single-live constraint for TiDB).
+  - **Password Security Policy**: Min 12 chars, Argon2id hasher, common dictionary blacklist, employee ID and name rejection.
+  - **MFA TOTP**: Pure Python SVG QR generator (`SvgPathImage`), AES-256-GCM encrypted secrets at rest (`k1` key ring), anti-replay step tracker.
+  - **Recovery Codes**: 10 single-use codes (keyed HMAC-SHA256, atomic burn on redemption).
+  - **Lockout Protection**: Database-backed `LoginAttempt` with 15-minute cool-off and thread/process concurrency safety.
+  - **Admin Bootstrap**: `python manage.py bootstrap_admin` (reads password via `getpass`, no cleartext printing in logs/chat).
+  - **System Diagnostics**: `python manage.py auth_doctor` (8-point automated sanity check across all crypto, DB, and auth subsystems).
+  - **Directory**: Departments, teams, reporting relationships, hierarchy validation, privacy search.
+- **Migrations**:
+  - `apps/accounts/migrations/0003_authevent_loginattempt_remove_usertotpdevice_user_and_more.py`
+  - `apps/accounts/migrations/0004_alter_customuser_status.py`
+  - `apps/directory/migrations/0001_initial.py`
+- **Verification**:
+  - `python manage.py auth_doctor --settings=config.settings.test`: ALL 8 SUBSYSTEMS PASSED.
+  - `tests/unit/test_auth_spec.py`: 12 test cases, 100% pass rate.
+  - `tests/unit/test_directory.py`: 5 test cases, 100% pass rate.
+
+### Work Package M2: Face Recognition System & Attendance Lifecycle
+- **Status**: COMPLETED & VERIFIED
+- **Requirement**: Section 5 & 8 of Authentication Specification & Attendance Architecture
+- **Subsystems Implemented**:
+  - **Biometric Notice & Consent**: Informed consent audit logging (`BiometricNoticeAcknowledgement`) mandatory before template enrollment.
+  - **Face Template Encryption**: AES-256-GCM encryption of 128-dimensional embedding vectors at rest; raw images/vectors NEVER saved.
+  - **Admin-Assisted Enrollment**: Restricts template enrollment strictly to administrators with vector validation.
+  - **FRS Service Boundary**: Standard interface `verify_face(user, purpose)` supporting attendance check-in, check-out, enrollment, and step-up (disabled by default with fallback to authenticator code).
+  - **Attendance Lifecycle**: WorkSession tracking with Asia/Kolkata business date calculation, atomic concurrency guards (`select_for_update`).
+  - **Manual Fallback Exception Queue**: Employee fallback request creation upon biometric failure; manager/admin approval workflow automatically generating `MANUAL_APPROVED` sessions.
+  - **Attendance Corrections**: Manager/admin session timestamp correction preserving original timestamps in `AttendanceCorrection` audit log.
+  - **Geolocation & Network**: Haversine distance geofencing and workplace subnet validation.
+  - **Reporting**: Aggregated attendance reports (total sessions, completed, total hours worked, manual exceptions).
+- **Migrations**:
+  - `apps/face/migrations/0002_biometricnoticeacknowledgement_facetemplate_and_more.py`
+  - `apps/attendance/migrations/0002_attendancecorrection_attendancefallbackrequest.py`
+- **Verification**:
+  - `tests/unit/test_face_spec.py`: 8 test cases, 100% pass rate.
+  - `tests/unit/test_attendance_spec.py`: 15 test cases, 100% pass rate.
+  - `tests/unit/test_face_engine.py`: 5 test cases, 100% pass rate.
+
+---
+
+## 3. Comprehensive Verification Summary
+
+- **Total Test Cases**: 67 unit & integration tests
+- **Pass Rate**: 100% (67 passed in 17.6s)
+- **Code Quality**:
+  - `ruff check .`: All checks passed (0 errors, 0 warnings).
+  - `ruff format --check .`: 102 files cleanly formatted.
+- **Diagnostics Check**:
+  - `python manage.py auth_doctor --settings=config.settings.test`:
+    - [PASS] Database Connection
+    - [PASS] Database Migrations
+    - [PASS] Session Storage
+    - [PASS] AES-256-GCM Key Ring
+    - [PASS] Server Clock
+    - [PASS] Password Hashing (Argon2id)
+    - [PASS] TOTP & SVG QR Generator
+    - [PASS] Lockout Database Counters

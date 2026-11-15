@@ -8,9 +8,12 @@
     <h1 style="font-size: var(--text-2xl); font-weight: 700;">Attendance</h1>
     <p style="color: var(--color-text-muted); font-size: var(--text-sm);">Daily work session & face verification portal</p>
   </div>
-  {% if dev_verifier_active %}
-    <span class="badge badge-dev">DEV STUB VERIFIER ACTIVE</span>
-  {% endif %}
+  <div style="display: flex; gap: var(--space-2); align-items: center;">
+    <a href="{% url 'attendance:report' %}" class="btn btn-secondary">View Attendance Report</a>
+    {% if dev_verifier_active %}
+      <span class="badge badge-dev">DEV STUB VERIFIER ACTIVE</span>
+    {% endif %}
+  </div>
 </div>
 
 <div class="card">
@@ -42,6 +45,61 @@
           {% if dev_verifier_active %}Check In (Dev Stub){% else %}Check In with Face{% endif %}
         </button>
       </form>
+    </div>
+  {% endif %}
+</div>
+
+<!-- Manual Fallback Request Accordion / Form -->
+<div class="card">
+  <h2 class="card-title">Manual Attendance Fallback</h2>
+  <p style="color: var(--color-text-muted); font-size: var(--text-sm); margin-bottom: var(--space-4);">
+    If face verification fails or hardware is unavailable, request a manual entry for manager approval.
+  </p>
+  <form method="post" action="{% url 'attendance:fallback' %}" style="display: grid; gap: var(--space-3); max-width: 500px;">
+    {% csrf_token %}
+    <div>
+      <label for="id_request_type" style="display: block; font-weight: 500; font-size: var(--text-sm); margin-bottom: var(--space-1);">Action</label>
+      <select id="id_request_type" name="request_type" style="width: 100%; padding: var(--space-2); border-radius: var(--radius-sm); border: 1px solid var(--color-border);">
+        <option value="check_in">Manual Check In</option>
+        <option value="check_out">Manual Check Out</option>
+      </select>
+    </div>
+    <div>
+      <label for="id_reason" style="display: block; font-weight: 500; font-size: var(--text-sm); margin-bottom: var(--space-1);">Reason for Exception</label>
+      <textarea id="id_reason" name="reason" rows="2" required placeholder="Describe reason (e.g. camera failure, remote work approval)..." style="width: 100%; padding: var(--space-2); border-radius: var(--radius-sm); border: 1px solid var(--color-border);"></textarea>
+    </div>
+    <div>
+      <button type="submit" class="btn btn-secondary">Submit Fallback Request</button>
+    </div>
+  </form>
+
+  {% if my_requests %}
+    <h3 style="font-size: var(--text-md); margin-top: var(--space-6); margin-bottom: var(--space-2);">Your Recent Requests</h3>
+    <div class="table-container">
+      <table>
+        <thead>
+          <tr>
+            <th>Date</th>
+            <th>Type</th>
+            <th>Reason</th>
+            <th>Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for r in my_requests %}
+            <tr>
+              <td>{{ r.work_date }}</td>
+              <td>{{ r.get_request_type_display }}</td>
+              <td style="max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{ r.reason }}</td>
+              <td>
+                <span class="badge {% if r.status == 'approved' %}badge-success{% elif r.status == 'rejected' %}badge-danger{% else %}badge-dev{% endif %}">
+                  {{ r.get_status_display }}
+                </span>
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
     </div>
   {% endif %}
 </div>
