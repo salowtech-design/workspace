@@ -1,0 +1,84 @@
+{% extends "base.html" %}
+
+{% block title %}Attendance — Salow Workspace{% endblock %}
+
+{% block content %}
+<div class="topbar">
+  <div>
+    <h1 style="font-size: var(--text-2xl); font-weight: 700;">Attendance</h1>
+    <p style="color: var(--color-text-muted); font-size: var(--text-sm);">Daily work session & face verification portal</p>
+  </div>
+  {% if dev_verifier_active %}
+    <span class="badge badge-dev">DEV STUB VERIFIER ACTIVE</span>
+  {% endif %}
+</div>
+
+<div class="card">
+  <h2 class="card-title">Current Status</h2>
+  {% if open_session %}
+    <div style="display: flex; justify-content: space-between; align-items: center; background-color: var(--color-success-bg); border: 1px solid var(--color-success-border); border-radius: var(--radius-md); padding: var(--space-4); margin-bottom: var(--space-4);">
+      <div>
+        <div style="font-weight: 600; color: var(--color-success-text);">Currently Checked In</div>
+        <div style="font-size: var(--text-sm); color: var(--color-text-muted);">
+          Started at {{ open_session.check_in_at|date:"Y-m-d H:i:s e" }} (Work Date: {{ open_session.work_date }})
+        </div>
+      </div>
+      <form method="post" action="{% url 'attendance:check_out' %}">
+        {% csrf_token %}
+        <button type="submit" class="btn btn-danger">Check Out</button>
+      </form>
+    </div>
+  {% else %}
+    <div style="display: flex; justify-content: space-between; align-items: center; background-color: var(--color-bg-subtle); border-radius: var(--radius-md); padding: var(--space-4); margin-bottom: var(--space-4);">
+      <div>
+        <div style="font-weight: 600; color: var(--color-text-main);">Not Checked In</div>
+        <div style="font-size: var(--text-sm); color: var(--color-text-muted);">
+          No active work session recorded for today.
+        </div>
+      </div>
+      <form method="post" action="{% url 'attendance:check_in' %}">
+        {% csrf_token %}
+        <button type="submit" class="btn btn-primary">
+          {% if dev_verifier_active %}Check In (Dev Stub){% else %}Check In with Face{% endif %}
+        </button>
+      </form>
+    </div>
+  {% endif %}
+</div>
+
+<div class="card">
+  <h2 class="card-title">Recent Attendance History</h2>
+  {% if recent_sessions %}
+    <div class="table-container">
+      <table>
+        <thead>
+          <tr>
+            <th>Work Date</th>
+            <th>Check In</th>
+            <th>Check Out</th>
+            <th>Method</th>
+            <th>State</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for session in recent_sessions %}
+            <tr>
+              <td style="font-weight: 500;">{{ session.work_date }}</td>
+              <td>{{ session.check_in_at|date:"H:i:s" }}</td>
+              <td>{% if session.check_out_at %}{{ session.check_out_at|date:"H:i:s" }}{% else %}&mdash;{% endif %}</td>
+              <td><span class="badge">{{ session.get_verification_method_display }}</span></td>
+              <td>
+                <span class="badge {% if session.state == 'completed' %}badge-success{% else %}badge-dev{% endif %}">
+                  {{ session.get_state_display }}
+                </span>
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% else %}
+    <p style="color: var(--color-text-muted); font-size: var(--text-sm);">No previous attendance sessions found.</p>
+  {% endif %}
+</div>
+{% endblock %}
