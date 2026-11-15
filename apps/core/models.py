@@ -42,3 +42,77 @@ class AuditLog(models.Model):
 
     def delete(self, *args, **kwargs):
         raise PermissionDenied("AuditLog records cannot be deleted.")
+
+
+class OutboxEvent(models.Model):
+    """
+    Transactional outbox event store.
+    Guarantees reliable, at-least-once domain event publication.
+    """
+
+    class Status(models.TextChoices):
+        PENDING = "pending", "Pending"
+        PROCESSED = "processed", "Processed"
+        FAILED = "failed", "Failed"
+
+    event_id = models.CharField(max_length=64, primary_key=True)
+    event_type = models.CharField(max_length=128, db_index=True)
+    payload = models.JSONField(default=dict)
+    status = models.CharField(
+        max_length=16, choices=Status.choices, default=Status.PENDING, db_index=True
+    )
+    retry_count = models.PositiveIntegerField(default=0)
+    last_error = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+    processed_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["created_at"]
+        verbose_name = "Outbox Event"
+        verbose_name_plural = "Outbox Events"
+
+    def __str__(self):
+        return f"Event {self.event_type} [{self.event_id[:8]}] - {self.status}"
+
+
+class WorkspaceSetting(models.Model):
+    """Dynamic, schema-validated configuration parameters."""
+
+    key = models.CharField(max_length=64, unique=True, db_index=True)
+    value = models.JSONField(default=dict)
+    schema = models.JSONField(default=dict, blank=True)
+    updated_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="updated_settings",
+    )
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["key"]
+        verbose_name = "Workspace Setting"
+        verbose_name_plural = "Workspace Settings"
+
+    def __str__(self):
+        return f"Setting: {self.key}"
+
+
+class FeatureFlag(models.Model):
+    """Dynamic feature flag control."""
+
+    name = models.CharField(max_length=64, unique=True, db_index=True)
+    is_enabled = models.BooleanField(default=False)
+    allowed_roles = models.JSONField(default=list, blank=True)
+    description = models.CharField(max_length=255, blank=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["name"]
+        verbose_name = "Feature Flag"
+        verbose_name_plural = "Feature Flags"
+
+    def __str__(self):
+        status = "ON" if self.is_enabled else "OFF"
+        return f"Flag {self.name} [{status}]"

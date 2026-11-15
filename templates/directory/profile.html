@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+
+{% block title %}{{ profile_user.full_name }} — Profile{% endblock %}
+
+{% block content %}
+<div style="display: grid; grid-template-columns: 1fr 2fr; gap: 1.5rem; max-width: 900px; margin: 0 auto;">
+    <div class="card" style="text-align: center;">
+        <div style="width: 80px; height: 80px; border-radius: 50%; background: var(--color-primary); color: white; display: flex; align-items: center; justify-content: center; font-size: 2rem; margin: 0 auto 1rem;">
+            {{ profile_user.full_name|slice:":1" }}
+        </div>
+        <h3 style="margin: 0; font-size: 1.3rem;">{{ profile_user.full_name }}</h3>
+        <p style="color: var(--color-text-muted); margin: 0.25rem 0 1rem; font-size: 0.9rem;">
+            {{ profile_user.employee_id }}
+        </p>
+
+        <span class="badge badge-info" style="margin-bottom: 0.5rem; display: inline-block;">
+            {{ profile_user.get_role_display }}
+        </span>
+        <span class="badge {% if profile_user.status == 'active' %}badge-success{% else %}badge-warning{% endif %}">
+            {{ profile_user.get_status_display }}
+        </span>
+    </div>
+
+    <div class="card">
+        <h3 style="margin-top: 0; font-size: 1.25rem; border-bottom: 1px solid var(--color-border); padding-bottom: 0.5rem;">
+            Employee Details
+        </h3>
+
+        <div style="display: grid; grid-template-columns: 1fr 2fr; gap: 0.75rem; font-size: 0.95rem; margin-top: 1rem;">
+            <span style="color: var(--color-text-muted);">Email:</span>
+            <span>{{ profile_user.email|default:"Not specified" }}</span>
+
+            <span style="color: var(--color-text-muted);">Start Date:</span>
+            <span>{{ profile_user.start_date|default:"Permanent" }}</span>
+
+            <span style="color: var(--color-text-muted);">Attendance Mode:</span>
+            <span>{{ profile_user.get_attendance_mode_display }}</span>
+
+            {% if is_privileged %}
+            <span style="color: var(--color-text-muted);">Phone:</span>
+            <span>{{ profile_user.profile.phone|default:"Protected" }}</span>
+
+            <span style="color: var(--color-text-muted);">Emergency Contact:</span>
+            <span>{{ profile_user.profile.emergency_contact|default:"Protected" }}</span>
+            {% endif %}
+        </div>
+
+        {% if direct_reports %}
+        <div style="margin-top: 2rem; border-top: 1px solid var(--color-border); padding-top: 1rem;">
+            <h4 style="margin: 0 0 0.5rem; font-size: 1.1rem;">Direct Reports</h4>
+            <ul style="padding-left: 1.25rem; margin: 0;">
+                {% for report in direct_reports %}
+                <li>
+                    <a href="{% url 'directory:profile' report.employee_id %}" style="color: var(--color-primary); text-decoration: none;">
+                        {{ report.full_name }} ({{ report.employee_id }})
+                    </a>
+                </li>
+                {% endfor %}
+            </ul>
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

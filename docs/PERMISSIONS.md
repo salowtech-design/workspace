@@ -1,27 +1,32 @@
-# Role & Permission Matrix
+# Salow Workspace — Permission & Access Control Matrix
 
-*Policy: Default Deny. Server-side validation on every route.*
+This document is automatically generated from `apps/accounts/permissions.py`.
+Default-deny access control is strictly enforced across all modules.
 
-## Defined Roles
+| Permission Code | super_admin | admin | manager | employee | intern |
+| :--- | :---: | :---: | :---: | :---: | :---: |
+| `accounts.user.create` | ✅ ALLOW | ✅ ALLOW | ❌ DENY | ❌ DENY | ❌ DENY |
+| `accounts.user.deactivate` | ✅ ALLOW | ✅ ALLOW | ❌ DENY | ❌ DENY | ❌ DENY |
+| `accounts.user.edit` | ✅ ALLOW | ✅ ALLOW | ❌ DENY | ❌ DENY | ❌ DENY |
+| `accounts.user.view` | ✅ ALLOW | ✅ ALLOW | ✅ ALLOW | ✅ ALLOW | ✅ ALLOW |
+| `attendance.session.approve` | ✅ ALLOW | ✅ ALLOW | ✅ ALLOW | ❌ DENY | ❌ DENY |
+| `attendance.session.override` | ✅ ALLOW | ✅ ALLOW | ❌ DENY | ❌ DENY | ❌ DENY |
+| `attendance.session.view_all` | ✅ ALLOW | ✅ ALLOW | ❌ DENY | ❌ DENY | ❌ DENY |
+| `attendance.session.view_self` | ✅ ALLOW | ✅ ALLOW | ✅ ALLOW | ✅ ALLOW | ✅ ALLOW |
+| `attendance.session.view_team` | ✅ ALLOW | ✅ ALLOW | ✅ ALLOW | ❌ DENY | ❌ DENY |
+| `certificates.cert.issue` | ✅ ALLOW | ✅ ALLOW | ❌ DENY | ❌ DENY | ❌ DENY |
+| `certificates.cert.revoke` | ✅ ALLOW | ✅ ALLOW | ❌ DENY | ❌ DENY | ❌ DENY |
+| `core.audit.view` | ✅ ALLOW | ✅ ALLOW | ❌ DENY | ❌ DENY | ❌ DENY |
+| `core.settings.manage` | ✅ ALLOW | ✅ ALLOW | ❌ DENY | ❌ DENY | ❌ DENY |
+| `directory.team.manage` | ✅ ALLOW | ✅ ALLOW | ❌ DENY | ❌ DENY | ❌ DENY |
+| `directory.team.view` | ✅ ALLOW | ✅ ALLOW | ✅ ALLOW | ✅ ALLOW | ❌ DENY |
+| `posts.post.create` | ✅ ALLOW | ✅ ALLOW | ✅ ALLOW | ✅ ALLOW | ✅ ALLOW |
+| `posts.post.moderate` | ✅ ALLOW | ✅ ALLOW | ❌ DENY | ❌ DENY | ❌ DENY |
+| `posts.post.view_all` | ✅ ALLOW | ✅ ALLOW | ❌ DENY | ❌ DENY | ❌ DENY |
+| `posts.post.view_team` | ✅ ALLOW | ✅ ALLOW | ✅ ALLOW | ✅ ALLOW | ❌ DENY |
 
-- `super_admin`: Platform configuration, emergency administration, unrestricted scoped access.
-- `admin`: Company-wide administrative operations, user lifecycle, exception reviews.
-- `manager`: Team lead access, reviewing direct/team reports, approving team attendance requests.
-- `employee`: Standard access to own profile, personal attendance, posts, and certificates.
-- `intern`: Standard access with lifecycle expiry and designated mentor/manager visibility.
-
-## Permission Codes
-
-| Permission Code | Description | Authorized Roles |
-| :--- | :--- | :--- |
-| `directory.people.view` | View employee directory listing | All authenticated |
-| `directory.people.manage` | Create, edit, suspend, or exit employees | `admin`, `super_admin` |
-| `attendance.self.check_in` | Record personal attendance check-in | All active accounts |
-| `attendance.self.check_out` | Record personal attendance check-out | All active accounts |
-| `attendance.team.review` | Review team attendance and exceptions | `manager`, `admin`, `super_admin` |
-| `attendance.admin.correct` | Perform administrative corrections | `admin`, `super_admin` |
-| `posts.self.create` | Create daily work post | All active accounts |
-| `posts.team.view` | View team feed and permitted posts | Permitted team members / leads |
-| `certificates.issue` | Issue certificates and generate PDFs | `admin`, `super_admin` |
-| `certificates.verify` | Public verification of certificate tokens | Anonymous (Public) |
-| `core.settings.manage` | Modify workspace configuration | `super_admin` |
+## Sudo Mode Requirements
+- Password re-entry is required within 15 minutes for sensitive operations:
+  - Employee status deactivation or role elevation.
+  - Certificate issuing and revocation.
+  - Security settings and manual attendance overrides.

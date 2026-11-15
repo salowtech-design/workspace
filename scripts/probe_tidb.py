@@ -50,12 +50,18 @@ def probe_tidb() -> int:
     print(f"[*] User       : {user}")
     print(f"[*] CA Bundle  : {ca_path}")
 
-    # 2. Driver check
+    # 2. Driver check with PyMySQL fallback for Windows OpenSSL TLS
     try:
+        import pymysql
+
+        pymysql.install_as_MySQLdb()
         import MySQLdb
     except ImportError:
-        print("[ERROR] mysqlclient (MySQLdb) is not installed in the environment.")
-        return 1
+        try:
+            import MySQLdb
+        except ImportError:
+            print("[ERROR] Neither pymysql nor mysqlclient is installed in the environment.")
+            return 1
 
     # 3. Connection & TLS handshake
     print("[*] Initiating TLS handshake with TiDB Cloud...")
@@ -67,26 +73,12 @@ def probe_tidb() -> int:
             passwd=password,
             db=db_name,
             charset="utf8mb4",
-            ssl_mode="VERIFY_IDENTITY",
             ssl={"ca": ca_path},
             connect_timeout=15,
         )
-    except MySQLdb.Error:
-        # Fall back without strict hostname verification if VERIFY_IDENTITY is unsupported
-        try:
-            conn = MySQLdb.connect(
-                host=host,
-                port=port,
-                user=user,
-                passwd=password,
-                db=db_name,
-                charset="utf8mb4",
-                ssl={"ca": ca_path},
-                connect_timeout=15,
-            )
-        except MySQLdb.Error as fallback_err:
-            print(f"[FAIL] Connection failed: {fallback_err}")
-            return 1
+    except Exception as e:
+        print(f"[FAIL] Connection failed: {e}")
+        return 1
 
     print("[PASS] TLS handshake and authentication successful.")
 

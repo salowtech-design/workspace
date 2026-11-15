@@ -82,6 +82,10 @@ class CustomUser(AbstractBaseUser, PermissionsMixin):
     start_date = models.DateField(null=True, blank=True)
     end_date = models.DateField(null=True, blank=True)
 
+    must_change_password = models.BooleanField(default=False)
+    failed_login_attempts = models.PositiveIntegerField(default=0)
+    locked_until = models.DateTimeField(null=True, blank=True)
+
     is_active = models.BooleanField(default=True)
     is_staff = models.BooleanField(default=False)
     date_joined = models.DateTimeField(auto_now_add=True)
@@ -114,3 +118,85 @@ class CustomUser(AbstractBaseUser, PermissionsMixin):
                     "Employee ID is immutable and cannot be changed after creation."
                 )
         super().save(*args, **kwargs)
+
+
+class LoginHistory(models.Model):
+    """Immutable audit trail of authentication attempts."""
+
+    class Status(models.TextChoices):
+        SUCCESS = "success", "Success"
+        FAILURE = "failure", "Failure"
+        LOCKED = "locked", "Locked Out"
+
+    user = models.ForeignKey(
+        CustomUser, on_delete=models.SET_NULL, null=True, blank=True, related_name="login_logs"
+    )
+    employee_id_entered = models.CharField(max_length=32, db_index=True)
+    ip_address = models.GenericIPAddressField(null=True, blank=True)
+    user_agent = models.CharField(max_length=255, blank=True)
+    status = models.CharField(max_length=16, choices=Status.choices)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        verbose_name = "Login History"
+        verbose_name_plural = "Login Histories"
+
+    def __str__(self):
+        return f"{self.employee_id_entered} [{self.status}] at {self.created_at}"
+
+
+class UserTOTPDevice(models.Model):
+    """TOTP MFA secret and status per user."""
+
+    user = models.OneToOneField(CustomUser, on_delete=models.CASCADE, related_name="totp_device")
+    secret_base32 = models.CharField(max_length=64)
+    is_confirmed = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+    last_verified_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        verbose_name = "TOTP MFA Device"
+        verbose_name_plural = "TOTP MFA Devices"
+
+    def __str__(self):
+        return f"TOTP ({'Active' if self.is_confirmed else 'Pending'}) for {self.user.employee_id}"
+
+
+class RecoveryCode(models.Model):
+    """One-time hashed MFA recovery codes."""
+
+    user = models.ForeignKey(CustomUser, on_delete=models.CASCADE, related_name="recovery_codes")
+    code_hash = models.CharField(max_length=128)
+    is_used = models.BooleanField(default=False)
+    used_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["created_at"]
+        verbose_name = "MFA Recovery Code"
+        verbose_name_plural = "MFA Recovery Codes"
+
+    def __str__(self):
+        return (
+            f"RecoveryCode for {self.user.employee_id} ({'Used' if self.is_used else 'Available'})"
+        )
+
+
+class UserSession(models.Model):
+    """Active server-side tracking of user sessions."""
+
+    user = models.ForeignKey(CustomUser, on_delete=models.CASCADE, related_name="active_sessions")
+    session_key = models.CharField(max_length=40, unique=True, db_index=True)
+    ip_address = models.GenericIPAddressField(null=True, blank=True)
+    user_agent = models.CharField(max_length=255, blank=True)
+    last_activity = models.DateTimeField(auto_now=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-last_activity"]
+        verbose_name = "User Session"
+        verbose_name_plural = "User Sessions"
+
+    def __str__(self):
+        return f"Session {self.session_key[:8]}... for {self.user.employee_id}"

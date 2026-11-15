@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+
+{% block title %}MFA Setup — Salow Workspace{% endblock %}
+
+{% block content %}
+<div class="card" style="max-width: 600px; margin: 0 auto;">
+    <h2 style="margin-top: 0; font-size: 1.5rem;">Multi-Factor Authentication (MFA) Setup</h2>
+    <p style="color: var(--color-text-muted); font-size: 0.95rem;">
+        Privileged roles require Two-Factor Authentication. Scan this setup configuration using Google Authenticator, Bitwarden, or any standard RFC 6238 authenticator app.
+    </p>
+
+    <div style="background: var(--color-surface); padding: 1rem; border-radius: 8px; border: 1px solid var(--color-border); margin-bottom: 1.5rem;">
+        <label class="form-label" style="margin-bottom: 0.5rem;">Manual Entry Secret Key</label>
+        <code style="font-size: 1.25rem; font-weight: bold; letter-spacing: 2px; color: var(--color-primary);">{{ secret }}</code>
+        <p style="font-size: 0.85rem; color: var(--color-text-muted); margin-top: 0.5rem; word-break: break-all;">
+            URI: {{ totp_uri }}
+        </p>
+    </div>
+
+    <form method="post" class="space-y-4">
+        {% csrf_token %}
+        <div class="form-group">
+            <label for="token" class="form-label">6-Digit Verification Code</label>
+            <input type="text" id="token" name="token" class="form-input" placeholder="123456" maxlength="6" autofocus required>
+        </div>
+        <button type="submit" class="btn btn-primary" style="width: 100%;">Confirm & Activate MFA</button>
+    </form>
+
+    <div style="margin-top: 2rem; border-top: 1px solid var(--color-border); padding-top: 1rem;">
+        <h3 style="font-size: 1.1rem; margin-bottom: 0.5rem;">One-Time Backup Recovery Codes</h3>
+        <p style="font-size: 0.85rem; color: var(--color-text-muted);">
+            Save these codes in a secure location. Each code can only be used once if you lose access to your authenticator.
+        </p>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; background: var(--color-surface); padding: 0.75rem; border-radius: 6px;">
+            {% for code in recovery_codes %}
+            <code style="font-size: 0.9rem;">{{ code }}</code>
+            {% endfor %}
+        </div>
+    </div>
+</div>
+{% endblock %}

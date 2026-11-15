@@ -12,6 +12,7 @@ urlpatterns = [
     path("ready", readiness_probe, name="readiness_probe"),
     # Application modules
     path("auth/", include("apps.accounts.urls", namespace="accounts")),
+    path("directory/", include("apps.directory.urls", namespace="directory")),
     path("attendance/", include("apps.attendance.urls", namespace="attendance")),
     # UI presentation roots
     path("", home_view, name="home"),
