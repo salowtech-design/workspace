@@ -1,0 +1,81 @@
+{% extends "base.html" %}
+
+{% block title %}{% if is_edit %}Edit Post{% else %}Submit Work Log{% endif %} — Salow Workspace{% endblock %}
+
+{% block content %}
+<div class="topbar">
+  <div>
+    <a href="{% url 'posts:feed' %}" style="font-size: var(--text-sm); color: var(--color-text-muted);">&larr; Back to Feed</a>
+    <h1 style="font-size: var(--text-2xl); font-weight: 700; margin-top: var(--space-2);">
+      {% if is_edit %}Edit Post{% else %}Submit Work Log / Daily Update{% endif %}
+    </h1>
+  </div>
+</div>
+
+<div style="max-width: 800px; margin: 0 auto;">
+  {% if templates and not is_edit %}
+  <div class="card" style="padding: var(--space-4); margin-bottom: var(--space-6); background-color: var(--color-primary-50); border-color: var(--color-border-subtle);">
+    <div style="font-size: var(--text-xs); font-weight: 600; color: var(--color-primary-700); text-transform: uppercase; margin-bottom: var(--space-2);">
+      Quick Templates
+    </div>
+    <div style="display: flex; gap: var(--space-2); flex-wrap: wrap;">
+      {% for tpl in templates %}
+        <a href="?template={{ tpl.id }}" class="btn btn-outline" style="font-size: var(--text-xs); padding: 0.25rem 0.6rem; background-color: var(--color-bg-surface);">
+          {{ tpl.name }}
+        </a>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+
+  <div class="card" style="padding: var(--space-8);">
+    <form method="post">
+      {% csrf_token %}
+
+      <div class="form-group">
+        <label class="form-label">Title / Headline *</label>
+        {{ form.title }}
+        {% if form.title.errors %}
+          <div style="color: var(--color-danger-text); font-size: var(--text-xs); margin-top: 0.25rem;">
+            {{ form.title.errors.0 }}
+          </div>
+        {% endif %}
+      </div>
+
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: var(--space-4); margin-bottom: var(--space-4);">
+        <div class="form-group" style="margin-bottom: 0;">
+          <label class="form-label">Category *</label>
+          {{ form.category }}
+        </div>
+
+        <div class="form-group" style="margin-bottom: 0;">
+          <label class="form-label">Team Association</label>
+          {{ form.team }}
+        </div>
+
+        <div class="form-group" style="margin-bottom: 0;">
+          <label class="form-label">Work Date *</label>
+          {{ form.work_date }}
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">Log Details / Communication Content *</label>
+        {{ form.content }}
+        {% if form.content.errors %}
+          <div style="color: var(--color-danger-text); font-size: var(--text-xs); margin-top: 0.25rem;">
+            {{ form.content.errors.0 }}
+          </div>
+        {% endif %}
+      </div>
+
+      <div style="display: flex; justify-content: flex-end; gap: var(--space-3); margin-top: var(--space-6);">
+        <a href="{% url 'posts:feed' %}" class="btn btn-outline">Cancel</a>
+        <button type="submit" class="btn btn-primary">
+          {% if is_edit %}Save Changes{% else %}Submit Log{% endif %}
+        </button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}

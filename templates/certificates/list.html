@@ -1,0 +1,94 @@
+{% extends "base.html" %}
+
+{% block title %}Certificates & Credentials — Salow Workspace{% endblock %}
+
+{% block content %}
+<div class="topbar">
+  <div>
+    <h1 style="font-size: var(--text-2xl); font-weight: 700;">Certificates & Verification</h1>
+    <p style="color: var(--color-text-muted); font-size: var(--text-sm);">
+      Official credentials, verifiable signatures, and recognition certificates.
+    </p>
+  </div>
+  <div>
+    {% if can_issue %}
+      <a href="{% url 'certificates:issue' %}" class="btn btn-primary">+ Issue Certificate</a>
+    {% endif %}
+  </div>
+</div>
+
+{% if can_issue %}
+<div class="card" style="padding: var(--space-4); margin-bottom: var(--space-6);">
+  <form method="get" action="{% url 'certificates:list' %}" style="display: flex; gap: var(--space-3); align-items: flex-end;">
+    <div class="form-group" style="margin-bottom: 0; flex: 1;">
+      <label class="form-label" style="font-size: var(--text-xs);">Search Recipient / Serial / Title</label>
+      <input type="text" name="q" value="{{ search_query }}" class="form-control" placeholder="Search..." style="padding: 0.4rem 0.6rem; font-size: var(--text-sm);">
+    </div>
+
+    <div class="form-group" style="margin-bottom: 0; width: 180px;">
+      <label class="form-label" style="font-size: var(--text-xs);">Status</label>
+      <select name="status" class="form-control" style="padding: 0.4rem 0.6rem; font-size: var(--text-sm);">
+        <option value="">All</option>
+        <option value="active" {% if selected_status == 'active' %}selected{% endif %}>Active / Valid</option>
+        <option value="revoked" {% if selected_status == 'revoked' %}selected{% endif %}>Revoked</option>
+      </select>
+    </div>
+
+    <button type="submit" class="btn btn-outline" style="padding: 0.4rem 0.9rem; font-size: var(--text-sm);">Filter</button>
+  </form>
+</div>
+{% endif %}
+
+<div class="card" style="padding: var(--space-6);">
+  <div class="table-container">
+    <table class="table">
+      <thead>
+        <tr>
+          <th>Serial Number</th>
+          <th>Recipient</th>
+          <th>Certificate Title</th>
+          <th>Issue Date</th>
+          <th>Status</th>
+          <th style="text-align: right;">Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for cert in certificates %}
+        <tr>
+          <td>
+            <a href="{% url 'certificates:view' cert.uuid %}" style="font-family: var(--font-mono); font-weight: 600;">
+              {{ cert.serial_number }}
+            </a>
+          </td>
+          <td>
+            <div style="font-weight: 600;">{{ cert.recipient_name }}</div>
+            <div style="font-size: var(--text-xs); color: var(--color-text-muted);">{{ cert.recipient.employee_id }}</div>
+          </td>
+          <td>{{ cert.title }}</td>
+          <td>{{ cert.issue_date|date:"M d, Y" }}</td>
+          <td>
+            {% if cert.is_revoked %}
+              <span class="badge badge-danger">Revoked</span>
+            {% else %}
+              <span class="badge badge-success">Valid</span>
+            {% endif %}
+          </td>
+          <td style="text-align: right;">
+            <div style="display: flex; gap: var(--space-2); justify-content: flex-end;">
+              <a href="{% url 'certificates:view' cert.uuid %}" class="btn btn-outline" style="padding: 0.25rem 0.6rem; font-size: var(--text-xs);">View</a>
+              <a href="{% url 'certificates:svg' cert.uuid %}" class="btn btn-outline" target="_blank" style="padding: 0.25rem 0.6rem; font-size: var(--text-xs);">SVG</a>
+            </div>
+          </td>
+        </tr>
+        {% empty %}
+        <tr>
+          <td colspan="6" style="text-align: center; color: var(--color-text-muted); padding: var(--space-8);">
+            No certificates found.
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

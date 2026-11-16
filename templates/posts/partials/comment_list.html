@@ -1,0 +1,21 @@
+<div id="comment-thread" style="display: flex; flex-direction: column; gap: var(--space-3);">
+  {% for comment in comments %}
+  <div style="background-color: var(--color-bg-base); padding: var(--space-4); border-radius: var(--radius-md); border: 1px solid var(--color-border-subtle);">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: var(--space-1); font-size: var(--text-xs);">
+      <div style="font-weight: 600; color: var(--color-text-main);">
+        {{ comment.author.full_name }} ({{ comment.author.employee_id }})
+      </div>
+      <div style="color: var(--color-text-subtle);">
+        {{ comment.created_at|timesince }} ago
+      </div>
+    </div>
+    <div style="font-size: var(--text-sm); line-height: 1.5; color: var(--color-text-muted); white-space: pre-line;">
+      {{ comment.content }}
+    </div>
+  </div>
+  {% empty %}
+  <div style="color: var(--color-text-subtle); font-size: var(--text-sm); font-style: italic; padding: var(--space-2) 0;">
+    No comments yet. Start the conversation!
+  </div>
+  {% endfor %}
+</div>

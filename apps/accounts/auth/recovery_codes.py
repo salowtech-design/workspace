@@ -61,29 +61,32 @@ def redeem_recovery_code(user: CustomUser, raw_code: str) -> bool:
     """
     Validate and redeem a single-use recovery code.
     Marks used_at on success; raises AuthException on invalid or already-used code.
+    Guarantees atomic single-use under select_for_update().
     """
     input_hash = hash_recovery_code(raw_code)
 
-    code_entry = RecoveryCode.objects.filter(
-        user=user, keyed_hash=input_hash, used_at__isnull=True
-    ).first()
-
-    if not code_entry:
-        log_auth_event(
-            event="recovery_code_failed",
-            code="AUTH-MFA-002",
-            step="redeem_recovery",
-            employee_id=user.employee_id,
-            message="Recovery code was invalid or already consumed",
-        )
-        raise AuthException(
-            "AUTH-MFA-002",
-            step="redeem_recovery",
-            employee_id=user.employee_id,
-            message_override="Recovery code is invalid or has already been used.",
-        )
-
     with transaction.atomic():
+        code_entry = (
+            RecoveryCode.objects.select_for_update()
+            .filter(user=user, keyed_hash=input_hash, used_at__isnull=True)
+            .first()
+        )
+
+        if not code_entry:
+            log_auth_event(
+                event="recovery_code_failed",
+                code="AUTH-MFA-002",
+                step="redeem_recovery",
+                employee_id=user.employee_id,
+                message="Recovery code was invalid or already consumed",
+            )
+            raise AuthException(
+                "AUTH-MFA-002",
+                step="redeem_recovery",
+                employee_id=user.employee_id,
+                message_override="Recovery code is invalid or has already been used.",
+            )
+
         code_entry.used_at = timezone.now()
         code_entry.save(update_fields=["used_at"])
 

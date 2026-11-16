@@ -20,6 +20,7 @@ class AccountSecurityMiddleware:
         "/auth/logout",
         "/health",
         "/ready",
+        "/verify",
         "/static/",
     )
 
@@ -56,14 +57,14 @@ class AccountSecurityMiddleware:
                 ).exists()
                 if not has_mfa:
                     # Allow only activation MFA setup/verify endpoints
-                    allowed_bootstrap_paths = (
+                    allowed_mfa_paths = (
                         "/auth/activate/mfa/setup",
                         "/auth/activate/mfa/verify",
                         "/auth/activate/recovery-codes",
                         "/auth/logout",
                         "/static/",
                     )
-                    if not any(path.startswith(p) for p in allowed_bootstrap_paths):
+                    if not any(path.startswith(p) for p in allowed_mfa_paths):
                         request.session["_salow_act_user_id"] = user.id
                         return redirect(reverse("accounts:activate_mfa_setup"))
 

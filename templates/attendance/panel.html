@@ -6,12 +6,13 @@
 <div class="topbar">
   <div>
     <h1 style="font-size: var(--text-2xl); font-weight: 700;">Attendance</h1>
-    <p style="color: var(--color-text-muted); font-size: var(--text-sm);">Daily work session & face verification portal</p>
+    <p style="color: var(--color-text-muted); font-size: var(--text-sm);">Daily work session & face verification portal
+    </p>
   </div>
   <div style="display: flex; gap: var(--space-2); align-items: center;">
     <a href="{% url 'attendance:report' %}" class="btn btn-secondary">View Attendance Report</a>
     {% if dev_verifier_active %}
-      <span class="badge badge-dev">DEV STUB VERIFIER ACTIVE</span>
+    <span class="badge badge-dev">DEV STUB VERIFIER ACTIVE</span>
     {% endif %}
   </div>
 </div>
@@ -19,33 +20,35 @@
 <div class="card">
   <h2 class="card-title">Current Status</h2>
   {% if open_session %}
-    <div style="display: flex; justify-content: space-between; align-items: center; background-color: var(--color-success-bg); border: 1px solid var(--color-success-border); border-radius: var(--radius-md); padding: var(--space-4); margin-bottom: var(--space-4);">
-      <div>
-        <div style="font-weight: 600; color: var(--color-success-text);">Currently Checked In</div>
-        <div style="font-size: var(--text-sm); color: var(--color-text-muted);">
-          Started at {{ open_session.check_in_at|date:"Y-m-d H:i:s e" }} (Work Date: {{ open_session.work_date }})
-        </div>
+  <div
+    style="display: flex; justify-content: space-between; align-items: center; background-color: var(--color-success-bg); border: 1px solid var(--color-success-border); border-radius: var(--radius-md); padding: var(--space-4); margin-bottom: var(--space-4);">
+    <div>
+      <div style="font-weight: 600; color: var(--color-success-text);">Currently Checked In</div>
+      <div style="font-size: var(--text-sm); color: var(--color-text-muted);">
+        Started at {{ open_session.check_in_at|date:"Y-m-d H:i:s e" }} (Work Date: {{ open_session.work_date }})
       </div>
-      <form method="post" action="{% url 'attendance:check_out' %}">
-        {% csrf_token %}
-        <button type="submit" class="btn btn-danger">Check Out</button>
-      </form>
     </div>
+    <form method="post" action="{% url 'attendance:check_out' %}">
+      {% csrf_token %}
+      <button type="submit" class="btn btn-danger">Check Out</button>
+    </form>
+  </div>
   {% else %}
-    <div style="display: flex; justify-content: space-between; align-items: center; background-color: var(--color-bg-subtle); border-radius: var(--radius-md); padding: var(--space-4); margin-bottom: var(--space-4);">
-      <div>
-        <div style="font-weight: 600; color: var(--color-text-main);">Not Checked In</div>
-        <div style="font-size: var(--text-sm); color: var(--color-text-muted);">
-          No active work session recorded for today.
-        </div>
+  <div
+    style="display: flex; justify-content: space-between; align-items: center; background-color: var(--color-bg-subtle); border-radius: var(--radius-md); padding: var(--space-4); margin-bottom: var(--space-4);">
+    <div>
+      <div style="font-weight: 600; color: var(--color-text-main);">Not Checked In</div>
+      <div style="font-size: var(--text-sm); color: var(--color-text-muted);">
+        No active work session recorded for today.
       </div>
-      <form method="post" action="{% url 'attendance:check_in' %}">
-        {% csrf_token %}
-        <button type="submit" class="btn btn-primary">
-          {% if dev_verifier_active %}Check In (Dev Stub){% else %}Check In with Face{% endif %}
-        </button>
-      </form>
     </div>
+    <form method="post" action="{% url 'attendance:check_in' %}">
+      {% csrf_token %}
+      <button type="submit" class="btn btn-primary">
+        {% if dev_verifier_active %}Check In (Dev Stub){% else %}Check In with Face{% endif %}
+      </button>
+    </form>
+  </div>
   {% endif %}
 </div>
 
@@ -55,18 +58,25 @@
   <p style="color: var(--color-text-muted); font-size: var(--text-sm); margin-bottom: var(--space-4);">
     If face verification fails or hardware is unavailable, request a manual entry for manager approval.
   </p>
-  <form method="post" action="{% url 'attendance:fallback' %}" style="display: grid; gap: var(--space-3); max-width: 500px;">
+  <form method="post" action="{% url 'attendance:fallback' %}"
+    style="display: grid; gap: var(--space-3); max-width: 500px;">
     {% csrf_token %}
     <div>
-      <label for="id_request_type" style="display: block; font-weight: 500; font-size: var(--text-sm); margin-bottom: var(--space-1);">Action</label>
-      <select id="id_request_type" name="request_type" style="width: 100%; padding: var(--space-2); border-radius: var(--radius-sm); border: 1px solid var(--color-border);">
+      <label for="id_request_type"
+        style="display: block; font-weight: 500; font-size: var(--text-sm); margin-bottom: var(--space-1);">Action</label>
+      <select id="id_request_type" name="request_type"
+        style="width: 100%; padding: var(--space-2); border-radius: var(--radius-sm); border: 1px solid var(--color-border);">
         <option value="check_in">Manual Check In</option>
         <option value="check_out">Manual Check Out</option>
       </select>
     </div>
     <div>
-      <label for="id_reason" style="display: block; font-weight: 500; font-size: var(--text-sm); margin-bottom: var(--space-1);">Reason for Exception</label>
-      <textarea id="id_reason" name="reason" rows="2" required placeholder="Describe reason (e.g. camera failure, remote work approval)..." style="width: 100%; padding: var(--space-2); border-radius: var(--radius-sm); border: 1px solid var(--color-border);"></textarea>
+      <label for="id_reason"
+        style="display: block; font-weight: 500; font-size: var(--text-sm); margin-bottom: var(--space-1);">Reason for
+        Exception</label>
+      <textarea id="id_reason" name="reason" rows="2" required
+        placeholder="Describe reason (e.g. camera failure, remote work approval)..."
+        style="width: 100%; padding: var(--space-2); border-radius: var(--radius-sm); border: 1px solid var(--color-border);"></textarea>
     </div>
     <div>
       <button type="submit" class="btn btn-secondary">Submit Fallback Request</button>
@@ -74,69 +84,72 @@
   </form>
 
   {% if my_requests %}
-    <h3 style="font-size: var(--text-md); margin-top: var(--space-6); margin-bottom: var(--space-2);">Your Recent Requests</h3>
-    <div class="table-container">
-      <table>
-        <thead>
-          <tr>
-            <th>Date</th>
-            <th>Type</th>
-            <th>Reason</th>
-            <th>Status</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for r in my_requests %}
-            <tr>
-              <td>{{ r.work_date }}</td>
-              <td>{{ r.get_request_type_display }}</td>
-              <td style="max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{ r.reason }}</td>
-              <td>
-                <span class="badge {% if r.status == 'approved' %}badge-success{% elif r.status == 'rejected' %}badge-danger{% else %}badge-dev{% endif %}">
-                  {{ r.get_status_display }}
-                </span>
-              </td>
-            </tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    </div>
+  <h3 style="font-size: var(--text-md); margin-top: var(--space-6); margin-bottom: var(--space-2);">Your Recent Requests
+  </h3>
+  <div class="table-container">
+    <table>
+      <thead>
+        <tr>
+          <th>Date</th>
+          <th>Type</th>
+          <th>Reason</th>
+          <th>Status</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in my_requests %}
+        <tr>
+          <td>{{ r.work_date }}</td>
+          <td>{{ r.get_request_type_display }}</td>
+          <td style="max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{ r.reason }}
+          </td>
+          <td>
+            <span
+              class="badge {% if r.status == 'approved' %}badge-success{% elif r.status == 'rejected' %}badge-danger{% else %}badge-dev{% endif %}">
+              {{ r.get_status_display }}
+            </span>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
   {% endif %}
 </div>
 
 <div class="card">
   <h2 class="card-title">Recent Attendance History</h2>
   {% if recent_sessions %}
-    <div class="table-container">
-      <table>
-        <thead>
-          <tr>
-            <th>Work Date</th>
-            <th>Check In</th>
-            <th>Check Out</th>
-            <th>Method</th>
-            <th>State</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for session in recent_sessions %}
-            <tr>
-              <td style="font-weight: 500;">{{ session.work_date }}</td>
-              <td>{{ session.check_in_at|date:"H:i:s" }}</td>
-              <td>{% if session.check_out_at %}{{ session.check_out_at|date:"H:i:s" }}{% else %}&mdash;{% endif %}</td>
-              <td><span class="badge">{{ session.get_verification_method_display }}</span></td>
-              <td>
-                <span class="badge {% if session.state == 'completed' %}badge-success{% else %}badge-dev{% endif %}">
-                  {{ session.get_state_display }}
-                </span>
-              </td>
-            </tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    </div>
+  <div class="table-container">
+    <table>
+      <thead>
+        <tr>
+          <th>Work Date</th>
+          <th>Check In</th>
+          <th>Check Out</th>
+          <th>Method</th>
+          <th>State</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for session in recent_sessions %}
+        <tr>
+          <td style="font-weight: 500;">{{ session.work_date }}</td>
+          <td>{{ session.check_in_at|date:"H:i:s" }}</td>
+          <td>{% if session.check_out_at %}{{ session.check_out_at|date:"H:i:s" }}{% else %}&mdash;{% endif %}</td>
+          <td><span class="badge">{{ session.get_verification_method_display }}</span></td>
+          <td>
+            <span class="badge {% if session.state == 'completed' %}badge-success{% else %}badge-dev{% endif %}">
+              {{ session.get_state_display }}
+            </span>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
   {% else %}
-    <p style="color: var(--color-text-muted); font-size: var(--text-sm);">No previous attendance sessions found.</p>
+  <p style="color: var(--color-text-muted); font-size: var(--text-sm);">No previous attendance sessions found.</p>
   {% endif %}
 </div>
 {% endblock %}

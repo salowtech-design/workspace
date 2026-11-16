@@ -74,7 +74,7 @@ def activate_password_view(request):
 
 
 def activate_mfa_setup_view(request):
-    """Step 3: Setup authenticator app with pure SVG QR code."""
+    """Step 3: Setup authenticator app with pure SVG QR code and direct confirmation."""
     user_id = request.session.get(ACTIVATION_SESSION_KEY)
     if not user_id:
         return redirect("accounts:activate")
@@ -87,6 +87,15 @@ def activate_mfa_setup_view(request):
     # Format secret into groups of 4 for easy human typing
     grouped_secret = " ".join([secret[i : i + 4] for i in range(0, len(secret), 4)])
 
+    error = None
+    if request.method == "POST":
+        code = request.POST.get("code", "").strip()
+        try:
+            verify_totp_code(user, code, allow_unconfirmed=True)
+            return redirect("accounts:activate_recovery_codes")
+        except AuthException as e:
+            error = e.user_message
+
     return render(
         request,
         "accounts/activate/mfa_setup.html",
@@ -95,6 +104,7 @@ def activate_mfa_setup_view(request):
             "secret": grouped_secret,
             "raw_secret": secret,
             "svg_qr": svg_qr,
+            "error": error,
         },
     )
 

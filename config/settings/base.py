@@ -24,12 +24,16 @@ LOCAL_APPS = [
     "apps.directory.apps.DirectoryConfig",
     "apps.attendance.apps.AttendanceConfig",
     "apps.face.apps.FaceConfig",
+    "apps.posts.apps.PostsConfig",
+    "apps.certificates.apps.CertificatesConfig",
 ]
 
 INSTALLED_APPS = DJANGO_APPS + LOCAL_APPS
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
+    "apps.core.middleware.SecurityHeadersMiddleware",
+    "apps.core.middleware.RateLimitMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",

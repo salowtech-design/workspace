@@ -1,0 +1,136 @@
+{% extends "base.html" %}
+
+{% block title %}{{ post.title }} — Salow Workspace{% endblock %}
+
+{% block content %}
+<div class="topbar">
+  <div>
+    <a href="{% url 'posts:feed' %}" style="font-size: var(--text-sm); color: var(--color-text-muted);">&larr; Back to Feed</a>
+    <h1 style="font-size: var(--text-2xl); font-weight: 700; margin-top: var(--space-2);">{{ post.title }}</h1>
+  </div>
+  <div style="display: flex; gap: var(--space-2);">
+    {% if can_edit %}
+      <a href="{% url 'posts:edit' post.id %}" class="btn btn-outline">Edit Post</a>
+    {% endif %}
+  </div>
+</div>
+
+<div style="display: grid; grid-template-columns: 2fr 1fr; gap: var(--space-6); align-items: start;">
+  <!-- Main Post Column -->
+  <div style="display: flex; flex-direction: column; gap: var(--space-6);">
+    <div class="card" style="padding: var(--space-6);">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: var(--space-4); padding-bottom: var(--space-3); border-bottom: 1px solid var(--color-border-subtle);">
+        <div style="display: flex; align-items: center; gap: var(--space-2);">
+          <span class="badge {% if post.status == 'approved' %}badge-success{% elif post.status == 'flagged' %}badge-danger{% else %}badge-warning{% endif %}">
+            {{ post.get_status_display }}
+          </span>
+          <span class="badge badge-neutral">{{ post.get_category_display }}</span>
+          {% if post.team %}
+            <span style="font-size: var(--text-xs); color: var(--color-text-muted);">{{ post.team.name }}</span>
+          {% endif %}
+        </div>
+        <div style="font-size: var(--text-xs); color: var(--color-text-muted);">
+          Log Date: <strong>{{ post.work_date|date:"F d, Y" }}</strong>
+        </div>
+      </div>
+
+      <div style="font-size: var(--text-base); line-height: 1.7; color: var(--color-text-main); white-space: pre-line; margin-bottom: var(--space-6);">
+        {{ post.content }}
+      </div>
+
+      <div style="padding-top: var(--space-4); border-top: 1px solid var(--color-border-subtle); display: flex; justify-content: space-between; font-size: var(--text-xs); color: var(--color-text-subtle);">
+        <div>
+          Submitted by <strong>{{ post.author.full_name }}</strong> ({{ post.author.employee_id }})
+        </div>
+        <div>
+          Posted on {{ post.created_at|date:"M d, Y H:i" }}
+          {% if post.updated_at != post.created_at %}
+            &bull; Edited {{ post.updated_at|date:"M d, Y H:i" }}
+          {% endif %}
+        </div>
+      </div>
+    </div>
+
+    <!-- Comments Section -->
+    <div class="card" style="padding: var(--space-6);">
+      <h3 style="font-size: var(--text-lg); font-weight: 600; margin-bottom: var(--space-4);">
+        Discussion Thread ({{ comments|length }})
+      </h3>
+
+      {% include "posts/partials/comment_list.html" %}
+
+      <div style="margin-top: var(--space-6); padding-top: var(--space-4); border-top: 1px solid var(--color-border-subtle);">
+        <form method="post" action="{% url 'posts:comment' post.id %}">
+          {% csrf_token %}
+          <div class="form-group">
+            <label class="form-label" style="font-size: var(--text-sm);">Leave a reply / note</label>
+            {{ comment_form.content }}
+          </div>
+          <button type="submit" class="btn btn-primary" style="margin-top: var(--space-2);">Post Reply</button>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- Sidebar Column: Metadata & Manager Review -->
+  <div style="display: flex; flex-direction: column; gap: var(--space-6);">
+    <!-- Review Status Card -->
+    <div class="card" style="padding: var(--space-6);">
+      <h3 style="font-size: var(--text-base); font-weight: 600; margin-bottom: var(--space-3);">
+        Manager Review & Sign-Off
+      </h3>
+
+      {% if post.reviewed_by %}
+        <div style="margin-bottom: var(--space-4); font-size: var(--text-sm);">
+          <div>Reviewed by: <strong>{{ post.reviewed_by.full_name }}</strong></div>
+          <div style="font-size: var(--text-xs); color: var(--color-text-subtle);">
+            on {{ post.reviewed_at|date:"M d, Y H:i" }}
+          </div>
+          {% if post.review_notes %}
+            <div style="margin-top: var(--space-2); padding: var(--space-3); background-color: var(--color-bg-base); border-radius: var(--radius-sm); font-size: var(--text-xs); color: var(--color-text-muted);">
+              <strong>Notes:</strong> {{ post.review_notes }}
+            </div>
+          {% endif %}
+        </div>
+      {% else %}
+        <p style="font-size: var(--text-sm); color: var(--color-text-muted); margin-bottom: var(--space-4);">
+          Pending review by team lead or manager.
+        </p>
+      {% endif %}
+
+      {% if can_review %}
+        <div style="padding-top: var(--space-4); border-top: 1px solid var(--color-border-subtle);">
+          <h4 style="font-size: var(--text-sm); font-weight: 600; margin-bottom: var(--space-2);">Sign-Off Action</h4>
+          <form method="post" action="{% url 'posts:review' post.id %}">
+            {% csrf_token %}
+            <div class="form-group">
+              <label class="form-label" style="font-size: var(--text-xs);">Decision</label>
+              {{ review_form.status }}
+            </div>
+            <div class="form-group">
+              <label class="form-label" style="font-size: var(--text-xs);">Review Notes (Optional)</label>
+              {{ review_form.review_notes }}
+            </div>
+            <button type="submit" class="btn btn-outline" style="width: 100%; margin-top: var(--space-2);">
+              Submit Review
+            </button>
+          </form>
+        </div>
+      {% endif %}
+    </div>
+
+    <!-- Author Profile Card -->
+    <div class="card" style="padding: var(--space-6);">
+      <h3 style="font-size: var(--text-base); font-weight: 600; margin-bottom: var(--space-3);">Author Information</h3>
+      <div style="font-size: var(--text-sm); line-height: 1.6;">
+        <div><strong>{{ post.author.full_name }}</strong></div>
+        <div style="color: var(--color-text-muted);">ID: {{ post.author.employee_id }}</div>
+        <div style="color: var(--color-text-muted);">Role: {{ post.author.get_role_display }}</div>
+        {% if post.author.email %}
+          <div style="color: var(--color-text-muted);">Email: {{ post.author.email }}</div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

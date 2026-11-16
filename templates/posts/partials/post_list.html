@@ -1,0 +1,51 @@
+<div id="posts-container" style="display: flex; flex-direction: column; gap: var(--space-4);">
+  {% for post in posts %}
+  <div class="card" style="padding: var(--space-6); transition: border-color 0.15s ease;">
+    <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: var(--space-3);">
+      <div>
+        <div style="display: flex; align-items: center; gap: var(--space-2); margin-bottom: var(--space-1);">
+          <span class="badge {% if post.status == 'approved' %}badge-success{% elif post.status == 'flagged' %}badge-danger{% else %}badge-warning{% endif %}">
+            {{ post.get_status_display }}
+          </span>
+          <span class="badge badge-neutral">{{ post.get_category_display }}</span>
+          {% if post.team %}
+            <span style="font-size: var(--text-xs); color: var(--color-text-muted);">{{ post.team.name }}</span>
+          {% endif %}
+        </div>
+        <h3 style="font-size: var(--text-lg); margin-top: 0.25rem;">
+          <a href="{% url 'posts:detail' post.id %}" style="color: var(--color-text-main); font-weight: 600;">
+            {{ post.title }}
+          </a>
+        </h3>
+      </div>
+      <div style="text-align: right; font-size: var(--text-xs); color: var(--color-text-muted);">
+        <div>{{ post.work_date|date:"M d, Y" }}</div>
+        <div>{{ post.created_at|timesince }} ago</div>
+      </div>
+    </div>
+
+    <p style="color: var(--color-text-muted); font-size: var(--text-sm); line-height: 1.6; margin-bottom: var(--space-4); white-space: pre-line;">
+      {{ post.content|truncatewords:45 }}
+    </p>
+
+    <div style="display: flex; justify-content: space-between; align-items: center; padding-top: var(--space-3); border-top: 1px solid var(--color-border-subtle); font-size: var(--text-xs); color: var(--color-text-subtle);">
+      <div>
+        <strong>{{ post.author.full_name }}</strong> ({{ post.author.employee_id }})
+        {% if post.reviewed_by %}
+          &bull; Signed off by {{ post.reviewed_by.full_name }}
+        {% endif %}
+      </div>
+      <div style="display: flex; gap: var(--space-3); align-items: center;">
+        <span>💬 {{ post.comments.count }} replies</span>
+        <a href="{% url 'posts:detail' post.id %}" class="btn btn-outline" style="padding: 0.25rem 0.75rem; font-size: var(--text-xs);">View Details &rarr;</a>
+      </div>
+    </div>
+  </div>
+  {% empty %}
+  <div class="card" style="padding: var(--space-8); text-align: center; color: var(--color-text-muted);">
+    <div style="font-size: var(--text-xl); margin-bottom: var(--space-2);">📝</div>
+    <div style="font-weight: 600;">No posts or work logs found</div>
+    <p style="font-size: var(--text-sm); margin-top: var(--space-1);">Try adjusting your search filters or submit a new daily update.</p>
+  </div>
+  {% endfor %}
+</div>

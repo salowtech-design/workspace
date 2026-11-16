@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+
+{% block title %}Work Logs & Daily Updates — Salow Workspace{% endblock %}
+
+{% block content %}
+<div class="topbar">
+  <div>
+    <h1 style="font-size: var(--text-2xl); font-weight: 700;">Work Logs & Daily Communication</h1>
+    <p style="color: var(--color-text-muted); font-size: var(--text-sm);">
+      Team standups, milestone updates, blockers, and manager sign-offs.
+    </p>
+  </div>
+  <div>
+    <a href="{% url 'posts:create' %}" class="btn btn-primary">+ New Work Log</a>
+  </div>
+</div>
+
+<!-- Filter controls -->
+<div class="card" style="padding: var(--space-4); margin-bottom: var(--space-6);">
+  <form method="get" action="{% url 'posts:feed' %}" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)) auto; gap: var(--space-3); align-items: end;">
+    <div class="form-group" style="margin-bottom: 0;">
+      <label class="form-label" style="font-size: var(--text-xs);">Search Keyword / Author</label>
+      <input type="text" name="q" value="{{ search_query }}" class="form-control" placeholder="Search keywords..." style="padding: 0.4rem 0.6rem; font-size: var(--text-sm);">
+    </div>
+
+    <div class="form-group" style="margin-bottom: 0;">
+      <label class="form-label" style="font-size: var(--text-xs);">Category</label>
+      <select name="category" class="form-control" style="padding: 0.4rem 0.6rem; font-size: var(--text-sm);">
+        <option value="">All Categories</option>
+        {% for cat_val, cat_label in categories %}
+          <option value="{{ cat_val }}" {% if selected_category == cat_val %}selected{% endif %}>{{ cat_label }}</option>
+        {% endfor %}
+      </select>
+    </div>
+
+    <div class="form-group" style="margin-bottom: 0;">
+      <label class="form-label" style="font-size: var(--text-xs);">Team</label>
+      <select name="team" class="form-control" style="padding: 0.4rem 0.6rem; font-size: var(--text-sm);">
+        <option value="">All Teams</option>
+        {% for t in teams %}
+          <option value="{{ t.id }}" {% if selected_team == t.id %}selected{% endif %}>{{ t.name }}</option>
+        {% endfor %}
+      </select>
+    </div>
+
+    <div class="form-group" style="margin-bottom: 0;">
+      <label class="form-label" style="font-size: var(--text-xs);">Status</label>
+      <select name="status" class="form-control" style="padding: 0.4rem 0.6rem; font-size: var(--text-sm);">
+        <option value="">All Statuses</option>
+        {% for st_val, st_label in statuses %}
+          <option value="{{ st_val }}" {% if selected_status == st_val %}selected{% endif %}>{{ st_label }}</option>
+        {% endfor %}
+      </select>
+    </div>
+
+    <div style="display: flex; gap: var(--space-2);">
+      <button type="submit" class="btn btn-outline" style="padding: 0.4rem 0.9rem; font-size: var(--text-sm);">Filter</button>
+      {% if search_query or selected_category or selected_team or selected_status %}
+        <a href="{% url 'posts:feed' %}" class="btn btn-outline" style="padding: 0.4rem 0.6rem; font-size: var(--text-sm);">Clear</a>
+      {% endif %}
+    </div>
+  </form>
+</div>
+
+<!-- Posts Feed List -->
+{% include "posts/partials/post_list.html" %}
+
+{% endblock %}

@@ -33,7 +33,8 @@ def generate_crockford_code() -> str:
 def hash_code(raw_code: str) -> str:
     """Compute keyed HMAC-SHA256 hash over normalized code."""
     # Normalize: strip spaces, dashes, uppercase
-    normalized = raw_code.strip().replace("-", "").replace(" ", "").upper()
+    raw = str(raw_code or "")
+    normalized = raw.strip().replace("-", "").replace(" ", "").upper()
     key = get_activation_hmac_key()
     return hmac.new(key, normalized.encode("utf-8"), "sha256").hexdigest()
 
@@ -77,6 +78,50 @@ def issue_activation_code(
     return record, raw_code
 
 
+def _check_code_preconditions(
+    code_record: ActivationCode | None,
+    employee_id: str,
+    ip_address: str | None,
+) -> AuthException | None:
+    """Validate existence, lock state, and expiration of activation code."""
+    if not code_record:
+        log_auth_event(
+            event="activation_failed",
+            code="AUTH-ACT-001",
+            step="verify_code",
+            employee_id=employee_id,
+            network_address=ip_address,
+            message="No live code found for user and purpose",
+        )
+        return AuthException("AUTH-ACT-001", step="verify_code", employee_id=employee_id)
+
+    if code_record.attempts >= MAX_ACTIVATION_ATTEMPTS:
+        log_auth_event(
+            event="activation_locked",
+            code="AUTH-ACT-002",
+            step="verify_code",
+            employee_id=employee_id,
+            network_address=ip_address,
+            message="Code is locked due to 5 failed attempts",
+        )
+        return AuthException("AUTH-ACT-002", step="verify_code", employee_id=employee_id)
+
+    if timezone.now() > code_record.expires_at:
+        code_record.is_live = None
+        code_record.save(update_fields=["is_live"])
+        log_auth_event(
+            event="activation_expired",
+            code="AUTH-ACT-001",
+            step="verify_code",
+            employee_id=employee_id,
+            network_address=ip_address,
+            message="Code has expired",
+        )
+        return AuthException("AUTH-ACT-001", step="verify_code", employee_id=employee_id)
+
+    return None
+
+
 def verify_and_consume_code(
     employee_id: str,
     raw_code: str,
@@ -86,7 +131,19 @@ def verify_and_consume_code(
     """
     Validate code and consume it atomically.
     Transitions account from invited to activating on success.
+    Enforces atomic attempts and consumption under select_for_update().
     """
+    if not employee_id or not isinstance(employee_id, str):
+        log_auth_event(
+            event="activation_failed",
+            code="AUTH-ACT-001",
+            step="verify_code",
+            employee_id="UNKNOWN",
+            network_address=ip_address,
+            message="Attempt with missing employee ID",
+        )
+        raise AuthException("AUTH-ACT-001", step="verify_code", employee_id=str(employee_id))
+
     user = CustomUser.objects.filter(employee_id=employee_id.strip().upper()).first()
     if not user:
         log_auth_event(
@@ -99,81 +156,60 @@ def verify_and_consume_code(
         )
         raise AuthException("AUTH-ACT-001", step="verify_code", employee_id=employee_id)
 
-    code_record = ActivationCode.objects.filter(user=user, purpose=purpose, is_live=1).first()
-
-    if not code_record:
-        log_auth_event(
-            event="activation_failed",
-            code="AUTH-ACT-001",
-            step="verify_code",
-            employee_id=employee_id,
-            network_address=ip_address,
-            message="No live code found for user and purpose",
-        )
-        raise AuthException("AUTH-ACT-001", step="verify_code", employee_id=employee_id)
-
-    # Check lock
-    if code_record.attempts >= MAX_ACTIVATION_ATTEMPTS:
-        log_auth_event(
-            event="activation_locked",
-            code="AUTH-ACT-002",
-            step="verify_code",
-            employee_id=employee_id,
-            network_address=ip_address,
-            message="Code is locked due to 5 failed attempts",
-        )
-        raise AuthException("AUTH-ACT-002", step="verify_code", employee_id=employee_id)
-
-    # Check expiration
-    if timezone.now() > code_record.expires_at:
-        code_record.is_live = None
-        code_record.save(update_fields=["is_live"])
-        log_auth_event(
-            event="activation_expired",
-            code="AUTH-ACT-001",
-            step="verify_code",
-            employee_id=employee_id,
-            network_address=ip_address,
-            message="Code has expired",
-        )
-        raise AuthException("AUTH-ACT-001", step="verify_code", employee_id=employee_id)
-
-    input_hash = hash_code(raw_code)
-    if not hmac.compare_digest(code_record.keyed_hash, input_hash):
-        code_record.attempts += 1
-        if code_record.attempts >= MAX_ACTIVATION_ATTEMPTS:
-            code_record.is_live = None  # Lock it permanently
-        code_record.save(update_fields=["attempts", "is_live"])
-
-        log_auth_event(
-            event="activation_hash_mismatch",
-            code="AUTH-ACT-001",
-            step="verify_code",
-            employee_id=employee_id,
-            network_address=ip_address,
-            message=f"Wrong code entry (attempt {code_record.attempts}/{MAX_ACTIVATION_ATTEMPTS})",
-        )
-        if code_record.attempts >= MAX_ACTIVATION_ATTEMPTS:
-            raise AuthException("AUTH-ACT-002", step="verify_code", employee_id=employee_id)
-        raise AuthException("AUTH-ACT-001", step="verify_code", employee_id=employee_id)
-
-    # SUCCESS: Atomically consume code
+    auth_error_to_raise = None
     with transaction.atomic():
-        code_record.consumed_at = timezone.now()
-        code_record.is_live = None
-        code_record.save(update_fields=["consumed_at", "is_live"])
-
-        if user.status == CustomUser.Status.INVITED:
-            user.status = CustomUser.Status.ACTIVATING
-            user.save(update_fields=["status", "updated_at"])
-
-        log_auth_event(
-            event="code_consumed",
-            code="INFO",
-            step="verify_code",
-            employee_id=employee_id,
-            network_address=ip_address,
-            message=f"{purpose} code successfully validated and consumed",
+        code_record = (
+            ActivationCode.objects.select_for_update()
+            .filter(user=user, purpose=purpose, is_live=1)
+            .first()
         )
+
+        auth_error_to_raise = _check_code_preconditions(code_record, employee_id, ip_address)
+
+        if not auth_error_to_raise:
+            input_hash = hash_code(raw_code)
+            if not hmac.compare_digest(code_record.keyed_hash, input_hash):
+                code_record.attempts += 1
+                if code_record.attempts >= MAX_ACTIVATION_ATTEMPTS:
+                    code_record.is_live = None  # Lock it permanently
+                code_record.save(update_fields=["attempts", "is_live"])
+
+                log_auth_event(
+                    event="activation_hash_mismatch",
+                    code="AUTH-ACT-001",
+                    step="verify_code",
+                    employee_id=employee_id,
+                    network_address=ip_address,
+                    message=f"Wrong code entry (attempt {code_record.attempts}/{MAX_ACTIVATION_ATTEMPTS})",
+                )
+                if code_record.attempts >= MAX_ACTIVATION_ATTEMPTS:
+                    auth_error_to_raise = AuthException(
+                        "AUTH-ACT-002", step="verify_code", employee_id=employee_id
+                    )
+                else:
+                    auth_error_to_raise = AuthException(
+                        "AUTH-ACT-001", step="verify_code", employee_id=employee_id
+                    )
+            else:
+                # SUCCESS: Atomically consume code
+                code_record.consumed_at = timezone.now()
+                code_record.is_live = None
+                code_record.save(update_fields=["consumed_at", "is_live"])
+
+                if user.status == CustomUser.Status.INVITED:
+                    user.status = CustomUser.Status.ACTIVATING
+                    user.save(update_fields=["status", "updated_at"])
+
+                log_auth_event(
+                    event="code_consumed",
+                    code="INFO",
+                    step="verify_code",
+                    employee_id=employee_id,
+                    network_address=ip_address,
+                    message=f"{purpose} code successfully validated and consumed",
+                )
+
+    if auth_error_to_raise:
+        raise auth_error_to_raise
 
     return code_record, user

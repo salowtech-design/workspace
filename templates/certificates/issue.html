@@ -1,0 +1,79 @@
+{% extends "base.html" %}
+
+{% block title %}Issue Certificate — Salow Workspace{% endblock %}
+
+{% block content %}
+<div class="topbar">
+  <div>
+    <a href="{% url 'certificates:list' %}" style="font-size: var(--text-sm); color: var(--color-text-muted);">&larr; Back to Certificates</a>
+    <h1 style="font-size: var(--text-2xl); font-weight: 700; margin-top: var(--space-2);">Issue New Official Certificate</h1>
+  </div>
+</div>
+
+<div style="max-width: 760px; margin: 0 auto;">
+  <div class="card" style="padding: var(--space-8);">
+    <form method="post">
+      {% csrf_token %}
+
+      <div class="form-group">
+        <label class="form-label">Recipient Employee *</label>
+        {{ form.recipient }}
+        {% if form.recipient.errors %}
+          <div style="color: var(--color-danger-text); font-size: var(--text-xs); margin-top: 0.25rem;">
+            {{ form.recipient.errors.0 }}
+          </div>
+        {% endif %}
+      </div>
+
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-4);">
+        <div class="form-group">
+          <label class="form-label">Certificate Title *</label>
+          {{ form.title }}
+          {% if form.title.errors %}
+            <div style="color: var(--color-danger-text); font-size: var(--text-xs); margin-top: 0.25rem;">
+              {{ form.title.errors.0 }}
+            </div>
+          {% endif %}
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Recipient Role / Designation</label>
+          {{ form.recipient_role }}
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">Template Preset (Optional)</label>
+        {{ form.template }}
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">Citation / Description Body *</label>
+        {{ form.description }}
+        {% if form.description.errors %}
+          <div style="color: var(--color-danger-text); font-size: var(--text-xs); margin-top: 0.25rem;">
+            {{ form.description.errors.0 }}
+          </div>
+        {% endif %}
+      </div>
+
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-4);">
+        <div class="form-group">
+          <label class="form-label">Issue Date</label>
+          {{ form.issue_date }}
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Expiry Date (Optional)</label>
+          {{ form.expiry_date }}
+        </div>
+      </div>
+
+      <div style="display: flex; justify-content: flex-end; gap: var(--space-3); margin-top: var(--space-6);">
+        <a href="{% url 'certificates:list' %}" class="btn btn-outline">Cancel</a>
+        <button type="submit" class="btn btn-primary">Generate & Issue Credential</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}

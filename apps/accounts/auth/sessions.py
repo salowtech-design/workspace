@@ -6,6 +6,7 @@ Tracks active device sessions, rotates session keys, and handles revocation on s
 from datetime import timedelta
 
 from django.contrib.auth import login
+from django.contrib.sessions.models import Session
 from django.utils import timezone
 
 from apps.accounts.auth.audit import log_auth_event
@@ -57,8 +58,12 @@ def revoke_user_sessions(user: CustomUser, keep_session_key: str = None) -> int:
     if keep_session_key:
         qs = qs.exclude(session_key=keep_session_key)
 
+    keys_to_purge = list(qs.values_list("session_key", flat=True))
     count = qs.count()
     qs.delete()
+
+    if keys_to_purge:
+        Session.objects.filter(session_key__in=keys_to_purge).delete()
 
     log_auth_event(
         event="sessions_revoked",
@@ -73,7 +78,10 @@ def revoke_user_sessions(user: CustomUser, keep_session_key: str = None) -> int:
 def end_session_by_key(user: CustomUser, session_key: str) -> bool:
     """End a specific session from user's /security management page."""
     deleted, _ = UserSession.objects.filter(user=user, session_key=session_key).delete()
-    return deleted > 0
+    if deleted > 0:
+        Session.objects.filter(session_key=session_key).delete()
+        return True
+    return False
 
 
 def clean_stale_sessions() -> int:

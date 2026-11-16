@@ -23,8 +23,22 @@
         </div>
     </div>
 
-    <a href="{% url 'accounts:activate_mfa_verify' %}" class="btn btn-primary" style="width: 100%; display: block;">
-        Next: Enter 6-Digit Code →
-    </a>
+    {% if error %}
+    <div class="alert alert-danger" style="margin: 1rem 0; text-align: left;">
+        {{ error }}
+    </div>
+    {% endif %}
+
+    <form method="post" class="space-y-4" style="text-align: left; margin-top: 1rem;">
+        {% csrf_token %}
+        <div class="form-group">
+            <label for="code" class="form-label" style="font-weight: 600;">Enter 6-Digit Code from Authenticator</label>
+            <input type="text" id="code" name="code" class="form-input" placeholder="000000" maxlength="6" autofocus required style="text-align: center; font-size: 1.5rem; letter-spacing: 4px; font-family: var(--font-mono);">
+        </div>
+
+        <button type="submit" class="btn btn-primary" style="width: 100%; font-size: 1rem; padding: 0.75rem;">
+            Verify & Confirm Pairing →
+        </button>
+    </form>
 </div>
 {% endblock %}

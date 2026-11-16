@@ -37,9 +37,10 @@ def login_view(request):
         try:
             user = authenticate_password(emp_id, password, ip_address=ip_addr)
 
-            # Check if this is a bootstrap Super Admin without MFA setup
+            # Check if user has completed MFA setup
             cred = TOTPCredential.objects.filter(user=user, confirmed_at__isnull=False).first()
-            if not cred and user.role == CustomUser.Role.SUPER_ADMIN:
+            if not cred:
+                # First time login without MFA: route to MFA enrollment (shows QR code, secret key, recovery codes)
                 request.session["_salow_act_user_id"] = user.id
                 return redirect("accounts:activate_mfa_setup")
 
