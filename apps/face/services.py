@@ -112,14 +112,6 @@ def verify_face(
     if purpose == FaceVerificationLog.Purpose.STEP_UP:
         allowed_stepup_actions = getattr(settings, "AUTH_STEPUP_FACE_ACTIONS", [])
         if not allowed_stepup_actions:
-            duration_ms = (time.time() - start_time) * 1000.0
-            FaceVerificationLog.objects.create(
-                user=user,
-                purpose=purpose,
-                decision=FaceVerificationLog.Decision.FAILURE,
-                similarity_score=0.0,
-                duration_ms=duration_ms,
-            )
             # Fall back to authenticator code directly
             return VerificationResult(
                 success=False,

@@ -1,87 +1,240 @@
 {% extends "base.html" %}
 
-{% block title %}Security & Active Sessions — Salowtech Workspace{% endblock %}
+{% block title %}Security & Credentials — Salowtech Workspace{% endblock %}
 
 {% block content %}
-<div class="card" style="max-width: 800px; margin: 0 auto;">
-    <div style="border-bottom: 1px solid var(--color-border-subtle); padding-bottom: 1rem; margin-bottom: 1.5rem;">
-        <h2 style="margin: 0; font-size: 1.5rem; color: var(--color-primary-600);">Security & Sessions</h2>
-        <p style="color: var(--color-text-muted); font-size: 0.95rem; margin-top: 0.25rem;">
-            Review your active workspace sign-ins and recent security activity.
-        </p>
+<div class="card" style="max-width: 860px; margin: 2rem auto;">
+    <div style="display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 1px solid var(--color-border-subtle); padding-bottom: 1.25rem; margin-bottom: 1.5rem;">
+        <div>
+            <h2 style="margin: 0; font-size: 1.5rem; color: var(--color-primary-600);">Security & Credentials</h2>
+            <p style="color: var(--color-text-muted); font-size: 0.95rem; margin-top: 0.25rem;">
+                Manage active device sessions, WebAuthn passkeys, and account credentials.
+            </p>
+        </div>
+        <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
+            <a href="{% url 'accounts:change_password' %}" class="btn btn-secondary btn-sm">
+                Change Password
+            </a>
+            {% if user.role in 'super_admin admin hr manager' %}
+            <a href="{% url 'accounts:admin_recovery_console' %}" class="btn btn-secondary btn-sm">
+                Recovery Console
+            </a>
+            {% endif %}
+        </div>
     </div>
 
-    <h3 style="font-size: 1.2rem; margin-bottom: 1rem;">Active Devices & Sessions</h3>
-    <div class="table-responsive">
-        <table class="table">
-            <thead>
-                <tr>
-                    <th>Device / Browser</th>
-                    <th>IP Address</th>
-                    <th>Last Active</th>
-                    <th>Status</th>
-                    <th>Action</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for sess in sessions %}
-                <tr>
-                    <td>{{ sess.user_agent|truncatechars:40|default:"Browser Session" }}</td>
-                    <td><code>{{ sess.ip_address|default:"-" }}</code></td>
-                    <td style="color: var(--color-text-muted); font-size: 0.85rem;">{{ sess.last_activity|date:"d M H:i" }}</td>
-                    <td>
-                        {% if sess.session_key == current_session_key %}
-                        <span class="badge badge-success">Current Session</span>
-                        {% else %}
-                        <span class="badge badge-outline">Active</span>
-                        {% endif %}
-                    </td>
-                    <td>
-                        {% if sess.session_key != current_session_key %}
-                        <form method="post" action="{% url 'accounts:terminate_session' sess.session_key %}">
-                            {% csrf_token %}
-                            <button type="submit" class="btn btn-sm btn-outline" style="color: var(--color-danger-text);">Revoke</button>
-                        </form>
-                        {% else %}
-                        —
-                        {% endif %}
-                    </td>
-                </tr>
-                {% empty %}
-                <tr>
-                    <td colspan="5" style="text-align: center; color: var(--color-text-muted); padding: 1.5rem;">No active sessions found.</td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
+    <!-- Passkeys Section -->
+    <div style="margin-bottom: 2.5rem;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem;">
+            <div>
+                <h3 style="font-size: 1.2rem; margin: 0;">Passkeys & Biometric Authenticators</h3>
+                <p style="color: var(--color-text-muted); font-size: 0.85rem; margin: 0.2rem 0 0 0;">
+                    FIDO2 WebAuthn credentials using Touch ID, Windows Hello, or security keys.
+                </p>
+            </div>
+            <button type="button" id="enroll-passkey-btn" class="btn btn-primary btn-sm" style="display: flex; align-items: center; gap: 0.4rem;">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="16"></line><line x1="8" y1="12" x2="16" y2="12"></line></svg>
+                Enroll Passkey
+            </button>
+        </div>
+
+        <div id="passkey-reg-status" style="display: none; padding: 0.75rem; margin-bottom: 0.75rem; border-radius: 4px; font-size: 0.85rem;"></div>
+
+        <div class="table-responsive">
+            <table class="table">
+                <thead>
+                    <tr>
+                        <th>Passkey Name</th>
+                        <th>Created</th>
+                        <th>Last Used</th>
+                        <th>Status</th>
+                        <th>Action</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for pk in passkeys %}
+                    <tr>
+                        <td><strong>{{ pk.display_name }}</strong></td>
+                        <td style="font-size: 0.85rem; color: var(--color-text-muted);">{{ pk.created_at|date:"d M Y" }}</td>
+                        <td style="font-size: 0.85rem; color: var(--color-text-muted);">{{ pk.last_used_at|date:"d M Y H:i"|default:"Never" }}</td>
+                        <td><span class="badge badge-success">Operational</span></td>
+                        <td>
+                            <form method="post" action="{% url 'accounts:passkey_delete' pk.id %}" onsubmit="return confirm('Revoke this passkey credential?');">
+                                {% csrf_token %}
+                                <button type="submit" class="btn btn-sm btn-outline" style="color: var(--color-danger-text);">Revoke</button>
+                            </form>
+                        </td>
+                    </tr>
+                    {% empty %}
+                    <tr>
+                        <td colspan="5" style="text-align: center; color: var(--color-text-muted); padding: 1.25rem;">
+                            No passkeys registered. Click "Enroll Passkey" to register your current device.
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
     </div>
 
-    <h3 style="font-size: 1.2rem; margin: 2rem 0 1rem;">Recent Security Events</h3>
-    <div class="table-responsive">
-        <table class="table">
-            <thead>
-                <tr>
-                    <th>Timestamp</th>
-                    <th>Event</th>
-                    <th>Reference</th>
-                    <th>IP Address</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for evt in recent_events %}
-                <tr>
-                    <td style="font-size: 0.85rem; color: var(--color-text-muted);">{{ evt.time|date:"d M Y H:i:s" }}</td>
-                    <td><strong>{{ evt.event }}</strong></td>
-                    <td><code>{{ evt.reference_id }}</code></td>
-                    <td>{{ evt.network_address|default:"-" }}</td>
-                </tr>
-                {% empty %}
-                <tr>
-                    <td colspan="4" style="text-align: center; color: var(--color-text-muted); padding: 1.5rem;">No recent security events recorded.</td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
+    <!-- Active Sessions Section -->
+    <div style="margin-bottom: 2.5rem;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem;">
+            <div>
+                <h3 style="font-size: 1.2rem; margin: 0;">Active Device Sessions</h3>
+                <p style="color: var(--color-text-muted); font-size: 0.85rem; margin: 0.2rem 0 0 0;">
+                    Manage active logins. Terminating other sessions protects your account if a device is lost.
+                </p>
+            </div>
+            {% if sessions|length > 1 %}
+            <form method="post" action="{% url 'accounts:terminate_all_other_sessions' %}">
+                {% csrf_token %}
+                <button type="submit" class="btn btn-outline btn-sm" style="color: var(--color-danger-text);">
+                    Terminate All Other Sessions
+                </button>
+            </form>
+            {% endif %}
+        </div>
+
+        <div class="table-responsive">
+            <table class="table">
+                <thead>
+                    <tr>
+                        <th>Device / Browser</th>
+                        <th>IP Address</th>
+                        <th>Last Active</th>
+                        <th>Status</th>
+                        <th>Action</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for sess in sessions %}
+                    <tr>
+                        <td>{{ sess.user_agent|truncatechars:40|default:"Browser Session" }}</td>
+                        <td><code>{{ sess.ip_address|default:"-" }}</code></td>
+                        <td style="color: var(--color-text-muted); font-size: 0.85rem;">{{ sess.last_activity|date:"d M H:i" }}</td>
+                        <td>
+                            {% if sess.session_key == current_session_key %}
+                            <span class="badge badge-success">This Device</span>
+                            {% else %}
+                            <span class="badge badge-outline">Active</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if sess.session_key != current_session_key %}
+                            <form method="post" action="{% url 'accounts:terminate_session' sess.session_key %}">
+                                {% csrf_token %}
+                                <button type="submit" class="btn btn-sm btn-outline" style="color: var(--color-danger-text);">Revoke</button>
+                            </form>
+                            {% else %}
+                            —
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% empty %}
+                    <tr>
+                        <td colspan="5" style="text-align: center; color: var(--color-text-muted); padding: 1.25rem;">No active sessions found.</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- Security Events Audit Section -->
+    <div>
+        <h3 style="font-size: 1.2rem; margin-bottom: 0.75rem;">Recent Security Events</h3>
+        <div class="table-responsive">
+            <table class="table">
+                <thead>
+                    <tr>
+                        <th>Timestamp</th>
+                        <th>Event</th>
+                        <th>Reference</th>
+                        <th>IP Address</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for evt in recent_events %}
+                    <tr>
+                        <td style="font-size: 0.85rem; color: var(--color-text-muted);">{{ evt.time|date:"d M Y H:i:s" }}</td>
+                        <td><strong>{{ evt.event }}</strong></td>
+                        <td><code>{{ evt.reference_id|default:"-" }}</code></td>
+                        <td>{{ evt.network_address|default:"-" }}</td>
+                    </tr>
+                    {% empty %}
+                    <tr>
+                        <td colspan="4" style="text-align: center; color: var(--color-text-muted); padding: 1.25rem;">No recent security events recorded.</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
     </div>
 </div>
+
+<script>
+document.getElementById('enroll-passkey-btn')?.addEventListener('click', async () => {
+    const statusBox = document.getElementById('passkey-reg-status');
+    const name = prompt('Enter a label for this passkey (e.g. Work MacBook, Windows Hello):', 'My Passkey');
+    if (!name) return;
+
+    statusBox.style.display = 'block';
+    statusBox.style.background = 'var(--color-bg-surface-secondary)';
+    statusBox.style.color = 'var(--color-text-main)';
+    statusBox.textContent = 'Contacting authenticator... follow browser prompt.';
+
+    try {
+        const optRes = await fetch('/auth/passkeys/register/options/');
+        if (!optRes.ok) throw new Error('Could not generate registration challenge.');
+        const options = await optRes.json();
+
+        // Convert base64url challenge and user ID
+        options.challenge = Uint8Array.from(atob(options.challenge.replace(/-/g, '+').replace(/_/g, '/')), c => c.charCodeAt(0));
+        options.user.id = Uint8Array.from(atob(options.user.id.replace(/-/g, '+').replace(/_/g, '/')), c => c.charCodeAt(0));
+        if (options.excludeCredentials) {
+            options.excludeCredentials = options.excludeCredentials.map(c => ({
+                ...c,
+                id: Uint8Array.from(atob(c.id.replace(/-/g, '+').replace(/_/g, '/')), ch => ch.charCodeAt(0))
+            }));
+        }
+
+        const credential = await navigator.credentials.create({ publicKey: options });
+        if (!credential) throw new Error('Registration was cancelled or failed.');
+
+        const credentialJSON = {
+            id: credential.id,
+            rawId: btoa(String.fromCharCode(...new Uint8Array(credential.rawId))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''),
+            type: credential.type,
+            response: {
+                attestationObject: btoa(String.fromCharCode(...new Uint8Array(credential.response.attestationObject))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''),
+                clientDataJSON: btoa(String.fromCharCode(...new Uint8Array(credential.response.clientDataJSON))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
+            }
+        };
+
+        const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]').value;
+        const verifyRes = await fetch('/auth/passkeys/register/verify/', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': csrfToken
+            },
+            body: JSON.stringify({ credential: credentialJSON, displayName: name })
+        });
+        const result = await verifyRes.json();
+        if (result.success) {
+            statusBox.style.background = 'var(--color-success-bg, #E8F5E9)';
+            statusBox.style.color = 'var(--color-success, #2E7D32)';
+            statusBox.textContent = `Passkey '${result.display_name}' enrolled successfully! Reloading...`;
+            setTimeout(() => window.location.reload(), 1200);
+        } else {
+            throw new Error(result.error || 'Passkey verification failed.');
+        }
+    } catch (err) {
+        statusBox.style.background = 'var(--color-error-bg, #FFEBEE)';
+        statusBox.style.color = 'var(--color-error, #C62828)';
+        statusBox.textContent = err.message || 'Passkey enrollment failed.';
+    }
+});
+</script>
 {% endblock %}

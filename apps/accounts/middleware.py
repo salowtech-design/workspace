@@ -17,6 +17,7 @@ class AccountSecurityMiddleware:
         "/auth/activate",
         "/auth/login",
         "/auth/mfa/challenge",
+        "/auth/recovery",
         "/auth/logout",
         "/health",
         "/ready",
@@ -41,10 +42,12 @@ class AccountSecurityMiddleware:
                 request.session.flush()
                 return redirect(reverse("accounts:activate"))
 
-            # 2. Disabled or locked accounts cannot maintain an active session
+            # 2. Disabled, locked, suspended, or exited accounts cannot maintain an active session
             if not user.is_active or user.status in (
                 CustomUser.Status.DISABLED,
                 CustomUser.Status.LOCKED,
+                CustomUser.Status.SUSPENDED,
+                CustomUser.Status.EXITED,
             ):
                 logout(request)
                 request.session.flush()

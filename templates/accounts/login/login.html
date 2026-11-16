@@ -28,8 +28,11 @@
         </div>
 
         <div class="form-group">
-            <label for="password" class="form-label">Password</label>
-            <input type="password" id="password" name="password" class="form-input" placeholder="••••••••••••" autocomplete="current-password" required>
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+                <label for="password" class="form-label" style="margin-bottom: 0;">Password</label>
+                <a href="{% url 'accounts:forgot_password' %}" style="font-size: 0.8rem; color: var(--color-primary-600); text-decoration: none;">Forgot password?</a>
+            </div>
+            <input type="password" id="password" name="password" class="form-input" placeholder="••••••••••••" autocomplete="current-password" required style="margin-top: 0.35rem;">
         </div>
 
         <button type="submit" class="btn btn-primary" style="width: 100%; font-size: 1rem; padding: 0.75rem;">
@@ -37,8 +40,77 @@
         </button>
     </form>
 
+    <div style="display: flex; align-items: center; margin: 1.25rem 0; color: var(--color-text-muted); font-size: 0.8rem;">
+        <span style="flex:1; border-top:1px solid var(--color-border-subtle);"></span>
+        <span style="padding: 0 0.75rem; text-transform: uppercase; letter-spacing: 0.05em;">Or sign in with</span>
+        <span style="flex:1; border-top:1px solid var(--color-border-subtle);"></span>
+    </div>
+
+    <button type="button" id="passkey-btn" class="btn btn-secondary" style="width: 100%; font-size: 0.95rem; padding: 0.65rem; display: flex; align-items: center; justify-content: center; gap: 0.5rem;">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 2l-2 2m-1-1l-3 3m-1-1l-2 2m-2-2l-3 3"></path><circle cx="7" cy="17" r="5"></circle></svg>
+        Sign in with Passkey / Device Unlock
+    </button>
+    <div id="passkey-msg" style="margin-top: 0.5rem; font-size: 0.8rem; color: var(--color-error); display: none;"></div>
+
     <div style="margin-top: 1.5rem; padding-top: 1rem; border-top: 1px solid var(--color-border-subtle); font-size: 0.85rem; color: var(--color-text-muted);">
         First time joining? <a href="{% url 'accounts:activate' %}" style="color: var(--color-primary-600); font-weight: 600;">Activate with code</a>
     </div>
 </div>
+
+<script>
+document.getElementById('passkey-btn')?.addEventListener('click', async () => {
+    const msg = document.getElementById('passkey-msg');
+    const empInput = document.getElementById('employee_id').value.trim();
+    msg.style.display = 'none';
+    try {
+        const optRes = await fetch(`/auth/passkeys/auth/options/?employee_id=${encodeURIComponent(empInput)}`);
+        if (!optRes.ok) throw new Error('Could not retrieve authentication challenge.');
+        const options = await optRes.json();
+
+        // Convert base64url challenge and allowCredentials to buffers
+        options.challenge = Uint8Array.from(atob(options.challenge.replace(/-/g, '+').replace(/_/g, '/')), c => c.charCodeAt(0));
+        if (options.allowCredentials) {
+            options.allowCredentials = options.allowCredentials.map(c => ({
+                ...c,
+                id: Uint8Array.from(atob(c.id.replace(/-/g, '+').replace(/_/g, '/')), ch => ch.charCodeAt(0))
+            }));
+        }
+
+        const assertion = await navigator.credentials.get({ publicKey: options });
+        if (!assertion) throw new Error('Authenticator did not return an assertion.');
+
+        // Convert buffer values for JSON transport
+        const credentialJSON = {
+            id: assertion.id,
+            rawId: btoa(String.fromCharCode(...new Uint8Array(assertion.rawId))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''),
+            type: assertion.type,
+            response: {
+                authenticatorData: btoa(String.fromCharCode(...new Uint8Array(assertion.response.authenticatorData))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''),
+                clientDataJSON: btoa(String.fromCharCode(...new Uint8Array(assertion.response.clientDataJSON))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''),
+                signature: btoa(String.fromCharCode(...new Uint8Array(assertion.response.signature))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''),
+                userHandle: assertion.response.userHandle ? btoa(String.fromCharCode(...new Uint8Array(assertion.response.userHandle))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '') : null
+            }
+        };
+
+        const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]').value;
+        const verifyRes = await fetch('/auth/passkeys/auth/verify/', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': csrfToken
+            },
+            body: JSON.stringify({ credential: credentialJSON, employee_id: empInput })
+        });
+        const result = await verifyRes.json();
+        if (result.success && result.redirect_url) {
+            window.location.href = result.redirect_url;
+        } else {
+            throw new Error(result.error || 'Passkey verification failed.');
+        }
+    } catch (err) {
+        msg.textContent = err.message || 'Passkey authentication failed.';
+        msg.style.display = 'block';
+    }
+});
+</script>
 {% endblock %}

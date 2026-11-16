@@ -140,76 +140,71 @@ def verify_totp_code(
 ) -> bool:
     """
     Verify 6-digit code string against user's encrypted secret.
-    Enforces atomic replay protection under select_for_update() and logs audit events.
+    Enforces replay protection and logs audit events.
+    Accommodates clock skew between mobile devices and computer (window=4).
     """
-    kr = key_ring or get_auth_key_ring()
+    cred = TOTPCredential.objects.filter(user=user).first()
+    if not cred:
+        raise AuthException("AUTH-MFA-001", step="verify_totp", employee_id=user.employee_id)
 
+    if not allow_unconfirmed and cred.confirmed_at is None:
+        raise AuthException("AUTH-MFA-006", step="verify_totp", employee_id=user.employee_id)
+
+    kr = key_ring or get_auth_key_ring()
+    secret = decrypt_secret(cred.encrypted_secret, cred.nonce, cred.key_id, kr)
+
+    totp = pyotp.TOTP(secret, interval=30, digits=6)
+    cleaned_code = code_str.strip().replace(" ", "")
+
+    current_time = time.time()
+    current_step = int(current_time) // 30
+
+    # Verification window: allow ±4 steps (±120s) to comfortably absorb mobile vs PC clock differences
+    window = 4
+    is_valid = totp.verify(cleaned_code, for_time=current_time, valid_window=window)
+
+    if not is_valid:
+        log_auth_event(
+            event="totp_invalid",
+            code="AUTH-MFA-002",
+            step="verify_totp",
+            employee_id=user.employee_id,
+            message="Submitted TOTP code does not match",
+        )
+        raise AuthException("AUTH-MFA-002", step="verify_totp", employee_id=user.employee_id)
+
+    # Replay protection: identify which step matched
+    matched_step = None
+    offsets = [0]
+    for i in range(1, window + 1):
+        offsets.extend([-i, i])
+
+    for step_offset in offsets:
+        test_step = current_step + step_offset
+        if totp.generate_otp(test_step) == cleaned_code:
+            matched_step = test_step
+            break
+
+    # Replay protection & state update: atomic under pessimistic row lock
     with transaction.atomic():
-        cred = TOTPCredential.objects.select_for_update().filter(user=user).first()
-        if not cred:
+        locked_cred = TOTPCredential.objects.select_for_update().filter(user=user).first()
+        if not locked_cred:
             raise AuthException("AUTH-MFA-001", step="verify_totp", employee_id=user.employee_id)
 
-        if not allow_unconfirmed and cred.confirmed_at is None:
-            raise AuthException("AUTH-MFA-006", step="verify_totp", employee_id=user.employee_id)
-
-        secret = decrypt_secret(cred.encrypted_secret, cred.nonce, cred.key_id, kr)
-
-        totp = pyotp.TOTP(secret, interval=30, digits=6)
-        cleaned_code = code_str.strip().replace(" ", "")
-
-        current_time = time.time()
-        current_step = int(current_time) // 30
-
-        # Verification with ±1 step window (tolerates ±30s clock drift)
-        is_valid = totp.verify(cleaned_code, for_time=current_time, valid_window=1)
-
-        if not is_valid:
-            # Check if code is valid under larger window to distinguish clock drift
-            if totp.verify(cleaned_code, for_time=current_time, valid_window=3):
-                log_auth_event(
-                    event="totp_clock_drift",
-                    code="AUTH-MFA-004",
-                    step="verify_totp",
-                    employee_id=user.employee_id,
-                    message="Code valid only under extended drift window",
-                )
-                raise AuthException(
-                    "AUTH-MFA-004", step="verify_totp", employee_id=user.employee_id
-                )
-
-            log_auth_event(
-                event="totp_invalid",
-                code="AUTH-MFA-002",
-                step="verify_totp",
-                employee_id=user.employee_id,
-                message="Submitted TOTP code does not match",
-            )
-            raise AuthException("AUTH-MFA-002", step="verify_totp", employee_id=user.employee_id)
-
-        # Replay protection: verify step hasn't already been consumed
-        # Identify which step matched
-        matched_step = None
-        for step_offset in (0, -1, 1):
-            test_step = current_step + step_offset
-            if totp.generate_otp(test_step) == cleaned_code:
-                matched_step = test_step
-                break
-
-        if matched_step is not None and matched_step <= cred.last_used_step:
+        if matched_step is not None and matched_step <= locked_cred.last_used_step:
             log_auth_event(
                 event="totp_replay_rejected",
                 code="AUTH-MFA-003",
                 step="verify_totp",
                 employee_id=user.employee_id,
-                message=f"Replay detected: step {matched_step} <= {cred.last_used_step}",
+                message=f"Replay detected: step {matched_step} <= {locked_cred.last_used_step}",
             )
             raise AuthException("AUTH-MFA-003", step="verify_totp", employee_id=user.employee_id)
 
-        # SUCCESS: Update last_used_step and confirmed_at if enrolling
-        cred.last_used_step = matched_step or current_step
-        if cred.confirmed_at is None:
-            cred.confirmed_at = timezone.now()
-        cred.save(update_fields=["last_used_step", "confirmed_at"])
+        locked_cred.last_used_step = matched_step or current_step
+        if locked_cred.confirmed_at is None:
+            locked_cred.confirmed_at = timezone.now()
+        locked_cred.save(update_fields=["last_used_step", "confirmed_at"])
 
         log_auth_event(
             event="totp_verified",

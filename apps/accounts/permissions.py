@@ -40,6 +40,9 @@ PERM_CERTIFICATE_REVOKE = "certificates.cert.revoke"
 PERM_SETTINGS_MANAGE = "core.settings.manage"
 PERM_AUDIT_VIEW = "core.audit.view"
 
+PERM_RECOVERY_DELEGATED = "accounts.recovery.delegated"
+PERM_RECOVERY_ADMIN = "accounts.recovery.admin"
+
 # ------------------------------------------------------------------------------
 # 2. ROLE TO PERMISSION MATRIX (DEFAULT-DENY)
 # ------------------------------------------------------------------------------
@@ -65,6 +68,8 @@ ROLE_PERMISSIONS: dict[str, set[str]] = {
         PERM_CERTIFICATE_REVOKE,
         PERM_SETTINGS_MANAGE,
         PERM_AUDIT_VIEW,
+        PERM_RECOVERY_DELEGATED,
+        PERM_RECOVERY_ADMIN,
     },
     CustomUser.Role.ADMIN: {
         PERM_USER_VIEW,
@@ -86,6 +91,19 @@ ROLE_PERMISSIONS: dict[str, set[str]] = {
         PERM_CERTIFICATE_REVOKE,
         PERM_SETTINGS_MANAGE,
         PERM_AUDIT_VIEW,
+        PERM_RECOVERY_DELEGATED,
+        PERM_RECOVERY_ADMIN,
+    },
+    CustomUser.Role.HR: {
+        PERM_USER_VIEW,
+        PERM_USER_CREATE,
+        PERM_USER_EDIT,
+        PERM_TEAM_VIEW,
+        PERM_ATTENDANCE_VIEW_SELF,
+        PERM_ATTENDANCE_VIEW_ALL,
+        PERM_POST_CREATE,
+        PERM_POST_VIEW_ALL,
+        PERM_RECOVERY_DELEGATED,
     },
     CustomUser.Role.MANAGER: {
         PERM_USER_VIEW,
@@ -95,6 +113,7 @@ ROLE_PERMISSIONS: dict[str, set[str]] = {
         PERM_ATTENDANCE_APPROVE,
         PERM_POST_CREATE,
         PERM_POST_VIEW_TEAM,
+        PERM_RECOVERY_DELEGATED,
     },
     CustomUser.Role.EMPLOYEE: {
         PERM_USER_VIEW,

@@ -4,12 +4,12 @@ from apps.accounts.auth.diagnostics import run_auth_doctor_checks
 
 
 class Command(BaseCommand):
-    help = "Runs complete 8-point automated authentication and cryptography self-test."
+    help = "Runs complete 12-point automated authentication, cryptography, and security self-test."
 
     def handle(self, *args, **options):
-        self.stdout.write("=" * 65)
+        self.stdout.write("=" * 68)
         self.stdout.write("SALOW WORKSPACE — AUTH DOCTOR SYSTEM DIAGNOSTICS")
-        self.stdout.write("=" * 65)
+        self.stdout.write("=" * 68)
 
         results = run_auth_doctor_checks()
         all_passed = True
@@ -21,12 +21,16 @@ class Command(BaseCommand):
                 status_str = self.style.ERROR("[FAIL]")
                 all_passed = False
 
-            self.stdout.write(f"{status_str} {res.name:<28} : {res.details}")
+            self.stdout.write(f"{status_str} {res.name:<30} : {res.details}")
+            if not res.passed and res.remediation:
+                self.stdout.write(self.style.WARNING(f"       -> Remediation: {res.remediation}"))
 
-        self.stdout.write("=" * 65)
+        self.stdout.write("=" * 68)
         if all_passed:
             self.stdout.write(
-                self.style.SUCCESS("[OK] All 8 authentication subsystems are healthy.")
+                self.style.SUCCESS(
+                    f"[OK] All {len(results)} authentication subsystems are healthy."
+                )
             )
         else:
             self.stdout.write(

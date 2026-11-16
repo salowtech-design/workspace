@@ -12,9 +12,26 @@ from apps.accounts.views.login import (
     logout_view,
     mfa_challenge_view,
 )
+from apps.accounts.views.passkeys import (
+    passkey_auth_options_view,
+    passkey_auth_verify_view,
+    passkey_delete_view,
+    passkey_register_options_view,
+    passkey_register_verify_view,
+)
+from apps.accounts.views.recovery import (
+    admin_recovery_console_view,
+    forgot_password_view,
+)
 from apps.accounts.views.security import (
+    change_password_view,
     console_auth_events_view,
+    get_draft_view,
+    idle_lock_view,
+    idle_unlock_view,
+    save_draft_view,
     security_dashboard_view,
+    terminate_all_other_sessions_view,
     terminate_session_view,
 )
 
@@ -35,13 +52,53 @@ urlpatterns = [
         activate_recovery_codes_view,
         name="activate_recovery_codes",
     ),
-    # Security & Session Management
+    # Password Recovery & Delegated Recovery
+    path("recovery/forgot-password/", forgot_password_view, name="forgot_password"),
+    path("recovery/console/", admin_recovery_console_view, name="admin_recovery_console"),
+    # Passkeys (WebAuthn / FIDO2)
+    path(
+        "passkeys/register/options/",
+        passkey_register_options_view,
+        name="passkey_register_options",
+    ),
+    path(
+        "passkeys/register/verify/",
+        passkey_register_verify_view,
+        name="passkey_register_verify",
+    ),
+    path(
+        "passkeys/auth/options/",
+        passkey_auth_options_view,
+        name="passkey_auth_options",
+    ),
+    path(
+        "passkeys/auth/verify/",
+        passkey_auth_verify_view,
+        name="passkey_auth_verify",
+    ),
+    path(
+        "passkeys/<int:passkey_id>/delete/",
+        passkey_delete_view,
+        name="passkey_delete",
+    ),
+    # Security, Password & Session Management
     path("security/", security_dashboard_view, name="security"),
+    path("security/password/change/", change_password_view, name="change_password"),
     path(
         "security/sessions/<str:session_key>/terminate/",
         terminate_session_view,
         name="terminate_session",
     ),
+    path(
+        "security/sessions/terminate-all-others/",
+        terminate_all_other_sessions_view,
+        name="terminate_all_other_sessions",
+    ),
+    # Idle Lock & Draft Persistence
+    path("security/idle-lock/", idle_lock_view, name="idle_lock"),
+    path("security/idle-unlock/", idle_unlock_view, name="idle_unlock"),
+    path("security/draft/save/", save_draft_view, name="save_draft"),
+    path("security/draft/get/", get_draft_view, name="get_draft"),
     # Admin Audit Console
     path("console/auth-events/", console_auth_events_view, name="console_auth_events"),
 ]

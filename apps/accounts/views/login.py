@@ -5,6 +5,9 @@ Mandatory flow:
 STRICT REQUIREMENT: The MFA challenge page must NOT display a QR code.
 """
 
+import time
+
+from django.contrib import messages
 from django.http import HttpResponseNotAllowed
 from django.shortcuts import redirect, render
 from django.utils.http import url_has_allowed_host_and_scheme
@@ -18,7 +21,11 @@ from apps.accounts.auth.sessions import revoke_user_sessions
 from apps.accounts.models import CustomUser, TOTPCredential
 
 PENDING_LOGIN_USER_ID_KEY = "_salow_login_pending_uid"
+PENDING_LOGIN_TS_KEY = "_salow_login_pending_ts"
+PENDING_LOGIN_ATTEMPTS_KEY = "_salow_login_pending_attempts"
 LOGIN_NEXT_URL_KEY = "_salow_login_next_url"
+PREAUTH_TIMEOUT_SECONDS = 300  # 5 minutes
+PREAUTH_MAX_ATTEMPTS = 5
 
 
 def login_view(request):
@@ -45,6 +52,8 @@ def login_view(request):
                 return redirect("accounts:activate_mfa_setup")
 
             request.session[PENDING_LOGIN_USER_ID_KEY] = user.id
+            request.session[PENDING_LOGIN_TS_KEY] = time.time()
+            request.session[PENDING_LOGIN_ATTEMPTS_KEY] = 0
             request.session[LOGIN_NEXT_URL_KEY] = redirect_to
             return redirect("accounts:mfa_challenge")
         except AuthException as e:
@@ -57,18 +66,52 @@ def login_view(request):
     )
 
 
-def mfa_challenge_view(request):
+def mfa_challenge_view(request):  # noqa: C901
     """
     Step 2 of everyday login: 6-digit authenticator challenge or recovery code.
     Strictly NO QR CODE is rendered on this page.
+    Enforces pre-authentication timeout (5m) and max failed attempt threshold.
     """
     pending_uid = request.session.get(PENDING_LOGIN_USER_ID_KEY)
+    pending_ts = request.session.get(PENDING_LOGIN_TS_KEY)
+    attempts = request.session.get(PENDING_LOGIN_ATTEMPTS_KEY, 0)
+
     if not pending_uid:
+        return redirect("accounts:login")
+
+    # Enforce pre-auth timeout
+    if pending_ts and (time.time() - pending_ts > PREAUTH_TIMEOUT_SECONDS):
+        for key in (
+            PENDING_LOGIN_USER_ID_KEY,
+            PENDING_LOGIN_TS_KEY,
+            PENDING_LOGIN_ATTEMPTS_KEY,
+            LOGIN_NEXT_URL_KEY,
+        ):
+            request.session.pop(key, None)
+        messages.error(request, "Your login verification session expired. Please sign in again.")
+        return redirect("accounts:login")
+
+    # Enforce max pre-auth attempts
+    if attempts >= PREAUTH_MAX_ATTEMPTS:
+        for key in (
+            PENDING_LOGIN_USER_ID_KEY,
+            PENDING_LOGIN_TS_KEY,
+            PENDING_LOGIN_ATTEMPTS_KEY,
+            LOGIN_NEXT_URL_KEY,
+        ):
+            request.session.pop(key, None)
+        messages.error(request, "Too many failed verification attempts. Please sign in again.")
         return redirect("accounts:login")
 
     user = CustomUser.objects.filter(id=pending_uid, is_active=True).first()
     if not user:
-        request.session.pop(PENDING_LOGIN_USER_ID_KEY, None)
+        for key in (
+            PENDING_LOGIN_USER_ID_KEY,
+            PENDING_LOGIN_TS_KEY,
+            PENDING_LOGIN_ATTEMPTS_KEY,
+            LOGIN_NEXT_URL_KEY,
+        ):
+            request.session.pop(key, None)
         return redirect("accounts:login")
 
     error = None
@@ -88,7 +131,12 @@ def mfa_challenge_view(request):
 
             if not error:
                 next_url = request.session.pop(LOGIN_NEXT_URL_KEY, "")
-                request.session.pop(PENDING_LOGIN_USER_ID_KEY, None)
+                for key in (
+                    PENDING_LOGIN_USER_ID_KEY,
+                    PENDING_LOGIN_TS_KEY,
+                    PENDING_LOGIN_ATTEMPTS_KEY,
+                ):
+                    request.session.pop(key, None)
                 if next_url and url_has_allowed_host_and_scheme(
                     url=next_url,
                     allowed_hosts={request.get_host()},
@@ -97,6 +145,7 @@ def mfa_challenge_view(request):
                     return redirect(next_url)
                 return redirect("attendance:panel")
         except AuthException as e:
+            request.session[PENDING_LOGIN_ATTEMPTS_KEY] = attempts + 1
             error = e.user_message
 
     return render(

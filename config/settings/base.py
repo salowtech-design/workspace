@@ -107,6 +107,13 @@ STATIC_ROOT = BASE_DIR / "staticfiles"
 # Default primary key field type
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
+# Session & Cookie Security Defaults
+SESSION_COOKIE_HTTPONLY = True
+SESSION_COOKIE_SAMESITE = "Lax"
+SESSION_COOKIE_AGE = 28800  # 8 hours absolute lifetime (Part 9.2)
+CSRF_COOKIE_HTTPONLY = True
+CSRF_COOKIE_SAMESITE = "Lax"
+
 # Login & Logout redirection targets
 LOGIN_URL = "/auth/login/"
 LOGIN_REDIRECT_URL = "/attendance/"

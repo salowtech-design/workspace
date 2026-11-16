@@ -1,0 +1,84 @@
+{% extends "base.html" %}
+
+{% block title %}Account Recovery Console — Salowtech Workspace{% endblock %}
+
+{% block content %}
+<div class="card" style="max-width: 780px; margin: 2rem auto;">
+    <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 1.5rem; border-bottom: 1px solid var(--color-border-subtle); padding-bottom: 1rem;">
+        <div>
+            <h2 style="margin: 0; font-size: 1.5rem; color: var(--color-primary-600);">Account Recovery Console</h2>
+            <p style="color: var(--color-text-muted); font-size: 0.9rem; margin-top: 0.25rem;">
+                Authorized delegated recovery authority: <strong>{{ actor.get_role_display }}</strong> ({{ actor.employee_id }})
+            </p>
+        </div>
+        <span class="badge" style="background: var(--color-primary-100); color: var(--color-primary-800); font-weight: 600; padding: 0.35rem 0.75rem; border-radius: 4px;">
+            Audited Operation
+        </span>
+    </div>
+
+    {% if error %}
+    <div class="alert alert-danger" style="margin-bottom: 1.5rem;">
+        {{ error }}
+    </div>
+    {% endif %}
+
+    {% if issued_token %}
+    <div class="alert alert-success" style="margin-bottom: 1.5rem; border-left: 4px solid var(--color-success);">
+        <h4 style="margin: 0 0 0.5rem 0; color: var(--color-success);">Single-Use Recovery Token Generated</h4>
+        <p style="margin: 0 0 0.75rem 0; font-size: 0.9rem;">
+            Provide this one-time code to <strong>{{ issued_for.employee_id }} ({{ issued_for.full_name }})</strong>.
+            This secret is displayed <strong>only once</strong> and expires in 48 hours.
+        </p>
+        <div style="background: #ffffff; padding: 0.75rem 1rem; border: 1px dashed var(--color-border); border-radius: 4px; display: flex; align-items: center; justify-content: space-between;">
+            <code style="font-size: 1.4rem; font-weight: 700; letter-spacing: 0.1em; color: var(--color-primary-800);" id="issued-token-text">{{ issued_token }}</code>
+            <button type="button" class="btn btn-secondary" onclick="navigator.clipboard.writeText('{{ issued_token }}'); this.textContent = 'Copied!';" style="font-size: 0.85rem; padding: 0.4rem 0.8rem;">
+                Copy Code
+            </button>
+        </div>
+    </div>
+    {% endif %}
+
+    <div style="background: var(--color-bg-surface-secondary); padding: 1.25rem; border-radius: 6px; margin-bottom: 1.5rem; border: 1px solid var(--color-border-subtle);">
+        <h4 style="margin: 0 0 0.5rem 0; font-size: 1rem; color: var(--color-text-main);">Delegated Recovery Policy</h4>
+        <ul style="margin: 0; padding-left: 1.25rem; font-size: 0.85rem; color: var(--color-text-muted); line-height: 1.5;">
+            <li><strong>Super Admin:</strong> Can recover any account. Resetting another Super Admin requires a second Super Admin's co-approval.</li>
+            <li><strong>Admin:</strong> Can recover Employee, Intern, HR, and Manager accounts. Resetting an Admin requires a second Admin's approval. Cannot reset Super Admins.</li>
+            <li><strong>HR / Manager:</strong> Can recover Employee and Intern accounts within approved departmental or reporting scope.</li>
+            <li>All issued tokens, identities, and verification reasons are permanently logged in the security audit journal.</li>
+        </ul>
+    </div>
+
+    <form method="post" class="space-y-4">
+        {% csrf_token %}
+
+        <div class="form-group">
+            <label for="target_employee_id" class="form-label">Target Employee ID</label>
+            <input type="text" id="target_employee_id" name="target_employee_id" class="form-input" placeholder="e.g. ST-EMP-1001" list="manageable-list" required autofocus>
+            <datalist id="manageable-list">
+                {% for u in manageable_users %}
+                <option value="{{ u.employee_id }}">{{ u.full_name }} ({{ u.get_role_display }})</option>
+                {% endfor %}
+            </datalist>
+            <p style="font-size: 0.78rem; color: var(--color-text-muted); margin-top: 0.25rem;">
+                Only accounts within your administrative or team scope will be authorized.
+            </p>
+        </div>
+
+        {% if actor.role in 'super_admin admin' %}
+        <div class="form-group">
+            <label for="approver_employee_id" class="form-label">Co-Approving Administrator ID (Required for Privileged Admin Recovery)</label>
+            <input type="text" id="approver_employee_id" name="approver_employee_id" class="form-input" placeholder="e.g. ST-ADM-0002 (Required if target is Admin/Super Admin)">
+        </div>
+        {% endif %}
+
+        <div class="form-group">
+            <label for="reason" class="form-label">Identity Verification & Recovery Reason</label>
+            <textarea id="reason" name="reason" class="form-input" rows="3" placeholder="Describe the physical/verified identity proof procedure performed prior to initiating recovery..." required></textarea>
+        </div>
+
+        <button type="submit" class="btn btn-primary" style="padding: 0.75rem 1.5rem; font-size: 0.95rem;">
+            Authorize & Issue Recovery Token →
+        </button>
+    </form>
+</div>
+{% endblock %}

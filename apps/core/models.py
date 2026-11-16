@@ -116,3 +116,25 @@ class FeatureFlag(models.Model):
     def __str__(self):
         status = "ON" if self.is_enabled else "OFF"
         return f"Flag {self.name} [{status}]"
+
+
+class RateLimitRecord(models.Model):
+    """
+    Centralized, distributed-safe sliding window rate limit log.
+    Ensures abuse protection is coordinated across all worker processes and nodes via TiDB.
+    """
+
+    key = models.CharField(max_length=128, db_index=True)
+    timestamp = models.FloatField(db_index=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-timestamp"]
+        verbose_name = "Rate Limit Record"
+        verbose_name_plural = "Rate Limit Records"
+        indexes = [
+            models.Index(fields=["key", "timestamp"]),
+        ]
+
+    def __str__(self):
+        return f"RateLimitRecord for {self.key} at {self.timestamp}"

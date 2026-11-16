@@ -269,3 +269,52 @@ class UserSession(models.Model):
     def __str__(self):
         emp_id = self.user.employee_id
         return f"Session {self.session_key[:8]}... for {emp_id} (MFA={self.mfa_verified})"
+
+
+class PasskeyCredential(models.Model):
+    """
+    W3C WebAuthn / FIDO2 Passkey Credential.
+    Stores public key, credential ID, signature counter, and authenticator metadata.
+    Private keys remain securely within the client's authenticator.
+    """
+
+    user = models.ForeignKey(CustomUser, on_delete=models.CASCADE, related_name="passkeys")
+    credential_id = models.CharField(max_length=255, unique=True, db_index=True)
+    public_key = models.BinaryField()
+    sign_count = models.BigIntegerField(default=0)
+    display_name = models.CharField(max_length=128, default="Passkey")
+    aaguid = models.CharField(max_length=64, blank=True, default="")
+    created_at = models.DateTimeField(auto_now_add=True)
+    last_used_at = models.DateTimeField(null=True, blank=True)
+    is_active = models.BooleanField(default=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        verbose_name = "Passkey Credential"
+        verbose_name_plural = "Passkey Credentials"
+
+    def __str__(self):
+        return f"{self.display_name} ({self.credential_id[:16]}...) for {self.user.employee_id}"
+
+
+class WorkspaceDraft(models.Model):
+    """
+    Server-side draft persistence for work-in-progress across session lock/resume.
+    Safely stores unsaved client-side work across idle expirations and re-authentications.
+    """
+
+    user = models.ForeignKey(CustomUser, on_delete=models.CASCADE, related_name="workspace_drafts")
+    path = models.CharField(max_length=255, db_index=True)
+    draft_data = models.JSONField(default=dict)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-updated_at"]
+        verbose_name = "Workspace Draft"
+        verbose_name_plural = "Workspace Drafts"
+        constraints = [
+            models.UniqueConstraint(fields=["user", "path"], name="unique_user_path_draft")
+        ]
+
+    def __str__(self):
+        return f"Draft for {self.user.employee_id} at {self.path}"
