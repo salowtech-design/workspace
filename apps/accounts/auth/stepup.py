@@ -92,6 +92,23 @@ def elevate_sudo(target_user_or_request) -> None:
     grant_sudo(target_user_or_request)
 
 
+def revoke_sudo(request_or_user, user: Optional[CustomUser] = None) -> None:
+    """Revoke active sudo authorization for session and/or user."""
+    target_user = user
+
+    if isinstance(request_or_user, CustomUser):
+        target_user = request_or_user
+        _USER_SUDO_CACHE.pop(target_user.id, None)
+    else:
+        request = request_or_user
+        if hasattr(request, "session"):
+            request.session.pop(SUDO_GRANTED_TIMESTAMP_KEY, None)
+        if not target_user and hasattr(request, "user"):
+            target_user = request.user
+        if target_user and getattr(target_user, "is_authenticated", False):
+            _USER_SUDO_CACHE.pop(target_user.id, None)
+
+
 def verify_stepup(request, password: str, totp_code: str = None) -> bool:
     """
     Authenticate user for step-up elevation.

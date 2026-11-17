@@ -65,6 +65,10 @@ def revoke_user_sessions(user: CustomUser, keep_session_key: str = None) -> int:
     if keys_to_purge:
         Session.objects.filter(session_key__in=keys_to_purge).delete()
 
+    from apps.accounts.auth.stepup import _USER_SUDO_CACHE
+
+    _USER_SUDO_CACHE.pop(user.id, None)
+
     log_auth_event(
         event="sessions_revoked",
         code="INFO",

@@ -31,6 +31,15 @@ from apps.accounts.models import (
     RecoveryRequest,
     TOTPCredential,
 )
+from apps.core.middleware import RateLimitMiddleware
+
+
+@pytest.fixture(autouse=True)
+def reset_rate_limits():
+    """Reset rate limiter state before every test to prevent cross-test 429 throttling."""
+    RateLimitMiddleware.reset()
+    yield
+    RateLimitMiddleware.reset()
 
 
 @pytest.fixture
@@ -486,3 +495,98 @@ def test_security_shield_verification_and_sudo_elevation(client, test_users):
     assert "SHIELD ACTIVE" in html
     assert "Verification Latency Telemetry" in html
     assert "RBAC Evaluation" in html
+
+
+@pytest.mark.django_db
+def test_admin_credential_invalidation_and_re_enrollment_redirect(client, test_users):
+    """
+    When administrator TOTP credential is invalidated due to exposure,
+    login flow detects missing MFA and redirects user to MFA enrollment setup.
+    """
+    admin = test_users["super_admin"]
+    # Ensure no TOTP or recovery codes exist
+    TOTPCredential.objects.filter(user=admin).delete()
+    RecoveryCode.objects.filter(user=admin).delete()
+
+    resp = client.post(
+        reverse("accounts:login"),
+        {
+            "flow": "signin",
+            "employee_id": admin.employee_id,
+            "password": "AdminSecurePassword123!@#",
+        },
+    )
+    # Must redirect to MFA setup
+    assert resp.status_code == 302
+    assert resp.url == reverse("accounts:activate_mfa_setup")
+    assert client.session.get("_salow_act_user_id") == admin.id
+
+
+@pytest.mark.django_db
+def test_revoke_user_sessions_clears_sudo_elevation(client, test_users):
+    """Revoking user sessions also purges sudo cache and active elevation."""
+    from apps.accounts.auth.sessions import revoke_user_sessions
+    from apps.accounts.auth.stepup import _USER_SUDO_CACHE, grant_sudo, is_sudo_active
+
+    admin = test_users["super_admin"]
+    grant_sudo(admin)
+    assert is_sudo_active(admin) is True
+
+    # Revoke sessions
+    revoke_user_sessions(admin)
+
+    # Sudo cache must be purged
+    assert is_sudo_active(admin) is False
+    assert admin.id not in _USER_SUDO_CACHE
+
+
+@pytest.mark.django_db
+def test_dedicated_synthetic_staging_admin_automation(client):
+    """
+    Dedicated synthetic staging administrator STAGE-ADM-0001
+    has valid credentials, TOTP, and recovery codes ready for test automation.
+    """
+    stage_adm = CustomUser.objects.create(
+        employee_id="STAGE-ADM-0001",
+        full_name="Synthetic Staging Admin",
+        email="staging.admin@salowtech.com",
+        email_verified=True,
+        role=CustomUser.Role.SUPER_ADMIN,
+        status=CustomUser.Status.ACTIVE,
+        is_staff=True,
+        is_superuser=True,
+    )
+    stage_adm.set_password("StageAdminPass2026!@#")
+    stage_adm.save()
+
+    # Provision TOTP
+    secret = pyotp.random_base32(length=32)
+    ciphertext, nonce, key_id = encrypt_secret(secret, get_auth_key_ring())
+    TOTPCredential.objects.create(
+        user=stage_adm,
+        encrypted_secret=ciphertext,
+        nonce=nonce,
+        key_id=key_id,
+        confirmed_at=timezone.now(),
+    )
+    codes = generate_ten_recovery_codes(stage_adm)
+    assert len(codes) == 10
+
+    # Single-screen sign-in with password + TOTP
+    totp_valid = pyotp.TOTP(secret).now()
+    resp = client.post(
+        reverse("accounts:login"),
+        {
+            "flow": "signin",
+            "employee_id": "STAGE-ADM-0001",
+            "password": "StageAdminPass2026!@#",
+            "totp_code": totp_valid,
+        },
+    )
+    assert resp.status_code == 302
+    assert resp.url == reverse("attendance:panel")
+
+    # Verify session active
+    resp_panel = client.get(reverse("attendance:panel"))
+    assert resp_panel.status_code == 200
+    assert "Synthetic Staging Admin" in resp_panel.content.decode()
