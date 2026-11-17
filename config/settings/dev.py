@@ -7,6 +7,7 @@ import os
 import certifi
 
 from .base import *  # noqa: F403
+from .base import BASE_DIR
 
 DEBUG = True
 SECRET_KEY = os.environ.get(

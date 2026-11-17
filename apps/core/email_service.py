@@ -1,0 +1,393 @@
+"""
+Transactional Email & Notification Service for Salow Workspace IAM.
+Provides reliable, provider-neutral notification delivery via a database outbox.
+Includes envelope encryption for sensitive payload data (tokens/links),
+delivery status tracking, idempotent processing, and exponential backoff retry.
+"""
+
+import json
+import logging
+import os
+from typing import Optional
+
+from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+from django.conf import settings
+from django.core.mail import EmailMultiAlternatives
+from django.db import transaction
+from django.utils import timezone
+
+from apps.accounts.auth.audit import log_auth_event
+from apps.accounts.auth.config import get_biometric_key_ring_dict
+from apps.core.models import EmailOutbox
+
+logger = logging.getLogger(__name__)
+
+
+def _get_encryption_key() -> tuple[bytes, str]:
+    """Retrieve active 256-bit AES key for outbox payload encryption."""
+    keys = get_biometric_key_ring_dict()
+    key_id = "k1"
+    key = keys.get(key_id)
+    if not key:
+        # Fallback 256-bit key
+        import hashlib
+
+        key = hashlib.sha256(b"SalowWorkspaceEmailPayloadDefaultKey2026").digest()
+    return key, key_id
+
+
+def encrypt_payload(data_dict: dict) -> tuple[bytes, bytes, str]:
+    """Encrypt payload data dictionary using AES-256-GCM."""
+    key, key_id = _get_encryption_key()
+    nonce = os.urandom(12)
+    aesgcm = AESGCM(key)
+    plaintext = json.dumps(data_dict).encode("utf-8")
+    ciphertext = aesgcm.encrypt(nonce, plaintext, associated_data=key_id.encode("utf-8"))
+    return ciphertext, nonce, key_id
+
+
+def decrypt_payload(ciphertext: bytes, nonce: bytes, key_id: str) -> dict:
+    """Decrypt payload data dictionary using AES-256-GCM."""
+    keys = get_biometric_key_ring_dict()
+    key = keys.get(key_id)
+    if not key:
+        import hashlib
+
+        key = hashlib.sha256(b"SalowWorkspaceEmailPayloadDefaultKey2026").digest()
+    aesgcm = AESGCM(key)
+    plaintext = aesgcm.decrypt(nonce, ciphertext, associated_data=key_id.encode("utf-8"))
+    return json.loads(plaintext.decode("utf-8"))
+
+
+def queue_email(
+    recipient: str,
+    subject: str,
+    body_text: str,
+    body_html: str = "",
+    notification_type: str = "general",
+    sensitive_payload: Optional[dict] = None,
+) -> EmailOutbox:
+    """
+    Queue an email notification in the transactional outbox.
+    Must be called within an atomic transaction alongside IAM business operations.
+    If sensitive_payload is provided, it is encrypted via AES-256-GCM before insert.
+    """
+    if not recipient:
+        raise ValueError("Recipient email is required to queue email notification.")
+
+    enc_payload = None
+    payload_nonce = None
+    payload_key_id = ""
+
+    if sensitive_payload:
+        enc_payload, payload_nonce, payload_key_id = encrypt_payload(sensitive_payload)
+
+    outbox_record = EmailOutbox.objects.create(
+        recipient=recipient.strip().lower(),
+        subject=subject.strip(),
+        body_text=body_text.strip(),
+        body_html=body_html.strip() if body_html else "",
+        notification_type=notification_type,
+        status=EmailOutbox.Status.QUEUED,
+        encrypted_payload=enc_payload,
+        payload_nonce=payload_nonce,
+        payload_key_id=payload_key_id,
+    )
+
+    log_auth_event(
+        event="email_queued_in_outbox",
+        code="INFO",
+        step="queue_email",
+        employee_id="",
+        reference_id=str(outbox_record.id),
+        message=f"Queued {notification_type} email to {recipient} (subject: {subject})",
+    )
+
+    return outbox_record
+
+
+# ---------------------------------------------------------------------------
+# High-Level IAM Notification Dispatchers
+# ---------------------------------------------------------------------------
+
+
+def notify_admin_reset_requested(
+    employee_id: str, admin_email: str, employee_email: Optional[str] = None
+):
+    """Event: Administrator password reset requested. Notify admins and optional neutral employee ack."""
+    subject = f"[Salow Tech Security] Administrator Password Reset Requested: {employee_id}"
+    body = (
+        f"A password reset request has been submitted for Employee ID: {employee_id}.\n"
+        f"Please log in to the Salow Admin Recovery Console to review, approve, or reject this request.\n\n"
+        f"Security Notice: Do not share approval links over email or unverified channels."
+    )
+    queue_email(
+        recipient=admin_email,
+        subject=subject,
+        body_text=body,
+        notification_type="admin_reset_requested",
+    )
+
+    if employee_email:
+        ack_subject = "[Salow Tech IAM] Password Recovery Request Received"
+        ack_body = (
+            f"Hello,\n\nA password recovery request was received for Employee ID {employee_id}.\n"
+            f"If this was you, an administrator will review your request shortly.\n"
+            f"If you did not make this request, please contact Salow IT Security immediately.\n"
+        )
+        queue_email(
+            recipient=employee_email,
+            subject=ack_subject,
+            body_text=ack_body,
+            notification_type="admin_reset_ack",
+        )
+
+
+def notify_admin_reset_approved(employee_id: str, employee_email: str, reset_url: str):
+    """Event: Administrator approves password reset. Send password-reset link to verified employee email."""
+    subject = "[Salow Tech IAM] Password Reset Approved by Administrator"
+    body = (
+        f"Hello,\n\nYour administrator has approved your password reset request for {employee_id}.\n"
+        f"Please click the link below to set your new password:\n\n"
+        f"{reset_url}\n\n"
+        f"This link is single-use and will expire in 15 minutes.\n"
+        f"Salow Tech Security Team"
+    )
+    queue_email(
+        recipient=employee_email,
+        subject=subject,
+        body_text=body,
+        notification_type="admin_reset_approved",
+        sensitive_payload={"reset_url": reset_url, "employee_id": employee_id},
+    )
+
+
+def notify_admin_reset_rejected(employee_id: str, employee_email: str, reason: str = ""):
+    """Event: Administrator rejects password reset."""
+    subject = "[Salow Tech IAM] Password Recovery Request Update"
+    body = (
+        f"Hello,\n\nYour password reset request for {employee_id} could not be approved by an administrator.\n"
+        f"Reason: {reason or 'Verification requirements not met.'}\n\n"
+        f"Please contact your IT administrator or manager for assistance.\n"
+        f"Salow Tech Security Team"
+    )
+    queue_email(
+        recipient=employee_email,
+        subject=subject,
+        body_text=body,
+        notification_type="admin_reset_rejected",
+    )
+
+
+def notify_password_changed(employee_id: str, employee_email: str, method: str):
+    """Event: Password changed successfully (via recovery code, TOTP, email, or admin)."""
+    subject = "[Salow Tech Security Alert] Password Successfully Updated"
+    body = (
+        f"Hello,\n\nThe password for Employee ID {employee_id} was successfully changed via {method}.\n"
+        f"All prior active sessions have been invalidated.\n\n"
+        f"If you did not perform this action, contact Salow Tech Security immediately.\n"
+        f"Salow Tech Security Team"
+    )
+    queue_email(
+        recipient=employee_email,
+        subject=subject,
+        body_text=body,
+        notification_type="password_changed",
+    )
+
+
+def notify_email_reset_link_requested(employee_id: str, employee_email: str, reset_url: str):
+    """Event: Email password-reset link requested (Method 2 Route C)."""
+    subject = "[Salow Tech IAM] Password Reset Link"
+    body = (
+        f"Hello,\n\nA request was received to reset your Salow Workspace password for {employee_id}.\n"
+        f"Click the link below to safely continue your password reset:\n\n"
+        f"{reset_url}\n\n"
+        f"This link is single-use, account-bound, and expires in 15 minutes.\n"
+        f"If you did not request this, please disregard this email.\n"
+        f"Salow Tech Security Team"
+    )
+    queue_email(
+        recipient=employee_email,
+        subject=subject,
+        body_text=body,
+        notification_type="email_reset_link",
+        sensitive_payload={"reset_url": reset_url, "employee_id": employee_id},
+    )
+
+
+def notify_mfa_replacement_requested(employee_id: str, employee_email: str, verification_url: str):
+    """Event: Authenticator replacement requested (Method 3)."""
+    subject = "[Salow Tech Security] Lost or Replaced Authenticator Verification"
+    body = (
+        f"Hello,\n\nA request to replace the registered authenticator for Employee ID {employee_id} was submitted.\n"
+        f"Click the link below to verify your company email and proceed with authenticator setup:\n\n"
+        f"{verification_url}\n\n"
+        f"This link is single-use and expires in 15 minutes.\n"
+        f"If you did not request an authenticator replacement, notify IT security immediately.\n"
+        f"Salow Tech Security Team"
+    )
+    queue_email(
+        recipient=employee_email,
+        subject=subject,
+        body_text=body,
+        notification_type="mfa_replacement_requested",
+        sensitive_payload={"verification_url": verification_url, "employee_id": employee_id},
+    )
+
+
+def notify_mfa_replacement_success(employee_id: str, employee_email: str):
+    """Event: Authenticator replacement completed successfully."""
+    subject = "[Salow Tech Security Alert] Authenticator Successfully Replaced"
+    body = (
+        f"Hello,\n\nThe MFA authenticator app for Employee ID {employee_id} was successfully replaced.\n"
+        f"All previous authenticator credentials and old recovery codes have been revoked.\n\n"
+        f"If you did not authorize this change, please report this incident immediately.\n"
+        f"Salow Tech Security Team"
+    )
+    queue_email(
+        recipient=employee_email,
+        subject=subject,
+        body_text=body,
+        notification_type="mfa_replacement_success",
+    )
+
+
+def notify_email_changed(employee_id: str, old_email: str, new_email: str):
+    """Event: Company email address changed."""
+    subject = "[Salow Tech Security Alert] Company Email Address Changed"
+    body = (
+        f"Hello,\n\nThe email address associated with Employee ID {employee_id} was changed.\n"
+        f"Previous Email: {old_email}\n"
+        f"New Email: {new_email}\n\n"
+        f"If you did not request this update, contact Salow Tech Security immediately.\n"
+    )
+    if old_email:
+        queue_email(
+            recipient=old_email,
+            subject=subject,
+            body_text=body,
+            notification_type="email_changed_old",
+        )
+    queue_email(
+        recipient=new_email,
+        subject=subject,
+        body_text=body,
+        notification_type="email_changed_new",
+    )
+
+
+def notify_suspicious_activity(employee_id: str, employee_email: str, activity_summary: str):
+    """Event: Suspicious sign-in or recovery activity."""
+    subject = "[Salow Tech Security Alert] Suspicious Activity Detected"
+    body = (
+        f"Hello,\n\nSuspicious activity was detected on your account ({employee_id}):\n"
+        f"{activity_summary}\n\n"
+        f"Your account may be temporarily protected. If you did not initiate this activity, "
+        f"contact your system administrator.\n"
+    )
+    queue_email(
+        recipient=employee_email,
+        subject=subject,
+        body_text=body,
+        notification_type="suspicious_activity",
+    )
+
+
+def send_email_verification_link(employee_id: str, employee_email: str, verification_url: str):
+    """Event: Email ownership verification link."""
+    subject = "[Salow Tech IAM] Verify Your Company Email Address"
+    body = (
+        f"Hello,\n\nPlease verify ownership of your company email address for Employee ID {employee_id}.\n"
+        f"Click the link below to confirm:\n\n"
+        f"{verification_url}\n\n"
+        f"This verification link is single-use and expires in 24 hours.\n"
+        f"Salow Tech Identity & Access Management"
+    )
+    queue_email(
+        recipient=employee_email,
+        subject=subject,
+        body_text=body,
+        notification_type="email_verification",
+        sensitive_payload={"verification_url": verification_url, "employee_id": employee_id},
+    )
+
+
+# ---------------------------------------------------------------------------
+# Outbox Background Delivery Worker
+# ---------------------------------------------------------------------------
+
+
+def process_email_outbox(batch_size: int = 50) -> tuple[int, int]:
+    """
+    Process pending and retry-pending emails from the outbox.
+    Returns (success_count, failure_count).
+    Ensures safe bounded exponential backoff, atomic updates, and payload wiping on delivery.
+    """
+    now = timezone.now()
+    eligible_events = list(
+        EmailOutbox.objects.filter(
+            status__in=[EmailOutbox.Status.QUEUED, EmailOutbox.Status.RETRY_PENDING],
+            scheduled_at__lte=now,
+        ).order_by("created_at")[:batch_size]
+    )
+
+    success_count = 0
+    failure_count = 0
+
+    from_email = getattr(settings, "DEFAULT_FROM_EMAIL", "iam-noreply@salowtech.com")
+
+    for item in eligible_events:
+        item.status = EmailOutbox.Status.SENDING
+        item.save(update_fields=["status"])
+
+        failed = False
+        error_msg = ""
+
+        try:
+            msg = EmailMultiAlternatives(
+                subject=item.subject,
+                body=item.body_text,
+                from_email=from_email,
+                to=[item.recipient],
+            )
+            if item.body_html:
+                msg.attach_alternative(item.body_html, "text/html")
+            msg.send(fail_silently=False)
+        except Exception as exc:  # noqa: BLE001
+            failed = True
+            error_msg = str(exc)
+            logger.warning("Failed to send email %s to %s: %s", item.id, item.recipient, error_msg)
+
+        with transaction.atomic():
+            if failed:
+                failure_count += 1
+                item.retry_count += 1
+                item.last_error = error_msg
+                if item.retry_count >= item.max_retries:
+                    item.status = EmailOutbox.Status.DEAD_LETTER
+                else:
+                    item.status = EmailOutbox.Status.RETRY_PENDING
+                    # Exponential backoff with jitter
+                    backoff_seconds = min(3600, 30 * (2 ** (item.retry_count - 1)))
+                    item.scheduled_at = timezone.now() + timezone.timedelta(seconds=backoff_seconds)
+                item.save(update_fields=["status", "retry_count", "last_error", "scheduled_at"])
+            else:
+                success_count += 1
+                item.status = EmailOutbox.Status.ACCEPTED_BY_TRANSPORT
+                item.sent_at = timezone.now()
+                # Security hygiene: Wipe encrypted payload on successful delivery
+                item.encrypted_payload = None
+                item.payload_nonce = None
+                item.payload_key_id = ""
+                item.save(
+                    update_fields=[
+                        "status",
+                        "sent_at",
+                        "encrypted_payload",
+                        "payload_nonce",
+                        "payload_key_id",
+                    ]
+                )
+
+    return success_count, failure_count

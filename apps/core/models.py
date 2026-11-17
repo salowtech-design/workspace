@@ -1,6 +1,9 @@
+import uuid
+
 from django.conf import settings
 from django.core.exceptions import PermissionDenied
 from django.db import models
+from django.utils import timezone
 
 
 class AuditLog(models.Model):
@@ -138,3 +141,54 @@ class RateLimitRecord(models.Model):
 
     def __str__(self):
         return f"RateLimitRecord for {self.key} at {self.timestamp}"
+
+
+class EmailOutbox(models.Model):
+    """
+    Transactional email outbox model for reliable IAM notifications.
+    Supports provider-neutral SMTP transport, envelope encryption of sensitive tokens,
+    exponential retry backoff with jitter, and dead-letter handling.
+    """
+
+    class Status(models.TextChoices):
+        QUEUED = "queued", "Queued"
+        SENDING = "sending", "Sending"
+        ACCEPTED_BY_TRANSPORT = "accepted_by_transport", "Accepted by Transport"
+        DELIVERED = "delivered", "Delivered"
+        BOUNCED = "bounced", "Bounced"
+        RETRY_PENDING = "retry_pending", "Retry Pending"
+        FAILED = "failed", "Failed"
+        DEAD_LETTER = "dead_letter", "Dead Letter"
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    recipient = models.EmailField(db_index=True)
+    subject = models.CharField(max_length=255)
+    body_text = models.TextField()
+    body_html = models.TextField(blank=True, default="")
+
+    # Notification metadata
+    notification_type = models.CharField(max_length=64, db_index=True)
+    status = models.CharField(
+        max_length=32, choices=Status.choices, default=Status.QUEUED, db_index=True
+    )
+    retry_count = models.PositiveSmallIntegerField(default=0)
+    max_retries = models.PositiveSmallIntegerField(default=5)
+    last_error = models.TextField(blank=True, default="")
+
+    # Sensitive envelope encrypted delivery payload (wiped after delivery)
+    encrypted_payload = models.BinaryField(null=True, blank=True)
+    payload_nonce = models.BinaryField(null=True, blank=True)
+    payload_key_id = models.CharField(max_length=32, blank=True, default="")
+
+    scheduled_at = models.DateTimeField(default=timezone.now, db_index=True)
+    sent_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["created_at"]
+        verbose_name = "Email Outbox"
+        verbose_name_plural = "Email Outbox Records"
+
+    def __str__(self):
+        return f"Email [{self.notification_type}] to {self.recipient} ({self.status})"

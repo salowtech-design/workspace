@@ -79,6 +79,7 @@ class CustomUser(AbstractBaseUser, PermissionsMixin):
         help_text="Unique company identifier (e.g., ST-EMP-0001). Immutable once created.",
     )
     email = models.EmailField(unique=True, null=True, blank=True)
+    email_verified = models.BooleanField(default=False)
     full_name = models.CharField(max_length=128)
     role = models.CharField(max_length=20, choices=Role.choices, default=Role.EMPLOYEE)
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.ACTIVE)
@@ -135,6 +136,8 @@ class ActivationCode(models.Model):
         ACTIVATION = "activation", "Activation"
         PASSWORD_RESET = "password_reset", "Password Reset"
         MFA_RESET = "mfa_reset", "MFA Reset"
+        EMAIL_VERIFICATION = "email_verification", "Email Verification"
+        MFA_REPLACEMENT = "mfa_replacement", "MFA Replacement"
 
     user = models.ForeignKey(CustomUser, on_delete=models.CASCADE, related_name="activation_codes")
     purpose = models.CharField(max_length=32, choices=Purpose.choices, default=Purpose.ACTIVATION)
@@ -318,3 +321,65 @@ class WorkspaceDraft(models.Model):
 
     def __str__(self):
         return f"Draft for {self.user.employee_id} at {self.path}"
+
+
+class RecoveryRequest(models.Model):
+    """
+    Tracks administrative and privileged recovery requests.
+    Supports Method 1 (Admin Password Reset) and Method 3 (Privileged Authenticator Replacement).
+    Enforces dual-administrator approval for Super Admin accounts and distinct approvers.
+    """
+
+    class RequestType(models.TextChoices):
+        ADMIN_PASSWORD_RESET = "admin_password_reset", "Admin Password Reset"
+        MFA_REPLACEMENT = "mfa_replacement", "MFA Replacement"
+
+    class Status(models.TextChoices):
+        PENDING = "pending", "Pending Approval"
+        APPROVED = "approved", "Approved"
+        REJECTED = "rejected", "Rejected"
+        COMPLETED = "completed", "Completed"
+        EXPIRED = "expired", "Expired"
+
+    user = models.ForeignKey(CustomUser, on_delete=models.CASCADE, related_name="recovery_requests")
+    request_type = models.CharField(
+        max_length=32, choices=RequestType.choices, default=RequestType.ADMIN_PASSWORD_RESET
+    )
+    status = models.CharField(
+        max_length=16, choices=Status.choices, default=Status.PENDING, db_index=True
+    )
+    reason = models.TextField(blank=True, default="")
+    rejection_reason = models.TextField(blank=True, default="")
+
+    # Approvers (Dual-control support)
+    approved_by = models.ForeignKey(
+        CustomUser,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="approved_recoveries",
+    )
+    approved_at = models.DateTimeField(null=True, blank=True)
+    second_approved_by = models.ForeignKey(
+        CustomUser,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="second_approved_recoveries",
+    )
+    second_approved_at = models.DateTimeField(null=True, blank=True)
+
+    # Generated reset token after approval
+    reset_token = models.CharField(max_length=128, blank=True, default="")
+    token_expires_at = models.DateTimeField(null=True, blank=True)
+
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        verbose_name = "Recovery Request"
+        verbose_name_plural = "Recovery Requests"
+
+    def __str__(self):
+        return f"RecoveryRequest [{self.request_type}] for {self.user.employee_id} ({self.status})"

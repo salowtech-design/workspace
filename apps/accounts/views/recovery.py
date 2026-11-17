@@ -1,11 +1,11 @@
 """
-Account Recovery & Password Reset Views.
-Implements:
-1. Public timing-safe forgot password entry point (anti-enumeration).
-2. Self-service password reset using single-use backup recovery codes.
-3. Passkey-authenticated password reset (W3C WebAuthn assertion - Scenario E).
-4. MFA authenticator reset token redemption (Scenario H).
-5. Administrative & delegated HR/Manager recovery console with Sudo mode enforcement.
+Account Recovery & Password Reset Views for Salow Workspace IAM.
+Implements the 3 authoritative top-level recovery methods:
+1. Method 1 — Request Administrator Reset
+2. Method 2 — Reset Password Yourself (Route A: Recovery Code, Route B: TOTP, Route C: Verified Email Link)
+3. Method 3 — Recover Lost or Replaced Authenticator
+Includes token continuation screens (GET does not consume; explicit POST redemption),
+safe URL redirection without bearer tokens, and administrative approval console.
 """
 
 import json
@@ -16,283 +16,747 @@ from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import transaction
 from django.http import JsonResponse
 from django.shortcuts import redirect, render
+from django.urls import reverse
 from django.views.decorators.http import require_POST
 
+from apps.accounts.auth.activation import (
+    consume_email_token,
+    verify_email_token_safe,
+)
 from apps.accounts.auth.audit import log_auth_event
 from apps.accounts.auth.errors import AuthException
+from apps.accounts.auth.mfa_totp import (
+    generate_qr_svg,
+    get_or_create_pending_totp,
+    verify_totp_code,
+)
 from apps.accounts.auth.passkeys import verify_passkey_authentication
 from apps.accounts.auth.passwords import set_user_password, validate_employee_password
+from apps.accounts.auth.recovery_codes import redeem_recovery_code
 from apps.accounts.auth.reset import (
-    complete_password_reset_with_token,
-    issue_administrative_recovery_token,
-    issue_mfa_reset_code,
+    approve_administrator_reset,
+    complete_authenticator_replacement,
+    reject_administrator_reset,
+    request_administrator_reset,
+    request_authenticator_replacement,
+    request_email_password_reset,
     self_service_reset_password,
+    verify_email_reset_token,
+    verify_mfa_replacement_token,
     verify_mfa_reset_and_authorize,
 )
-from apps.accounts.auth.sessions import revoke_user_sessions
+from apps.accounts.auth.sessions import create_verified_session, revoke_user_sessions
 from apps.accounts.auth.stepup import is_sudo_active
-from apps.accounts.models import CustomUser
+from apps.accounts.models import ActivationCode, CustomUser, RecoveryRequest
 from apps.accounts.permissions import (
     PERM_RECOVERY_ADMIN,
     PERM_RECOVERY_DELEGATED,
     has_permission,
 )
 
-RECOVERY_PENDING_UID_KEY = "_salow_rec_pending_uid"
-RECOVERY_METHOD_KEY = "_salow_rec_method"
+PW_RESET_SESSION_UID = "_salow_pw_reset_user_id"
+MFA_REPLACE_SESSION_UID = "_salow_mfa_replace_uid"
+MFA_REPLACE_CODES_KEY = "_salow_mfa_replace_codes"
 
 
 def forgot_password_view(request):  # noqa: C901
     """
-    Public forgot-password entry point.
-    Prevents account enumeration by displaying generic confirmation instructions
-    regardless of whether the employee ID exists.
-    Supports recovery via backup recovery code, administrative password reset token,
-    or MFA reset token for lost authenticators.
+    Top-level forgot password recovery hub.
+    Exposes exactly three distinct recovery methods:
+    1. Method 1: Request Administrator Reset
+    2. Method 2: Reset Password Yourself (Route A: Recovery Code, Route B: TOTP, Route C: Email Link)
+    3. Method 3: Recover Lost or Replaced Authenticator
+    Never displays all input fields simultaneously. Uses shared Employee ID context.
     """
     if request.user.is_authenticated:
         return redirect("attendance:panel")
 
     error = None
-    step = request.GET.get("step", "identify")
+    success_msg = None
+
+    # Shared Employee ID prefill context
+    employee_id = (
+        (
+            request.GET.get("employee_id")
+            or request.POST.get("employee_id")
+            or request.session.get("_salow_login_emp_id", "")
+        )
+        .strip()
+        .upper()
+    )
+
+    active_method = request.GET.get("method") or request.POST.get("method") or "method1"
+    sub_route = request.GET.get("route") or request.POST.get("route") or "recovery_code"
+
+    base_url = request.build_absolute_uri("/")[:-1]
 
     if request.method == "POST":
         action = request.POST.get("action", "")
 
-        if action == "redeem_code":
-            emp_id = request.POST.get("employee_id", "").strip().upper()
-            code_type = request.POST.get("code_type", "recovery_code")
-            code_value = request.POST.get("code_value", "").strip()
-            new_password = request.POST.get("new_password", "")
-            confirm_password = request.POST.get("confirm_password", "")
+        # -------------------------------------------------------------------
+        # METHOD 1 — Request Administrator Reset
+        # -------------------------------------------------------------------
+        if action == "request_admin_reset":
+            active_method = "method1"
+            if not employee_id:
+                error = "Please enter your Employee ID."
+            else:
+                reason = request.POST.get("reason", "")
+                request_administrator_reset(employee_id=employee_id, reason=reason)
+                success_msg = (
+                    "If an eligible active account matches this Employee ID, "
+                    "a recovery request has been routed to the administrator queue."
+                )
+
+        # -------------------------------------------------------------------
+        # METHOD 2 Route A — Recovery Code Verification
+        # -------------------------------------------------------------------
+        elif action == "verify_recovery_code":
+            active_method = "method2"
+            sub_route = "recovery_code"
+            code_value = request.POST.get("recovery_code", "").strip()
+
+            if not employee_id:
+                error = "Please enter your Employee ID."
+            elif not code_value:
+                error = "Please enter your one-time backup recovery code."
+            else:
+                user = CustomUser.objects.filter(employee_id=employee_id, is_active=True).first()
+                if not user:
+                    error = "Recovery code is invalid or has already been used."
+                else:
+                    try:
+                        redeem_recovery_code(user, code_value)
+                        # Valid recovery code burned! Store authorized user ID in session
+                        request.session[PW_RESET_SESSION_UID] = user.id
+                        request.session.set_expiry(900)  # 15 minutes
+                        return redirect("accounts:email_set_password")
+                    except AuthException as e:
+                        error = e.user_message
+
+        # -------------------------------------------------------------------
+        # METHOD 2 Route B — TOTP Verification
+        # -------------------------------------------------------------------
+        elif action == "verify_totp_code":
+            active_method = "method2"
+            sub_route = "totp"
+            totp_code = request.POST.get("totp_code", "").strip()
+
+            if not employee_id:
+                error = "Please enter your Employee ID."
+            elif not totp_code:
+                error = "Please enter your current 6-digit authenticator code."
+            else:
+                user = CustomUser.objects.filter(employee_id=employee_id, is_active=True).first()
+                if not user:
+                    error = "Invalid Employee ID or authenticator code."
+                elif user.role == CustomUser.Role.SUPER_ADMIN:
+                    error = "Super Admin recovery requires administrator dual-approval."
+                else:
+                    try:
+                        verify_totp_code(user, totp_code)
+                        request.session[PW_RESET_SESSION_UID] = user.id
+                        request.session.set_expiry(900)
+                        return redirect("accounts:email_set_password")
+                    except AuthException as e:
+                        error = e.user_message
+
+        # -------------------------------------------------------------------
+        # METHOD 2 Route C — Send Email Password Reset Link
+        # -------------------------------------------------------------------
+        elif action == "send_email_reset_link":
+            active_method = "method2"
+            sub_route = "email_link"
+            if not employee_id:
+                error = "Please enter your Employee ID."
+            else:
+                request_email_password_reset(employee_id=employee_id, base_url=base_url)
+                success_msg = (
+                    "If a verified company email address is registered for this Employee ID, "
+                    "a single-use password reset link has been dispatched to your inbox."
+                )
+
+        # -------------------------------------------------------------------
+        # METHOD 3 — Recover Lost or Replaced Authenticator
+        # -------------------------------------------------------------------
+        elif action == "send_mfa_replacement_email":
+            active_method = "method3"
             current_password = request.POST.get("current_password", "")
 
-            if code_type != "mfa_reset_token" and new_password != confirm_password:
-                error = "Passwords do not match."
-            elif not code_value:
-                error = "Please enter your recovery code or administrative reset token."
+            if not employee_id:
+                error = "Please enter your Employee ID."
+            elif not current_password:
+                error = "Your current password is required to replace your authenticator."
             else:
+                success = request_authenticator_replacement(
+                    employee_id=employee_id,
+                    current_password=current_password,
+                    base_url=base_url,
+                )
+                if success:
+                    success_msg = (
+                        "If your password is correct and your company email is verified, "
+                        "a single-use authenticator replacement link has been sent to your email."
+                    )
+                else:
+                    error = "Authentication failed or account does not meet self-service replacement criteria."
+
+        # -------------------------------------------------------------------
+        # Direct / Legacy Code Redemption (action="redeem_code")
+        # -------------------------------------------------------------------
+        elif action == "redeem_code":
+            code_type = request.POST.get("code_type", "").strip()
+            code_val = request.POST.get("code_value", "").strip()
+            if code_type == "mfa_reset_token":
+                current_pw = request.POST.get("current_password", "")
                 try:
-                    if code_type == "admin_token":
-                        complete_password_reset_with_token(
-                            employee_id=emp_id,
-                            raw_code=code_value,
-                            new_password=new_password,
-                        )
-                        messages.success(
-                            request,
-                            "Your password has been successfully reset. Please sign in with your new password.",
-                        )
-                        return redirect("accounts:login")
-                    elif code_type == "mfa_reset_token":
-                        if not current_password:
-                            error = "Your current password is required to verify your identity for an MFA reset."
-                        else:
-                            authorized_user = verify_mfa_reset_and_authorize(
-                                employee_id=emp_id,
-                                raw_code=code_value,
-                                password=current_password,
-                            )
-                            request.session["_salow_act_user_id"] = authorized_user.id
-                            messages.success(
-                                request,
-                                "Old authenticator removed. Please configure your new authenticator app.",
-                            )
-                            return redirect("accounts:activate_mfa_setup")
-                    else:
-                        self_service_reset_password(
-                            employee_id=emp_id,
-                            credential_token=code_value,
-                            new_password=new_password,
-                            is_recovery_code=True,
-                        )
-                        messages.success(
-                            request,
-                            "Your password has been successfully reset. Please sign in with your new password.",
-                        )
-                        return redirect("accounts:login")
-                except AuthException as e:
-                    error = e.user_message
-                except ValidationError as e:
-                    error = e.messages[0] if hasattr(e, "messages") else str(e)
+                    user = verify_mfa_reset_and_authorize(
+                        employee_id=employee_id,
+                        raw_code=code_val,
+                        password=current_pw,
+                    )
+                    request.session["_salow_act_user_id"] = user.id
+                    return redirect("accounts:activate_mfa_setup")
                 except Exception:
-                    error = "Invalid recovery submission. Please verify your employee ID and code."
+                    error = "Invalid recovery submission. Please verify your credentials or contact an administrator."
+            else:
+                new_pw = request.POST.get("new_password", "")
+                confirm_pw = request.POST.get("confirm_password", "")
+                is_recovery = code_type == "recovery_code"
+                if not employee_id or (new_pw != confirm_pw):
+                    error = "Invalid recovery submission. Please verify your credentials or contact an administrator."
+                else:
+                    try:
+                        self_service_reset_password(
+                            employee_id=employee_id,
+                            credential_token=code_val,
+                            new_password=new_pw,
+                            is_recovery_code=is_recovery,
+                        )
+                        messages.success(
+                            request, "Password has been reset successfully. Please sign in."
+                        )
+                        return redirect("accounts:login")
+                    except Exception:
+                        error = "Invalid recovery submission. Please verify your credentials or contact an administrator."
 
     return render(
         request,
         "accounts/recovery/forgot_password.html",
-        {"error": error, "step": step},
+        {
+            "error": error,
+            "success_msg": success_msg,
+            "employee_id": employee_id,
+            "active_method": active_method,
+            "sub_route": sub_route,
+        },
     )
 
 
-@require_POST
-def passkey_recovery_verify_view(request):
+# ---------------------------------------------------------------------------
+# Route C & Verified Proof: Password Reset Completion Screen
+# ---------------------------------------------------------------------------
+
+
+def email_reset_landing_view(request):
     """
-    Scenario E: Forgotten password recovery using registered WebAuthn passkey.
-    Validates device assertion, enforces password complexity, sets new password,
-    revokes old sessions, and audits the recovery event.
+    Email link continuation screen for password reset (Route C & Approved Admin Reset).
+    GET: Validates token without consuming it. Email security scanners do not consume the token.
+    POST: Consumes token atomically, exchanges it for short-lived session state, and redirects
+          to password-set view, stripping the bearer token from the visible URL.
     """
+    raw_token = request.GET.get("token") or request.POST.get("token") or ""
+
+    if not raw_token:
+        messages.error(request, "Invalid or missing password reset link.")
+        return redirect("accounts:forgot_password")
+
     try:
-        body = json.loads(request.body.decode("utf-8"))
-        credential_data = body.get("credential")
-        emp_id = body.get("employee_id", "").strip().upper()
-        new_password = body.get("new_password", "")
+        user = verify_email_reset_token(raw_token)
+    except AuthException as e:
+        messages.error(request, e.user_message)
+        return redirect("accounts:forgot_password")
 
-        if not credential_data:
-            return JsonResponse({"error": "Missing WebAuthn assertion payload."}, status=400)
-        if not emp_id:
-            return JsonResponse({"error": "Employee ID is required."}, status=400)
-        if not new_password:
-            return JsonResponse({"error": "New password is required."}, status=400)
+    if request.method == "POST":
+        try:
+            # Atomically consume token
+            complete_user = consume_email_token(raw_token, ActivationCode.Purpose.PASSWORD_RESET)[1]
+            request.session[PW_RESET_SESSION_UID] = complete_user.id
+            request.session.set_expiry(900)
+            return redirect("accounts:email_set_password")
+        except AuthException as e:
+            messages.error(request, e.user_message)
+            return redirect("accounts:forgot_password")
 
-        user = CustomUser.objects.filter(employee_id=emp_id, is_active=True).first()
-        if not user:
-            return JsonResponse({"error": "Invalid employee ID or passkey."}, status=400)
+    return render(
+        request,
+        "accounts/recovery/email_reset_continue.html",
+        {
+            "token": raw_token,
+            "employee_id": user.employee_id,
+        },
+    )
 
-        authenticated_user = verify_passkey_authentication(
-            request=request,
-            credential_data=credential_data,
-            user=user,
-        )
 
-        validate_employee_password(new_password, authenticated_user)
+def email_set_password_view(request):
+    """
+    Protected password reset form (Route A, Route B, Route C, Admin Approved).
+    Only renders after successful verification of recovery code, TOTP, or email token.
+    Bearer token is absent from the URL.
+    """
+    user_id = request.session.get(PW_RESET_SESSION_UID)
+    if not user_id:
+        messages.error(request, "Password reset session has expired. Please verify again.")
+        return redirect("accounts:forgot_password")
 
-        with transaction.atomic():
-            set_user_password(authenticated_user, new_password)
-            revoke_user_sessions(authenticated_user)
+    user = CustomUser.objects.filter(id=user_id, is_active=True).first()
+    if not user:
+        return redirect("accounts:forgot_password")
 
-            log_auth_event(
-                event="password_reset_passkey",
-                code="INFO",
-                step="passkey_recovery",
-                employee_id=authenticated_user.employee_id,
-                message="Password reset successfully via registered WebAuthn passkey assertion",
+    error = None
+    if request.method == "POST":
+        new_password = request.POST.get("new_password", "")
+        confirm_password = request.POST.get("confirm_password", "")
+
+        if new_password != confirm_password:
+            error = "Passwords do not match."
+        else:
+            try:
+                validate_employee_password(new_password, user)
+                with transaction.atomic():
+                    set_user_password(user, new_password)
+                    revoke_user_sessions(user)
+                    ActivationCode.objects.filter(
+                        user=user,
+                        purpose=ActivationCode.Purpose.PASSWORD_RESET,
+                        is_live=1,
+                    ).update(is_live=None)
+
+                # Clear session state
+                request.session.pop(PW_RESET_SESSION_UID, None)
+                messages.success(
+                    request,
+                    "Your password has been successfully updated. Please sign in with your new password.",
+                )
+                return redirect("accounts:login")
+            except ValidationError as e:
+                error = e.messages[0] if hasattr(e, "messages") else str(e)
+            except AuthException as e:
+                error = e.user_message
+
+    return render(
+        request,
+        "accounts/recovery/set_new_password.html",
+        {
+            "error": error,
+            "employee_id": user.employee_id,
+        },
+    )
+
+
+# ---------------------------------------------------------------------------
+# Method 3 — Authenticator Replacement Flow
+# ---------------------------------------------------------------------------
+
+
+def mfa_replacement_verify_view(request):
+    """
+    Continuation screen for lost/replaced authenticator email link.
+    GET: Validates token without consuming it.
+    POST: Consumes token atomically, authorizes replacement state, and redirects to setup.
+    """
+    raw_token = request.GET.get("token") or request.POST.get("token") or ""
+
+    if not raw_token:
+        messages.error(request, "Invalid or missing authenticator verification link.")
+        return redirect("accounts:forgot_password")
+
+    try:
+        user = verify_mfa_replacement_token(raw_token)
+    except AuthException as e:
+        messages.error(request, e.user_message)
+        return redirect("accounts:forgot_password")
+
+    if request.method == "POST":
+        try:
+            authorized_user = consume_email_token(
+                raw_token, ActivationCode.Purpose.MFA_REPLACEMENT
+            )[1]
+            request.session[MFA_REPLACE_SESSION_UID] = authorized_user.id
+            request.session.set_expiry(900)
+            return redirect("accounts:mfa_replacement_setup")
+        except AuthException as e:
+            messages.error(request, e.user_message)
+            return redirect("accounts:forgot_password")
+
+    return render(
+        request,
+        "accounts/recovery/mfa_replacement_continue.html",
+        {
+            "token": raw_token,
+            "employee_id": user.employee_id,
+        },
+    )
+
+
+def mfa_replacement_setup_view(request):
+    """
+    New Authenticator Setup screen for replacement flow.
+    Displays SVG QR code and grouped manual secret.
+    Requires code verification before replacing the previous authenticator.
+    """
+    user_id = request.session.get(MFA_REPLACE_SESSION_UID)
+    if not user_id:
+        messages.error(request, "Authenticator replacement session expired.")
+        return redirect("accounts:forgot_password")
+
+    user = CustomUser.objects.filter(id=user_id, is_active=True).first()
+    if not user:
+        return redirect("accounts:forgot_password")
+
+    secret, uri, _ = get_or_create_pending_totp(user)
+    qr_svg = generate_qr_svg(uri)
+
+    grouped_secret = " ".join([secret[i : i + 4] for i in range(0, len(secret), 4)])
+
+    error = None
+    if request.method == "POST":
+        totp_code = request.POST.get("code", "").strip()
+        if not totp_code:
+            error = "Please enter the 6-digit code from your authenticator app."
+        else:
+            try:
+                new_codes = complete_authenticator_replacement(user, totp_code)
+                request.session[MFA_REPLACE_CODES_KEY] = new_codes
+                return redirect("accounts:mfa_replacement_recovery_codes")
+            except AuthException as e:
+                error = e.user_message
+
+    return render(
+        request,
+        "accounts/recovery/mfa_replacement_setup.html",
+        {
+            "qr_svg": qr_svg,
+            "secret": grouped_secret,
+            "error": error,
+            "employee_id": user.employee_id,
+        },
+    )
+
+
+def mfa_replacement_recovery_codes_view(request):
+    """
+    Displays the 10 fresh recovery codes once following authenticator replacement.
+    Requires explicit checkbox acknowledgement. On completion, establishes session
+    and redirects directly to the authorized role dashboard.
+    """
+    user_id = request.session.get(MFA_REPLACE_SESSION_UID)
+    recovery_codes = request.session.get(MFA_REPLACE_CODES_KEY)
+
+    if not user_id or not recovery_codes:
+        messages.error(request, "Recovery code display session expired.")
+        return redirect("accounts:login")
+
+    user = CustomUser.objects.filter(id=user_id, is_active=True).first()
+    if not user:
+        return redirect("accounts:login")
+
+    error = None
+    if request.method == "POST":
+        confirmed = request.POST.get("confirmed_saved") == "1"
+        if not confirmed:
+            error = "You must confirm that you have saved your recovery codes before proceeding."
+        else:
+            # Clean up replacement session keys
+            request.session.pop(MFA_REPLACE_SESSION_UID, None)
+            request.session.pop(MFA_REPLACE_CODES_KEY, None)
+
+            # Establish server-side authenticated session
+            create_verified_session(request, user)
+
+            messages.success(
+                request,
+                "Your authenticator app and recovery codes have been successfully updated.",
             )
 
-        return JsonResponse(
-            {
-                "success": True,
-                "message": "Password reset successfully. Please sign in with your new password.",
-                "redirect_url": "/auth/login/",
-            }
-        )
+            # Direct to role-based dashboard
+            if user.role in (CustomUser.Role.SUPER_ADMIN, CustomUser.Role.ADMIN):
+                return redirect("attendance:panel")
+            elif user.role == CustomUser.Role.HR:
+                return redirect("directory:panel")
+            else:
+                return redirect("attendance:panel")
+
+    formatted_codes_text = "\n".join(recovery_codes)
+    return render(
+        request,
+        "accounts/recovery/mfa_replacement_codes.html",
+        {
+            "codes": recovery_codes,
+            "formatted_codes_text": formatted_codes_text,
+            "error": error,
+            "employee_id": user.employee_id,
+        },
+    )
+
+
+# ---------------------------------------------------------------------------
+# Company Email Ownership Verification View
+# ---------------------------------------------------------------------------
+
+
+def verify_email_view(request):
+    """
+    Validates company email ownership link.
+    GET: Safe continuation screen.
+    POST: Consumes token atomically, marks user.email_verified = True.
+    """
+    raw_token = request.GET.get("token") or request.POST.get("token") or ""
+
+    if not raw_token:
+        messages.error(request, "Invalid or missing email verification link.")
+        return redirect("accounts:login")
+
+    try:
+        user = verify_email_token_safe(raw_token, ActivationCode.Purpose.EMAIL_VERIFICATION)[1]
     except AuthException as e:
-        return JsonResponse({"error": e.user_message}, status=400)
-    except ValidationError as e:
-        msg = e.messages[0] if hasattr(e, "messages") else str(e)
-        return JsonResponse({"error": msg}, status=400)
-    except Exception as e:
-        return JsonResponse({"error": f"Passkey recovery failed: {e}"}, status=400)
+        messages.error(request, e.user_message)
+        return redirect("accounts:login")
+
+    if request.method == "POST":
+        try:
+            verified_user = consume_email_token(
+                raw_token, ActivationCode.Purpose.EMAIL_VERIFICATION
+            )[1]
+            verified_user.email_verified = True
+            verified_user.save(update_fields=["email_verified", "updated_at"])
+
+            log_auth_event(
+                event="email_verified_successfully",
+                code="INFO",
+                step="verify_email",
+                employee_id=verified_user.employee_id,
+                message=f"Company email {verified_user.email} verified successfully",
+            )
+            messages.success(
+                request,
+                f"Your company email ({verified_user.email}) has been verified successfully.",
+            )
+            return redirect("accounts:login")
+        except AuthException as e:
+            messages.error(request, e.user_message)
+            return redirect("accounts:login")
+
+    return render(
+        request,
+        "accounts/recovery/email_verification_continue.html",
+        {
+            "token": raw_token,
+            "employee_id": user.employee_id,
+            "email": user.email,
+        },
+    )
+
+
+# ---------------------------------------------------------------------------
+# Salow Admin IAM Interface & Recovery Queue Console
+# ---------------------------------------------------------------------------
 
 
 @login_required
 def admin_recovery_console_view(request):  # noqa: C901
     """
-    Dedicated recovery management console for Super Admins, Admins, HR, and Managers.
-    Enforces server-side authority scope and Sudo mode re-authentication:
-    - Super Admin: all accounts (Super Admin target requires second Super Admin approval).
-    - Admin: Admin, HR, Manager, Employee, Intern (Admin target requires second Admin approval).
-    - HR: Employee, Intern.
-    - Manager: Employee, Intern within direct reporting or led team.
+    Dedicated recovery management queue for authorized administrators.
+    Displays pending employee recovery requests and approval actions.
+    Enforces sudo verification and dual-control approvals.
     """
     actor: CustomUser = request.user
+    if actor.role == CustomUser.Role.INTERN:
+        return redirect("attendance:panel")
+
     if not (
         has_permission(actor, PERM_RECOVERY_DELEGATED) or has_permission(actor, PERM_RECOVERY_ADMIN)
     ):
-        messages.error(request, "Access restricted to authorized management roles.")
-        return redirect("attendance:panel")
+        raise PermissionDenied("You do not have permission to access the IAM Recovery Console.")
 
-    issued_token = None
-    issued_for = None
-    issued_type = None
-    error = None
-
+    # If POST with target_employee_id (direct issuance request)
     if request.method == "POST":
-        # Enforce recent re-authentication / Sudo mode before issuing recovery codes
-        if not is_sudo_active(request):
-            return redirect("/auth/security/sudo/?next=/auth/recovery/console/")
-
         target_emp_id = request.POST.get("target_employee_id", "").strip().upper()
-        approver_emp_id = request.POST.get("approver_employee_id", "").strip().upper()
-        recovery_type = request.POST.get("recovery_type", "password_reset")
-        reason = request.POST.get("reason", "").strip()
+        if target_emp_id:
+            # Enforce sudo mode before generation
+            if not is_sudo_active(request):
+                next_url = reverse("accounts:admin_recovery_console")
+                return redirect(f"{reverse('accounts:sudo')}?next={next_url}")
 
-        target_user = CustomUser.objects.filter(employee_id=target_emp_id, is_active=True).first()
-        approving_admin = None
-        if approver_emp_id:
-            approving_admin = CustomUser.objects.filter(
-                employee_id=approver_emp_id, is_active=True
+            recovery_type = request.POST.get("recovery_type", "password_reset")
+            target_user = CustomUser.objects.filter(
+                employee_id=target_emp_id, is_active=True
             ).first()
+            if not target_user:
+                messages.error(request, f"User {target_emp_id} not found.")
+                return redirect("accounts:admin_recovery_console")
 
-        if not target_user:
-            error = f"Employee ID '{target_emp_id}' was not found or is inactive."
-        elif not reason:
-            error = "A valid business verification reason is required to initiate account recovery."
-        else:
-            try:
-                if recovery_type == "mfa_reset":
-                    record, raw_code = issue_mfa_reset_code(
-                        target_user=target_user,
-                        issuing_admin=actor,
-                        approving_admin=approving_admin,
-                    )
-                    issued_token = raw_code
-                    issued_for = target_user
-                    issued_type = "MFA Reset"
-                    messages.success(
-                        request,
-                        f"One-time MFA reset token generated for {target_user.employee_id}. "
-                        "Provide this token securely to the employee to reconfigure authenticator.",
-                    )
-                else:
-                    record, raw_code = issue_administrative_recovery_token(
-                        actor=actor,
-                        target_user=target_user,
-                        approving_admin=approving_admin,
-                        reason=reason,
-                    )
-                    issued_token = raw_code
-                    issued_for = target_user
-                    issued_type = "Password Reset"
-                    messages.success(
-                        request,
-                        f"One-time recovery passcode generated for {target_user.employee_id}. "
-                        "Provide this passcode securely to the employee.",
-                    )
-            except (PermissionDenied, ValidationError) as e:
-                error = str(e)
-            except Exception as e:
-                error = f"Failed to issue recovery token: {e}"
+            from apps.accounts.auth.reset import check_recovery_authority
 
-    # Query manageable accounts based on actor scope
-    manageable_users = []
-    if actor.role in (CustomUser.Role.SUPER_ADMIN, CustomUser.Role.ADMIN):
-        manageable_users = CustomUser.objects.exclude(id=actor.id).order_by("employee_id")[:50]
-    elif actor.role == CustomUser.Role.HR:
-        manageable_users = CustomUser.objects.filter(
-            role__in=[CustomUser.Role.EMPLOYEE, CustomUser.Role.INTERN]
-        ).order_by("employee_id")[:50]
-    elif actor.role == CustomUser.Role.MANAGER:
-        from apps.directory.models import ReportingRelationship, Team
+            check_recovery_authority(actor=actor, target_user=target_user)
 
-        subordinate_ids = ReportingRelationship.objects.filter(manager=actor).values_list(
-            "subordinate_id", flat=True
-        )
-        team_member_ids = Team.objects.filter(lead=actor).values_list(
-            "memberships__user_id", flat=True
-        )
-        allowed_ids = set(subordinate_ids).union(set(team_member_ids))
-        manageable_users = CustomUser.objects.filter(id__in=allowed_ids).order_by("employee_id")
+            if recovery_type == "mfa_reset":
+                from apps.accounts.auth.reset import issue_mfa_reset_code
+
+                _, raw_code = issue_mfa_reset_code(target_user=target_user, issuing_admin=actor)
+                title = "Single-Use MFA Reset Token Generated"
+            else:
+                from apps.accounts.auth.activation import issue_activation_code
+                from apps.accounts.models import ActivationCode
+
+                _, raw_code = issue_activation_code(
+                    user=target_user,
+                    purpose=ActivationCode.Purpose.PASSWORD_RESET,
+                    issued_by=actor,
+                )
+                title = "Single-Use Password Reset Token Generated"
+
+            return render(
+                request,
+                "accounts/recovery/admin_console.html",
+                {
+                    "actor": actor,
+                    "target_user": target_user,
+                    "generated_token": raw_code,
+                    "token_title": title,
+                    "pending_requests": RecoveryRequest.objects.filter(
+                        status=RecoveryRequest.Status.PENDING
+                    ).select_related("user"),
+                    "super_admins": CustomUser.objects.filter(
+                        role=CustomUser.Role.SUPER_ADMIN, is_active=True
+                    ).exclude(id=actor.id),
+                },
+            )
+
+    # Sudo mode enforcement for viewing console
+    if not is_sudo_active(request):
+        next_url = reverse("accounts:admin_recovery_console")
+        return redirect(f"{reverse('accounts:sudo')}?next={next_url}")
+
+    pending_requests = RecoveryRequest.objects.filter(
+        status=RecoveryRequest.Status.PENDING
+    ).select_related("user")
+
+    super_admins = CustomUser.objects.filter(
+        role=CustomUser.Role.SUPER_ADMIN, is_active=True
+    ).exclude(id=actor.id)
 
     return render(
         request,
         "accounts/recovery/admin_console.html",
         {
-            "manageable_users": manageable_users,
-            "issued_token": issued_token,
-            "issued_for": issued_for,
-            "issued_type": issued_type,
-            "error": error,
             "actor": actor,
+            "pending_requests": pending_requests,
+            "super_admins": super_admins,
         },
     )
+
+
+@login_required
+@require_POST
+def admin_approve_recovery_view(request, request_id):
+    """Admin action to approve a pending recovery request."""
+    actor: CustomUser = request.user
+    if not (
+        has_permission(actor, PERM_RECOVERY_DELEGATED) or has_permission(actor, PERM_RECOVERY_ADMIN)
+    ):
+        raise PermissionDenied("Unauthorized.")
+
+    second_approver_id = request.POST.get("second_approver_id")
+    second_approver = None
+    if second_approver_id:
+        second_approver = CustomUser.objects.filter(id=second_approver_id, is_active=True).first()
+
+    base_url = request.build_absolute_uri("/")[:-1]
+
+    try:
+        req, reset_token = approve_administrator_reset(
+            request_id=request_id,
+            actor=actor,
+            second_approver=second_approver,
+            base_url=base_url,
+        )
+        messages.success(
+            request,
+            f"Recovery request for {req.user.employee_id} approved. Reset link dispatched.",
+        )
+    except (PermissionDenied, ValidationError) as e:
+        messages.error(request, str(e))
+
+    return redirect("accounts:admin_recovery_console")
+
+
+@login_required
+@require_POST
+def admin_reject_recovery_view(request, request_id):
+    """Admin action to reject a pending recovery request."""
+    actor: CustomUser = request.user
+    if not (
+        has_permission(actor, PERM_RECOVERY_DELEGATED) or has_permission(actor, PERM_RECOVERY_ADMIN)
+    ):
+        raise PermissionDenied("Unauthorized.")
+
+    reason = request.POST.get("reason", "Verification requirements not met.")
+
+    try:
+        req = reject_administrator_reset(
+            request_id=request_id,
+            actor=actor,
+            reason=reason,
+        )
+        messages.info(request, f"Recovery request for {req.user.employee_id} rejected.")
+    except (PermissionDenied, ValidationError) as e:
+        messages.error(request, str(e))
+
+    return redirect("accounts:admin_recovery_console")
+
+
+@require_POST
+def passkey_recovery_verify_view(request):
+    """
+    Accepts WebAuthn assertion payload and resets employee password,
+    revoking all existing device sessions.
+    """
+    try:
+        data = json.loads(request.body.decode("utf-8")) if request.body else {}
+        credential_data = data.get("credential", {})
+        employee_id = data.get("employee_id", "").strip().upper()
+        new_password = data.get("new_password", "")
+
+        user = verify_passkey_authentication(
+            request=request,
+            credential_data=credential_data,
+            employee_id=employee_id,
+        )
+        if not user:
+            return JsonResponse(
+                {"success": False, "error": "Passkey verification failed."},
+                status=400,
+            )
+
+        validate_employee_password(new_password, user)
+
+        with transaction.atomic():
+            set_user_password(user, new_password)
+            revoke_user_sessions(user)
+            log_auth_event(
+                event="passkey_recovery_completed",
+                code="INFO",
+                step="passkey_recovery",
+                employee_id=user.employee_id,
+                message="Password reset successfully using passkey assertion; all sessions revoked",
+            )
+
+        return JsonResponse({"success": True, "redirect_url": reverse("accounts:login")})
+    except (AuthException, ValidationError) as e:
+        return JsonResponse(
+            {"success": False, "error": getattr(e, "user_message", str(e))},
+            status=400,
+        )
+    except Exception as e:
+        return JsonResponse({"success": False, "error": str(e)}, status=400)

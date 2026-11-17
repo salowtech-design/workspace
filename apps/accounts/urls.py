@@ -20,9 +20,17 @@ from apps.accounts.views.passkeys import (
     passkey_register_verify_view,
 )
 from apps.accounts.views.recovery import (
+    admin_approve_recovery_view,
     admin_recovery_console_view,
+    admin_reject_recovery_view,
+    email_reset_landing_view,
+    email_set_password_view,
     forgot_password_view,
+    mfa_replacement_recovery_codes_view,
+    mfa_replacement_setup_view,
+    mfa_replacement_verify_view,
     passkey_recovery_verify_view,
+    verify_email_view,
 )
 from apps.accounts.views.security import (
     change_password_view,
@@ -54,14 +62,35 @@ urlpatterns = [
         activate_recovery_codes_view,
         name="activate_recovery_codes",
     ),
-    # Password Recovery & Delegated Recovery
+    # Password Recovery & Multi-Factor Workflows (Methods 1, 2, 3)
     path("recovery/forgot-password/", forgot_password_view, name="forgot_password"),
+    path("recovery/email/reset/", email_reset_landing_view, name="email_reset_landing"),
+    path("recovery/password/set/", email_set_password_view, name="email_set_password"),
+    path("recovery/mfa/verify/", mfa_replacement_verify_view, name="mfa_replacement_verify"),
+    path("recovery/mfa/setup/", mfa_replacement_setup_view, name="mfa_replacement_setup"),
+    path(
+        "recovery/mfa/recovery-codes/",
+        mfa_replacement_recovery_codes_view,
+        name="mfa_replacement_recovery_codes",
+    ),
     path(
         "recovery/passkey/verify/",
         passkey_recovery_verify_view,
         name="passkey_recovery_verify",
     ),
     path("recovery/console/", admin_recovery_console_view, name="admin_recovery_console"),
+    path(
+        "recovery/console/<int:request_id>/approve/",
+        admin_approve_recovery_view,
+        name="admin_approve_recovery",
+    ),
+    path(
+        "recovery/console/<int:request_id>/reject/",
+        admin_reject_recovery_view,
+        name="admin_reject_recovery",
+    ),
+    # Company Email Ownership Verification
+    path("email/verify/", verify_email_view, name="verify_email"),
     # Passkeys (WebAuthn / FIDO2)
     path(
         "passkeys/register/options/",

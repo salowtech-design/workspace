@@ -91,6 +91,12 @@ class RateLimitMiddleware:
             RateLimitRecord.objects.all().delete()
         except Exception as e:
             logger.debug("Failed to reset rate limit records: %s", e)
+        try:
+            from apps.accounts.auth.stepup import _USER_SUDO_CACHE
+
+            _USER_SUDO_CACHE.clear()
+        except Exception as e:
+            logger.debug("Failed to clear sudo cache: %s", e)
 
     def _get_client_ip(self, request) -> str:
         remote_addr = request.META.get("REMOTE_ADDR", "127.0.0.1")

@@ -26,5 +26,8 @@ DATABASES = {
     "default": {
         "ENGINE": "django.db.backends.sqlite3",
         "NAME": db_name,
+        "OPTIONS": {
+            "timeout": 30,
+        },
     }
 }

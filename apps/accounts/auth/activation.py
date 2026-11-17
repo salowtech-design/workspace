@@ -213,3 +213,133 @@ def verify_and_consume_code(
         raise auth_error_to_raise
 
     return code_record, user
+
+
+def issue_email_token(
+    user: CustomUser,
+    purpose: str,
+    ttl_minutes: int = 15,
+) -> tuple[ActivationCode, str]:
+    """
+    Issue a high-entropy, cryptographically secure URL-safe token.
+    Stores keyed HMAC-SHA256 verifier with short expiration.
+    Deactivates any previous live token for this user and purpose.
+    """
+    raw_token = secrets.token_urlsafe(32)
+    keyed_hash = hash_code(raw_token)
+    expires_at = timezone.now() + timedelta(minutes=ttl_minutes)
+
+    with transaction.atomic():
+        ActivationCode.objects.filter(user=user, purpose=purpose, is_live=1).update(is_live=None)
+        record = ActivationCode.objects.create(
+            user=user,
+            purpose=purpose,
+            keyed_hash=keyed_hash,
+            expires_at=expires_at,
+            attempts=0,
+            is_live=1,
+        )
+
+        log_auth_event(
+            event="email_token_issued",
+            code="INFO",
+            step="issue_email_token",
+            employee_id=user.employee_id,
+            reference_id=f"TOKEN-{record.id}",
+            message=f"Issued email token [{purpose}] expiring in {ttl_minutes}m",
+        )
+
+    return record, raw_token
+
+
+def verify_email_token_safe(
+    raw_token: str,
+    purpose: str,
+) -> tuple[ActivationCode, CustomUser]:
+    """
+    Validate email token without consuming it (read-only for GET requests).
+    Raises AuthException on invalid, expired, or locked token.
+    """
+    if not raw_token or not isinstance(raw_token, str):
+        raise AuthException("AUTH-ACT-001", step="verify_email_token_safe", employee_id="UNKNOWN")
+
+    input_hash = hash_code(raw_token)
+    code_record = (
+        ActivationCode.objects.filter(keyed_hash=input_hash, purpose=purpose, is_live=1)
+        .select_related("user")
+        .first()
+    )
+
+    if not code_record:
+        raise AuthException(
+            "AUTH-ACT-001",
+            step="verify_email_token_safe",
+            employee_id="UNKNOWN",
+            message_override="The recovery or verification link is invalid or has already been used.",
+        )
+
+    if timezone.now() > code_record.expires_at:
+        code_record.is_live = None
+        code_record.save(update_fields=["is_live"])
+        raise AuthException(
+            "AUTH-ACT-001",
+            step="verify_email_token_safe",
+            employee_id=code_record.user.employee_id,
+            message_override="The recovery or verification link has expired.",
+        )
+
+    return code_record, code_record.user
+
+
+def consume_email_token(
+    raw_token: str,
+    purpose: str,
+) -> tuple[ActivationCode, CustomUser]:
+    """
+    Atomically validate and consume an email token (single-use under select_for_update).
+    """
+    if not raw_token or not isinstance(raw_token, str):
+        raise AuthException("AUTH-ACT-001", step="consume_email_token", employee_id="UNKNOWN")
+
+    input_hash = hash_code(raw_token)
+    with transaction.atomic():
+        code_record = (
+            ActivationCode.objects.select_for_update()
+            .filter(keyed_hash=input_hash, purpose=purpose, is_live=1)
+            .select_related("user")
+            .first()
+        )
+
+        if not code_record:
+            raise AuthException(
+                "AUTH-ACT-001",
+                step="consume_email_token",
+                employee_id="UNKNOWN",
+                message_override="The recovery or verification link is invalid or has already been used.",
+            )
+
+        if timezone.now() > code_record.expires_at:
+            code_record.is_live = None
+            code_record.save(update_fields=["is_live"])
+            raise AuthException(
+                "AUTH-ACT-001",
+                step="consume_email_token",
+                employee_id=code_record.user.employee_id,
+                message_override="The recovery or verification link has expired.",
+            )
+
+        # Burn token atomically
+        code_record.consumed_at = timezone.now()
+        code_record.is_live = None
+        code_record.save(update_fields=["consumed_at", "is_live"])
+
+        log_auth_event(
+            event="email_token_consumed",
+            code="INFO",
+            step="consume_email_token",
+            employee_id=code_record.user.employee_id,
+            reference_id=f"TOKEN-{code_record.id}",
+            message=f"Email token [{purpose}] successfully consumed",
+        )
+
+    return code_record, code_record.user

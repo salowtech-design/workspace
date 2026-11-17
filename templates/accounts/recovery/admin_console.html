@@ -1,98 +1,168 @@
 {% extends "base.html" %}
 
-{% block title %}Account Recovery Console — Salowtech Workspace{% endblock %}
+{% block title %}IAM Administrator Recovery Queue — Salow Workspace{% endblock %}
 
 {% block content %}
-<div class="card" style="max-width: 780px; margin: 2rem auto;">
-    <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 1.5rem; border-bottom: 1px solid var(--color-border-subtle); padding-bottom: 1rem;">
+<div style="max-width: 960px; margin: 2rem auto;">
+  <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 1.5rem; border-bottom: 1px solid var(--color-border-subtle, #e2e8f0); padding-bottom: 1rem;">
+    <div>
+      <h1 style="margin: 0; font-size: 1.6rem; font-weight: 700; color: var(--color-primary-600, #2563eb);">
+        IAM Administrator Recovery Queue
+      </h1>
+      <p style="color: var(--color-text-muted, #64748b); font-size: 0.9rem; margin-top: 0.25rem;">
+        Delegated Recovery Authority: <strong>{{ actor.get_role_display }}</strong> ({{ actor.employee_id }})
+      </p>
+    </div>
+    <div style="display: flex; gap: 0.5rem; align-items: center;">
+      <span style="background: #dcfce7; color: #166534; font-size: 0.8rem; font-weight: 600; padding: 0.35rem 0.75rem; border-radius: 9999px; border: 1px solid #86efac;">
+        ✓ Sudo Mode Active
+      </span>
+      <span style="background: var(--color-primary-50, #eff6ff); color: var(--color-primary-700, #1d4ed8); font-size: 0.8rem; font-weight: 600; padding: 0.35rem 0.75rem; border-radius: 9999px; border: 1px solid var(--color-primary-200, #bfdbfe);">
+        Audited Operation
+      </span>
+    </div>
+  </div>
+
+  <div style="background: var(--color-bg-surface-secondary, #f8fafc); padding: 1.25rem; border-radius: 6px; margin-bottom: 2rem; border: 1px solid var(--color-border-subtle, #e2e8f0);">
+    <h3 style="margin: 0 0 0.5rem 0; font-size: 0.95rem; font-weight: 600; color: var(--color-text-main, #1e293b);">
+      Security & Approval Policy:
+    </h3>
+    <ul style="margin: 0; padding-left: 1.25rem; font-size: 0.85rem; color: var(--color-text-muted, #64748b); line-height: 1.5;">
+      <li><strong>Anti-Enumeration:</strong> Recovery requests submitted via Method 1 are queued here without disclosing user existence to untrusted callers.</li>
+      <li><strong>Dual-Control Requirement:</strong> Approving recovery for a <strong>Super Admin</strong> account requires concurrent sign-off from two distinct Super Admins.</li>
+      <li><strong>Self-Approval Prohibited:</strong> Administrators cannot approve their own password or authenticator recovery requests.</li>
+      <li><strong>Direct Notification:</strong> On approval, a single-use token link is queued via the transactional email outbox directly to the employee's registered company email.</li>
+    </ul>
+  </div>
+
+  {% if generated_token %}
+  <div class="card" style="margin-bottom: 2rem; border: 2px solid #16a34a; background: #f0fdf4; padding: 1.5rem; border-radius: 8px;">
+    <h3 style="margin-top: 0; color: #166534; font-size: 1.15rem; font-weight: 700;">
+      {{ token_title|default:"Single-Use Password Reset Token Generated" }}
+    </h3>
+    <p style="font-size: 0.9rem; color: #1e293b; margin-bottom: 0.75rem;">
+      Single-Use recovery code generated for <strong>{{ target_user.employee_id }}</strong>:
+    </p>
+    <div style="background: #ffffff; border: 1px solid #86efac; border-radius: 6px; padding: 0.75rem 1rem; font-family: monospace; font-size: 1.25rem; font-weight: 700; color: #15803d; letter-spacing: 0.1em; display: inline-block;">
+      {{ generated_token }}
+    </div>
+    <p style="font-size: 0.8rem; color: #64748b; margin-top: 0.75rem; margin-bottom: 0;">
+      Provide this secure token to the employee directly. It expires in 15 minutes and can only be redeemed once.
+    </p>
+  </div>
+  {% endif %}
+
+  <h2 style="font-size: 1.2rem; font-weight: 600; color: var(--color-text-main, #1e293b); margin-bottom: 1rem;">
+    Pending Recovery Requests ({{ pending_requests.count }})
+  </h2>
+
+  {% if pending_requests %}
+  <div style="display: flex; flex-direction: column; gap: 1.25rem;">
+    {% for req in pending_requests %}
+    <div class="card" style="border: 1px solid var(--color-border, #cbd5e1); border-radius: 8px; padding: 1.25rem; background: #ffffff; box-shadow: 0 1px 3px rgba(0,0,0,0.05);">
+      <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 1rem;">
         <div>
-            <h2 style="margin: 0; font-size: 1.5rem; color: var(--color-primary-600);">Account Recovery Console</h2>
-            <p style="color: var(--color-text-muted); font-size: 0.9rem; margin-top: 0.25rem;">
-                Authorized delegated recovery authority: <strong>{{ actor.get_role_display }}</strong> ({{ actor.employee_id }})
-            </p>
+          <div style="display: flex; align-items: center; gap: 0.75rem;">
+            <span style="font-size: 1.1rem; font-weight: 700; color: var(--color-text-main, #1e293b);">
+              {{ req.user.full_name }}
+            </span>
+            <code style="background: var(--color-bg-surface-secondary, #f1f5f9); padding: 0.2rem 0.5rem; border-radius: 4px; font-size: 0.85rem; font-weight: 600;">
+              {{ req.user.employee_id }}
+            </code>
+            <span style="font-size: 0.8rem; padding: 0.2rem 0.5rem; border-radius: 4px; font-weight: 600; background: #e0e7ff; color: #3730a3;">
+              {{ req.user.get_role_display }}
+            </span>
+          </div>
+          <div style="font-size: 0.85rem; color: var(--color-text-muted, #64748b); margin-top: 0.25rem;">
+            Email: {{ req.user.email|default:"None registered" }} {% if req.user.email_verified %}<span style="color: #166534;">(Verified)</span>{% else %}<span style="color: #b45309;">(Unverified)</span>{% endif %}
+            • Requested: {{ req.created_at|date:"Y-m-d H:i" }}
+          </div>
         </div>
-        <span class="badge" style="background: var(--color-primary-100); color: var(--color-primary-800); font-weight: 600; padding: 0.35rem 0.75rem; border-radius: 4px;">
-            Audited Operation
+
+        <span style="background: #fef3c7; color: #92400e; font-size: 0.8rem; font-weight: 600; padding: 0.25rem 0.65rem; border-radius: 9999px;">
+          {{ req.get_request_type_display }}
         </span>
+      </div>
+
+      {% if req.reason %}
+      <div style="background: #f8fafc; border-left: 3px solid var(--color-primary-500, #3b82f6); padding: 0.5rem 0.75rem; border-radius: 0 4px 4px 0; font-size: 0.85rem; color: var(--color-text-main, #1e293b); margin-bottom: 1rem;">
+        <strong>Employee Note:</strong> {{ req.reason }}
+      </div>
+      {% endif %}
+
+      <div style="display: flex; flex-wrap: wrap; gap: 1rem; align-items: flex-end; padding-top: 0.75rem; border-top: 1px solid var(--color-border-subtle, #f1f5f9);">
+        <!-- Approve Form -->
+        <form method="post" action="{% url 'accounts:admin_approve_recovery' req.id %}" style="display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center;">
+          {% csrf_token %}
+
+          {% if req.user.role == "super_admin" %}
+          <div style="display: flex; flex-direction: column;">
+            <label for="second_approver_{{ req.id }}" style="font-size: 0.75rem; font-weight: 600; color: #b45309;">
+              Co-Approver (Required for Super Admin):
+            </label>
+            <select
+              id="second_approver_{{ req.id }}"
+              name="second_approver_id"
+              required
+              style="padding: 0.4rem 0.6rem; font-size: 0.85rem; border: 1px solid var(--color-border, #cbd5e1); border-radius: 4px;"
+            >
+              <option value="">Select Second Super Admin...</option>
+              {% for sa in super_admins %}
+              <option value="{{ sa.id }}">{{ sa.full_name }} ({{ sa.employee_id }})</option>
+              {% endfor %}
+            </select>
+          </div>
+          {% endif %}
+
+          <button
+            type="submit"
+            class="btn btn-primary"
+            style="padding: 0.45rem 1rem; font-size: 0.875rem; background: #16a34a; border-color: #16a34a;"
+            onclick="return confirm('Approve recovery for {{ req.user.employee_id }}? A reset link will be sent to their email.');"
+          >
+            Approve & Issue Link
+          </button>
+        </form>
+
+        <!-- Reject Form -->
+        <form method="post" action="{% url 'accounts:admin_reject_recovery' req.id %}" style="display: flex; gap: 0.5rem; align-items: center; margin-left: auto;">
+          {% csrf_token %}
+          <input
+            type="text"
+            name="reason"
+            placeholder="Rejection reason..."
+            required
+            style="padding: 0.4rem 0.6rem; font-size: 0.85rem; border: 1px solid var(--color-border, #cbd5e1); border-radius: 4px; min-width: 220px;"
+          >
+          <button
+            type="submit"
+            class="btn btn-outline"
+            style="padding: 0.45rem 1rem; font-size: 0.875rem; color: #dc2626; border-color: #fca5a5;"
+            onclick="return confirm('Reject recovery request for {{ req.user.employee_id }}?');"
+          >
+            Reject
+          </button>
+        </form>
+      </div>
     </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="card" style="text-align: center; padding: 3rem 1.5rem; border: 1px dashed var(--color-border, #cbd5e1); border-radius: 8px; background: #ffffff;">
+    <div style="font-size: 2rem; margin-bottom: 0.5rem; color: #94a3b8;">✓</div>
+    <h3 style="margin: 0 0 0.5rem 0; font-size: 1.1rem; color: var(--color-text-main, #1e293b);">
+      No Pending Recovery Requests
+    </h3>
+    <p style="margin: 0; font-size: 0.875rem; color: var(--color-text-muted, #64748b);">
+      All employee recovery requests have been processed. New requests will appear here in real-time.
+    </p>
+  </div>
+  {% endif %}
 
-    {% if error %}
-    <div class="alert alert-danger" style="margin-bottom: 1.5rem;">
-        {{ error }}
-    </div>
-    {% endif %}
-
-    {% if issued_token %}
-    <div class="alert alert-success" style="margin-bottom: 1.5rem; border-left: 4px solid var(--color-success);">
-        <h4 style="margin: 0 0 0.5rem 0; color: var(--color-success);">Single-Use {{ issued_type|default:"Recovery" }} Token Generated</h4>
-        <p style="margin: 0 0 0.75rem 0; font-size: 0.9rem;">
-            Provide this one-time code to <strong>{{ issued_for.employee_id }} ({{ issued_for.full_name }})</strong>.
-            This secret is displayed <strong>only once</strong> and expires in 48 hours.
-        </p>
-        <div style="background: #ffffff; padding: 0.75rem 1rem; border: 1px dashed var(--color-border); border-radius: 4px; display: flex; align-items: center; justify-content: space-between;">
-            <code style="font-size: 1.4rem; font-weight: 700; letter-spacing: 0.1em; color: var(--color-primary-800);" id="issued-token-text">{{ issued_token }}</code>
-            <button type="button" class="btn btn-secondary" onclick="navigator.clipboard.writeText('{{ issued_token }}'); this.textContent = 'Copied!';" style="font-size: 0.85rem; padding: 0.4rem 0.8rem;">
-                Copy Code
-            </button>
-        </div>
-    </div>
-    {% endif %}
-
-    <div style="background: var(--color-bg-surface-secondary); padding: 1.25rem; border-radius: 6px; margin-bottom: 1.5rem; border: 1px solid var(--color-border-subtle);">
-        <h4 style="margin: 0 0 0.5rem 0; font-size: 1rem; color: var(--color-text-main);">Delegated Recovery Policy</h4>
-        <ul style="margin: 0; padding-left: 1.25rem; font-size: 0.85rem; color: var(--color-text-muted); line-height: 1.5;">
-            <li><strong>Super Admin:</strong> Can recover any account. Resetting another Super Admin requires a second Super Admin's co-approval.</li>
-            <li><strong>Admin:</strong> Can recover Employee, Intern, HR, and Manager accounts. Resetting an Admin requires a second Admin's approval. Cannot reset Super Admins.</li>
-            <li><strong>HR / Manager:</strong> Can recover Employee and Intern accounts within approved departmental or reporting scope.</li>
-            <li>All issued tokens, identities, and verification reasons are permanently logged in the security audit journal.</li>
-        </ul>
-    </div>
-
-    <form method="post" class="space-y-4">
-        {% csrf_token %}
-
-        <div class="form-group">
-            <label class="form-label">Recovery Action Type</label>
-            <div style="display: flex; gap: 1.5rem; margin-top: 0.35rem; font-size: 0.9rem;">
-                <label style="display: flex; align-items: center; gap: 0.4rem; cursor: pointer;">
-                    <input type="radio" name="recovery_type" value="password_reset" checked>
-                    Password Reset Token
-                </label>
-                <label style="display: flex; align-items: center; gap: 0.4rem; cursor: pointer;">
-                    <input type="radio" name="recovery_type" value="mfa_reset">
-                    MFA Reset Token (Lost Authenticator)
-                </label>
-            </div>
-        </div>
-
-        <div class="form-group">
-            <label for="target_employee_id" class="form-label">Target Employee ID</label>
-            <input type="text" id="target_employee_id" name="target_employee_id" class="form-input" placeholder="e.g. ST-EMP-1001" list="manageable-list" required autofocus>
-            <datalist id="manageable-list">
-                {% for u in manageable_users %}
-                <option value="{{ u.employee_id }}">{{ u.full_name }} ({{ u.get_role_display }})</option>
-                {% endfor %}
-            </datalist>
-            <p style="font-size: 0.78rem; color: var(--color-text-muted); margin-top: 0.25rem;">
-                Only accounts within your administrative or team scope will be authorized.
-            </p>
-        </div>
-
-        {% if actor.role in 'super_admin admin' %}
-        <div class="form-group">
-            <label for="approver_employee_id" class="form-label">Co-Approving Administrator ID (Required for Privileged Admin Recovery)</label>
-            <input type="text" id="approver_employee_id" name="approver_employee_id" class="form-input" placeholder="e.g. ST-ADM-0002 (Required if target is Admin/Super Admin)">
-        </div>
-        {% endif %}
-
-        <div class="form-group">
-            <label for="reason" class="form-label">Identity Verification & Recovery Reason</label>
-            <textarea id="reason" name="reason" class="form-input" rows="3" placeholder="Describe the physical/verified identity proof procedure performed prior to initiating recovery..." required></textarea>
-        </div>
-
-        <button type="submit" class="btn btn-primary" style="padding: 0.75rem 1.5rem; font-size: 0.95rem;">
-            Authorize & Issue Recovery Token →
-        </button>
-    </form>
+  <div style="margin-top: 2rem; text-align: right;">
+    <a href="{% url 'accounts:security' %}" style="font-size: 0.875rem; color: var(--color-text-muted, #64748b); text-decoration: none;">
+      ← Return to Security & Sessions
+    </a>
+  </div>
 </div>
 {% endblock %}

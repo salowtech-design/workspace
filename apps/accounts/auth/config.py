@@ -37,3 +37,18 @@ LOCKOUT_THRESHOLD = 5
 LOCKOUT_DURATION_MINUTES = 15
 SUDO_WINDOW_MINUTES = 10
 STAFF_SESSION_MAX_HOURS = 12
+
+# Company email domain configuration
+ALLOWED_EMAIL_DOMAINS = [
+    d.strip().lower()
+    for d in os.getenv("ALLOWED_EMAIL_DOMAINS", "salowtech.com").split(",")
+    if d.strip()
+]
+
+
+def is_allowed_company_email(email: str) -> bool:
+    """Validate whether an email address belongs to an allowed company domain."""
+    if not email or "@" not in email:
+        return False
+    domain = email.strip().split("@")[-1].lower()
+    return any(domain == d or domain.endswith("." + d) for d in ALLOWED_EMAIL_DOMAINS)

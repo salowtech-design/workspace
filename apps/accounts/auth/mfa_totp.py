@@ -86,6 +86,10 @@ def render_svg_qr(otpauth_uri: str) -> str:
         raise AuthException("AUTH-MFA-005", step="render_qr", exception=exc) from exc
 
 
+# Canonical alias for QR generation
+generate_qr_svg = render_svg_qr
+
+
 def get_otpauth_uri(secret_base32: str, employee_id: str) -> str:
     """Construct standard otpauth URI with label Salowtech:<employee_id>."""
     issuer = "Salowtech"

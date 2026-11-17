@@ -275,27 +275,49 @@ class TestFlowBReturningEmployeeSignIn:
 
 @pytest.mark.django_db
 class TestFlowCForgotPasswordRecovery:
-    """Verifies Flow C Account Recovery."""
+    """Verifies Flow C Account Recovery (Method 2 Route A Two-Step Flow)."""
 
     def test_recovery_with_backup_code(self, client, active_user):
         codes = generate_ten_recovery_codes(active_user)
         raw_code = codes[0]
 
-        new_password = "ResetSalowPassword2026!"
-        resp = client.post(
+        # Step 1: Submit recovery code proof without new password fields
+        resp1 = client.post(
             reverse("accounts:forgot_password"),
             {
-                "action": "redeem_code",
+                "action": "verify_recovery_code",
                 "employee_id": active_user.employee_id,
-                "code_type": "recovery_code",
-                "code_value": raw_code,
+                "recovery_code": raw_code,
+            },
+        )
+        assert resp1.status_code == 302
+        assert resp1.url == reverse("accounts:email_set_password")
+
+        # Step 2: Set new password on protected set password screen
+        new_password = "ResetSalowPassword2026!"
+        resp2 = client.post(
+            reverse("accounts:email_set_password"),
+            {
                 "new_password": new_password,
                 "confirm_password": new_password,
             },
         )
-        assert resp.status_code == 302
-        assert resp.url == reverse("accounts:login")
+        assert resp2.status_code == 302
+        assert resp2.url == reverse("accounts:login")
 
         # Verify password updated
         active_user.refresh_from_db()
         assert active_user.check_password(new_password)
+
+        # Verify recovery code cannot be replayed
+        resp_replay = client.post(
+            reverse("accounts:forgot_password"),
+            {
+                "action": "verify_recovery_code",
+                "employee_id": active_user.employee_id,
+                "recovery_code": raw_code,
+            },
+        )
+        assert resp_replay.status_code == 200
+        content = resp_replay.content.decode("utf-8")
+        assert "invalid or has already been used" in content
