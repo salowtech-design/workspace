@@ -19,22 +19,34 @@ ALLOWED_HOSTS = ["localhost", "127.0.0.1", "[::1]"]
 # Development verifier allowed in dev
 DEV_VERIFIER = os.environ.get("DEV_VERIFIER", "True").lower() in ("true", "1", "yes")
 
-# TiDB Database Integration
+# TiDB Database Integration (or local demo SQLite fallback when TiDB credentials are not provided)
 ca_path = os.environ.get("TIDB_CA_PATH") or certifi.where()
 
-DATABASES = {
-    "default": {
-        "ENGINE": "django_tidb",
-        "NAME": os.environ.get("TIDB_DB_NAME", "salow_workspace"),
-        "USER": os.environ.get("TIDB_USER", "root"),
-        "PASSWORD": os.environ.get("TIDB_PASSWORD", ""),
-        "HOST": os.environ.get("TIDB_HOST", "127.0.0.1"),
-        "PORT": int(os.environ.get("TIDB_PORT", 4000)),
-        "OPTIONS": {
-            "charset": "utf8mb4",
-            "ssl": {
-                "ca": ca_path,
+if os.environ.get("TIDB_PASSWORD") or os.environ.get("USE_TIDB", "").lower() in (
+    "true",
+    "1",
+    "yes",
+):
+    DATABASES = {
+        "default": {
+            "ENGINE": "django_tidb",
+            "NAME": os.environ.get("TIDB_DB_NAME", "salow_workspace"),
+            "USER": os.environ.get("TIDB_USER", "root"),
+            "PASSWORD": os.environ.get("TIDB_PASSWORD", ""),
+            "HOST": os.environ.get("TIDB_HOST", "127.0.0.1"),
+            "PORT": int(os.environ.get("TIDB_PORT", 4000)),
+            "OPTIONS": {
+                "charset": "utf8mb4",
+                "ssl": {
+                    "ca": ca_path,
+                },
             },
-        },
+        }
     }
-}
+else:
+    DATABASES = {
+        "default": {
+            "ENGINE": "django.db.backends.sqlite3",
+            "NAME": BASE_DIR / "test_db.sqlite3",
+        }
+    }
