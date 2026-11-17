@@ -173,7 +173,39 @@ Browser verification was conducted on `http://127.0.0.1:8000` using the `browser
 
 ---
 
-## 5. Security & Invariant Verification
+## 5. Explicit 25-Point Acceptance Criteria Verification Matrix
+
+| # | Directive Requirement | Concrete Evidence & Implementation Artifacts | Status |
+| :--- | :--- | :--- | :--- |
+| **1** | Landing page initially displays exactly two buttons and no input fields | `templates/accounts/login/login.html`: initial DOM has 0 visible inputs; verified via browser screenshot `step_11.png` and `test_landing_page_renders_two_buttons_initially_without_inputs` | **PASS** |
+| **2** | Login opens only first-time activation | Verified via browser screenshot `step_17.png` and `test_landing_page_progressive_disclosure_query_params` | **PASS** |
+| **3** | Sign In opens only returning sign-in | Verified via browser screenshot `step_13.png` and `test_landing_page_progressive_disclosure_query_params` | **PASS** |
+| **4** | Returning sign-in has no activation-code field | Inspected `signin-form` in `templates/accounts/login/login.html` and verified in live browser DOM | **PASS** |
+| **5** | Existing authenticated users are not asked to activate again | Tested in `test_authenticated_user_redirected_to_workspace`; redirects to `attendance:panel` | **PASS** |
+| **6** | Forgot Password displays exactly three top-level methods | `templates/accounts/recovery/forgot_password.html` tabs: `1. Admin Reset`, `2. Reset Yourself`, `3. Replace Authenticator`; screenshot `step_19.png` | **PASS** |
+| **7** | Method 1 creates a request visible in the administrator recovery queue | Tested in `test_forgot_password_method1_admin_request`; verified pending `RecoveryRequest` creation | **PASS** |
+| **8** | Method 2 has one form and no visible or selectable sub-methods | Verified via browser screenshot `step_23.png`: single unified form, zero Route A/B/C sub-tabs | **PASS** |
+| **9** | Method 2 rejects an invalid company email domain | Tested in `test_method2_rejects_non_company_email_domain`; rejects non-`@salowtech.com` domains | **PASS** |
+| **10** | Method 2 accepts exactly one valid recovery proof plus required email verification | Tested in `test_method2_enforces_strictly_one_proof`; rejects both proofs or neither | **PASS** |
+| **11** | Method 2 rejects expired and reused links | Tested in `test_method2_token_safe_get_and_post_consumption` and `test_iam_recovery_and_email.py` | **PASS** |
+| **12** | Method 3 verifies current password and company email | Tested in `test_method3_authenticator_replacement_request` and verified in live browser | **PASS** |
+| **13** | Method 3 link expires after 30 seconds | Verified `token_rec.expires_at - now == 30s` in `test_method3_authenticator_replacement_request` | **PASS** |
+| **14** | Method 3 does not replace old MFA before successful new TOTP verification | Verified in `test_iam_recovery_and_email.py` and `complete_authenticator_replacement` | **PASS** |
+| **15** | Method 3 generates ten new recovery codes and requires acknowledgement | Verified in `test_iam_recovery_and_email.py` and `mfa_replacement_codes.html` | **PASS** |
+| **16** | IAM is visible and accessible to authorised administrators | Verified in `test_admin_sidebar_has_iam_nav_item_and_no_styleguide` and browser screenshot `step_70.png` | **PASS** |
+| **17** | Employees and unauthorised roles cannot access administrator IAM actions | Tested in `test_intern_denied_access_to_admin_iam`; returns HTTP 403 Forbidden | **PASS** |
+| **18** | Administrator can create an employee account and issue a one-time activation credential | Tested in `test_admin_provision_employee_issues_activation_code`; creates user and issues Crockford Base32 code | **PASS** |
+| **19** | Administrator cannot view an employee's permanent password or MFA secrets | User created with `set_unusable_password()`; administrator never sees or sets passwords | **PASS** |
+| **20** | Shield verification checks administrator identity, TOTP, face verification and server-side RBAC | Verified in `test_security_shield_verification_and_sudo_elevation` and live browser screenshot `step_78.png` | **PASS** |
+| **21** | A failed or timed-out shield verification never grants access | Verified safe fail-closed error handling in `admin_security_shield_view` | **PASS** |
+| **22** | Password change revokes other sessions only after a successful password update | Verified in `change_user_password` and `change_password_view` with session key rotation | **PASS** |
+| **23** | Style Guide is absent from primary Admin Panel navigation | Verified in `templates/base.html`, `test_admin_sidebar_has_iam_nav_item_and_no_styleguide`, and browser screenshot `step_70.png` | **PASS** |
+| **24** | Work Logs and Daily Communication remain separate from IAM | Preserved under `posts:feed` in `templates/base.html`; completely segregated from IAM | **PASS** |
+| **25** | All existing working features and database records remain intact | All 187 automated tests pass; TiDB database records and schema preserved without resets | **PASS** |
+
+---
+
+## 6. Security & Invariant Verification
 
 1. **No Password Exposure**: Administrators can never view, generate, or set employee permanent passwords. Account provisioning issues only Crockford Base32 one-time activation codes.
 2. **Domain Integrity**: All self-service recovery forms enforce `@salowtech.com` or authorized subdomains via `is_allowed_company_email`.
