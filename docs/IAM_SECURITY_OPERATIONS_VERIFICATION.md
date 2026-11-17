@@ -30,6 +30,7 @@ Every security incident in Salow Workspace follows a standardized 8-step contain
   ```python
   from apps.accounts.models import CustomUser
   from apps.accounts.services import set_user_status
+
   user = CustomUser.objects.get(employee_id="ST-EMP-EXAMPLE")
   set_user_status(user, CustomUser.Status.SUSPENDED)
   ```
@@ -37,6 +38,7 @@ Every security incident in Salow Workspace follows a standardized 8-step contain
 - **Validation**:
   ```python
   from apps.accounts.models import UserSession
+
   assert not UserSession.objects.filter(user=user).exists()
   ```
 
@@ -47,12 +49,14 @@ Every security incident in Salow Workspace follows a standardized 8-step contain
 - **Immediate Containment**: Invalidate existing TOTP credential.
   ```python
   from apps.accounts.models import CustomUser, TOTPCredential
+
   user = CustomUser.objects.get(employee_id="ST-EMP-EXAMPLE")
   TOTPCredential.objects.filter(user=user).delete()
   ```
 - **Recovery Action**: Issue single-use `MFA_RESET` token.
   ```python
   from apps.accounts.auth.reset import issue_mfa_reset_code
+
   admin_user = CustomUser.objects.get(employee_id="ST-ADM-EXAMPLE")
   record, raw_code = issue_mfa_reset_code(target_user=user, issuing_admin=admin_user)
   ```
@@ -66,6 +70,7 @@ Every security incident in Salow Workspace follows a standardized 8-step contain
   ```python
   from apps.accounts.auth.passkeys import revoke_passkey
   from apps.accounts.models import CustomUser
+
   user = CustomUser.objects.get(employee_id="ST-EMP-EXAMPLE")
   revoke_passkey(user, credential_id=123)
   ```
@@ -102,6 +107,7 @@ Every security incident in Salow Workspace follows a standardized 8-step contain
   ```python
   from apps.core.models import RateLimitRecord
   from django.utils import timezone
+
   recent = RateLimitRecord.objects.filter(timestamp__gt=timezone.now().timestamp() - 300)
   print(f"Active throttled keys: {recent.count()}")
   ```

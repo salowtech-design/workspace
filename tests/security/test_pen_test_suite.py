@@ -101,6 +101,7 @@ class TestSQLInjectionResistance:
         """Public verification endpoint must safely handle SQL injection probes."""
         client = Client()
         for payload in self.SQLI_PAYLOADS:
+            RateLimitMiddleware.reset()
             response = client.get(f"/verify/?id={payload}")
             assert response.status_code == 200
             assert "No Credential Found" in response.content.decode("utf-8")
@@ -109,6 +110,7 @@ class TestSQLInjectionResistance:
         """Login form employee_id input safely neutralizes SQL injection attempts."""
         client = Client()
         for payload in self.SQLI_PAYLOADS:
+            RateLimitMiddleware.reset()
             response = client.post("/auth/login/", {"employee_id": payload, "password": "password"})
             # Must handle gracefully with form error or 200, never 500
             assert response.status_code in (200, 302)

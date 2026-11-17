@@ -64,8 +64,12 @@ class RateLimitMiddleware:
         "/auth/security/password/change",
         "/verify",
     )
-    SENSITIVE_LIMIT = getattr(settings, "RATE_LIMIT_SENSITIVE_LIMIT", 5)  # max 5 requests per window for sensitive auth endpoints
-    DEFAULT_LIMIT = getattr(settings, "RATE_LIMIT_DEFAULT_LIMIT", 300)  # general requests per window
+    SENSITIVE_LIMIT = getattr(
+        settings, "RATE_LIMIT_SENSITIVE_LIMIT", 5
+    )  # max 5 requests per window for sensitive auth endpoints
+    DEFAULT_LIMIT = getattr(
+        settings, "RATE_LIMIT_DEFAULT_LIMIT", 300
+    )  # general requests per window
     WINDOW_SECONDS = 60
 
     _storage: Dict[str, List[float]] = {}
@@ -97,6 +101,48 @@ class RateLimitMiddleware:
             return x_forwarded_for.split(",")[0].strip()
         return remote_addr
 
+    def _render_429_response(self, request, retry_after: int = 60) -> HttpResponse:
+        """Render a branded HTML 429 page or JSON response with Retry-After header."""
+        retry_str = str(retry_after)
+        wants_json = (
+            request.headers.get("x-requested-with") == "XMLHttpRequest"
+            or "application/json" in request.headers.get("Accept", "")
+            or request.path_info.startswith("/api/")
+        )
+        if wants_json:
+            from django.http import JsonResponse
+
+            resp = JsonResponse(
+                {
+                    "error": "Too Many Requests",
+                    "message": f"Too Many Requests: Rate limit exceeded. Please retry in {retry_after} seconds.",
+                    "retry_after": retry_after,
+                },
+                status=429,
+            )
+            resp["Retry-After"] = retry_str
+            return resp
+
+        from django.template.loader import render_to_string
+
+        try:
+            content = render_to_string(
+                "core/429.html",
+                {"retry_after": retry_after, "path": request.path_info},
+                request=request,
+            )
+            resp = HttpResponse(content, status=429, content_type="text/html; charset=utf-8")
+        except Exception as exc:
+            logger.warning("Failed to render core/429.html, falling back to plain text: %s", exc)
+            resp = HttpResponse(
+                "Too Many Requests: Rate limit exceeded. Please retry in 60 seconds.",
+                status=429,
+                content_type="text/plain; charset=utf-8",
+            )
+
+        resp["Retry-After"] = retry_str
+        return resp
+
     def __call__(self, request):  # noqa: C901
         path = request.path_info
         if path.startswith("/static/"):
@@ -116,7 +162,20 @@ class RateLimitMiddleware:
             return self.get_response(request)
 
         client_ip = self._get_client_ip(request)
-        is_sensitive = any(path.startswith(prefix) for prefix in self.SENSITIVE_PREFIXES)
+
+        # Differentiate GET vs. POST: Standard auth page views (GET) are unmetered
+        # rendering requests evaluated against DEFAULT_LIMIT, while sensitive thresholds (SENSITIVE_LIMIT = 5)
+        # strictly protect sensitive POST credential submissions.
+        is_sensitive = False
+        if any(path.startswith(prefix) for prefix in self.SENSITIVE_PREFIXES):
+            if (
+                path.startswith(("/auth/activate", "/auth/login", "/auth/recovery"))
+                and request.method == "GET"
+            ):
+                is_sensitive = False
+            else:
+                is_sensitive = True
+
         limit = self.SENSITIVE_LIMIT if is_sensitive else self.DEFAULT_LIMIT
 
         # Build multidimensional keys (IP + endpoint type, plus account dimension if provided)
@@ -136,13 +195,7 @@ class RateLimitMiddleware:
                 timestamps[:] = [t for t in timestamps if t > cutoff]
 
                 if len(timestamps) >= limit:
-                    response = HttpResponse(
-                        "Too Many Requests: Rate limit exceeded. Please retry in 60 seconds.",
-                        status=429,
-                        content_type="text/plain",
-                    )
-                    response["Retry-After"] = "60"
-                    return response
+                    return self._render_429_response(request)
 
                 timestamps.append(now)
 
@@ -159,13 +212,7 @@ class RateLimitMiddleware:
             for k in keys_to_check:
                 db_count = RateLimitRecord.objects.filter(key=k, timestamp__gt=cutoff).count()
                 if db_count >= limit:
-                    response = HttpResponse(
-                        "Too Many Requests: Rate limit exceeded. Please retry in 60 seconds.",
-                        status=429,
-                        content_type="text/plain",
-                    )
-                    response["Retry-After"] = "60"
-                    return response
+                    return self._render_429_response(request)
 
                 RateLimitRecord.objects.create(key=k, timestamp=now)
 

@@ -35,7 +35,6 @@ from django.test import Client
 from apps.accounts.auth.mfa_totp import get_auth_key_ring
 from apps.accounts.models import CustomUser, WorkspaceDraft
 from apps.core.middleware import RateLimitMiddleware
-from apps.core.models import RateLimitRecord
 
 User = get_user_model()
 
@@ -146,7 +145,7 @@ def run_stage_b_scaling(concurrency_tiers=(10, 25, 50, 100, 250)):
             connections.close_all()
             emp_id = f"ST-BENCH-{idx:04d}"
             client = Client(REMOTE_ADDR=f"10.100.{idx // 256}.{idx % 256}")
-            
+
             for attempt in range(5):
                 try:
                     u = CustomUser.objects.filter(employee_id=emp_id).first()
@@ -202,7 +201,7 @@ def run_stage_d_authenticated_workload(num_users: int = 500, max_workers: int = 
         connections.close_all()
         emp_id = f"ST-BENCH-{idx:04d}"
         client = Client(REMOTE_ADDR=f"10.100.{idx // 256}.{idx % 256}")
-        
+
         for attempt in range(5):
             try:
                 u = CustomUser.objects.filter(employee_id=emp_id).first()
@@ -224,7 +223,9 @@ def run_stage_d_authenticated_workload(num_users: int = 500, max_workers: int = 
                 t1 = time.time()
                 r2 = client.post(
                     "/auth/security/draft/save/",
-                    json.dumps({"path": f"/posts/{idx}/edit/", "draft_data": {"user": emp_id, "step": idx}}),
+                    json.dumps(
+                        {"path": f"/posts/{idx}/edit/", "draft_data": {"user": emp_id, "step": idx}}
+                    ),
                     content_type="application/json",
                 )
                 lat2 = (time.time() - t1) * 1000.0
@@ -242,7 +243,7 @@ def run_stage_d_authenticated_workload(num_users: int = 500, max_workers: int = 
     with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
         futures = [executor.submit(user_lifecycle, i) for i in range(1, num_users + 1)]
         for f in concurrent.futures.as_completed(futures):
-            for lat, ok in f.result():
+            for lat, _ok in f.result():
                 all_latencies.append(lat)
             res = f.result()
             if len(res) == 2:
@@ -257,8 +258,12 @@ def run_stage_d_authenticated_workload(num_users: int = 500, max_workers: int = 
     rps = total_reqs / elapsed if elapsed > 0 else 0.0
 
     print(f"Total Requests Executed  : {total_reqs}")
-    print(f"Total Navigation Success : {total_nav_ok}/{num_users} ({total_nav_ok/num_users*100:.1f}%)")
-    print(f"Total Draft Save Success : {total_draft_ok}/{num_users} ({total_draft_ok/num_users*100:.1f}%)")
+    print(
+        f"Total Navigation Success : {total_nav_ok}/{num_users} ({total_nav_ok / num_users * 100:.1f}%)"
+    )
+    print(
+        f"Total Draft Save Success : {total_draft_ok}/{num_users} ({total_draft_ok / num_users * 100:.1f}%)"
+    )
     print(f"Elapsed Time             : {elapsed:.2f} seconds")
     print(f"Workload Throughput      : {rps:.2f} req/s")
     print(f"Latency p50 (Median)     : {stats['p50']:.2f} ms")
@@ -282,9 +287,9 @@ def run_stage_e_abuse_workload():
         if resp.status_code == 429:
             throttled += 1
 
-    print(f"Burst Attacks Sent   : 10")
+    print("Burst Attacks Sent   : 10")
     print(f"HTTP 429 Throttled   : {throttled}")
-    print(f"Expected Throttled   : 5 (since sensitive limit is 5 req/min)")
+    print("Expected Throttled   : 5 (since sensitive limit is 5 req/min)")
     print(f"Abuse Defense Active : {'YES [PASS]' if throttled >= 5 else 'NO [FAIL]'}")
 
 

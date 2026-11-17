@@ -3,37 +3,98 @@
 {% block title %}Save Recovery Codes — Salowtech Workspace{% endblock %}
 
 {% block content %}
-<div class="card" style="max-width: 580px; margin: 2rem auto;">
+<div class="card" style="max-width: 580px; margin: 2rem auto; border: 1px solid var(--color-border-subtle); box-shadow: 0 4px 16px rgba(42, 36, 31, 0.06);">
     <div style="text-align: center; margin-bottom: 1.5rem;">
         <span class="badge badge-info" style="margin-bottom: 0.5rem;">Step 5 of 5</span>
-        <h2 style="margin: 0; font-size: 1.4rem; color: var(--color-primary-600);">Save Your One-Time Recovery Codes</h2>
+        <h2 style="margin: 0; font-size: 1.4rem; color: var(--color-primary-600); font-weight: 700;">Save Your One-Time Recovery Codes</h2>
         <p style="color: var(--color-text-muted); font-size: 0.9rem; margin-top: 0.25rem;">
-            If you ever lose access to your authenticator app, these 10 backup codes are your only way to sign in. Each code can be used once.
+            If you ever lose access to your authenticator app, these 10 backup codes are your emergency access method for <strong>{{ user.employee_id }}</strong>. Each code can only be used once.
         </p>
     </div>
 
-    <div style="background: var(--color-bg-base); padding: 1.25rem; border-radius: 8px; border: 1px solid var(--color-border-subtle); margin-bottom: 1.5rem;">
-        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; text-align: center;">
+    <!-- 10 Recovery Codes Display -->
+    <div style="background: var(--color-bg-base); padding: 1.25rem; border-radius: 8px; border: 1px solid var(--color-border-subtle); margin-bottom: 1.25rem;">
+        <div id="codes-container" style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; text-align: center;">
             {% for code in recovery_codes %}
-            <div style="background: white; padding: 0.5rem; border-radius: 4px; font-family: var(--font-mono); font-weight: bold; letter-spacing: 1px; color: var(--color-primary-700); border: 1px solid var(--color-border-subtle);">
+            <div class="recovery-code-item" style="background: white; padding: 0.55rem 0.5rem; border-radius: 4px; font-family: var(--font-mono); font-weight: bold; letter-spacing: 1px; color: var(--color-primary-700); border: 1px solid var(--color-border-subtle); font-size: 0.95rem;">
                 {{ code }}
             </div>
             {% endfor %}
         </div>
     </div>
 
+    <!-- Copy / Download Toolbar -->
+    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; margin-bottom: 1.5rem;">
+        <button type="button" id="copy-codes-btn" class="btn btn-secondary" style="font-size: 0.88rem; padding: 0.6rem; display: flex; align-items: center; justify-content: center; gap: 0.4rem;">
+            📋 <span id="copy-label">Copy All Codes</span>
+        </button>
+        <button type="button" id="download-codes-btn" class="btn btn-secondary" style="font-size: 0.88rem; padding: 0.6rem; display: flex; align-items: center; justify-content: center; gap: 0.4rem;">
+            💾 Download as .txt
+        </button>
+    </div>
+
     <form method="post" class="space-y-4">
         {% csrf_token %}
-        <div style="display: flex; align-items: flex-start; gap: 0.5rem; background: var(--color-warning-bg); border: 1px solid var(--color-warning-border); padding: 0.75rem; border-radius: 6px;">
-            <input type="checkbox" id="confirmed_saved" name="confirmed_saved" value="1" required style="margin-top: 0.25rem;">
-            <label for="confirmed_saved" style="font-size: 0.9rem; color: var(--color-warning-text); cursor: pointer;">
-                I have safely stored these 10 recovery codes in a secure place (e.g. password manager, printed slip).
+        <div style="display: flex; align-items: flex-start; gap: 0.65rem; background: var(--color-warning-bg); border: 1px solid var(--color-warning-border); padding: 0.85rem; border-radius: 6px;">
+            <input type="checkbox" id="confirmed_saved" name="confirmed_saved" value="1" required style="margin-top: 0.2rem; transform: scale(1.15); cursor: pointer;">
+            <label for="confirmed_saved" style="font-size: 0.9rem; color: var(--color-warning-text); cursor: pointer; line-height: 1.4;">
+                I have safely stored these 10 recovery codes in a secure location (such as an encrypted password manager or printed physical vault).
             </label>
         </div>
 
-        <button type="submit" class="btn btn-primary" style="width: 100%; font-size: 1rem; padding: 0.75rem;">
+        <button type="submit" id="activate-btn" class="btn btn-primary" style="width: 100%; font-size: 1rem; font-weight: 700; padding: 0.8rem; margin-top: 0.5rem;">
             Activate Account & Open Workspace →
         </button>
     </form>
 </div>
+
+<script>
+(function() {
+    const rawCodes = [{% for code in recovery_codes %}"{{ code }}",{% endfor %}];
+    const employeeId = "{{ user.employee_id }}";
+
+    // Copy to clipboard
+    const copyBtn = document.getElementById('copy-codes-btn');
+    const copyLabel = document.getElementById('copy-label');
+    if (copyBtn) {
+        copyBtn.addEventListener('click', function() {
+            const textToCopy = "Salowtech Workspace Recovery Codes for " + employeeId + "\n" +
+                               "Generated: " + new Date().toISOString() + "\n\n" +
+                               rawCodes.map((c, i) => (i + 1) + ". " + c).join("\n") +
+                               "\n\nEach code can be used once.";
+            navigator.clipboard.writeText(textToCopy).then(() => {
+                copyLabel.textContent = "✓ Copied to Clipboard!";
+                setTimeout(() => {
+                    copyLabel.textContent = "Copy All Codes";
+                }, 2500);
+            }).catch(() => {
+                alert("Failed to copy codes automatically. Please highlight and copy manually.");
+            });
+        });
+    }
+
+    // Download text file
+    const downloadBtn = document.getElementById('download-codes-btn');
+    if (downloadBtn) {
+        downloadBtn.addEventListener('click', function() {
+            const textContent = "Salowtech Workspace Recovery Codes\n" +
+                                "Employee ID: " + employeeId + "\n" +
+                                "Created: " + new Date().toISOString() + "\n\n" +
+                                "========================================\n" +
+                                rawCodes.map((c, i) => String(i + 1).padStart(2, ' ') + ". " + c).join("\n") +
+                                "\n========================================\n" +
+                                "Keep these in a safe place. Each code is single-use only.\n";
+            const blob = new Blob([textContent], { type: 'text/plain;charset=utf-8' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = "salow_recovery_codes_" + employeeId + ".txt";
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        });
+    }
+})();
+</script>
 {% endblock %}

@@ -29,7 +29,11 @@ PREAUTH_MAX_ATTEMPTS = 5
 
 
 def login_view(request):
-    """Step 1 of everyday login: Employee ID and password entry."""
+    """
+    Everyday login handler supporting:
+    - Flow B: Single-screen returning employee login (Employee ID + Password + TOTP/Recovery code -> Confirm).
+    - Step-by-step fallback (/login -> /mfa/challenge/).
+    """
     if request.user.is_authenticated:
         return redirect("attendance:panel")
 
@@ -39,6 +43,10 @@ def login_view(request):
     if request.method == "POST":
         emp_id = request.POST.get("employee_id", "").strip()
         password = request.POST.get("password", "")
+        totp_code = (
+            request.POST.get("totp_code", "").strip() or request.POST.get("token", "").strip()
+        )
+        recovery_code = request.POST.get("recovery_code", "").strip()
         ip_addr = request.META.get("REMOTE_ADDR")
 
         try:
@@ -51,6 +59,28 @@ def login_view(request):
                 request.session["_salow_act_user_id"] = user.id
                 return redirect("accounts:activate_mfa_setup")
 
+            # Single-screen returning user authentication (Flow B)
+            if totp_code or recovery_code:
+                code_to_verify = recovery_code or totp_code
+                clean_code = code_to_verify.replace("-", "").strip()
+                is_recovery = bool(recovery_code) or (
+                    len(clean_code) != 6 or not clean_code.isdigit()
+                )
+                complete_mfa_challenge(
+                    request,
+                    user,
+                    code_to_verify,
+                    is_recovery_code=is_recovery,
+                )
+                if redirect_to and url_has_allowed_host_and_scheme(
+                    url=redirect_to,
+                    allowed_hosts={request.get_host()},
+                    require_https=request.is_secure(),
+                ):
+                    return redirect(redirect_to)
+                return redirect("attendance:panel")
+
+            # Otherwise, 2-step flow (redirect to mfa_challenge)
             request.session[PENDING_LOGIN_USER_ID_KEY] = user.id
             request.session[PENDING_LOGIN_TS_KEY] = time.time()
             request.session[PENDING_LOGIN_ATTEMPTS_KEY] = 0

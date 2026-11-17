@@ -74,9 +74,7 @@ Salow Workspace enforces a **Direct Manager or Assigned Team Lead** recovery pol
 is_subordinate = ReportingRelationship.objects.filter(
     manager=actor, subordinate=target_user
 ).exists()
-is_team_member = Team.objects.filter(
-    lead=actor, memberships__user=target_user
-).exists()
+is_team_member = Team.objects.filter(lead=actor, memberships__user=target_user).exists()
 ```
 A manager may ONLY initiate recovery for an employee or intern if:
 1. The manager is the target's **direct manager** (`ReportingRelationship`), OR

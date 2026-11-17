@@ -90,7 +90,7 @@ class TestConcurrentReplayProtections:
             try:
                 # Reload fresh user instance in thread
                 u = CustomUser.objects.get(id=target_employee.id)
-                success = verify_totp_code(u, valid_code, key_ring=kr)
+                verify_totp_code(u, valid_code, key_ring=kr)
                 return True, worker_id, None
             except AuthException as e:
                 return False, worker_id, str(e.code)
@@ -111,9 +111,9 @@ class TestConcurrentReplayProtections:
 
         # Exactly ONE verification must succeed
         assert success_count == 1, f"Expected 1 success, got {success_count}. Results: {results}"
-        assert (
-            rejection_count == num_workers - 1
-        ), f"Expected {num_workers - 1} rejections, got {rejection_count}."
+        assert rejection_count == num_workers - 1, (
+            f"Expected {num_workers - 1} rejections, got {rejection_count}."
+        )
 
         # Verify database last_used_step was updated
         cred = TOTPCredential.objects.get(user=target_employee)

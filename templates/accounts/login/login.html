@@ -3,13 +3,25 @@
 {% block title %}Sign In — Salowtech Workspace{% endblock %}
 
 {% block content %}
-<div class="card" style="max-width: 420px; margin: 3rem auto; text-align: center;">
+<div class="card" style="max-width: 440px; margin: 3rem auto; text-align: center; border: 1px solid var(--color-border-subtle); box-shadow: 0 4px 16px rgba(42, 36, 31, 0.06);">
     <div style="margin-bottom: 1.5rem;">
-        <img src="/static/img/logo.jpg" alt="Salowtech Logo" style="height: 68px; width: 68px; object-fit: contain; margin-bottom: 0.5rem;">
-        <h2 style="margin: 0; font-size: 1.5rem; color: var(--color-primary-600);">Salowtech Workspace</h2>
-        <p style="color: var(--color-text-muted); font-size: 0.9rem; margin-top: 0.25rem;">
-            Sign in with your company credentials
+        <img src="/static/img/logo.jpg" alt="Salowtech Logo" style="height: 64px; width: 64px; object-fit: contain; margin-bottom: 0.5rem; border-radius: 8px;">
+        <h2 style="margin: 0; font-size: 1.5rem; color: var(--color-primary-600); font-weight: 700;">Salowtech Workspace</h2>
+        <p style="color: var(--color-text-muted); font-size: 0.88rem; margin-top: 0.25rem;">
+            Enterprise Identity & Access Management
         </p>
+    </div>
+
+    <!-- Exactly Two Primary Buttons: Login and Sign In -->
+    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.65rem; margin-bottom: 1.5rem;" role="tablist" aria-label="Authentication Flow Selection">
+        <a href="{% url 'accounts:activate' %}" id="btn-login" class="btn btn-primary" style="display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 0.75rem 0.5rem; text-decoration: none; font-weight: 700; font-size: 1rem; border-radius: 6px;">
+            <span>Login</span>
+            <span style="font-size: 0.72rem; font-weight: 400; opacity: 0.9; margin-top: 0.15rem;">First-Time Activation</span>
+        </a>
+        <button type="button" id="btn-signin" class="btn btn-primary" style="display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 0.75rem 0.5rem; font-weight: 700; font-size: 1rem; border-radius: 6px; outline: 2px solid var(--color-primary-700); outline-offset: 1px;">
+            <span>Sign In</span>
+            <span style="font-size: 0.72rem; font-weight: 400; opacity: 0.9; margin-top: 0.15rem;">Returning Employee</span>
+        </button>
     </div>
 
     {% if error %}
@@ -18,7 +30,8 @@
     </div>
     {% endif %}
 
-    <form method="post" class="space-y-4" style="text-align: left;">
+    <!-- Flow B: Returning Employee Sign-In Form (Single Screen) -->
+    <form method="post" action="{% url 'accounts:login' %}" id="signin-form" class="space-y-4" style="text-align: left;">
         {% csrf_token %}
         <input type="hidden" name="next" value="{{ next }}">
 
@@ -28,88 +41,39 @@
         </div>
 
         <div class="form-group">
-            <div style="display: flex; justify-content: space-between; align-items: center;">
-                <label for="password" class="form-label" style="margin-bottom: 0;">Password</label>
-                <a href="{% url 'accounts:forgot_password' %}" style="font-size: 0.8rem; color: var(--color-primary-600); text-decoration: none;">Forgot password?</a>
-            </div>
-            <input type="password" id="password" name="password" class="form-input" placeholder="••••••••••••" autocomplete="current-password" required style="margin-top: 0.35rem;">
+            <label for="password" class="form-label">Password</label>
+            <input type="password" id="password" name="password" class="form-input" placeholder="••••••••••••" autocomplete="current-password" required>
         </div>
 
-        <button type="submit" class="btn btn-primary" style="width: 100%; font-size: 1rem; padding: 0.75rem;">
-            Continue →
+        <div class="form-group">
+            <label for="totp_code" class="form-label">Authenticator Code (TOTP or Backup Code)</label>
+            <input type="text" id="totp_code" name="totp_code" class="form-input" placeholder="6-digit TOTP (e.g. 123456) or Backup Code" autocomplete="one-time-code" style="letter-spacing: 2px; font-family: var(--font-mono);">
+            <p style="font-size: 0.75rem; color: var(--color-text-muted); margin-top: 0.25rem; margin-bottom: 0;">
+                Enter code from your authenticator app (or leave blank if completing step-by-step).
+            </p>
+        </div>
+
+        <button type="submit" id="confirm-btn" class="btn btn-primary" style="width: 100%; font-size: 1rem; font-weight: 700; padding: 0.8rem; margin-top: 0.5rem;">
+            Confirm
         </button>
+
+        <!-- Forgot Password link immediately below Confirm button -->
+        <div style="text-align: center; margin-top: 0.85rem;">
+            <a href="{% url 'accounts:forgot_password' %}" id="forgot-password-link" style="font-size: 0.88rem; color: var(--color-primary-600); text-decoration: none; font-weight: 600;">
+                Forgot Password?
+            </a>
+        </div>
     </form>
-
-    <div style="display: flex; align-items: center; margin: 1.25rem 0; color: var(--color-text-muted); font-size: 0.8rem;">
-        <span style="flex:1; border-top:1px solid var(--color-border-subtle);"></span>
-        <span style="padding: 0 0.75rem; text-transform: uppercase; letter-spacing: 0.05em;">Or sign in with</span>
-        <span style="flex:1; border-top:1px solid var(--color-border-subtle);"></span>
-    </div>
-
-    <button type="button" id="passkey-btn" class="btn btn-secondary" style="width: 100%; font-size: 0.95rem; padding: 0.65rem; display: flex; align-items: center; justify-content: center; gap: 0.5rem;">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 2l-2 2m-1-1l-3 3m-1-1l-2 2m-2-2l-3 3"></path><circle cx="7" cy="17" r="5"></circle></svg>
-        Sign in with Passkey / Device Unlock
-    </button>
-    <div id="passkey-msg" style="margin-top: 0.5rem; font-size: 0.8rem; color: var(--color-error); display: none;"></div>
-
-    <div style="margin-top: 1.5rem; padding-top: 1rem; border-top: 1px solid var(--color-border-subtle); font-size: 0.85rem; color: var(--color-text-muted);">
-        First time joining? <a href="{% url 'accounts:activate' %}" style="color: var(--color-primary-600); font-weight: 600;">Activate with code</a>
-    </div>
 </div>
 
 <script>
-document.getElementById('passkey-btn')?.addEventListener('click', async () => {
-    const msg = document.getElementById('passkey-msg');
-    const empInput = document.getElementById('employee_id').value.trim();
-    msg.style.display = 'none';
-    try {
-        const optRes = await fetch(`/auth/passkeys/auth/options/?employee_id=${encodeURIComponent(empInput)}`);
-        if (!optRes.ok) throw new Error('Could not retrieve authentication challenge.');
-        const options = await optRes.json();
-
-        // Convert base64url challenge and allowCredentials to buffers
-        options.challenge = Uint8Array.from(atob(options.challenge.replace(/-/g, '+').replace(/_/g, '/')), c => c.charCodeAt(0));
-        if (options.allowCredentials) {
-            options.allowCredentials = options.allowCredentials.map(c => ({
-                ...c,
-                id: Uint8Array.from(atob(c.id.replace(/-/g, '+').replace(/_/g, '/')), ch => ch.charCodeAt(0))
-            }));
-        }
-
-        const assertion = await navigator.credentials.get({ publicKey: options });
-        if (!assertion) throw new Error('Authenticator did not return an assertion.');
-
-        // Convert buffer values for JSON transport
-        const credentialJSON = {
-            id: assertion.id,
-            rawId: btoa(String.fromCharCode(...new Uint8Array(assertion.rawId))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''),
-            type: assertion.type,
-            response: {
-                authenticatorData: btoa(String.fromCharCode(...new Uint8Array(assertion.response.authenticatorData))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''),
-                clientDataJSON: btoa(String.fromCharCode(...new Uint8Array(assertion.response.clientDataJSON))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''),
-                signature: btoa(String.fromCharCode(...new Uint8Array(assertion.response.signature))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''),
-                userHandle: assertion.response.userHandle ? btoa(String.fromCharCode(...new Uint8Array(assertion.response.userHandle))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '') : null
-            }
-        };
-
-        const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]').value;
-        const verifyRes = await fetch('/auth/passkeys/auth/verify/', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'X-CSRFToken': csrfToken
-            },
-            body: JSON.stringify({ credential: credentialJSON, employee_id: empInput })
+document.addEventListener('DOMContentLoaded', function() {
+    const btnSignIn = document.getElementById('btn-signin');
+    const empInput = document.getElementById('employee_id');
+    if (btnSignIn && empInput) {
+        btnSignIn.addEventListener('click', function() {
+            empInput.focus();
         });
-        const result = await verifyRes.json();
-        if (result.success && result.redirect_url) {
-            window.location.href = result.redirect_url;
-        } else {
-            throw new Error(result.error || 'Passkey verification failed.');
-        }
-    } catch (err) {
-        msg.textContent = err.message || 'Passkey authentication failed.';
-        msg.style.display = 'block';
     }
 });
 </script>
