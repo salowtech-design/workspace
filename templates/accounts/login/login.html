@@ -3,7 +3,7 @@
 {% block title %}Sign In — Salowtech Workspace{% endblock %}
 
 {% block content %}
-<div class="card" style="max-width: 440px; margin: 3rem auto; text-align: center; border: 1px solid var(--color-border-subtle); box-shadow: 0 4px 16px rgba(42, 36, 31, 0.06);">
+<div class="card" style="max-width: 460px; margin: 3rem auto; text-align: center; border: 1px solid var(--color-border-subtle); box-shadow: 0 4px 16px rgba(42, 36, 31, 0.06);">
     <div style="margin-bottom: 1.5rem;">
         <img src="/static/img/logo.jpg" alt="Salowtech Logo" style="height: 64px; width: 64px; object-fit: contain; margin-bottom: 0.5rem; border-radius: 8px;">
         <h2 style="margin: 0; font-size: 1.5rem; color: var(--color-primary-600); font-weight: 700;">Salowtech Workspace</h2>
@@ -12,94 +12,176 @@
         </p>
     </div>
 
-    <!-- Exactly Two Primary Buttons: Login and Sign In -->
-    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.65rem; margin-bottom: 1.5rem;" role="tablist" aria-label="Authentication Flow Selection">
-        <a href="{% url 'accounts:activate' %}" id="btn-login" class="btn btn-primary" style="display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 0.75rem 0.5rem; text-decoration: none; font-weight: 700; font-size: 1rem; border-radius: 6px;">
+    <!-- Exactly Two Primary Buttons Side by Side: Login and Sign In -->
+    <div id="landing-buttons-container" style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; margin-bottom: 1.5rem;" role="tablist" aria-label="Authentication Options">
+        <button type="button" id="btn-login" class="btn btn-primary" style="display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 0.85rem 0.5rem; font-weight: 700; font-size: 1.05rem; border-radius: 6px; cursor: pointer; transition: all 0.15s ease;">
             <span>Login</span>
             <span style="font-size: 0.72rem; font-weight: 400; opacity: 0.9; margin-top: 0.15rem;">First-Time Activation</span>
-        </a>
-        <button type="button" id="btn-signin" class="btn btn-primary" style="display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 0.75rem 0.5rem; font-weight: 700; font-size: 1rem; border-radius: 6px; outline: 2px solid var(--color-primary-700); outline-offset: 1px;">
+        </button>
+        <button type="button" id="btn-signin" class="btn btn-primary" style="display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 0.85rem 0.5rem; font-weight: 700; font-size: 1.05rem; border-radius: 6px; cursor: pointer; transition: all 0.15s ease;">
             <span>Sign In</span>
             <span style="font-size: 0.72rem; font-weight: 400; opacity: 0.9; margin-top: 0.15rem;">Returning Employee</span>
         </button>
     </div>
 
     {% if error %}
-    <div class="alert alert-danger" style="margin-bottom: 1.25rem; text-align: left;">
+    <div class="alert alert-danger" id="login-error-alert" style="margin-bottom: 1.25rem; text-align: left;">
         {{ error }}
     </div>
     {% endif %}
 
-    <!-- Flow B: Returning Employee Sign-In Form (Single Screen) -->
-    <form method="post" action="{% url 'accounts:login' %}" id="signin-form" class="space-y-4" style="text-align: left;">
-        {% csrf_token %}
-        <input type="hidden" name="next" value="{{ next }}">
-
-        <div class="form-group">
-            <label for="employee_id" class="form-label">Employee ID</label>
-            <input type="text" id="employee_id" name="employee_id" class="form-input" placeholder="e.g. ST-EMP-0001" autocomplete="username" required autofocus>
+    <!-- State 1: First-Time Activation Flow (Initially Hidden unless flow='login') -->
+    <div id="login-flow-container" style="display: {% if flow == 'login' %}block{% else %}none{% endif %}; text-align: left;">
+        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 1rem; padding-bottom: 0.5rem; border-bottom: 1px solid var(--color-border-subtle);">
+            <h3 style="margin: 0; font-size: 1.1rem; color: var(--color-primary-600); font-weight: 600;">First-Time Account Activation</h3>
+            <button type="button" class="btn-back-landing" style="background: none; border: none; font-size: 0.82rem; color: var(--color-primary-600); cursor: pointer; text-decoration: underline; font-weight: 600;">← Back</button>
         </div>
-
-        <div class="form-group">
-            <label for="password" class="form-label">Password</label>
-            <div style="position: relative; display: flex; align-items: center;">
-                <input type="password" id="password" name="password" class="form-input" placeholder="••••••••••••" autocomplete="current-password" required style="padding-right: 2.75rem; width: 100%;">
-                <button type="button" id="toggle-password-btn" aria-label="Toggle password visibility" title="Show/Hide password" style="position: absolute; right: 0.75rem; background: none; border: none; padding: 0.25rem; cursor: pointer; color: var(--color-text-muted); display: flex; align-items: center; justify-content: center; transition: color 0.15s ease;">
-                    <svg id="eye-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                        <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
-                        <circle cx="12" cy="12" r="3"></circle>
-                    </svg>
-                    <svg id="eye-slash-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display: none;">
-                        <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path>
-                        <line x1="1" y1="1" x2="23" y2="23"></line>
-                    </svg>
-                </button>
+        <form method="post" action="{% url 'accounts:activate' %}" id="activation-form" class="space-y-4">
+            {% csrf_token %}
+            <div class="form-group">
+                <label for="act_employee_id" class="form-label">Employee ID</label>
+                <input type="text" id="act_employee_id" name="employee_id" class="form-input" placeholder="e.g. ST-EMP-0001" autocomplete="username" required>
             </div>
-        </div>
+            <div class="form-group">
+                <label for="activation_code" class="form-label">Activation Code</label>
+                <input type="text" id="activation_code" name="activation_code" class="form-input" placeholder="Enter one-time activation code" autocomplete="off" required style="font-family: var(--font-mono); letter-spacing: 1px;">
+                <p style="font-size: 0.75rem; color: var(--color-text-muted); margin-top: 0.25rem;">
+                    Single-use code issued by your workspace administrator or HR.
+                </p>
+            </div>
+            <button type="submit" id="btn-submit-activation" class="btn btn-primary" style="width: 100%; font-size: 1rem; font-weight: 700; padding: 0.8rem; margin-top: 0.5rem;">
+                Activate Account →
+            </button>
+        </form>
+    </div>
 
-        <div class="form-group">
-            <label for="totp_code" class="form-label">Authenticator Code (TOTP or Backup Code)</label>
-            <input type="text" id="totp_code" name="totp_code" class="form-input" placeholder="6-digit TOTP (e.g. 123456) or Backup Code" autocomplete="one-time-code" style="letter-spacing: 2px; font-family: var(--font-mono);">
-            <p style="font-size: 0.75rem; color: var(--color-text-muted); margin-top: 0.25rem; margin-bottom: 0;">
-                Enter code from your authenticator app (or leave blank if completing step-by-step).
-            </p>
+    <!-- State 2: Returning Employee Sign-In Flow (Initially Hidden unless flow='signin' or error) -->
+    <div id="signin-flow-container" style="display: {% if flow == 'signin' or error %}block{% else %}none{% endif %}; text-align: left;">
+        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 1rem; padding-bottom: 0.5rem; border-bottom: 1px solid var(--color-border-subtle);">
+            <h3 style="margin: 0; font-size: 1.1rem; color: var(--color-primary-600); font-weight: 600;">Returning Employee Sign-In</h3>
+            <button type="button" class="btn-back-landing" style="background: none; border: none; font-size: 0.82rem; color: var(--color-primary-600); cursor: pointer; text-decoration: underline; font-weight: 600;">← Back</button>
         </div>
+        <form method="post" action="{% url 'accounts:login' %}" id="signin-form" class="space-y-4">
+            {% csrf_token %}
+            <input type="hidden" name="next" value="{{ next }}">
 
-        <button type="submit" id="confirm-btn" class="btn btn-primary" style="width: 100%; font-size: 1rem; font-weight: 700; padding: 0.8rem; margin-top: 0.5rem;">
-            Confirm
-        </button>
+            <div class="form-group">
+                <label for="employee_id" class="form-label">Employee ID</label>
+                <input type="text" id="employee_id" name="employee_id" class="form-input" placeholder="e.g. ST-EMP-0001" autocomplete="username" required>
+            </div>
 
-        <!-- Forgot Password link immediately below Confirm button -->
-        <div style="text-align: center; margin-top: 0.85rem;">
-            <a href="{% url 'accounts:forgot_password' %}" id="forgot-password-link" style="font-size: 0.88rem; color: var(--color-primary-600); text-decoration: none; font-weight: 600;">
-                Forgot Password?
-            </a>
-        </div>
-    </form>
+            <div class="form-group">
+                <label for="password" class="form-label">Password</label>
+                <div style="position: relative; display: flex; align-items: center;">
+                    <input type="password" id="password" name="password" class="form-input" placeholder="••••••••••••" autocomplete="current-password" required style="padding-right: 2.75rem; width: 100%;">
+                    <button type="button" id="toggle-password-btn" aria-label="Toggle password visibility" title="Show/Hide password" style="position: absolute; right: 0.75rem; background: none; border: none; padding: 0.25rem; cursor: pointer; color: var(--color-text-muted); display: flex; align-items: center; justify-content: center; transition: color 0.15s ease;">
+                        <svg class="eye-open" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
+                            <circle cx="12" cy="12" r="3"></circle>
+                        </svg>
+                        <svg class="eye-closed" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display: none;">
+                            <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path>
+                            <line x1="1" y1="1" x2="23" y2="23"></line>
+                        </svg>
+                    </button>
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label for="totp_code" class="form-label">Authenticator Code (TOTP or Backup Code)</label>
+                <input type="text" id="totp_code" name="totp_code" class="form-input" placeholder="6-digit TOTP (e.g. 123456) or Backup Code" autocomplete="one-time-code" style="letter-spacing: 2px; font-family: var(--font-mono);">
+                <p style="font-size: 0.75rem; color: var(--color-text-muted); margin-top: 0.25rem; margin-bottom: 0;">
+                    Enter code from your authenticator app (or leave blank if completing step-by-step).
+                </p>
+            </div>
+
+            <button type="submit" id="confirm-btn" class="btn btn-primary" style="width: 100%; font-size: 1rem; font-weight: 700; padding: 0.8rem; margin-top: 0.5rem;">
+                Confirm
+            </button>
+
+            <!-- Forgot Password link immediately below Confirm button -->
+            <div style="text-align: center; margin-top: 0.85rem;">
+                <a href="{% url 'accounts:forgot_password' %}" id="forgot-password-link" style="font-size: 0.88rem; color: var(--color-primary-600); text-decoration: none; font-weight: 600;">
+                    Forgot Password?
+                </a>
+            </div>
+        </form>
+    </div>
 </div>
 
 <script>
 document.addEventListener('DOMContentLoaded', function() {
+    const btnLogin = document.getElementById('btn-login');
     const btnSignIn = document.getElementById('btn-signin');
-    const empInput = document.getElementById('employee_id');
-    if (btnSignIn && empInput) {
-        btnSignIn.addEventListener('click', function() {
-            empInput.focus();
+    const loginContainer = document.getElementById('login-flow-container');
+    const signinContainer = document.getElementById('signin-flow-container');
+    const actEmpInput = document.getElementById('act_employee_id');
+    const signinEmpInput = document.getElementById('employee_id');
+    const backBtns = document.querySelectorAll('.btn-back-landing');
+
+    function showLoginFlow() {
+        if (loginContainer) loginContainer.style.display = 'block';
+        if (signinContainer) signinContainer.style.display = 'none';
+        if (btnLogin) {
+            btnLogin.style.outline = '2px solid var(--color-primary-700)';
+            btnLogin.style.outlineOffset = '2px';
+        }
+        if (btnSignIn) {
+            btnSignIn.style.outline = 'none';
+        }
+        if (actEmpInput) actEmpInput.focus();
+    }
+
+    function showSignInFlow() {
+        if (signinContainer) signinContainer.style.display = 'block';
+        if (loginContainer) loginContainer.style.display = 'none';
+        if (btnSignIn) {
+            btnSignIn.style.outline = '2px solid var(--color-primary-700)';
+            btnSignIn.style.outlineOffset = '2px';
+        }
+        if (btnLogin) {
+            btnLogin.style.outline = 'none';
+        }
+        if (signinEmpInput) signinEmpInput.focus();
+    }
+
+    function showInitialLanding() {
+        if (loginContainer) loginContainer.style.display = 'none';
+        if (signinContainer) signinContainer.style.display = 'none';
+        if (btnLogin) btnLogin.style.outline = 'none';
+        if (btnSignIn) btnSignIn.style.outline = 'none';
+    }
+
+    if (btnLogin) {
+        btnLogin.addEventListener('click', function() {
+            showLoginFlow();
         });
     }
 
+    if (btnSignIn) {
+        btnSignIn.addEventListener('click', function() {
+            showSignInFlow();
+        });
+    }
+
+    backBtns.forEach(function(btn) {
+        btn.addEventListener('click', function() {
+            showInitialLanding();
+        });
+    });
+
     const togglePasswordBtn = document.getElementById('toggle-password-btn');
     const passwordInput = document.getElementById('password');
-    const eyeIcon = document.getElementById('eye-icon');
-    const eyeSlashIcon = document.getElementById('eye-slash-icon');
 
     if (togglePasswordBtn && passwordInput) {
         togglePasswordBtn.addEventListener('click', function() {
             const isPassword = passwordInput.getAttribute('type') === 'password';
             passwordInput.setAttribute('type', isPassword ? 'text' : 'password');
-            if (eyeIcon && eyeSlashIcon) {
-                eyeIcon.style.display = isPassword ? 'none' : 'block';
-                eyeSlashIcon.style.display = isPassword ? 'block' : 'none';
+            const eyeOpen = togglePasswordBtn.querySelector('.eye-open');
+            const eyeClosed = togglePasswordBtn.querySelector('.eye-closed');
+            if (eyeOpen && eyeClosed) {
+                eyeOpen.style.display = isPassword ? 'none' : 'block';
+                eyeClosed.style.display = isPassword ? 'block' : 'none';
             }
             passwordInput.focus();
         });

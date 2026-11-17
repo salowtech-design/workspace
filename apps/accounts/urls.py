@@ -7,6 +7,10 @@ from apps.accounts.views.activation import (
     activate_password_view,
     activate_recovery_codes_view,
 )
+from apps.accounts.views.admin_iam import (
+    admin_iam_dashboard_view,
+    admin_security_shield_view,
+)
 from apps.accounts.views.login import (
     login_view,
     logout_view,
@@ -62,6 +66,9 @@ urlpatterns = [
         activate_recovery_codes_view,
         name="activate_recovery_codes",
     ),
+    # Central Admin IAM & Security Shield Area
+    path("admin/iam/", admin_iam_dashboard_view, name="admin_iam"),
+    path("admin/shield/", admin_security_shield_view, name="admin_shield"),
     # Password Recovery & Multi-Factor Workflows (Methods 1, 2, 3)
     path("recovery/forgot-password/", forgot_password_view, name="forgot_password"),
     path("recovery/email/reset/", email_reset_landing_view, name="email_reset_landing"),

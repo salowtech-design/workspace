@@ -33,14 +33,17 @@ def login_view(request):
     Everyday login handler supporting:
     - Flow B: Single-screen returning employee login (Employee ID + Password + TOTP/Recovery code -> Confirm).
     - Step-by-step fallback (/login -> /mfa/challenge/).
+    - Progressive disclosure: initial state displays only the two action buttons (Login & Sign In).
     """
     if request.user.is_authenticated:
         return redirect("attendance:panel")
 
     redirect_to = request.POST.get("next") or request.GET.get("next") or ""
+    flow = request.GET.get("flow", "")
     error = None
 
     if request.method == "POST":
+        flow = "signin"
         emp_id = request.POST.get("employee_id", "").strip()
         password = request.POST.get("password", "")
         totp_code = (
@@ -92,7 +95,7 @@ def login_view(request):
     return render(
         request,
         "accounts/login/login.html",
-        {"error": error, "next": redirect_to},
+        {"error": error, "next": redirect_to, "flow": flow},
     )
 
 

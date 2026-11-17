@@ -7,6 +7,7 @@ Enforces 5-attempt lockout and single-live-code TiDB constraints.
 import hmac
 import secrets
 from datetime import timedelta
+from typing import Optional
 
 from django.db import transaction
 from django.utils import timezone
@@ -219,15 +220,22 @@ def issue_email_token(
     user: CustomUser,
     purpose: str,
     ttl_minutes: int = 15,
+    ttl_seconds: Optional[int] = None,
 ) -> tuple[ActivationCode, str]:
     """
     Issue a high-entropy, cryptographically secure URL-safe token.
     Stores keyed HMAC-SHA256 verifier with short expiration.
     Deactivates any previous live token for this user and purpose.
+    Supports either 30-second strict window or minute-based TTL.
     """
     raw_token = secrets.token_urlsafe(32)
     keyed_hash = hash_code(raw_token)
-    expires_at = timezone.now() + timedelta(minutes=ttl_minutes)
+    if ttl_seconds is not None:
+        expires_at = timezone.now() + timedelta(seconds=ttl_seconds)
+        expiry_desc = f"{ttl_seconds}s"
+    else:
+        expires_at = timezone.now() + timedelta(minutes=ttl_minutes)
+        expiry_desc = f"{ttl_minutes}m"
 
     with transaction.atomic():
         ActivationCode.objects.filter(user=user, purpose=purpose, is_live=1).update(is_live=None)
@@ -246,7 +254,7 @@ def issue_email_token(
             step="issue_email_token",
             employee_id=user.employee_id,
             reference_id=f"TOKEN-{record.id}",
-            message=f"Issued email token [{purpose}] expiring in {ttl_minutes}m",
+            message=f"Issued email token [{purpose}] expiring in {expiry_desc}",
         )
 
     return record, raw_token

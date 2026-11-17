@@ -19,6 +19,7 @@ from apps.accounts.auth.activation import (
     verify_email_token_safe,
 )
 from apps.accounts.auth.audit import log_auth_event
+from apps.accounts.auth.config import is_allowed_company_email
 from apps.accounts.auth.errors import AuthException
 from apps.accounts.auth.mfa_totp import verify_totp_code
 from apps.accounts.auth.passwords import set_user_password, validate_employee_password
@@ -467,6 +468,98 @@ def self_service_reset_with_totp(
     return user
 
 
+def request_self_service_password_reset(
+    employee_id: str,
+    email: str,
+    recovery_code: Optional[str] = None,
+    totp_code: Optional[str] = None,
+    base_url: str = "",
+) -> None:
+    """
+    Method 2: Reset Password Yourself.
+    ONE single form with Employee ID, Recovery Code, TOTP Code, and Company Email.
+    Validates company email domain (@salowtech.com).
+    Enforces EXACTLY ONE proof (either recovery code OR totp code, never both or neither).
+    Issues single-use token expiring in EXACTLY 30 SECONDS.
+    """
+    if not employee_id:
+        raise ValidationError("Employee ID is required.")
+    if not email:
+        raise ValidationError("Company email is required.")
+
+    clean_email = email.strip().lower()
+    if not is_allowed_company_email(clean_email):
+        raise ValidationError("Email address must belong to the @salowtech.com company domain.")
+
+    rec_clean = (recovery_code or "").strip()
+    totp_clean = (totp_code or "").strip()
+
+    has_rec = bool(rec_clean)
+    has_totp = bool(totp_clean)
+
+    if not has_rec and not has_totp:
+        raise ValidationError(
+            "Please provide either a Recovery Code or an Authenticator (TOTP) Code."
+        )
+    if has_rec and has_totp:
+        raise ValidationError(
+            "Please provide either a Recovery Code or an Authenticator (TOTP) Code, not both."
+        )
+
+    normalized_id = employee_id.strip().upper()
+    user = CustomUser.objects.filter(employee_id=normalized_id, is_active=True).first()
+
+    if (
+        not user
+        or not user.email
+        or user.email.strip().lower() != clean_email
+        or not user.email_verified
+    ):
+        raise ValidationError(
+            "Account verification failed. Please verify your Employee ID and registered company email."
+        )
+
+    if user.role == CustomUser.Role.SUPER_ADMIN:
+        log_auth_event(
+            event="password_reset_denied_privileged",
+            code="AUTH-PERM-001",
+            step="request_self_service_reset",
+            employee_id=user.employee_id,
+            message="Super Admin account cannot self-service reset password; admin dual-control required",
+        )
+        raise PermissionDenied(
+            "Super Admin accounts require administrator dual-approval for password recovery."
+        )
+
+    # Verify and burn the single provided proof
+    if has_rec:
+        redeem_recovery_code(user, rec_clean)
+    else:
+        verify_totp_code(user, totp_clean)
+
+    # Issue token with strict 30-second TTL
+    _, raw_token = issue_email_token(
+        user=user,
+        purpose=ActivationCode.Purpose.PASSWORD_RESET,
+        ttl_seconds=30,
+    )
+
+    reset_url = f"{base_url.rstrip('/')}/auth/recovery/email/reset/?token={raw_token}"
+    notify_email_reset_link_requested(
+        employee_id=user.employee_id,
+        employee_email=user.email,
+        reset_url=reset_url,
+    )
+
+    log_auth_event(
+        event="password_reset_link_dispatched",
+        code="INFO",
+        step="request_self_service_reset",
+        employee_id=user.employee_id,
+        message="Self-service password reset link dispatched (30s TTL)",
+    )
+
+
 def request_email_password_reset(employee_id: str, base_url: str) -> None:
     """
     Method 2 Route C: Request Password Reset Link via Verified Company Email.
@@ -560,16 +653,22 @@ def complete_email_password_reset(raw_token: str, new_password: str) -> CustomUs
 def request_authenticator_replacement(
     employee_id: str,
     current_password: str,
-    base_url: str,
+    email: str = "",
+    base_url: str = "",
 ) -> bool:
     """
     Method 3: Recover Lost or Replaced Authenticator.
-    Requires Employee ID and valid current password.
-    Requires verified company email.
-    Creates pending MFA replacement request, issues single-use token, and queues verification email.
+    Requires Employee ID, valid current password, and verified company email.
+    Creates pending MFA replacement request, issues single-use token expiring in 30 SECONDS,
+    and queues verification email.
     """
     if not employee_id or not current_password:
         return False
+
+    # Handle optional backward compatible argument shifting
+    if email and (email.startswith("http://") or email.startswith("https://")) and not base_url:
+        base_url = email
+        email = ""
 
     normalized_id = employee_id.strip().upper()
     user = CustomUser.objects.filter(employee_id=normalized_id, is_active=True).first()
@@ -594,6 +693,28 @@ def request_authenticator_replacement(
         )
         return False
 
+    # If email was provided, enforce matching and allowed company domain
+    if email:
+        clean_email = email.strip().lower()
+        if not is_allowed_company_email(clean_email):
+            log_auth_event(
+                event="mfa_replacement_invalid_domain",
+                code="AUTH-ACT-001",
+                step="request_mfa_replacement",
+                employee_id=normalized_id,
+                message=f"Email {clean_email} does not belong to allowed company domains",
+            )
+            return False
+        if user.email.strip().lower() != clean_email:
+            log_auth_event(
+                event="mfa_replacement_email_mismatch",
+                code="AUTH-ACT-001",
+                step="request_mfa_replacement",
+                employee_id=normalized_id,
+                message="Submitted company email does not match registered employee email",
+            )
+            return False
+
     with transaction.atomic():
         # Record pending RecoveryRequest
         RecoveryRequest.objects.create(
@@ -606,7 +727,7 @@ def request_authenticator_replacement(
         _, raw_token = issue_email_token(
             user=user,
             purpose=ActivationCode.Purpose.MFA_REPLACEMENT,
-            ttl_minutes=15,
+            ttl_seconds=30,
         )
 
         verify_url = f"{base_url.rstrip('/')}/auth/recovery/mfa/verify/?token={raw_token}"
@@ -621,7 +742,7 @@ def request_authenticator_replacement(
             code="INFO",
             step="request_mfa_replacement",
             employee_id=user.employee_id,
-            message="Authenticator replacement verification email queued",
+            message="Authenticator replacement verification email queued (30s TTL)",
         )
 
     return True

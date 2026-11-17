@@ -1,0 +1,132 @@
+{% extends "base.html" %}
+
+{% block title %}Administrator Security Shield — Salow Workspace{% endblock %}
+
+{% block content %}
+<div class="card" style="max-width: 620px; margin: 2rem auto; border: 1px solid var(--color-border-subtle); box-shadow: 0 4px 20px rgba(0,0,0,0.06);">
+    <div style="display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--color-border-subtle); padding-bottom: 1rem; margin-bottom: 1.5rem;">
+        <div style="display: flex; align-items: center; gap: 0.75rem;">
+            <div style="font-size: 2rem; background: var(--color-bg-subtle, #f8fafc); width: 48px; height: 48px; display: flex; align-items: center; justify-content: center; border-radius: 8px; border: 1px solid var(--color-border-subtle);">
+                🛡️
+            </div>
+            <div>
+                <h2 style="margin: 0; font-size: 1.35rem; color: var(--color-primary-600); font-weight: 700;">
+                    Administrator Security Shield
+                </h2>
+                <p style="margin: 0.15rem 0 0 0; font-size: 0.82rem; color: var(--color-text-muted);">
+                    Multi-Factor Biometric, Cryptographic & RBAC Step-Up Verification
+                </p>
+            </div>
+        </div>
+        <div>
+            {% if shield_verified %}
+            <span style="background: #dcfce7; color: #166534; border: 1px solid #bbf7d0; padding: 0.35rem 0.75rem; border-radius: 9999px; font-size: 0.82rem; font-weight: 700; display: inline-flex; align-items: center; gap: 0.35rem;">
+                ● SHIELD ACTIVE
+            </span>
+            {% else %}
+            <span style="background: #fef3c7; color: #92400e; border: 1px solid #fde68a; padding: 0.35rem 0.75rem; border-radius: 9999px; font-size: 0.82rem; font-weight: 700; display: inline-flex; align-items: center; gap: 0.35rem;">
+                ○ STEP-UP REQUIRED
+            </span>
+            {% endif %}
+        </div>
+    </div>
+
+    {% if error %}
+    <div class="alert alert-danger" style="margin-bottom: 1.25rem;">
+        {{ error }}
+    </div>
+    {% endif %}
+
+    <!-- Admin Identity Overview (Read-Only) -->
+    <div style="background: var(--color-bg-subtle, #fdfaf6); border: 1px solid var(--color-border-subtle); border-radius: 6px; padding: 1rem; margin-bottom: 1.5rem; display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; font-size: 0.88rem;">
+        <div>
+            <span style="color: var(--color-text-muted); font-size: 0.78rem; text-transform: uppercase; font-weight: 600; display: block;">Administrator ID</span>
+            <strong style="font-family: var(--font-mono); font-size: 1.05rem;">{{ actor.employee_id }}</strong>
+        </div>
+        <div>
+            <span style="color: var(--color-text-muted); font-size: 0.78rem; text-transform: uppercase; font-weight: 600; display: block;">Assigned Role</span>
+            <span class="badge" style="background: var(--color-primary-100, #dbeafe); color: var(--color-primary-800, #1e40af); font-weight: 700; padding: 0.2rem 0.5rem; border-radius: 4px;">{{ actor.get_role_display }}</span>
+        </div>
+    </div>
+
+    <!-- Security Latency Measurement Matrix -->
+    {% if latencies.total_ms %}
+    <div style="margin-bottom: 1.5rem; border: 1px solid var(--color-border-subtle); border-radius: 6px; padding: 1rem; background: #fafafa;">
+        <div style="font-size: 0.82rem; font-weight: 700; color: var(--color-text-muted); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 0.5rem;">
+            Verification Latency Telemetry
+        </div>
+        <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.5rem; text-align: center;">
+            <div style="background: #ffffff; padding: 0.5rem; border-radius: 4px; border: 1px solid var(--color-border-subtle);">
+                <div style="font-size: 1.1rem; font-weight: 700; color: #16a34a;">{{ latencies.rbac_ms }} ms</div>
+                <div style="font-size: 0.7rem; color: var(--color-text-muted);">RBAC Evaluation</div>
+            </div>
+            <div style="background: #ffffff; padding: 0.5rem; border-radius: 4px; border: 1px solid var(--color-border-subtle);">
+                <div style="font-size: 1.1rem; font-weight: 700; color: #2563eb;">{{ latencies.totp_ms|default:"-" }} ms</div>
+                <div style="font-size: 0.7rem; color: var(--color-text-muted);">TOTP Crypto</div>
+            </div>
+            <div style="background: #ffffff; padding: 0.5rem; border-radius: 4px; border: 1px solid var(--color-border-subtle);">
+                <div style="font-size: 1.1rem; font-weight: 700; color: #7c3aed;">{{ latencies.face_ms|default:"-" }} ms</div>
+                <div style="font-size: 0.7rem; color: var(--color-text-muted);">1:1 Biometric Match</div>
+            </div>
+            <div style="background: #ffffff; padding: 0.5rem; border-radius: 4px; border: 1px solid var(--color-border-subtle);">
+                <div style="font-size: 1.1rem; font-weight: 700; color: var(--color-primary-600);">{{ latencies.total_ms }} ms</div>
+                <div style="font-size: 0.7rem; color: var(--color-text-muted);">Total End-to-End</div>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- Shield Verification Form -->
+    <form method="post" action="{% url 'accounts:admin_shield' %}" class="space-y-4">
+        {% csrf_token %}
+        <input type="hidden" name="action" value="verify_shield">
+
+        <!-- Check 1: RBAC Privileges -->
+        <div style="display: flex; align-items: center; justify-content: space-between; padding: 0.75rem 1rem; border: 1px solid #bbf7d0; background: #f0fdf4; border-radius: 6px;">
+            <div style="display: flex; align-items: center; gap: 0.5rem;">
+                <span style="color: #16a34a; font-weight: 700;">✓</span>
+                <span style="font-size: 0.88rem; font-weight: 600; color: #166534;">RBAC Authority Validated</span>
+            </div>
+            <span style="font-size: 0.78rem; color: #15803d; font-family: var(--font-mono);">PASSED</span>
+        </div>
+
+        <!-- Check 2: TOTP Code Input -->
+        <div class="form-group">
+            <label for="shield_totp" class="form-label" style="display: flex; justify-content: space-between;">
+                <span>6-Digit Authenticator Code (TOTP)</span>
+                <span style="font-size: 0.75rem; color: var(--color-text-muted); font-weight: normal;">Required for Elevation</span>
+            </label>
+            <input type="text" id="shield_totp" name="totp_code" class="form-input" placeholder="e.g. 123456" autocomplete="one-time-code" required style="letter-spacing: 3px; font-size: 1.1rem; font-family: var(--font-mono);" autofocus>
+        </div>
+
+        <!-- Check 3: 1:1 Face Verification -->
+        <div style="border: 1px solid var(--color-border-subtle); border-radius: 6px; padding: 0.85rem 1rem; background: var(--color-bg-subtle, #fdfaf6);">
+            <div style="display: flex; align-items: center; justify-content: space-between;">
+                <div style="font-size: 0.88rem; font-weight: 600; color: var(--color-text-main);">
+                    Biometric 1:1 Face Verification
+                </div>
+                <div>
+                    {% if has_enrolled_face %}
+                    <span style="font-size: 0.78rem; color: #16a34a; font-weight: 600;">Template Enrolled</span>
+                    {% else %}
+                    <span style="font-size: 0.78rem; color: #ca8a04; font-weight: 600;">Enrolled via Admin Hub</span>
+                    {% endif %}
+                </div>
+            </div>
+            <p style="font-size: 0.78rem; color: var(--color-text-muted); margin: 0.35rem 0 0 0;">
+                Validates current administrator live presence against the AES-256-GCM encrypted template stored in the database.
+            </p>
+        </div>
+
+        <button type="submit" id="btn-verify-shield" class="btn btn-primary" style="width: 100%; font-size: 1rem; font-weight: 700; padding: 0.85rem; margin-top: 1rem;">
+            🛡️ Verify Shield & Elevate Authorization
+        </button>
+    </form>
+
+    <div style="margin-top: 1.5rem; text-align: center;">
+        <a href="{% url 'accounts:admin_iam' %}" style="font-size: 0.85rem; color: var(--color-text-muted); text-decoration: none;">
+            ← Return to IAM & Access Management
+        </a>
+    </div>
+</div>
+{% endblock %}

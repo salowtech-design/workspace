@@ -40,6 +40,7 @@ from apps.accounts.auth.reset import (
     request_administrator_reset,
     request_authenticator_replacement,
     request_email_password_reset,
+    request_self_service_password_reset,
     self_service_reset_password,
     verify_email_reset_token,
     verify_mfa_replacement_token,
@@ -109,7 +110,31 @@ def forgot_password_view(request):  # noqa: C901
                 )
 
         # -------------------------------------------------------------------
-        # METHOD 2 Route A — Recovery Code Verification
+        # METHOD 2 — Reset Password Yourself (Single Unified Form)
+        # -------------------------------------------------------------------
+        elif action == "reset_password_yourself":
+            active_method = "method2"
+            rec_code = request.POST.get("recovery_code", "").strip()
+            totp_in = request.POST.get("totp_code", "").strip()
+            comp_email = request.POST.get("email", "").strip()
+
+            try:
+                request_self_service_password_reset(
+                    employee_id=employee_id,
+                    email=comp_email,
+                    recovery_code=rec_code,
+                    totp_code=totp_in,
+                    base_url=base_url,
+                )
+                success_msg = (
+                    "Verification link has been sent to your registered company email. "
+                    "For security, the link is valid for exactly 30 seconds."
+                )
+            except (ValidationError, AuthException, PermissionDenied) as e:
+                error = e.messages[0] if hasattr(e, "messages") else str(e)
+
+        # -------------------------------------------------------------------
+        # METHOD 2 Route A — Recovery Code Verification (Legacy compatibility)
         # -------------------------------------------------------------------
         elif action == "verify_recovery_code":
             active_method = "method2"
@@ -182,24 +207,29 @@ def forgot_password_view(request):  # noqa: C901
         elif action == "send_mfa_replacement_email":
             active_method = "method3"
             current_password = request.POST.get("current_password", "")
+            comp_email = request.POST.get("email", "").strip()
 
             if not employee_id:
                 error = "Please enter your Employee ID."
             elif not current_password:
                 error = "Your current password is required to replace your authenticator."
             else:
-                success = request_authenticator_replacement(
-                    employee_id=employee_id,
-                    current_password=current_password,
-                    base_url=base_url,
-                )
-                if success:
-                    success_msg = (
-                        "If your password is correct and your company email is verified, "
-                        "a single-use authenticator replacement link has been sent to your email."
+                try:
+                    success = request_authenticator_replacement(
+                        employee_id=employee_id,
+                        current_password=current_password,
+                        email=comp_email,
+                        base_url=base_url,
                     )
-                else:
-                    error = "Authentication failed or account does not meet self-service replacement criteria."
+                    if success:
+                        success_msg = (
+                            "If your password and company email are verified, "
+                            "a single-use authenticator replacement link has been sent to your email (valid for 30 seconds)."
+                        )
+                    else:
+                        error = "Authentication failed or account does not meet self-service replacement criteria."
+                except (ValidationError, AuthException, PermissionDenied) as e:
+                    error = e.messages[0] if hasattr(e, "messages") else str(e)
 
         # -------------------------------------------------------------------
         # Direct / Legacy Code Redemption (action="redeem_code")

@@ -1,0 +1,492 @@
+{% extends "base.html" %}
+
+{% block title %}IAM & Access Management — Salow Workspace{% endblock %}
+
+{% block content %}
+<div class="content-header" style="margin-bottom: 1.5rem; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 1rem;">
+    <div>
+        <h1 style="font-size: 1.75rem; font-weight: 700; color: var(--color-primary-600); margin: 0;">
+            IAM & Access Management
+        </h1>
+        <p style="color: var(--color-text-muted); font-size: 0.9rem; margin-top: 0.25rem;">
+            Central Identity, Roles, Security Controls, Session Management, and Audit Trail.
+        </p>
+    </div>
+    {% if actor.role in 'super_admin,admin' %}
+    <a href="{% url 'accounts:admin_shield' %}" class="btn btn-primary" style="display: inline-flex; align-items: center; gap: 0.5rem; font-weight: 600;">
+        <span>🛡️</span> Security Shield
+    </a>
+    {% endif %}
+</div>
+
+<!-- Issued Activation Credential Callout (Displayed Once) -->
+{% if issued_activation %}
+<div class="card" style="margin-bottom: 1.5rem; border: 2px dashed var(--color-primary-500); background: #fdfaf6; padding: 1.25rem;">
+    <div style="display: flex; align-items: flex-start; justify-content: space-between;">
+        <div>
+            <h4 style="margin: 0 0 0.5rem 0; color: var(--color-primary-600); font-size: 1.1rem; font-weight: 700;">
+                Single-Use Credential Issued
+            </h4>
+            <p style="margin: 0 0 0.75rem 0; font-size: 0.9rem; color: var(--color-text-muted);">
+                Employee: <strong>{{ issued_activation.full_name }}</strong> ({{ issued_activation.employee_id }}) — {{ issued_activation.role }}
+            </p>
+            <div style="display: flex; align-items: center; gap: 0.75rem;">
+                <code style="font-size: 1.35rem; font-weight: 700; letter-spacing: 2px; color: var(--color-primary-700); background: #ffffff; padding: 0.35rem 0.75rem; border-radius: 4px; border: 1px solid var(--color-border-subtle);" id="issued-act-code">
+                    {{ issued_activation.code }}
+                </code>
+                <button type="button" class="btn btn-secondary btn-sm" onclick="navigator.clipboard.writeText('{{ issued_activation.code }}'); this.textContent = 'Copied!';">
+                    Copy Code
+                </button>
+            </div>
+            <p style="margin: 0.5rem 0 0 0; font-size: 0.78rem; color: #b45309;">
+                ⚠️ This one-time code will not be displayed again. Deliver it securely to the employee for their first-time activation.
+            </p>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+<!-- 7 Operational Navigation Tabs -->
+<div style="display: flex; border-bottom: 2px solid var(--color-border-subtle); margin-bottom: 1.5rem; overflow-x: auto;" role="tablist">
+    <a href="?tab=identity" class="tab-link" style="padding: 0.75rem 1rem; font-size: 0.88rem; font-weight: 600; text-decoration: none; border-bottom: 3px solid {% if active_tab == 'identity' %}var(--color-primary-600){% else %}transparent{% endif %}; color: {% if active_tab == 'identity' %}var(--color-primary-600){% else %}var(--color-text-muted){% endif %}; white-space: nowrap;">
+        1. Identity & Accounts
+    </a>
+    <a href="?tab=roles" class="tab-link" style="padding: 0.75rem 1rem; font-size: 0.88rem; font-weight: 600; text-decoration: none; border-bottom: 3px solid {% if active_tab == 'roles' %}var(--color-primary-600){% else %}transparent{% endif %}; color: {% if active_tab == 'roles' %}var(--color-primary-600){% else %}var(--color-text-muted){% endif %}; white-space: nowrap;">
+        2. Roles & Permissions
+    </a>
+    <a href="?tab=security_mfa" class="tab-link" style="padding: 0.75rem 1rem; font-size: 0.88rem; font-weight: 600; text-decoration: none; border-bottom: 3px solid {% if active_tab == 'security_mfa' %}var(--color-primary-600){% else %}transparent{% endif %}; color: {% if active_tab == 'security_mfa' %}var(--color-primary-600){% else %}var(--color-text-muted){% endif %}; white-space: nowrap;">
+        3. Security & MFA
+    </a>
+    <a href="?tab=sessions" class="tab-link" style="padding: 0.75rem 1rem; font-size: 0.88rem; font-weight: 600; text-decoration: none; border-bottom: 3px solid {% if active_tab == 'sessions' %}var(--color-primary-600){% else %}transparent{% endif %}; color: {% if active_tab == 'sessions' %}var(--color-primary-600){% else %}var(--color-text-muted){% endif %}; white-space: nowrap;">
+        4. Sessions & Devices
+    </a>
+    <a href="?tab=recovery" class="tab-link" style="padding: 0.75rem 1rem; font-size: 0.88rem; font-weight: 600; text-decoration: none; border-bottom: 3px solid {% if active_tab == 'recovery' %}var(--color-primary-600){% else %}transparent{% endif %}; color: {% if active_tab == 'recovery' %}var(--color-primary-600){% else %}var(--color-text-muted){% endif %}; white-space: nowrap;">
+        5. Recovery Console {% if pending_recovery_requests %}<span style="background: #ef4444; color: white; border-radius: 9999px; padding: 0.1rem 0.45rem; font-size: 0.72rem; margin-left: 0.25rem;">{{ pending_recovery_requests.count }}</span>{% endif %}
+    </a>
+    <a href="?tab=lifecycle" class="tab-link" style="padding: 0.75rem 1rem; font-size: 0.88rem; font-weight: 600; text-decoration: none; border-bottom: 3px solid {% if active_tab == 'lifecycle' %}var(--color-primary-600){% else %}transparent{% endif %}; color: {% if active_tab == 'lifecycle' %}var(--color-primary-600){% else %}var(--color-text-muted){% endif %}; white-space: nowrap;">
+        6. Account Lifecycle
+    </a>
+    <a href="?tab=audit" class="tab-link" style="padding: 0.75rem 1rem; font-size: 0.88rem; font-weight: 600; text-decoration: none; border-bottom: 3px solid {% if active_tab == 'audit' %}var(--color-primary-600){% else %}transparent{% endif %}; color: {% if active_tab == 'audit' %}var(--color-primary-600){% else %}var(--color-text-muted){% endif %}; white-space: nowrap;">
+        7. IAM Audit
+    </a>
+</div>
+
+<!-- ======================================================================= -->
+<!-- SECTION 1: Identity & Accounts -->
+<!-- ======================================================================= -->
+{% if active_tab == 'identity' %}
+<div id="section-identity">
+    <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 1.5rem; align-items: start;">
+        <!-- Employee Accounts Table -->
+        <div class="card">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+                <h3 style="margin: 0; font-size: 1.15rem; font-weight: 700; color: var(--color-primary-600);">Employee Directory</h3>
+                <form method="get" style="display: flex; gap: 0.5rem;">
+                    <input type="hidden" name="tab" value="identity">
+                    <input type="text" name="q" value="{{ q_search }}" placeholder="Search ID or Name..." class="form-input" style="padding: 0.35rem 0.65rem; font-size: 0.85rem;">
+                    <button type="submit" class="btn btn-secondary btn-sm">Filter</button>
+                </form>
+            </div>
+            <div class="table-container" style="overflow-x: auto;">
+                <table class="table" style="width: 100%; font-size: 0.88rem;">
+                    <thead>
+                        <tr>
+                            <th>Employee ID</th>
+                            <th>Name</th>
+                            <th>Role</th>
+                            <th>Status</th>
+                            <th>Email Verified</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for u in users %}
+                        <tr>
+                            <td><strong>{{ u.employee_id }}</strong></td>
+                            <td>{{ u.full_name }}</td>
+                            <td><span class="badge" style="background: var(--color-bg-subtle); padding: 0.2rem 0.5rem; border-radius: 4px; font-size: 0.78rem;">{{ u.get_role_display }}</span></td>
+                            <td>
+                                {% if u.is_active and u.status == 'active' %}
+                                <span style="color: #16a34a; font-weight: 600;">Active</span>
+                                {% elif u.status == 'suspended' %}
+                                <span style="color: #dc2626; font-weight: 600;">Suspended</span>
+                                {% else %}
+                                <span style="color: #ca8a04; font-weight: 600;">{{ u.get_status_display }}</span>
+                                {% endif %}
+                            </td>
+                            <td>{% if u.email_verified %}✓ Yes{% else %}<span style="color: var(--color-text-muted);">No</span>{% endif %}</td>
+                        </tr>
+                        {% empty %}
+                        <tr>
+                            <td colspan="5" style="text-align: center; color: var(--color-text-muted); padding: 1.5rem;">No employees found.</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Provision New Employee Form (Issues Activation Code) -->
+        <div class="card" style="border: 1px solid var(--color-primary-500); background: #fdfaf6;">
+            <h3 style="margin: 0 0 0.5rem 0; font-size: 1.15rem; font-weight: 700; color: var(--color-primary-600);">
+                Provision New Employee
+            </h3>
+            <p style="font-size: 0.82rem; color: var(--color-text-muted); margin-bottom: 1rem;">
+                Creates account and generates a single-use activation code. The administrator never sees or sets permanent passwords.
+            </p>
+            <form method="post" action="{% url 'accounts:admin_iam' %}" class="space-y-3">
+                {% csrf_token %}
+                <input type="hidden" name="action" value="create_employee">
+
+                <div class="form-group">
+                    <label class="form-label" style="font-size: 0.82rem;">Employee ID</label>
+                    <input type="text" name="employee_id" class="form-input" placeholder="e.g. ST-EMP-0042" required>
+                </div>
+                <div class="form-group">
+                    <label class="form-label" style="font-size: 0.82rem;">Full Name</label>
+                    <input type="text" name="full_name" class="form-input" placeholder="e.g. Maya Chen" required>
+                </div>
+                <div class="form-group">
+                    <label class="form-label" style="font-size: 0.82rem;">Company Email (@salowtech.com)</label>
+                    <input type="email" name="email" class="form-input" placeholder="maya.chen@salowtech.com" required>
+                </div>
+                <div class="form-group">
+                    <label class="form-label" style="font-size: 0.82rem;">Assigned Role</label>
+                    <select name="role" class="form-input">
+                        {% for r_key, r_label in role_choices %}
+                            {% if actor.role == 'super_admin' or r_key != 'super_admin' %}
+                            <option value="{{ r_key }}" {% if r_key == 'employee' %}selected{% endif %}>{{ r_label }}</option>
+                            {% endif %}
+                        {% endfor %}
+                    </select>
+                </div>
+                <button type="submit" class="btn btn-primary" style="width: 100%; margin-top: 0.5rem; font-weight: 600;">
+                    Generate Activation Code →
+                </button>
+            </form>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+<!-- ======================================================================= -->
+<!-- SECTION 2: Roles & Permissions Matrix -->
+<!-- ======================================================================= -->
+{% if active_tab == 'roles' %}
+<div id="section-roles">
+    <div class="card" style="margin-bottom: 1.5rem;">
+        <h3 style="margin: 0 0 0.5rem 0; font-size: 1.15rem; font-weight: 700; color: var(--color-primary-600);">
+            Salow Workspace Role-Based Access Control (RBAC) Matrix
+        </h3>
+        <p style="font-size: 0.88rem; color: var(--color-text-muted); margin-bottom: 1.25rem;">
+            Hierarchical authorization matrix governing the six primary system roles.
+        </p>
+        <div class="table-container" style="overflow-x: auto;">
+            <table class="table" style="width: 100%; font-size: 0.88rem;">
+                <thead>
+                    <tr>
+                        <th>Role</th>
+                        <th>Description</th>
+                        <th>User Provisioning</th>
+                        <th>Role Management</th>
+                        <th>Recovery Authority</th>
+                        <th>Security Shield</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for r in roles_matrix %}
+                    <tr>
+                        <td><strong>{{ r.role }}</strong></td>
+                        <td style="color: var(--color-text-muted);">{{ r.description }}</td>
+                        <td>{{ r.can_create_users }}</td>
+                        <td>{{ r.can_manage_roles }}</td>
+                        <td>{{ r.recovery_authority }}</td>
+                        <td>{% if r.shield_access %}<span style="color: #16a34a; font-weight: 700;">🛡️ Active</span>{% else %}<span style="color: var(--color-text-muted);">Disabled</span>{% endif %}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    {% if actor.role in 'super_admin,admin' %}
+    <div class="card" style="max-width: 500px;">
+        <h4 style="margin: 0 0 0.5rem 0; font-weight: 700; color: var(--color-primary-600);">Update User Role</h4>
+        <form method="post" action="{% url 'accounts:admin_iam' %}" class="space-y-3">
+            {% csrf_token %}
+            <input type="hidden" name="action" value="update_role">
+            <div class="form-group">
+                <label class="form-label" style="font-size: 0.82rem;">Target Employee ID</label>
+                <input type="text" name="target_employee_id" class="form-input" placeholder="e.g. ST-EMP-0001" required>
+            </div>
+            <div class="form-group">
+                <label class="form-label" style="font-size: 0.82rem;">New Role</label>
+                <select name="new_role" class="form-input">
+                    {% for r_key, r_label in role_choices %}
+                        {% if actor.role == 'super_admin' or r_key != 'super_admin' %}
+                        <option value="{{ r_key }}">{{ r_label }}</option>
+                        {% endif %}
+                    {% endfor %}
+                </select>
+            </div>
+            <button type="submit" class="btn btn-secondary" style="width: 100%; font-weight: 600;">
+                Update Role & Revoke Sessions
+            </button>
+        </form>
+    </div>
+    {% endif %}
+</div>
+{% endif %}
+
+<!-- ======================================================================= -->
+<!-- SECTION 3: Security & MFA Overview -->
+<!-- ======================================================================= -->
+{% if active_tab == 'security_mfa' %}
+<div id="section-security-mfa">
+    <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 1rem; margin-bottom: 1.5rem;">
+        <div class="card" style="text-align: center; padding: 1.25rem;">
+            <div style="font-size: 1.75rem; font-weight: 700; color: var(--color-primary-600);">{{ total_users_count }}</div>
+            <div style="font-size: 0.82rem; color: var(--color-text-muted); margin-top: 0.25rem;">Total Accounts</div>
+        </div>
+        <div class="card" style="text-align: center; padding: 1.25rem;">
+            <div style="font-size: 1.75rem; font-weight: 700; color: #16a34a;">{{ mfa_enrolled_count }}</div>
+            <div style="font-size: 0.82rem; color: var(--color-text-muted); margin-top: 0.25rem;">MFA Enrolled</div>
+        </div>
+        <div class="card" style="text-align: center; padding: 1.25rem;">
+            <div style="font-size: 1.75rem; font-weight: 700; color: #2563eb;">{{ active_recovery_codes_count }}</div>
+            <div style="font-size: 0.82rem; color: var(--color-text-muted); margin-top: 0.25rem;">Unused Backup Codes</div>
+        </div>
+        <div class="card" style="text-align: center; padding: 1.25rem;">
+            <div style="font-size: 1.75rem; font-weight: 700; color: #7c3aed;">{{ passkeys_count }}</div>
+            <div style="font-size: 0.82rem; color: var(--color-text-muted); margin-top: 0.25rem;">Registered Passkeys</div>
+        </div>
+    </div>
+
+    <div class="card" style="max-width: 500px;">
+        <h4 style="margin: 0 0 0.5rem 0; font-weight: 700; color: var(--color-primary-600);">Issue Single-Use MFA Reset Code</h4>
+        <p style="font-size: 0.82rem; color: var(--color-text-muted); margin-bottom: 1rem;">
+            Issues a single-use code to allow an employee whose device is inaccessible to re-enroll a fresh authenticator.
+        </p>
+        <form method="post" action="{% url 'accounts:admin_iam' %}" class="space-y-3">
+            {% csrf_token %}
+            <input type="hidden" name="action" value="issue_mfa_reset">
+            <div class="form-group">
+                <label class="form-label" style="font-size: 0.82rem;">Target Employee ID</label>
+                <input type="text" name="target_employee_id" class="form-input" placeholder="e.g. ST-EMP-0001" required>
+            </div>
+            <button type="submit" class="btn btn-secondary" style="width: 100%; font-weight: 600;">
+                Generate MFA Reset Code
+            </button>
+        </form>
+    </div>
+</div>
+{% endif %}
+
+<!-- ======================================================================= -->
+<!-- SECTION 4: Sessions & Devices -->
+<!-- ======================================================================= -->
+{% if active_tab == 'sessions' %}
+<div id="section-sessions">
+    <div class="card">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+            <h3 style="margin: 0; font-size: 1.15rem; font-weight: 700; color: var(--color-primary-600);">Active Server-Side Sessions</h3>
+            <span style="font-size: 0.82rem; color: var(--color-text-muted);">Displaying {{ active_sessions.count }} active sessions</span>
+        </div>
+        <div class="table-container" style="overflow-x: auto;">
+            <table class="table" style="width: 100%; font-size: 0.88rem;">
+                <thead>
+                    <tr>
+                        <th>Employee ID</th>
+                        <th>Session Key</th>
+                        <th>IP Address</th>
+                        <th>Device / User Agent</th>
+                        <th>Last Activity</th>
+                        <th>Action</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for s in active_sessions %}
+                    <tr>
+                        <td><strong>{{ s.user.employee_id }}</strong> ({{ s.user.full_name }})</td>
+                        <td><code>{{ s.session_key|slice:":10" }}...</code></td>
+                        <td>{{ s.ip_address|default:"127.0.0.1" }}</td>
+                        <td style="font-size: 0.78rem; color: var(--color-text-muted);">{{ s.user_agent|truncatechars:35 }}</td>
+                        <td>{{ s.last_activity|timesince }} ago</td>
+                        <td>
+                            <form method="post" action="{% url 'accounts:admin_iam' %}" style="display: inline;">
+                                {% csrf_token %}
+                                <input type="hidden" name="action" value="revoke_session">
+                                <input type="hidden" name="session_key" value="{{ s.session_key }}">
+                                <button type="submit" class="btn btn-outline btn-sm" style="color: #dc2626; border-color: #dc2626;">Revoke</button>
+                            </form>
+                        </td>
+                    </tr>
+                    {% empty %}
+                    <tr>
+                        <td colspan="6" style="text-align: center; color: var(--color-text-muted); padding: 1.5rem;">No active user sessions found.</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+<!-- ======================================================================= -->
+<!-- SECTION 5: Recovery Console -->
+<!-- ======================================================================= -->
+{% if active_tab == 'recovery' %}
+<div id="section-recovery">
+    <div class="card">
+        <h3 style="margin: 0 0 0.5rem 0; font-size: 1.15rem; font-weight: 700; color: var(--color-primary-600);">
+            Pending Employee Recovery Queue
+        </h3>
+        <p style="font-size: 0.85rem; color: var(--color-text-muted); margin-bottom: 1.25rem;">
+            Recovery requests submitted by employees. Privileged account recoveries require dual-administrator approval.
+        </p>
+
+        {% if pending_recovery_requests %}
+        <div class="table-container" style="overflow-x: auto;">
+            <table class="table" style="width: 100%; font-size: 0.88rem;">
+                <thead>
+                    <tr>
+                        <th>Req #</th>
+                        <th>Employee ID</th>
+                        <th>Full Name</th>
+                        <th>Type</th>
+                        <th>Reason</th>
+                        <th>Submitted</th>
+                        <th>Action</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for req in pending_recovery_requests %}
+                    <tr>
+                        <td><strong>#{{ req.id }}</strong></td>
+                        <td>{{ req.user.employee_id }}</td>
+                        <td>{{ req.user.full_name }}</td>
+                        <td><span class="badge" style="background: #eff6ff; color: #1d4ed8; font-size: 0.75rem; padding: 0.2rem 0.5rem;">{{ req.get_request_type_display }}</span></td>
+                        <td style="font-size: 0.82rem; color: var(--color-text-muted);">{{ req.reason|default:"No reason supplied" }}</td>
+                        <td>{{ req.created_at|timesince }} ago</td>
+                        <td>
+                            <form method="post" action="{% url 'accounts:admin_iam' %}" style="display: inline-flex; gap: 0.35rem;">
+                                {% csrf_token %}
+                                <input type="hidden" name="request_id" value="{{ req.id }}">
+                                {% if req.user.role == 'super_admin' or req.user.role == 'admin' %}
+                                <select name="second_approver_id" class="form-input" style="padding: 0.2rem; font-size: 0.75rem;" required>
+                                    <option value="">Select 2nd Admin...</option>
+                                    {% for sa in super_admins %}
+                                    <option value="{{ sa.id }}">{{ sa.employee_id }} ({{ sa.full_name }})</option>
+                                    {% endfor %}
+                                </select>
+                                {% endif %}
+                                <button type="submit" name="action" value="approve_recovery" class="btn btn-primary btn-sm">Approve</button>
+                                <button type="submit" name="action" value="reject_recovery" class="btn btn-outline btn-sm" style="color: #dc2626;">Reject</button>
+                            </form>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <div style="text-align: center; padding: 2rem; background: var(--color-bg-subtle); border-radius: 6px; color: var(--color-text-muted);">
+            ✓ No pending recovery requests. The administrator recovery queue is clear.
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endif %}
+
+<!-- ======================================================================= -->
+<!-- SECTION 6: Account Lifecycle -->
+<!-- ======================================================================= -->
+{% if active_tab == 'lifecycle' %}
+<div id="section-lifecycle">
+    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem;">
+        <!-- Suspend Account Card -->
+        <div class="card" style="border: 1px solid #fecaca;">
+            <h4 style="margin: 0 0 0.5rem 0; font-weight: 700; color: #dc2626;">Suspend Account</h4>
+            <p style="font-size: 0.82rem; color: var(--color-text-muted); margin-bottom: 1rem;">
+                Immediately revokes all active device sessions and disables future authentication.
+            </p>
+            <form method="post" action="{% url 'accounts:admin_iam' %}" class="space-y-3">
+                {% csrf_token %}
+                <input type="hidden" name="action" value="suspend_account">
+                <div class="form-group">
+                    <label class="form-label" style="font-size: 0.82rem;">Target Employee ID</label>
+                    <input type="text" name="target_employee_id" class="form-input" placeholder="e.g. ST-EMP-0001" required>
+                </div>
+                <button type="submit" class="btn btn-outline" style="width: 100%; color: #dc2626; border-color: #dc2626; font-weight: 600;">
+                    Suspend Account & Revoke All Sessions
+                </button>
+            </form>
+        </div>
+
+        <!-- Reactivate Account Card -->
+        <div class="card" style="border: 1px solid #bbf7d0;">
+            <h4 style="margin: 0 0 0.5rem 0; font-weight: 700; color: #16a34a;">Reactivate Account</h4>
+            <p style="font-size: 0.82rem; color: var(--color-text-muted); margin-bottom: 1rem;">
+                Restores an account to active status.
+            </p>
+            <form method="post" action="{% url 'accounts:admin_iam' %}" class="space-y-3">
+                {% csrf_token %}
+                <input type="hidden" name="action" value="reactivate_account">
+                <div class="form-group">
+                    <label class="form-label" style="font-size: 0.82rem;">Target Employee ID</label>
+                    <input type="text" name="target_employee_id" class="form-input" placeholder="e.g. ST-EMP-0001" required>
+                </div>
+                <button type="submit" class="btn btn-secondary" style="width: 100%; color: #16a34a; font-weight: 600;">
+                    Reactivate Account
+                </button>
+            </form>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+<!-- ======================================================================= -->
+<!-- SECTION 7: IAM Audit Trail -->
+<!-- ======================================================================= -->
+{% if active_tab == 'audit' %}
+<div id="section-audit">
+    <div class="card">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+            <h3 style="margin: 0; font-size: 1.15rem; font-weight: 700; color: var(--color-primary-600);">Real-Time Authentication & IAM Events</h3>
+            <span style="font-size: 0.82rem; color: var(--color-text-muted);">Recent 60 events</span>
+        </div>
+        <div class="table-container" style="overflow-x: auto;">
+            <table class="table" style="width: 100%; font-size: 0.84rem;">
+                <thead>
+                    <tr>
+                        <th>Timestamp</th>
+                        <th>Event</th>
+                        <th>Code</th>
+                        <th>Employee ID</th>
+                        <th>IP Address</th>
+                        <th>Details</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for evt in audit_events %}
+                    <tr>
+                        <td style="white-space: nowrap; font-family: var(--font-mono); font-size: 0.78rem;">{{ evt.time|date:"Y-m-d H:i:s" }}</td>
+                        <td><strong>{{ evt.event }}</strong></td>
+                        <td><code>{{ evt.code }}</code></td>
+                        <td>{{ evt.employee_id|default:"-" }}</td>
+                        <td>{{ evt.ip_address|default:"-" }}</td>
+                        <td style="color: var(--color-text-muted); font-size: 0.8rem;">{{ evt.message|truncatechars:50 }}</td>
+                    </tr>
+                    {% empty %}
+                    <tr>
+                        <td colspan="6" style="text-align: center; color: var(--color-text-muted); padding: 1.5rem;">No authentication events recorded yet.</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+{% endblock %}
