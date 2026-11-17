@@ -16,10 +16,13 @@ from django.contrib.auth.decorators import login_required
 from django.core.exceptions import ValidationError
 from django.http import JsonResponse
 from django.shortcuts import redirect, render
+from django.utils.http import url_has_allowed_host_and_scheme
 from django.views.decorators.http import require_POST
 
 from apps.accounts.auth.audit import log_auth_event
+from apps.accounts.auth.errors import AuthException
 from apps.accounts.auth.sessions import end_session_by_key, revoke_user_sessions
+from apps.accounts.auth.stepup import verify_stepup
 from apps.accounts.models import (
     AuthEvent,
     CustomUser,
@@ -209,4 +212,44 @@ def console_auth_events_view(request):
         request,
         "accounts/security/console_events.html",
         {"events": events, "code_filter": code_filter, "emp_filter": emp_filter},
+    )
+
+
+@login_required
+def sudo_elevation_view(request):
+    """
+    Sudo mode / step-up re-authentication view.
+    Prompts authenticated user for password (and TOTP code if Super Admin) to unlock
+    sensitive operations for the duration of the sudo window (10 minutes).
+    """
+    next_url = request.GET.get("next") or request.POST.get("next") or "/auth/security/"
+    error = None
+
+    if request.method == "POST":
+        password = request.POST.get("password", "")
+        totp_code = request.POST.get("totp_code", "").strip() or None
+
+        try:
+            verify_stepup(request, password=password, totp_code=totp_code)
+            messages.success(request, "Step-up authentication verified.")
+            if url_has_allowed_host_and_scheme(
+                url=next_url,
+                allowed_hosts={request.get_host()},
+                require_https=request.is_secure(),
+            ):
+                return redirect(next_url)
+            return redirect("accounts:security")
+        except AuthException as e:
+            error = e.user_message
+        except Exception as e:
+            error = f"Verification failed: {e}"
+
+    return render(
+        request,
+        "accounts/security/sudo.html",
+        {
+            "next": next_url,
+            "error": error,
+            "is_super_admin": request.user.role == CustomUser.Role.SUPER_ADMIN,
+        },
     )

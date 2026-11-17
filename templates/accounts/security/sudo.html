@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+
+{% block title %}Step-Up Authentication — Salowtech Workspace{% endblock %}
+
+{% block content %}
+<div class="card" style="max-width: 420px; margin: 4rem auto; text-align: center;">
+    <div style="margin-bottom: 1.5rem;">
+        <div style="width: 56px; height: 56px; border-radius: 50%; background: var(--color-primary-100, #E0F2FE); color: var(--color-primary-700, #0369A1); display: flex; align-items: center; justify-content: center; margin: 0 auto 1rem auto;">
+            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>
+        </div>
+        <h2 style="margin: 0; font-size: 1.35rem; color: var(--color-primary-600);">Step-Up Re-Authentication</h2>
+        <p style="color: var(--color-text-muted); font-size: 0.88rem; margin-top: 0.25rem;">
+            A sensitive security operation was requested. Please re-enter your password to proceed.
+        </p>
+    </div>
+
+    {% if error %}
+    <div class="alert alert-danger" style="margin-bottom: 1.25rem; text-align: left;">
+        {{ error }}
+    </div>
+    {% endif %}
+
+    <div style="background: var(--color-bg-surface-secondary); padding: 0.75rem; border-radius: 6px; margin-bottom: 1.25rem; text-align: left; display: flex; align-items: center; justify-content: space-between;">
+        <div>
+            <div style="font-weight: 700; color: var(--color-primary-700);">{{ request.user.employee_id }}</div>
+            <div style="color: var(--color-text-muted); font-size: 0.85rem;">{{ request.user.full_name }}</div>
+        </div>
+        <span class="badge badge-outline">{{ request.user.role|title }}</span>
+    </div>
+
+    <form method="post" action="{% url 'accounts:sudo' %}" class="space-y-4" style="text-align: left;">
+        {% csrf_token %}
+        <input type="hidden" name="next" value="{{ next }}">
+
+        <div class="form-group">
+            <label for="password" class="form-label">Current Password</label>
+            <input type="password" id="password" name="password" class="form-input" placeholder="Enter your current password" required autofocus>
+        </div>
+
+        {% if is_super_admin %}
+        <div class="form-group">
+            <label for="totp_code" class="form-label">Super Admin Authenticator Code</label>
+            <input type="text" id="totp_code" name="totp_code" class="form-input" placeholder="6-digit code" required autocomplete="off" inputmode="numeric" maxlength="6" pattern="[0-9]{6}" style="font-family: monospace; letter-spacing: 0.1em; text-align: center;">
+            <p style="font-size: 0.78rem; color: var(--color-text-muted); margin-top: 0.25rem;">
+                Super Admin step-up requires a fresh authenticator code.
+            </p>
+        </div>
+        {% endif %}
+
+        <button type="submit" class="btn btn-primary" style="width: 100%; font-size: 1rem; padding: 0.75rem;">
+            Authorize & Continue →
+        </button>
+    </form>
+
+    <div style="margin-top: 1.5rem; padding-top: 1rem; border-top: 1px solid var(--color-border-subtle); font-size: 0.85rem; color: var(--color-text-muted);">
+        <a href="{% url 'accounts:security' %}" style="color: var(--color-primary-600); text-decoration: none;">Cancel and return to Security Dashboard</a>
+    </div>
+</div>
+{% endblock %}

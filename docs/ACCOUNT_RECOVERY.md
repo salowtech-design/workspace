@@ -87,7 +87,42 @@ def check_recovery_authority(initiator: CustomUser, target: CustomUser) -> bool:
 For privileged administrative accounts:
 1. **No Single-Admin Takeover**: An administrator cannot unilaterally reset another administrator's credentials.
 2. **Two-Administrator Consensus**:
-   - Administrator 1 initiates the reset request through `/accounts/recovery/admin/` specifying the target administrator and operational justification.
-   - The reset enters a `PENDING_APPROVAL` queue.
-   - Administrator 2 must log in with full MFA, navigate to the approval console, verify out-of-band identity, and confirm the reset.
+   - Administrator 1 initiates the reset request through `/auth/recovery/console/` specifying the target administrator and operational justification.
+   - Requires active Sudo mode re-authentication.
+   - Administrator 2 must co-approve before a reset token is minted.
 3. **Execution**: Once approved, an emergency activation token is minted. Existing sessions are terminated globally, and the target administrator must set a new password and enroll a new TOTP key.
+
+---
+
+## 5. Recovery Pathway D: Registered Passkey Password Reset (Scenario E)
+
+When an employee forgets their password but has a registered WebAuthn passkey (Touch ID, Windows Hello, or hardware security key):
+1. **Initiation**: Employee navigates to `/auth/recovery/forgot-password/` and selects **Registered Passkey / Device Biometric**.
+2. **Challenge & Assertion**:
+   - Browser fetches fresh assertion options from `/auth/passkeys/auth/options/?employee_id=<ID>`.
+   - Browser calls `navigator.credentials.get({ publicKey: options })`.
+3. **Server Verification**:
+   - Browser posts assertion and proposed new password to `/auth/recovery/passkey/verify/`.
+   - Server verifies WebAuthn cryptographic signature against user's stored COSE public key.
+   - Enforces password complexity standards.
+4. **Finalization**:
+   - Updates password hash via Argon2id.
+   - Globally revokes all existing device sessions (`UserSession` & `Session`).
+   - Audits `password_reset_passkey` event and redirects to login.
+
+---
+
+## 6. Recovery Pathway E: Lost Authenticator Device / MFA Reset (Scenario H)
+
+When an employee's authenticator device is lost, stolen, or replaced:
+1. **Authority Approval**:
+   - Administrator, HR, or Manager initiates an **MFA Reset Token** via `/auth/recovery/console/` (requires active Sudo re-authentication).
+   - Server verifies scope and calls `issue_mfa_reset_code()`, generating a single-use token.
+2. **Employee Redemption**:
+   - Employee opens `/auth/recovery/forgot-password/` and selects **MFA Reset Token**.
+   - Submits Employee ID, MFA Reset Token, and their verified current password.
+   - Server validates token via `verify_mfa_reset_and_authorize()`.
+3. **Security Invariants**:
+   - Purges old `TOTPCredential` record from database.
+   - Immediately revokes all active device sessions.
+   - Directs user into `/auth/activate/mfa/setup/` to configure fresh authenticator app and receive 10 new emergency recovery codes.

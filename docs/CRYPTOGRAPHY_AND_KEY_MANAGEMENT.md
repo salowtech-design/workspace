@@ -34,6 +34,7 @@ class KeyRing:
     Encryption always uses the active primary key.
     Decryption inspects the key prefix to decrypt older records.
     """
+
     DEFAULT_KEY_ID = "k1"
 ```
 

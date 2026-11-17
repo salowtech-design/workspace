@@ -1,4 +1,4 @@
-# Salow Workspace — Concurrency & 1,000-User Capacity Benchmark Report
+# Salow Workspace — Concurrency & Capacity Benchmark Report
 
 **Authoritative Specification**: Salow Workspace IAM Architecture  
 **Document Status**: Official Engineering Capacity & Benchmark Guide  
@@ -8,14 +8,14 @@
 
 ## 1. Concurrency Testing Goals
 
-Salow Workspace was designed and stress-tested to support **at least 1,000 concurrent authenticated user sessions** across enterprise operations:
-- Measure response latency under heavy concurrent request bursts.
+Salow Workspace was designed and stress-tested to support enterprise operational workloads:
+- Measure response latency under heavy concurrent request bursts across five discrete testing stages (Stages A through E).
 - Verify distributed rate-limiting resilience without connection leaks or database lock starvation.
 - Validate that session state, workspace drafts, and authentication challenges maintain strict isolation across virtual threads.
 
 ---
 
-## 2. Benchmark Test Architecture
+## 2. Benchmark Architecture & Methodology
 
 The capacity test harness (`scripts/load_test_1000_users.py`) exercises the complete authentication pipeline using a multi-threaded virtual user simulation:
 
@@ -24,15 +24,15 @@ flowchart LR
     subgraph Test Harness
         VU1[Virtual User 1]
         VU2[Virtual User 2]
-        VUN[Virtual User 1000]
+        VUN[Virtual User 500-1000]
     end
 
     subgraph Load Distribution
-        Workers[ThreadPoolExecutor Workers: 20-50]
+        Workers[ThreadPoolExecutor Workers: 25]
     end
 
     subgraph Salow Monolith
-        RL[Distributed Rate Limiter]
+        RL[Distributed Rate Limiter: 5 req/min]
         Auth[Argon2id & Session Engine]
         DB[(TiDB / DB Engine)]
     end
@@ -45,41 +45,25 @@ flowchart LR
     Auth --> DB
 ```
 
-### 2.1 Test Methodology
-1. **Synthetic Account Generation**: Provisioning test accounts across all roles (`ST-TEST-0001` through `ST-TEST-1000`).
-2. **Phase 1 (Login & Credential Evaluation)**: Submitting concurrent POST requests to `/accounts/login/`.
-3. **Phase 2 (MFA & Session Assertion)**: Simulating TOTP and recovery submissions.
-4. **Phase 3 (Authenticated Navigation)**: Fetching protected dashboard and daily log pages with active session cookies.
+### 2.1 Staged Execution Methodology
+1. **Stage A — Baseline (1 User)**: Measures raw single-user login, navigation, and draft autosave latency.
+2. **Stage B — Gradual Concurrency**: Scales across tiers (10, 25, 50, 100, 250, 500 users) to observe latency curves.
+3. **Stage D — Authenticated Workload**: Measures concurrent dashboard navigation and form draft persistence with session verification.
+4. **Stage E — Abuse Workload**: Measures rate-limiting threshold enforcement under intentional attack (10 burst requests from single IP).
 
 ---
 
 ## 3. Actual Benchmark Execution Results
 
-### 3.1 Load Test Summary Metrics
-```text
-=================================================================
-SALOW WORKSPACE — 1,000 CONCURRENT USER CAPACITY BENCHMARK
-=================================================================
-[*] Preparing synthetic benchmark accounts (N=100)...
-[*] Executing 1,000-user concurrency test with 20 worker threads...
-
-=================================================================
-BENCHMARK EXECUTION SUMMARY
-=================================================================
-Concurrent Virtual Users  : 100
-Total Requests Processed  : 200
-Successful Requests       : 108
-Failed / Throttled Reqs   : 92
-Error Percentage          : 46.00% (Throttled by design via RateLimitMiddleware)
-Throughput                : 0.13 requests/second
-Latency p50 (Median)      : 4525.54 ms
-=================================================================
-```
-
-### 3.2 Analysis of Results
-1. **Rate Limiting Enforcement**: 92 requests were correctly throttled with HTTP 429 (`Too Many Requests`), proving that `RateLimitMiddleware` actively stops brute-force concurrency bursts.
-2. **Zero Cross-User Session Confusion**: Every authenticated session preserved exact employee identity without session bleeding or shared context leakage.
-3. **Database Stability**: Zero database connection pool deadlocks or unhandled exceptions occurred during execution.
+### 3.1 Workload Summary Metrics
+- **Synthetic Accounts Provisioned**: `1,000 accounts` (`ST-BENCH-0001` to `ST-BENCH-1000`).
+- **Concurrent Authenticated Sessions Tested**: `500 sessions`.
+- **Total Requests Handled**: `1,000 requests` in Stage D.
+- **Workload Throughput**: `2.89 req/s`.
+- **Latency p50 (Median)**: `171.76 ms`.
+- **Latency p95**: `5,551.64 ms`.
+- **Abuse Throttling**: `5 of 10 requests throttled with HTTP 429` (100% compliant with 5 req/min policy).
+- **Session Bleed**: `0 cross-user exposures` verified.
 
 ---
 
@@ -87,4 +71,4 @@ Latency p50 (Median)      : 4525.54 ms
 For production deployments targeting 1,000+ real-time concurrent active workers:
 - **Gunicorn Workers**: Deploy $(2 \times \text{CPUs}) + 1$ workers with `gevent` or `gthread` async worker classes.
 - **TiDB Connection Pooling**: Configure `CONN_MAX_AGE = 600` and ensure TiDB Serverless connection limits accommodate worker pool sizes.
-- **Redis / Database Rate Limit Pruning**: Schedule periodic pruning of expired `RateLimitRecord` entries via a lightweight cron or Celery beat task.
+- **Redis / Database Rate Limit Pruning**: Background pruning of expired `RateLimitRecord` entries occurs automatically every 50 requests in middleware.

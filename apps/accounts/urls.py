@@ -22,6 +22,7 @@ from apps.accounts.views.passkeys import (
 from apps.accounts.views.recovery import (
     admin_recovery_console_view,
     forgot_password_view,
+    passkey_recovery_verify_view,
 )
 from apps.accounts.views.security import (
     change_password_view,
@@ -31,6 +32,7 @@ from apps.accounts.views.security import (
     idle_unlock_view,
     save_draft_view,
     security_dashboard_view,
+    sudo_elevation_view,
     terminate_all_other_sessions_view,
     terminate_session_view,
 )
@@ -54,6 +56,11 @@ urlpatterns = [
     ),
     # Password Recovery & Delegated Recovery
     path("recovery/forgot-password/", forgot_password_view, name="forgot_password"),
+    path(
+        "recovery/passkey/verify/",
+        passkey_recovery_verify_view,
+        name="passkey_recovery_verify",
+    ),
     path("recovery/console/", admin_recovery_console_view, name="admin_recovery_console"),
     # Passkeys (WebAuthn / FIDO2)
     path(
@@ -83,6 +90,7 @@ urlpatterns = [
     ),
     # Security, Password & Session Management
     path("security/", security_dashboard_view, name="security"),
+    path("security/sudo/", sudo_elevation_view, name="sudo"),
     path("security/password/change/", change_password_view, name="change_password"),
     path(
         "security/sessions/<str:session_key>/terminate/",

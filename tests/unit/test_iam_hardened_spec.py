@@ -15,6 +15,7 @@ from django.contrib.auth import get_user_model
 from django.contrib.sessions.backends.db import SessionStore
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.test import Client, RequestFactory
+from django.utils import timezone
 
 from apps.accounts.auth.diagnostics import run_auth_doctor_checks
 from apps.accounts.auth.errors import AuthException
@@ -35,11 +36,18 @@ from apps.accounts.auth.sessions import (
     end_session_by_key,
     revoke_user_sessions,
 )
+from apps.accounts.auth.stepup import (
+    SUDO_GRANTED_TIMESTAMP_KEY,
+    is_sudo_active,
+    verify_stepup,
+)
 from apps.accounts.models import (
     CustomUser,
     PasskeyCredential,
+    TOTPCredential,
     UserSession,
 )
+from apps.accounts.services import set_user_role, set_user_status
 from apps.core.middleware import RateLimitMiddleware
 from apps.core.models import RateLimitRecord
 from apps.directory.models import ReportingRelationship
@@ -496,3 +504,285 @@ class TestAuthDoctorDiagnostics:
         assert len(failed) == 0, (
             f"Failed diagnostics: {[r.name + ': ' + r.details for r in failed]}"
         )
+
+
+# ==============================================================================
+# 6. SCENARIO E: PASSKEY-AUTHENTICATED RECOVERY TESTS
+# ==============================================================================
+
+
+@pytest.mark.django_db
+class TestPasskeyRecoveryScenarioE:
+    @patch("apps.accounts.views.recovery.verify_passkey_authentication")
+    def test_passkey_recovery_resets_password_and_revokes_sessions(
+        self, mock_verify, employee_user
+    ):
+        """
+        Scenario E Acceptance Test:
+        Employee selects passkey recovery -> asserts identity via registered WebAuthn credential
+        -> password is changed -> active device sessions revoked -> redirected to login.
+        """
+        mock_verify.return_value = employee_user
+
+        # Create active device session to verify revocation
+        s = SessionStore()
+        s.create()
+        UserSession.objects.create(
+            user=employee_user,
+            session_key=s.session_key,
+            mfa_verified=True,
+        )
+        assert UserSession.objects.filter(user=employee_user).count() == 1
+
+        client = Client()
+        resp = client.post(
+            "/auth/recovery/passkey/verify/",
+            json.dumps(
+                {
+                    "credential": {"id": "cred_abc123", "rawId": "cred_abc123"},
+                    "employee_id": employee_user.employee_id,
+                    "new_password": "PasskeyResetPassword2026!",
+                }
+            ),
+            content_type="application/json",
+        )
+
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["success"] is True
+        assert body["redirect_url"] == "/auth/login/"
+
+        # Password was updated
+        employee_user.refresh_from_db()
+        assert employee_user.check_password("PasskeyResetPassword2026!") is True
+
+        # Old sessions revoked
+        assert UserSession.objects.filter(user=employee_user).count() == 0
+
+
+# ==============================================================================
+# 7. SUDO MODE & STEP-UP RE-AUTHENTICATION PROTECTION TESTS
+# ==============================================================================
+
+
+@pytest.mark.django_db
+class TestSudoElevationAndProtection:
+    def test_stepup_verification_flow(self, employee_user, super_admin):
+        """Verifies password check and Super Admin TOTP requirements for step-up."""
+        factory = RequestFactory()
+        req = factory.post("/auth/security/sudo/")
+        req.user = employee_user
+        req.session = SessionStore()
+
+        # Wrong password fails
+        with pytest.raises(AuthException):
+            verify_stepup(req, password="WrongPassword!")
+
+        # Correct password succeeds and sets sudo active
+        verify_stepup(req, password="EmployeePassword123!")
+        assert is_sudo_active(req) is True
+
+    def test_passkey_deletion_requires_sudo(self, employee_user):
+        """Passkey deletion redirects to sudo view if recent re-authentication is absent."""
+        passkey = PasskeyCredential.objects.create(
+            user=employee_user,
+            credential_id="pk_test_100",
+            public_key=b"sample_key_100",
+            sign_count=1,
+            display_name="Work Windows Hello",
+            is_active=True,
+        )
+
+        client = Client()
+        client.force_login(employee_user)
+        session = client.session
+        session["_salow_mfa_verified"] = True
+        session.save()
+
+        # 1. Attempt delete without sudo -> redirected to sudo elevation view
+        resp = client.post(f"/auth/passkeys/{passkey.id}/delete/")
+        assert resp.status_code == 302
+        assert "/auth/security/sudo/" in resp.url
+        passkey.refresh_from_db()
+        assert passkey.is_active is True  # NOT deleted
+
+        # 2. Grant sudo in session
+        session[SUDO_GRANTED_TIMESTAMP_KEY] = 1893456000.0  # Future timestamp
+        session.save()
+
+        # 3. Attempt delete with active sudo -> succeeds
+        resp2 = client.post(f"/auth/passkeys/{passkey.id}/delete/")
+        assert resp2.status_code == 302
+        assert "/auth/security/" in resp2.url
+        passkey.refresh_from_db()
+        assert passkey.is_active is False
+
+    def test_admin_recovery_console_requires_sudo_on_issuance(self, admin_user, employee_user):
+        """Admin recovery console requires sudo before generating tokens."""
+        client = Client()
+        client.force_login(admin_user)
+        session = client.session
+        session["_salow_mfa_verified"] = True
+        session.save()
+
+        # Without sudo -> redirected to sudo view
+        resp = client.post(
+            "/auth/recovery/console/",
+            {
+                "target_employee_id": employee_user.employee_id,
+                "recovery_type": "password_reset",
+                "reason": "Employee requested password reset after phone replacement",
+            },
+        )
+        assert resp.status_code == 302
+        assert "/auth/security/sudo/" in resp.url
+
+        # Grant sudo
+        session[SUDO_GRANTED_TIMESTAMP_KEY] = 1893456000.0
+        session.save()
+
+        # With sudo -> token generated
+        resp2 = client.post(
+            "/auth/recovery/console/",
+            {
+                "target_employee_id": employee_user.employee_id,
+                "recovery_type": "password_reset",
+                "reason": "Employee requested password reset after phone replacement",
+            },
+        )
+        assert resp2.status_code == 200
+        assert "Single-Use Password Reset Token Generated" in resp2.content.decode("utf-8")
+
+
+# ==============================================================================
+# 8. SCENARIO H: LOST AUTHENTICATOR & MFA RESET TESTS
+# ==============================================================================
+
+
+@pytest.mark.django_db
+class TestLostAuthenticatorScenarioH:
+    def test_mfa_reset_issue_and_redemption_cycle(self, admin_user, employee_user):
+        """
+        Scenario H Acceptance Test:
+        Lost authenticator -> Admin/Manager issues MFA Reset Token -> Employee redeems token
+        with current password -> old authenticator deleted -> redirected to re-enroll MFA.
+        """
+        # Enroll an initial TOTP credential
+        TOTPCredential.objects.create(
+            user=employee_user,
+            encrypted_secret=b"fake_enc",
+            nonce=b"123456789012",
+            key_id="k1",
+            confirmed_at=timezone.now(),
+        )
+        assert TOTPCredential.objects.filter(user=employee_user).exists()
+
+        # Admin issues MFA reset token
+        from apps.accounts.auth.reset import issue_mfa_reset_code
+
+        _, raw_mfa_code = issue_mfa_reset_code(
+            target_user=employee_user,
+            issuing_admin=admin_user,
+        )
+
+        # Employee redeems MFA reset token
+        client = Client()
+        resp = client.post(
+            "/auth/recovery/forgot-password/",
+            {
+                "action": "redeem_code",
+                "employee_id": employee_user.employee_id,
+                "code_type": "mfa_reset_token",
+                "code_value": raw_mfa_code,
+                "current_password": "EmployeePassword123!",
+            },
+        )
+        assert resp.status_code == 302
+        assert "/auth/activate/mfa/setup/" in resp.url
+
+        # Old authenticator was deleted
+        assert not TOTPCredential.objects.filter(user=employee_user).exists()
+        assert client.session.get("_salow_act_user_id") == employee_user.id
+
+
+# ==============================================================================
+# 9. ACCOUNT LIFECYCLE & PERMISSION MATRIX INVARIANTS
+# ==============================================================================
+
+
+@pytest.mark.django_db
+class TestAccountLifecycleAndPermissionMatrix:
+    def test_suspended_account_ejected_from_protected_pages(self, employee_user):
+        """Suspended account is immediately logged out and redirected by middleware."""
+        client = Client()
+        client.force_login(employee_user)
+        session = client.session
+        session["_salow_mfa_verified"] = True
+        session.save()
+
+        # Suspend account
+        set_user_status(employee_user, CustomUser.Status.SUSPENDED)
+
+        # Access protected page -> middleware terminates session
+        resp = client.get("/auth/security/")
+        assert resp.status_code == 302
+        assert "/auth/login" in resp.url
+
+    def test_exited_account_cannot_use_old_session(self, employee_user):
+        """Exited account session is purged and redirected."""
+        client = Client()
+        client.force_login(employee_user)
+        session = client.session
+        session["_salow_mfa_verified"] = True
+        session.save()
+
+        set_user_status(employee_user, CustomUser.Status.EXITED)
+
+        resp = client.get("/auth/security/")
+        assert resp.status_code == 302
+        assert "/auth/login" in resp.url
+
+    def test_role_change_revokes_all_active_sessions(self, manager_user):
+        """Demoting or changing role immediately revokes all active sessions."""
+        s1 = SessionStore()
+        s1.create()
+        UserSession.objects.create(user=manager_user, session_key=s1.session_key)
+
+        set_user_role(manager_user, CustomUser.Role.EMPLOYEE)
+        assert not UserSession.objects.filter(user=manager_user).exists()
+
+    def test_intern_denied_access_to_recovery_console(self, intern_user):
+        """Intern role is denied from accessing recovery console."""
+        client = Client()
+        client.force_login(intern_user)
+        session = client.session
+        session["_salow_mfa_verified"] = True
+        session.save()
+
+        resp = client.get("/auth/recovery/console/")
+        assert resp.status_code == 302
+        assert "/attendance/" in resp.url
+
+
+# ==============================================================================
+# 10. MULTIDIMENSIONAL RATE LIMITING & PRUNING TESTS
+# ==============================================================================
+
+
+@pytest.mark.django_db
+class TestMultidimensionalRateLimiting:
+    def test_account_dimensional_keying_and_cleanup(self):
+        """Rate limit tracks account dimension and prunes expired records."""
+        RateLimitMiddleware.reset()
+        client = Client()
+
+        # Post to login with specific employee ID
+        resp = client.post(
+            "/auth/login/",
+            {"employee_id": "ST-EMP-2001", "password": "WrongPassword!"},
+        )
+        assert resp.status_code in (200, 302)
+
+        # Account-level record must exist in RateLimitRecord
+        records = RateLimitRecord.objects.filter(key="acc:ST-EMP-2001:sensitive")
+        assert records.exists()

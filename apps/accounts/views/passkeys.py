@@ -23,6 +23,7 @@ from apps.accounts.auth.passkeys import (
     verify_passkey_registration,
 )
 from apps.accounts.auth.sessions import create_verified_session
+from apps.accounts.auth.stepup import is_sudo_active
 from apps.accounts.models import CustomUser
 
 
@@ -113,7 +114,26 @@ def passkey_auth_verify_view(request):
 @login_required
 @require_POST
 def passkey_delete_view(request, passkey_id: int):
-    """Revoke a registered passkey."""
+    """
+    Revoke a registered passkey.
+    Enforces re-authentication (sudo mode) before credential removal.
+    """
+    if not is_sudo_active(request):
+        if request.headers.get(
+            "x-requested-with"
+        ) == "XMLHttpRequest" or "application/json" in request.headers.get("accept", ""):
+            return JsonResponse(
+                {
+                    "error": "Step-up authentication required: please re-authenticate.",
+                    "sudo_required": True,
+                },
+                status=403,
+            )
+        messages.warning(
+            request, "Recent password verification required before removing credentials."
+        )
+        return redirect("/auth/security/sudo/?next=/auth/security/")
+
     success = revoke_passkey(request.user, passkey_id)
     if success:
         messages.success(request, "Passkey credential has been revoked.")

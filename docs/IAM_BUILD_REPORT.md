@@ -139,9 +139,9 @@ The multi-threaded load test (`scripts/load_test_1000_users.py`) benchmarked con
 
 ### 1. Automated Test Suite (`pytest`)
 ```bash
-uv run pytest tests/unit/
+uv run pytest
 ```
-**Actual Result**: `136 passed in 115.25s` (100% pass rate).
+**Actual Result**: `146 passed in 95.70s` (100% pass rate across unit, pen testing, and IAM hardened suites).
 
 ### 2. Subsystem Diagnostics (`auth_doctor`)
 ```bash
@@ -185,11 +185,11 @@ All 24 parts of the specification have been designed, coded, migrated, tested, a
 | **A** | New Employee | Admin provisions account → activation code → password creation → TOTP enrollment → recovery codes → workspace login | `apps/accounts/auth/activation.py`, `apps/accounts/views/activation.py` | `test_activation_full_journey` | **VERIFIED** |
 | **B** | Normal Sign-in | Employee ID → password → TOTP challenge → server-side session rotation → dashboard | `apps/accounts/views/login.py`, `apps/accounts/auth/mfa_totp.py` | `test_login_totp_success` | **VERIFIED** |
 | **C** | Invalid Login | Invalid credentials → generic error → counter increment → rate limit applied | `apps/accounts/views/login.py`, `apps/core/middleware.py` | `test_invalid_credentials_timing_safe` | **VERIFIED** |
-| **D** | Recovery Code | Forgot password → submit recovery code → atomic consumption → set new password | `apps/accounts/auth/recovery_codes.py`, `apps/accounts/views/recovery.py` | `test_recovery_code_redemption` | **VERIFIED** |
-| **E** | Passkey Login | Passkey challenge → authenticator sign → public key assertion verification → login | `apps/accounts/auth/passkeys.py`, `apps/accounts/views/passkeys.py` | `test_passkey_assertion_flow` | **VERIFIED** |
-| **F** | Admin Recovery | Admin initiates recovery for employee → records reason → token issued → password reset | `apps/accounts/auth/reset.py`, `apps/accounts/views/recovery.py` | `test_admin_recovery_workflow` | **VERIFIED** |
-| **G** | Delegated Recovery | HR / Manager requests recovery → reporting scope validated → approved or denied | `apps/accounts/auth/reset.py`, `apps/directory/models.py` | `test_manager_delegated_recovery` | **VERIFIED** |
-| **H** | Lost Authenticator | Employee uses recovery code / admin approval → old TOTP revoked → new MFA enrollment | `apps/accounts/auth/mfa_totp.py`, `apps/accounts/auth/reset.py` | `test_lost_authenticator_reset` | **VERIFIED** |
+| **D** | Recovery Code | Forgot password → submit recovery code → atomic consumption → set new password | `apps/accounts/auth/recovery_codes.py`, `apps/accounts/views/recovery.py` | `test_self_service_password_reset_with_recovery_code` | **VERIFIED** |
+| **E** | Passkey Recovery | Forgot password → passkey challenge → WebAuthn assertion verified → password reset → sessions revoked | `apps/accounts/auth/passkeys.py`, `apps/accounts/views/recovery.py` | `test_passkey_recovery_resets_password_and_revokes_sessions` | **VERIFIED** |
+| **F** | Admin Recovery | Admin initiates recovery for employee (requires Sudo) → records reason → token issued → password reset | `apps/accounts/auth/reset.py`, `apps/accounts/views/recovery.py`, `apps/accounts/auth/stepup.py` | `test_admin_recovery_console_requires_sudo_on_issuance` | **VERIFIED** |
+| **G** | Delegated Recovery | HR / Manager requests recovery → reporting scope validated → approved or denied | `apps/accounts/auth/reset.py`, `apps/directory/models.py` | `test_manager_scope_restricted_to_team_and_reporting_chain` | **VERIFIED** |
+| **H** | Lost Authenticator | Employee uses recovery authority / MFA reset token → old TOTP revoked → new MFA enrollment | `apps/accounts/auth/mfa_totp.py`, `apps/accounts/auth/reset.py`, `apps/accounts/views/recovery.py` | `test_mfa_reset_issue_and_redemption_cycle` | **VERIFIED** |
 | **I** | Session Expiry | Idle timeout (15 min) → lock workspace → save draft → re-auth → draft restored | `apps/accounts/middleware.py`, `apps/accounts/models.py` | `test_idle_lock_and_draft_resume` | **VERIFIED** |
 | **J** | Unauthorized Access | Employee attempts to access peer resource → 403 Forbidden → security event logged | `apps/accounts/permissions.py`, `apps/core/models.py` | `test_object_permission_denied` | **VERIFIED** |
 | **K** | Suspended Account | Admin suspends employee → active sessions revoked immediately across devices | `apps/accounts/middleware.py`, `apps/accounts/auth/sessions.py` | `test_suspended_account_ejection` | **VERIFIED** |

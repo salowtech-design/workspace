@@ -5,7 +5,7 @@ Super admin sensitive actions additionally require a fresh authenticator code.
 """
 
 from functools import wraps
-from typing import Callable
+from typing import Callable, Optional
 
 from django.core.exceptions import PermissionDenied
 from django.utils import timezone
@@ -30,17 +30,19 @@ def is_sudo_active(request) -> bool:
     return elapsed_seconds < (SUDO_WINDOW_MINUTES * 60)
 
 
-def grant_sudo(request, user: CustomUser) -> None:
+def grant_sudo(request, user: Optional[CustomUser] = None) -> None:
     """Mark session as holding valid sudo authorization."""
+    target_user = user or getattr(request, "user", None)
     request.session[SUDO_GRANTED_TIMESTAMP_KEY] = timezone.now().timestamp()
-    log_auth_event(
-        event="sudo_granted",
-        code="INFO",
-        step="stepup",
-        employee_id=user.employee_id,
-        network_address=request.META.get("REMOTE_ADDR"),
-        message=f"Sudo mode granted for {SUDO_WINDOW_MINUTES} minutes",
-    )
+    if target_user and getattr(target_user, "is_authenticated", False):
+        log_auth_event(
+            event="sudo_granted",
+            code="INFO",
+            step="stepup",
+            employee_id=target_user.employee_id,
+            network_address=request.META.get("REMOTE_ADDR"),
+            message=f"Sudo mode granted for {SUDO_WINDOW_MINUTES} minutes",
+        )
 
 
 def verify_stepup(request, password: str, totp_code: str = None) -> bool:

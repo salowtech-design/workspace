@@ -22,7 +22,7 @@ class SecurityHeadersMiddleware:
     def __init__(self, get_response):
         self.get_response = get_response
 
-    def __call__(self, request):
+    def __call__(self, request):  # noqa: C901
         response = self.get_response(request)
 
         # Content-Security-Policy: restrict source origins for scripts, styles, frames
@@ -64,12 +64,13 @@ class RateLimitMiddleware:
         "/auth/security/password/change",
         "/verify",
     )
-    SENSITIVE_LIMIT = 60  # max requests per window for sensitive endpoints
-    DEFAULT_LIMIT = 300  # general requests per window
+    SENSITIVE_LIMIT = getattr(settings, "RATE_LIMIT_SENSITIVE_LIMIT", 5)  # max 5 requests per window for sensitive auth endpoints
+    DEFAULT_LIMIT = getattr(settings, "RATE_LIMIT_DEFAULT_LIMIT", 300)  # general requests per window
     WINDOW_SECONDS = 60
 
     _storage: Dict[str, List[float]] = {}
     _lock = threading.Lock()
+    _cleanup_counter: int = 0
 
     def __init__(self, get_response):
         self.get_response = get_response
@@ -79,6 +80,7 @@ class RateLimitMiddleware:
         """Reset rate limiter state (used in testing)."""
         with cls._lock:
             cls._storage.clear()
+            cls._cleanup_counter = 0
         try:
             from apps.core.models import RateLimitRecord
 
@@ -95,7 +97,7 @@ class RateLimitMiddleware:
             return x_forwarded_for.split(",")[0].strip()
         return remote_addr
 
-    def __call__(self, request):
+    def __call__(self, request):  # noqa: C901
         path = request.path_info
         if path.startswith("/static/"):
             return self.get_response(request)
@@ -117,23 +119,32 @@ class RateLimitMiddleware:
         is_sensitive = any(path.startswith(prefix) for prefix in self.SENSITIVE_PREFIXES)
         limit = self.SENSITIVE_LIMIT if is_sensitive else self.DEFAULT_LIMIT
 
-        # Build multidimensional key (IP + endpoint type)
-        key = f"{client_ip}:{'sensitive' if is_sensitive else 'general'}"
+        # Build multidimensional keys (IP + endpoint type, plus account dimension if provided)
+        account_id = None
+        if hasattr(request, "user") and getattr(request.user, "is_authenticated", False):
+            account_id = getattr(request.user, "employee_id", None)
+        elif request.method == "POST":
+            account_id = request.POST.get("employee_id", "").strip().upper() or None
+
+        keys_to_check = [f"{client_ip}:{'sensitive' if is_sensitive else 'general'}"]
+        if account_id and is_sensitive:
+            keys_to_check.append(f"acc:{account_id}:sensitive")
 
         with self._lock:
-            timestamps = self._storage.setdefault(key, [])
-            timestamps[:] = [t for t in timestamps if t > cutoff]
+            for k in keys_to_check:
+                timestamps = self._storage.setdefault(k, [])
+                timestamps[:] = [t for t in timestamps if t > cutoff]
 
-            if len(timestamps) >= limit:
-                response = HttpResponse(
-                    "Too Many Requests: Rate limit exceeded. Please retry in 60 seconds.",
-                    status=429,
-                    content_type="text/plain",
-                )
-                response["Retry-After"] = "60"
-                return response
+                if len(timestamps) >= limit:
+                    response = HttpResponse(
+                        "Too Many Requests: Rate limit exceeded. Please retry in 60 seconds.",
+                        status=429,
+                        content_type="text/plain",
+                    )
+                    response["Retry-After"] = "60"
+                    return response
 
-            timestamps.append(now)
+                timestamps.append(now)
 
             if len(self._storage) > 500:
                 stale_keys = [k for k, ts in self._storage.items() if not ts or ts[-1] <= cutoff]
@@ -145,17 +156,23 @@ class RateLimitMiddleware:
             from apps.core.models import RateLimitRecord
 
             # Check database sliding window count across all workers
-            db_count = RateLimitRecord.objects.filter(key=key, timestamp__gt=cutoff).count()
-            if db_count >= limit:
-                response = HttpResponse(
-                    "Too Many Requests: Rate limit exceeded. Please retry in 60 seconds.",
-                    status=429,
-                    content_type="text/plain",
-                )
-                response["Retry-After"] = "60"
-                return response
+            for k in keys_to_check:
+                db_count = RateLimitRecord.objects.filter(key=k, timestamp__gt=cutoff).count()
+                if db_count >= limit:
+                    response = HttpResponse(
+                        "Too Many Requests: Rate limit exceeded. Please retry in 60 seconds.",
+                        status=429,
+                        content_type="text/plain",
+                    )
+                    response["Retry-After"] = "60"
+                    return response
 
-            RateLimitRecord.objects.create(key=key, timestamp=now)
+                RateLimitRecord.objects.create(key=k, timestamp=now)
+
+            # Periodic background pruning of expired records
+            RateLimitMiddleware._cleanup_counter += 1
+            if RateLimitMiddleware._cleanup_counter % 50 == 0:
+                RateLimitRecord.objects.filter(timestamp__lte=cutoff).delete()
         except Exception as e:
             logger.debug("Failed to record rate limit entry: %s", e)
 

@@ -7,8 +7,15 @@ from functools import wraps
 from typing import Callable, Optional
 
 from django.core.exceptions import PermissionDenied
-from django.utils import timezone
 
+from apps.accounts.auth.stepup import (
+    SUDO_GRANTED_TIMESTAMP_KEY as SUDO_SESSION_KEY,
+)
+from apps.accounts.auth.stepup import (
+    grant_sudo,
+    is_sudo_active,
+    require_sudo,
+)
 from apps.accounts.models import CustomUser
 
 # ------------------------------------------------------------------------------
@@ -193,24 +200,7 @@ def can_view_team(actor: CustomUser, team_id: int) -> bool:
 # 4. SUDO MODE & DECORATORS
 # ------------------------------------------------------------------------------
 
-SUDO_SESSION_KEY = "_salow_sudo_granted_at"
-SUDO_TIMEOUT_SECONDS = 900  # 15 minutes
-
-
-def is_sudo_active(request) -> bool:
-    """Check whether session has valid sudo authentication within last 15 minutes."""
-    if not request.user.is_authenticated:
-        return False
-    granted_at = request.session.get(SUDO_SESSION_KEY)
-    if not granted_at:
-        return False
-    elapsed = timezone.now().timestamp() - granted_at
-    return elapsed < SUDO_TIMEOUT_SECONDS
-
-
-def grant_sudo(request):
-    """Mark current session as possessing active sudo authorization."""
-    request.session[SUDO_SESSION_KEY] = timezone.now().timestamp()
+SUDO_TIMEOUT_SECONDS = 600  # 10 minutes (aligned with SUDO_WINDOW_MINUTES)
 
 
 def require_permission(perm_code: str):
@@ -228,15 +218,38 @@ def require_permission(perm_code: str):
     return decorator
 
 
-def require_sudo(view_func: Callable):
-    """View decorator ensuring sudo password re-entry is active."""
-
-    @wraps(view_func)
-    def _wrapped(request, *args, **kwargs):
-        if not is_sudo_active(request):
-            raise PermissionDenied(
-                "Sudo mode required: recent password re-authentication required."
-            )
-        return view_func(request, *args, **kwargs)
-
-    return _wrapped
+__all__ = [
+    "PERM_ATTENDANCE_APPROVE",
+    "PERM_ATTENDANCE_OVERRIDE",
+    "PERM_ATTENDANCE_VIEW_ALL",
+    "PERM_ATTENDANCE_VIEW_SELF",
+    "PERM_ATTENDANCE_VIEW_TEAM",
+    "PERM_AUDIT_VIEW",
+    "PERM_CERTIFICATE_ISSUE",
+    "PERM_CERTIFICATE_REVOKE",
+    "PERM_POST_CREATE",
+    "PERM_POST_MODERATE",
+    "PERM_POST_VIEW_ALL",
+    "PERM_POST_VIEW_TEAM",
+    "PERM_RECOVERY_ADMIN",
+    "PERM_RECOVERY_DELEGATED",
+    "PERM_SETTINGS_MANAGE",
+    "PERM_TEAM_MANAGE",
+    "PERM_TEAM_VIEW",
+    "PERM_USER_CREATE",
+    "PERM_USER_DEACTIVATE",
+    "PERM_USER_EDIT",
+    "PERM_USER_VIEW",
+    "ROLE_PERMISSIONS",
+    "SUDO_SESSION_KEY",
+    "SUDO_TIMEOUT_SECONDS",
+    "can_approve_attendance",
+    "can_edit_user",
+    "can_view_team",
+    "can_view_user",
+    "grant_sudo",
+    "has_permission",
+    "is_sudo_active",
+    "require_permission",
+    "require_sudo",
+]

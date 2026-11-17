@@ -98,7 +98,7 @@ current_step = int(time.time() // 30)
 if user.totp_device.last_used_step and current_step <= user.totp_device.last_used_step:
     raise AuthException("TOTP code already consumed for current time window.")
 user.totp_device.last_used_step = current_step
-user.totp_device.save(update_fields=['last_used_step'])
+user.totp_device.save(update_fields=["last_used_step"])
 ```
 
 ### 4.3 Session Finalization & Identifier Rotation
