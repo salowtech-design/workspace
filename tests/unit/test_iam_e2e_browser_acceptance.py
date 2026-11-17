@@ -225,6 +225,21 @@ class TestFlowAActivationWizard:
         assert user.status == CustomUser.Status.ACTIVE
         assert UserSession.objects.filter(user=user, mfa_verified=True).exists()
 
+    def test_login_activation_with_initial_password(self, client):
+        """Verifies that an unactivated employee can authenticate using their initial password on /auth/activate/."""
+        CustomUser.objects.create_user(
+            employee_id="ST-NEW-PW01",
+            full_name="Initial Password Employee",
+            password="initial_password_123",
+            status=CustomUser.Status.INVITED,
+        )
+        resp = client.post(
+            reverse("accounts:activate"),
+            {"employee_id": "ST-NEW-PW01", "password": "initial_password_123"},
+        )
+        assert resp.status_code == 302
+        assert resp.url == reverse("accounts:activate_mfa_setup")
+
 
 @pytest.mark.django_db
 class TestFlowBReturningEmployeeSignIn:

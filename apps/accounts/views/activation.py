@@ -20,20 +20,35 @@ ACTIVATION_SESSION_KEY = "_salow_act_user_id"
 
 
 def activate_code_view(request):
-    """Step 1: Enter Employee ID and one-time activation code."""
+    """Step 1: Enter Employee ID and password (or one-time activation code)."""
     if request.user.is_authenticated:
         return redirect("attendance:panel")
 
     error = None
     if request.method == "POST":
         emp_id = request.POST.get("employee_id", "").strip()
-        code = request.POST.get("activation_code", "").strip()
+        submitted_cred = (
+            request.POST.get("password") or request.POST.get("activation_code") or ""
+        ).strip()
         ip_addr = request.META.get("REMOTE_ADDR")
 
         try:
+            # First check if user exists and password matches
+            user = CustomUser.objects.filter(employee_id__iexact=emp_id).first()
+            if user and user.has_usable_password() and user.check_password(submitted_cred):
+                request.session[ACTIVATION_SESSION_KEY] = user.id
+                request.session.set_expiry(1800)  # 30 minute activation session
+                from apps.accounts.models import TOTPCredential
+
+                cred = TOTPCredential.objects.filter(user=user, confirmed_at__isnull=False).first()
+                if cred:
+                    return redirect("attendance:panel")
+                return redirect("accounts:activate_mfa_setup")
+
+            # Fallback to one-time activation code verification
             _, user = verify_and_consume_code(
                 employee_id=emp_id,
-                raw_code=code,
+                raw_code=submitted_cred,
                 ip_address=ip_addr,
             )
             request.session[ACTIVATION_SESSION_KEY] = user.id
@@ -41,6 +56,8 @@ def activate_code_view(request):
             return redirect("accounts:activate_password")
         except AuthException as e:
             error = e.user_message
+        except Exception:
+            error = "Invalid employee ID or password."
 
     return render(request, "accounts/activate/code.html", {"error": error})
 
