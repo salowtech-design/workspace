@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+
+{% block title %}Biometric Verification Gate — Salow Workspace{% endblock %}
+
+{% block content %}
+<div style="max-width: 500px; margin: 3rem auto; padding: 2rem; text-align: center;" class="card">
+    <div style="font-size: 2.5rem; margin-bottom: 0.5rem;">📷</div>
+    <h2 style="font-size: 1.4rem; font-weight: 700; color: var(--color-primary-600); margin: 0 0 0.5rem 0;">
+        Biometric Face Verification
+    </h2>
+    <p style="font-size: 0.88rem; color: var(--color-text-muted); margin: 0 0 1.5rem 0;">
+        Final security gate for secondary device enrollment. Complete server-side 1:1 facial identity match.
+    </p>
+
+    {% if error %}
+    <div class="alert alert-error" style="margin-bottom: 1.25rem;">
+        {{ error }}
+    </div>
+    {% endif %}
+
+    <!-- Camera Viewport Box -->
+    <div style="background: #18181b; border-radius: 8px; height: 260px; display: flex; flex-direction: column; align-items: center; justify-content: center; color: #a1a1aa; margin-bottom: 1.5rem; position: relative; border: 2px solid var(--color-primary-500);">
+        <div style="width: 140px; height: 170px; border: 2px dashed #38bdf8; border-radius: 50%; display: flex; align-items: center; justify-content: center;">
+            <span style="font-size: 0.8rem; color: #7dd3fc;">Align Face Here</span>
+        </div>
+        <div style="position: absolute; bottom: 10px; font-size: 0.75rem; color: #94a3b8;">
+            Server-side CPU inference • In-memory template matching
+        </div>
+    </div>
+
+    <form method="post">
+        {% csrf_token %}
+        <input type="hidden" name="face_confirmed" value="true">
+        <button type="submit" class="btn btn-primary" style="width: 100%; padding: 0.75rem; font-weight: 600;">
+            Capture & Authorize Device Session →
+        </button>
+    </form>
+</div>
+{% endblock %}

@@ -12,6 +12,19 @@ from apps.accounts.views.admin_iam import (
     admin_iam_live_stream_view,
     admin_security_shield_view,
 )
+from apps.accounts.views.device_approval import (
+    device_admin_approve_view,
+    device_approval_status_view,
+    device_approval_wait_view,
+    device_decision_view,
+    device_email_otp_view,
+    device_face_verify_view,
+)
+from apps.accounts.views.security_operations import (
+    security_alert_acknowledge_view,
+    security_alerts_view,
+    security_events_view,
+)
 from apps.accounts.views.login import (
     login_view,
     logout_view,
@@ -147,4 +160,43 @@ urlpatterns = [
     path("security/draft/get/", get_draft_view, name="get_draft"),
     # Admin Audit Console
     path("console/auth-events/", console_auth_events_view, name="console_auth_events"),
+    # Second-Device Verification Workflow (Section 9)
+    path(
+        "devices/approval/<uuid:request_id>/wait/",
+        device_approval_wait_view,
+        name="device_approval_wait",
+    ),
+    path(
+        "devices/approval/<uuid:request_id>/status/",
+        device_approval_status_view,
+        name="device_approval_status",
+    ),
+    path(
+        "devices/approval/<uuid:request_id>/decision/",
+        device_decision_view,
+        name="device_decision",
+    ),
+    path(
+        "devices/approval/<uuid:request_id>/email-otp/",
+        device_email_otp_view,
+        name="device_email_otp",
+    ),
+    path(
+        "devices/approval/<uuid:request_id>/face/",
+        device_face_verify_view,
+        name="device_face_verify",
+    ),
+    path(
+        "devices/approval/<uuid:request_id>/admin-approve/",
+        device_admin_approve_view,
+        name="device_admin_approve",
+    ),
+    # Dedicated Security Operations (Section 13)
+    path("security/events/", security_events_view, name="security_events"),
+    path("security/alerts/", security_alerts_view, name="security_alerts"),
+    path(
+        "security/alerts/<int:alert_id>/acknowledge/",
+        security_alert_acknowledge_view,
+        name="security_alert_acknowledge",
+    ),
 ]

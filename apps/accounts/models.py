@@ -1,3 +1,4 @@
+import uuid
 from django.contrib.auth.models import (
     AbstractBaseUser,
     BaseUserManager,
@@ -56,6 +57,8 @@ class CustomUser(AbstractBaseUser, PermissionsMixin):
         MANAGER = "manager", "Manager"
         EMPLOYEE = "employee", "Employee"
         INTERN = "intern", "Intern"
+        SECURITY_ADMIN = "security_admin", "Security Admin"
+        SECURITY_REVIEWER = "security_reviewer", "Security Reviewer"
 
     class Status(models.TextChoices):
         INVITED = "invited", "Invited"
@@ -417,3 +420,130 @@ class ServiceIdentity(models.Model):
     def __str__(self):
         status = "Active" if self.is_active else "Revoked"
         return f"Service {self.name} [{self.client_id}] ({status})"
+
+
+class DeviceApprovalRequest(models.Model):
+    """
+    Subsystem for secondary device authorization.
+    Enforces 1-minute expiration, in-app approval on primary device,
+    administrative fallback, email OTP verification, and biometric verification.
+    """
+
+    class Status(models.TextChoices):
+        PENDING = "pending", "Pending Approval"
+        APPROVED = "approved", "Approved"
+        REJECTED = "rejected", "Rejected"
+        EXPIRED = "expired", "Expired"
+
+    request_id = models.UUIDField(default=uuid.uuid4, unique=True, editable=False, db_index=True)
+    user = models.ForeignKey(
+        CustomUser,
+        on_delete=models.CASCADE,
+        related_name="device_approval_requests",
+    )
+    requesting_device_ip = models.GenericIPAddressField(null=True, blank=True)
+    requesting_device_agent = models.CharField(max_length=255, blank=True)
+    status = models.CharField(
+        max_length=20,
+        choices=Status.choices,
+        default=Status.PENDING,
+        db_index=True,
+    )
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+    expires_at = models.DateTimeField(db_index=True)
+
+    # Approval decision
+    approved_by = models.ForeignKey(
+        CustomUser,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="approved_device_requests",
+    )
+    approved_at = models.DateTimeField(null=True, blank=True)
+    approval_type = models.CharField(max_length=32, default="primary_device")
+    rejection_reason = models.CharField(max_length=255, blank=True, default="")
+
+    # Email OTP & Face Verification
+    email_otp_hash = models.CharField(max_length=64, blank=True, default="")
+    email_otp_verified = models.BooleanField(default=False)
+    face_verified = models.BooleanField(default=False)
+    completed_at = models.DateTimeField(null=True, blank=True)
+    session_key = models.CharField(max_length=40, blank=True, default="")
+
+    class Meta:
+        ordering = ["-created_at"]
+        verbose_name = "Device Approval Request"
+        verbose_name_plural = "Device Approval Requests"
+
+    def __str__(self):
+        return f"DeviceApproval [{self.request_id}] for {self.user.employee_id} ({self.status})"
+
+
+class SecurityAlert(models.Model):
+    """
+    Append-only security operations alert record.
+    Generated upon critical events (repeated auth failures, account lockout,
+    privileged role changes, MFA reset, recovery code consumption, device approvals, break-glass).
+    Acknowledgement records actor, timestamp, and justification reason without altering the event.
+    """
+
+    class Severity(models.TextChoices):
+        LOW = "low", "Low"
+        MEDIUM = "medium", "Medium"
+        HIGH = "high", "High"
+        CRITICAL = "critical", "Critical"
+
+    class Category(models.TextChoices):
+        REPEATED_AUTH_FAILURES = "repeated_auth_failures", "Repeated authentication failures"
+        ACCOUNT_LOCKOUT = "account_lockout", "Account lockout"
+        PRIVILEGED_ROLE_CHANGE = "privileged_role_change", "New administrator or privileged role"
+        MFA_RESET = "mfa_reset", "MFA reset"
+        RECOVERY_CODE_USED = "recovery_code_used", "Recovery code use"
+        NEW_DEVICE_APPROVAL = "new_device_approval", "New-device approval"
+        ADMIN_FALLBACK = "admin_fallback", "Administrator fallback"
+        BREAK_GLASS_ACCESS = "break_glass_access", "Break-glass access"
+        AUDIT_INTEGRITY = "audit_integrity", "Audit integrity incident"
+
+    class Status(models.TextChoices):
+        OPEN = "open", "Open"
+        ACKNOWLEDGED = "acknowledged", "Acknowledged"
+        RESOLVED = "resolved", "Resolved"
+
+    category = models.CharField(max_length=64, choices=Category.choices, db_index=True)
+    severity = models.CharField(max_length=16, choices=Severity.choices, default=Severity.HIGH, db_index=True)
+    title = models.CharField(max_length=255)
+    description = models.TextField(blank=True, default="")
+    employee_id = models.CharField(max_length=32, blank=True, db_index=True)
+    network_address = models.GenericIPAddressField(null=True, blank=True)
+    reference_id = models.CharField(max_length=64, blank=True, db_index=True)
+    status = models.CharField(max_length=20, choices=Status.choices, default=Status.OPEN, db_index=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    # Triaged / Acknowledged
+    acknowledged_by = models.ForeignKey(
+        CustomUser,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="acknowledged_alerts",
+    )
+    acknowledged_at = models.DateTimeField(null=True, blank=True)
+    acknowledgement_reason = models.TextField(blank=True, default="")
+
+    resolved_by = models.ForeignKey(
+        CustomUser,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="resolved_alerts",
+    )
+    resolved_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        verbose_name = "Security Alert"
+        verbose_name_plural = "Security Alerts"
+
+    def __str__(self):
+        return f"SecurityAlert [{self.severity.upper()}] {self.category} ({self.status})"

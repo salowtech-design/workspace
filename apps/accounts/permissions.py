@@ -50,6 +50,10 @@ PERM_AUDIT_VIEW = "core.audit.view"
 PERM_RECOVERY_DELEGATED = "accounts.recovery.delegated"
 PERM_RECOVERY_ADMIN = "accounts.recovery.admin"
 
+PERM_SECURITY_EVENTS_READ = "security.events.read"
+PERM_SECURITY_ALERTS_ACK = "security.alerts.acknowledge"
+PERM_DEVICE_APPROVE = "accounts.device.approve"
+
 # ------------------------------------------------------------------------------
 # 2. ROLE TO PERMISSION MATRIX (DEFAULT-DENY)
 # ------------------------------------------------------------------------------
@@ -77,6 +81,9 @@ ROLE_PERMISSIONS: dict[str, set[str]] = {
         PERM_AUDIT_VIEW,
         PERM_RECOVERY_DELEGATED,
         PERM_RECOVERY_ADMIN,
+        PERM_SECURITY_EVENTS_READ,
+        PERM_SECURITY_ALERTS_ACK,
+        PERM_DEVICE_APPROVE,
     },
     CustomUser.Role.ADMIN: {
         PERM_USER_VIEW,
@@ -100,6 +107,21 @@ ROLE_PERMISSIONS: dict[str, set[str]] = {
         PERM_AUDIT_VIEW,
         PERM_RECOVERY_DELEGATED,
         PERM_RECOVERY_ADMIN,
+        PERM_SECURITY_EVENTS_READ,
+        PERM_SECURITY_ALERTS_ACK,
+        PERM_DEVICE_APPROVE,
+    },
+    CustomUser.Role.SECURITY_ADMIN: {
+        PERM_USER_VIEW,
+        PERM_AUDIT_VIEW,
+        PERM_SECURITY_EVENTS_READ,
+        PERM_SECURITY_ALERTS_ACK,
+        PERM_DEVICE_APPROVE,
+    },
+    CustomUser.Role.SECURITY_REVIEWER: {
+        PERM_USER_VIEW,
+        PERM_AUDIT_VIEW,
+        PERM_SECURITY_EVENTS_READ,
     },
     CustomUser.Role.HR: {
         PERM_USER_VIEW,

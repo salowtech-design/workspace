@@ -84,6 +84,8 @@ class TestConcurrentReplayProtections:
 
         totp = pyotp.TOTP(raw_secret, interval=30, digits=6)
         valid_code = totp.now()
+        # Release main thread connection lock before thread pool executes
+        connection.close()
 
         def attempt_verify(worker_id):
             connection.close()
@@ -128,6 +130,8 @@ class TestConcurrentReplayProtections:
         """
         raw_codes = generate_ten_recovery_codes(target_employee)
         chosen_code = raw_codes[0]
+        # Release main thread connection lock before thread pool executes
+        connection.close()
 
         def attempt_redeem(worker_id):
             connection.close()
@@ -164,6 +168,8 @@ class TestConcurrentReplayProtections:
         record, raw_code = issue_activation_code(
             user=target_employee, purpose=ActivationCode.Purpose.ACTIVATION
         )
+        # Release main thread connection lock before thread pool executes
+        connection.close()
 
         def attempt_consume(worker_id):
             connection.close()
@@ -186,8 +192,10 @@ class TestConcurrentReplayProtections:
             for f in concurrent.futures.as_completed(futures):
                 results.append(f.result())
 
+        connection.close()
         success_count = sum(1 for ok, _ in results if ok)
         assert success_count == 1, f"Expected 1 activation consumption, got {success_count}."
+
 
         record.refresh_from_db()
         assert record.consumed_at is not None

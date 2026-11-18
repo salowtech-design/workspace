@@ -69,3 +69,25 @@ revoke_user_sessions(u)
 print('Account suspended and sessions terminated.')
 "
 ```
+
+---
+
+## 4. Security Operations Event Stream & Alert Triage (`SecurityAlert`)
+
+### 4.1 Append-Only Audit & Security Event Stream
+- **Endpoint**: `GET /security/events?after=<id>`
+- **Protocol**: Cursor-paginated JSON or HTMX event list fragment.
+- **Access Control**: Restricted to `SecurityAdmin`, `SecurityReviewer`, and `SuperAdmin`.
+- **Append-Only Invariant**: Events and alerts are strictly immutable.
+
+### 4.2 Security Alert Categories & Triage Protocol
+- **Categories**:
+  1. Repeated authentication failures (`repeated_auth_failures`)
+  2. Account lockouts (`account_lockout`)
+  3. Privileged role changes (`privileged_role_change`)
+  4. MFA reset requests (`mfa_reset`)
+  5. Recovery code usage (`recovery_code_used`)
+  6. Second-device approval / fallback (`device_approval_fallback`)
+  7. Break-glass elevation triggers (`break_glass_triggered`)
+- **Independent Acknowledgement**: Triage actors can acknowledge alerts (`POST /auth/security/alerts/<id>/ack/`) with a justification rationale. Crucially, actors cannot acknowledge alerts concerning their own account (independent review requirement).
+

@@ -7,7 +7,7 @@
   - `employee_id` (CharField, unique, immutable, primary login identifier).
   - `email` (EmailField, optional/unique).
   - `full_name` (CharField).
-  - `role` (CharField: `super_admin`, `admin`, `manager`, `employee`, `intern`).
+  - `role` (CharField: `super_admin`, `admin`, `security_admin`, `security_reviewer`, `manager`, `employee`, `intern`).
   - `status` (CharField: `invited`, `onboarding`, `active`, `suspended`, `exited`).
   - `attendance_mode` (CharField: `face_preferred`, `manual_only`).
   - Standard Django password hash, `is_active`, `is_staff`, `is_superuser`, `date_joined`.
@@ -21,6 +21,11 @@
   - Concurrency-safe lockout counters.
 - `UserSession`:
   - Server-side session tracking with MFA state.
+- `DeviceApprovalRequest`:
+  - Secondary device authorization model with 60-second TTL, primary device or admin dual-approval, email OTP challenge, and facial biometric gate.
+- `SecurityAlert`:
+  - Append-only security operations alert record with severity, category, independent acknowledgement tracking, and immutable audit metadata.
+
 
 ### 2. `apps.core`
 - `AuditLog`:

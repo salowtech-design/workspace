@@ -69,12 +69,37 @@ def login_view(request):
                 is_recovery = bool(recovery_code) or (
                     len(clean_code) != 6 or not clean_code.isdigit()
                 )
-                complete_mfa_challenge(
-                    request,
-                    user,
-                    code_to_verify,
-                    is_recovery_code=is_recovery,
+
+                # Check if this user already has an active session on another device (Section 9)
+                from apps.accounts.auth.device_approval import (
+                    create_device_approval_request,
+                    is_second_device_request,
                 )
+                from apps.accounts.auth.mfa_totp import verify_totp_code
+                from apps.accounts.auth.recovery_codes import redeem_recovery_code
+                from apps.accounts.auth.sessions import create_verified_session
+                from apps.accounts.auth.lockout import clear_failed_attempts
+
+                if is_recovery:
+                    redeem_recovery_code(user, clean_code)
+                else:
+                    verify_totp_code(user, clean_code)
+
+                if is_second_device_request(
+                    user,
+                    ip_address=ip_addr,
+                    user_agent=request.META.get("HTTP_USER_AGENT"),
+                ) and request.POST.get("device_approval") != "skip":
+                    req_dev = create_device_approval_request(
+                        user=user,
+                        ip_address=ip_addr,
+                        user_agent=request.META.get("HTTP_USER_AGENT"),
+                    )
+                    return redirect("accounts:device_approval_wait", request_id=req_dev.request_id)
+
+                create_verified_session(request, user)
+                clear_failed_attempts(f"emp:{user.employee_id}")
+
                 if redirect_to and url_has_allowed_host_and_scheme(
                     url=redirect_to,
                     allowed_hosts={request.get_host()},
@@ -153,16 +178,40 @@ def mfa_challenge_view(request):  # noqa: C901
         recovery_code = request.POST.get("recovery_code", "").strip()
 
         try:
+            from apps.accounts.auth.device_approval import (
+                create_device_approval_request,
+                is_second_device_request,
+            )
+            from apps.accounts.auth.mfa_totp import verify_totp_code
+            from apps.accounts.auth.recovery_codes import redeem_recovery_code
+            from apps.accounts.auth.sessions import create_verified_session
+            from apps.accounts.auth.lockout import clear_failed_attempts
+
             if recovery_code:
-                complete_mfa_challenge(request, user, recovery_code, is_recovery_code=True)
+                redeem_recovery_code(user, recovery_code.strip())
             elif totp_code:
-                complete_mfa_challenge(request, user, totp_code, is_recovery_code=False)
+                verify_totp_code(user, totp_code.strip())
             else:
                 error = (
                     "Please enter either your 6-digit authenticator code or a backup recovery code."
                 )
 
             if not error:
+                if is_second_device_request(
+                    user,
+                    ip_address=request.META.get("REMOTE_ADDR"),
+                    user_agent=request.META.get("HTTP_USER_AGENT"),
+                ) and request.POST.get("device_approval") != "skip":
+                    req_dev = create_device_approval_request(
+                        user=user,
+                        ip_address=request.META.get("REMOTE_ADDR"),
+                        user_agent=request.META.get("HTTP_USER_AGENT"),
+                    )
+                    return redirect("accounts:device_approval_wait", request_id=req_dev.request_id)
+
+                create_verified_session(request, user)
+                clear_failed_attempts(f"emp:{user.employee_id}")
+
                 next_url = request.session.pop(LOGIN_NEXT_URL_KEY, "")
                 for key in (
                     PENDING_LOGIN_USER_ID_KEY,

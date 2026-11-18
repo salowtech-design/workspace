@@ -62,3 +62,16 @@ Employees can inspect and manage active sessions from `/accounts/security/sessio
 - **Active Devices List**: Displays device type (Desktop, Mobile, Tablet), browser family, client IP, login time, and last activity time.
 - **Revoke Other Sessions**: Allows an employee to terminate all other active logins with a single click (`revoke_user_sessions(user, keep_session_key=current_key)`).
 - **Administrative Revocation**: Super Admins and HR can invalidate any employee's sessions during an account compromise or deprovisioning event.
+
+---
+
+## 5. Second-Device Authorization Workflow (`DeviceApprovalRequest`)
+
+When a user with an active session attempts to sign in from an unrecognized device or IP/User-Agent fingerprint, the secondary device workflow is triggered:
+1. **60-Second Ephemeral Expiration**: An approval request is recorded with a strict 60-second validity window.
+2. **Primary Device Approval**: The primary active device receives an in-app prompt to approve or reject the request.
+3. **Administrative Fallback**: If the primary device is unavailable or lost, an Administrator (or dual-control for Super Admin) can approve the request with an audited justification.
+4. **Company Email OTP**: An out-of-band numeric 6-digit OTP is dispatched to the employee's official company email.
+5. **Facial Biometric Verification**: The employee performs a 1:1 facial biometric verification against their enrolled reference template before the session is created.
+6. **Independent Session Binding**: Once approved and verified, a distinct server-side session is created and bound to the new device.
+

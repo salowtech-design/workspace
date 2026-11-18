@@ -119,6 +119,12 @@
     <a href="?tab=delivery_ops" class="tab-link" style="padding: 0.75rem 0.9rem; font-size: 0.88rem; font-weight: 600; text-decoration: none; border-bottom: 3px solid {% if active_tab == 'delivery_ops' %}var(--color-primary-600){% else %}transparent{% endif %}; color: {% if active_tab == 'delivery_ops' %}var(--color-primary-600){% else %}var(--color-text-muted){% endif %}; white-space: nowrap;">
         12. Delivery & Operations
     </a>
+    <a href="?tab=threats" class="tab-link" style="padding: 0.75rem 0.9rem; font-size: 0.88rem; font-weight: 600; text-decoration: none; border-bottom: 3px solid {% if active_tab == 'threats' %}var(--color-primary-600){% else %}transparent{% endif %}; color: {% if active_tab == 'threats' %}var(--color-primary-600){% else %}var(--color-text-muted){% endif %}; white-space: nowrap;">
+        13. Threat Protection & Exceptions
+    </a>
+    <a href="?tab=resilience" class="tab-link" style="padding: 0.75rem 0.9rem; font-size: 0.88rem; font-weight: 600; text-decoration: none; border-bottom: 3px solid {% if active_tab == 'resilience' %}var(--color-primary-600){% else %}transparent{% endif %}; color: {% if active_tab == 'resilience' %}var(--color-primary-600){% else %}var(--color-text-muted){% endif %}; white-space: nowrap;">
+        14. Resilience & Assurance
+    </a>
 </div>
 
 <!-- ======================================================================= -->
@@ -160,7 +166,251 @@
         </div>
     </div>
 
-    <!-- Security Invariant Posture Cards -->
+    <!-- ======================================================================= -->
+    <!-- 13-TILE IAM GRID NAVIGATION (Section 6 Specification) -->
+    <!-- ======================================================================= -->
+    <div style="margin-bottom: 2rem;">
+        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 1rem; flex-wrap: wrap; gap: 0.5rem;">
+            <div>
+                <h2 style="font-size: 1.25rem; font-weight: 700; color: var(--color-primary-600); margin: 0;">
+                    IAM Subsystems & Navigation Grid
+                </h2>
+                <p style="font-size: 0.85rem; color: var(--color-text-muted); margin: 0.2rem 0 0 0;">
+                    Select an independent subsystem control panel to inspect policies, manage credentials, or review security operations.
+                </p>
+            </div>
+            <span class="badge" style="background: #e0f2fe; color: #0369a1; padding: 0.35rem 0.75rem; font-size: 0.8rem; font-weight: 600; border-radius: 6px;">
+                13 Subsystems Operational
+            </span>
+        </div>
+
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1rem;">
+            <!-- Tile 1: Authentication -->
+            <a href="?tab=security_mfa" class="card iam-tile" style="text-decoration: none; display: flex; flex-direction: column; justify-content: space-between; padding: 1.15rem; border: 1px solid var(--color-border-subtle); background: #ffffff;">
+                <div>
+                    <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.5rem;">
+                        <span style="font-size: 1.35rem;">🔐</span>
+                        <span class="badge" style="background: #dcfce7; color: #15803d; font-size: 0.72rem; font-weight: 700; padding: 0.15rem 0.5rem; border-radius: 4px;">✓ Argon2id</span>
+                    </div>
+                    <h3 style="font-size: 1.05rem; font-weight: 700; color: var(--color-text-heading); margin: 0 0 0.35rem 0;">1. Authentication</h3>
+                    <p style="font-size: 0.82rem; color: var(--color-text-muted); margin: 0; line-height: 1.4;">
+                        Login and Sign-In flows, password hashers, constant-time dummy checks, and rate limit policies.
+                    </p>
+                </div>
+                <div style="margin-top: 1rem; font-size: 0.8rem; font-weight: 600; color: var(--color-primary-600);">
+                    Open Authentication →
+                </div>
+            </a>
+
+            <!-- Tile 2: Authorization & RBAC -->
+            <a href="?tab=roles" class="card iam-tile" style="text-decoration: none; display: flex; flex-direction: column; justify-content: space-between; padding: 1.15rem; border: 1px solid var(--color-border-subtle); background: #ffffff;">
+                <div>
+                    <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.5rem;">
+                        <span style="font-size: 1.35rem;">🛡️</span>
+                        <span class="badge" style="background: #e0f2fe; color: #0369a1; font-size: 0.72rem; font-weight: 700; padding: 0.15rem 0.5rem; border-radius: 4px;">✓ 6-Role RBAC</span>
+                    </div>
+                    <h3 style="font-size: 1.05rem; font-weight: 700; color: var(--color-text-heading); margin: 0 0 0.35rem 0;">2. Authorization & RBAC</h3>
+                    <p style="font-size: 0.82rem; color: var(--color-text-muted); margin: 0; line-height: 1.4;">
+                        Role definitions, default-deny policy matrix, object-level checks, and privilege hierarchy boundaries.
+                    </p>
+                </div>
+                <div style="margin-top: 1rem; font-size: 0.8rem; font-weight: 600; color: var(--color-primary-600);">
+                    Open Roles & RBAC →
+                </div>
+            </a>
+
+            <!-- Tile 3: Identity & Accounts -->
+            <a href="?tab=identity" class="card iam-tile" style="text-decoration: none; display: flex; flex-direction: column; justify-content: space-between; padding: 1.15rem; border: 1px solid var(--color-border-subtle); background: #ffffff;">
+                <div>
+                    <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.5rem;">
+                        <span style="font-size: 1.35rem;">👤</span>
+                        <span class="badge" style="background: #fef3c7; color: #b45309; font-size: 0.72rem; font-weight: 700; padding: 0.15rem 0.5rem; border-radius: 4px;">{{ total_users_count }} Accounts</span>
+                    </div>
+                    <h3 style="font-size: 1.05rem; font-weight: 700; color: var(--color-text-heading); margin: 0 0 0.35rem 0;">3. Identity & Accounts</h3>
+                    <p style="font-size: 0.82rem; color: var(--color-text-muted); margin: 0; line-height: 1.4;">
+                        Employee provisioning, unique ID syntax, activation credential delivery, and account status lifecycle.
+                    </p>
+                </div>
+                <div style="margin-top: 1rem; font-size: 0.8rem; font-weight: 600; color: var(--color-primary-600);">
+                    Manage Identities →
+                </div>
+            </a>
+
+            <!-- Tile 4: Identity Recovery -->
+            <a href="?tab=recovery" class="card iam-tile" style="text-decoration: none; display: flex; flex-direction: column; justify-content: space-between; padding: 1.15rem; border: 1px solid var(--color-border-subtle); background: #ffffff;">
+                <div>
+                    <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.5rem;">
+                        <span style="font-size: 1.35rem;">🆘</span>
+                        <span class="badge" style="background: {% if pending_recovery_requests %}#fee2e2; color: #b91c1c;{% else %}#dcfce7; color: #15803d;{% endif %} font-size: 0.72rem; font-weight: 700; padding: 0.15rem 0.5rem; border-radius: 4px;">
+                            {% if pending_recovery_requests %}{{ pending_recovery_requests.count }} Pending{% else %}✓ Clear{% endif %}
+                        </span>
+                    </div>
+                    <h3 style="font-size: 1.05rem; font-weight: 700; color: var(--color-text-heading); margin: 0 0 0.35rem 0;">4. Identity Recovery</h3>
+                    <p style="font-size: 0.82rem; color: var(--color-text-muted); margin: 0; line-height: 1.4;">
+                        Administrative recovery review, dual-control approval for Super Admins, and account recovery history.
+                    </p>
+                </div>
+                <div style="margin-top: 1rem; font-size: 0.8rem; font-weight: 600; color: var(--color-primary-600);">
+                    Open Recovery Console →
+                </div>
+            </a>
+
+            <!-- Tile 5: Sessions & Devices -->
+            <a href="?tab=sessions" class="card iam-tile" style="text-decoration: none; display: flex; flex-direction: column; justify-content: space-between; padding: 1.15rem; border: 1px solid var(--color-border-subtle); background: #ffffff;">
+                <div>
+                    <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.5rem;">
+                        <span style="font-size: 1.35rem;">💻</span>
+                        <span class="badge" style="background: #e0f2fe; color: #0369a1; font-size: 0.72rem; font-weight: 700; padding: 0.15rem 0.5rem; border-radius: 4px;">{{ active_sessions_count }} Active</span>
+                    </div>
+                    <h3 style="font-size: 1.05rem; font-weight: 700; color: var(--color-text-heading); margin: 0 0 0.35rem 0;">5. Sessions & Devices</h3>
+                    <p style="font-size: 0.82rem; color: var(--color-text-muted); margin: 0; line-height: 1.4;">
+                        Opaque server sessions, secondary device approvals, in-app approval requests, and remote session revocation.
+                    </p>
+                </div>
+                <div style="margin-top: 1rem; font-size: 0.8rem; font-weight: 600; color: var(--color-primary-600);">
+                    Manage Sessions & Devices →
+                </div>
+            </a>
+
+            <!-- Tile 6: MFA & Authenticators -->
+            <a href="?tab=security_mfa" class="card iam-tile" style="text-decoration: none; display: flex; flex-direction: column; justify-content: space-between; padding: 1.15rem; border: 1px solid var(--color-border-subtle); background: #ffffff;">
+                <div>
+                    <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.5rem;">
+                        <span style="font-size: 1.35rem;">📱</span>
+                        <span class="badge" style="background: #dcfce7; color: #15803d; font-size: 0.72rem; font-weight: 700; padding: 0.15rem 0.5rem; border-radius: 4px;">{{ mfa_enrolled_count }} Enrolled</span>
+                    </div>
+                    <h3 style="font-size: 1.05rem; font-weight: 700; color: var(--color-text-heading); margin: 0 0 0.35rem 0;">6. MFA & Authenticators</h3>
+                    <p style="font-size: 0.82rem; color: var(--color-text-muted); margin: 0; line-height: 1.4;">
+                        RFC 6238 TOTP, AES-256-GCM encrypted secrets at rest, anti-replay step tracker, and recovery codes.
+                    </p>
+                </div>
+                <div style="margin-top: 1rem; font-size: 0.8rem; font-weight: 600; color: var(--color-primary-600);">
+                    Manage MFA & Authenticators →
+                </div>
+            </a>
+
+            <!-- Tile 7: Forgot Password -->
+            <a href="{% url 'accounts:forgot_password' %}" class="card iam-tile" style="text-decoration: none; display: flex; flex-direction: column; justify-content: space-between; padding: 1.15rem; border: 1px solid var(--color-border-subtle); background: #ffffff;">
+                <div>
+                    <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.5rem;">
+                        <span style="font-size: 1.35rem;">🔑</span>
+                        <span class="badge" style="background: #f3e8ff; color: #7e22ce; font-size: 0.72rem; font-weight: 700; padding: 0.15rem 0.5rem; border-radius: 4px;">3 Methods</span>
+                    </div>
+                    <h3 style="font-size: 1.05rem; font-weight: 700; color: var(--color-text-heading); margin: 0 0 0.35rem 0;">7. Forgot Password</h3>
+                    <p style="font-size: 0.82rem; color: var(--color-text-muted); margin: 0; line-height: 1.4;">
+                        Public password recovery portal: Method 1 (Admin Request), Method 2 (Self-Service 30s token), Method 3 (Lost MFA Re-enrollment).
+                    </p>
+                </div>
+                <div style="margin-top: 1rem; font-size: 0.8rem; font-weight: 600; color: var(--color-primary-600);">
+                    Open Recovery Portal →
+                </div>
+            </a>
+
+            <!-- Tile 8: Privileged Access -->
+            <a href="?tab=privileged" class="card iam-tile" style="text-decoration: none; display: flex; flex-direction: column; justify-content: space-between; padding: 1.15rem; border: 1px solid var(--color-border-subtle); background: #ffffff;">
+                <div>
+                    <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.5rem;">
+                        <span style="font-size: 1.35rem;">🚨</span>
+                        <span class="badge" style="background: {% if break_glass_active %}#fee2e2; color: #b91c1c;{% else %}#dcfce7; color: #15803d;{% endif %} font-size: 0.72rem; font-weight: 700; padding: 0.15rem 0.5rem; border-radius: 4px;">
+                            {% if break_glass_active %}● Active{% else %}✓ Standby{% endif %}
+                        </span>
+                    </div>
+                    <h3 style="font-size: 1.05rem; font-weight: 700; color: var(--color-text-heading); margin: 0 0 0.35rem 0;">8. Privileged Access</h3>
+                    <p style="font-size: 0.82rem; color: var(--color-text-muted); margin: 0; line-height: 1.4;">
+                        Time-bounded emergency break-glass elevation (15-min ceiling), sudo mode verification, and elevation auditing.
+                    </p>
+                </div>
+                <div style="margin-top: 1rem; font-size: 0.8rem; font-weight: 600; color: var(--color-primary-600);">
+                    Open Privileged Access →
+                </div>
+            </a>
+
+            <!-- Tile 9: Security Operations -->
+            <a href="?tab=investigation" class="card iam-tile" style="text-decoration: none; display: flex; flex-direction: column; justify-content: space-between; padding: 1.15rem; border: 1px solid var(--color-border-subtle); background: #ffffff;">
+                <div>
+                    <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.5rem;">
+                        <span style="font-size: 1.35rem;">📡</span>
+                        <span class="badge" style="background: #e0f2fe; color: #0369a1; font-size: 0.72rem; font-weight: 700; padding: 0.15rem 0.5rem; border-radius: 4px;">{{ events_24h_count }} Events/24h</span>
+                    </div>
+                    <h3 style="font-size: 1.05rem; font-weight: 700; color: var(--color-text-heading); margin: 0 0 0.35rem 0;">9. Security Operations</h3>
+                    <p style="font-size: 0.82rem; color: var(--color-text-muted); margin: 0; line-height: 1.4;">
+                        Real-time security event streaming (/security/events?after=&lt;id&gt;), high-severity alert triage, and investigation search.
+                    </p>
+                </div>
+                <div style="margin-top: 1rem; font-size: 0.8rem; font-weight: 600; color: var(--color-primary-600);">
+                    Open Security Operations →
+                </div>
+            </a>
+
+            <!-- Tile 10: Service Identities -->
+            <a href="?tab=services" class="card iam-tile" style="text-decoration: none; display: flex; flex-direction: column; justify-content: space-between; padding: 1.15rem; border: 1px solid var(--color-border-subtle); background: #ffffff;">
+                <div>
+                    <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.5rem;">
+                        <span style="font-size: 1.35rem;">🤖</span>
+                        <span class="badge" style="background: #fef3c7; color: #b45309; font-size: 0.72rem; font-weight: 700; padding: 0.15rem 0.5rem; border-radius: 4px;">{{ service_identities_count }} Scoped</span>
+                    </div>
+                    <h3 style="font-size: 1.05rem; font-weight: 700; color: var(--color-text-heading); margin: 0 0 0.35rem 0;">10. Service Identities</h3>
+                    <p style="font-size: 0.82rem; color: var(--color-text-muted); margin: 0; line-height: 1.4;">
+                        Machine-to-machine (M2M) bearer credentials (sec_live_), scoped permissions, SHA-256 hash storage, and token revocation.
+                    </p>
+                </div>
+                <div style="margin-top: 1rem; font-size: 0.8rem; font-weight: 600; color: var(--color-primary-600);">
+                    Manage Service Identities →
+                </div>
+            </a>
+
+            <!-- Tile 11: Secure Application Operation -->
+            <a href="?tab=delivery_ops" class="card iam-tile" style="text-decoration: none; display: flex; flex-direction: column; justify-content: space-between; padding: 1.15rem; border: 1px solid var(--color-border-subtle); background: #ffffff;">
+                <div>
+                    <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.5rem;">
+                        <span style="font-size: 1.35rem;">⚙️</span>
+                        <span class="badge" style="background: #dcfce7; color: #15803d; font-size: 0.72rem; font-weight: 700; padding: 0.15rem 0.5rem; border-radius: 4px;">✓ Outbox Active</span>
+                    </div>
+                    <h3 style="font-size: 1.05rem; font-weight: 700; color: var(--color-text-heading); margin: 0 0 0.35rem 0;">11. Secure Application Operation</h3>
+                    <p style="font-size: 0.82rem; color: var(--color-text-muted); margin: 0; line-height: 1.4;">
+                        Transactional email queue, domain event outbox, rate-limit ledger, database connectivity probes, and operational logs.
+                    </p>
+                </div>
+                <div style="margin-top: 1rem; font-size: 0.8rem; font-weight: 600; color: var(--color-primary-600);">
+                    Open Delivery & Ops →
+                </div>
+            </a>
+
+            <!-- Tile 12: Threat Protection & Exceptions -->
+            <a href="?tab=threats" class="card iam-tile" style="text-decoration: none; display: flex; flex-direction: column; justify-content: space-between; padding: 1.15rem; border: 1px solid var(--color-border-subtle); background: #ffffff;">
+                <div>
+                    <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.5rem;">
+                        <span style="font-size: 1.35rem;">🛑</span>
+                        <span class="badge" style="background: #fee2e2; color: #b91c1c; font-size: 0.72rem; font-weight: 700; padding: 0.15rem 0.5rem; border-radius: 4px;">✓ Throttling 429</span>
+                    </div>
+                    <h3 style="font-size: 1.05rem; font-weight: 700; color: var(--color-text-heading); margin: 0 0 0.35rem 0;">12. Threat Protection & Exceptions</h3>
+                    <p style="font-size: 0.82rem; color: var(--color-text-muted); margin: 0; line-height: 1.4;">
+                        Brute-force protection, account enumeration defense, biometric manual exception queue, and IP throttling boundaries.
+                    </p>
+                </div>
+                <div style="margin-top: 1rem; font-size: 0.8rem; font-weight: 600; color: var(--color-primary-600);">
+                    View Threat Protection →
+                </div>
+            </a>
+
+            <!-- Tile 13: Resilience & Assurance -->
+            <a href="?tab=resilience" class="card iam-tile" style="text-decoration: none; display: flex; flex-direction: column; justify-content: space-between; padding: 1.15rem; border: 1px solid var(--color-border-subtle); background: #ffffff;">
+                <div>
+                    <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.5rem;">
+                        <span style="font-size: 1.35rem;">💎</span>
+                        <span class="badge" style="background: #dcfce7; color: #15803d; font-size: 0.72rem; font-weight: 700; padding: 0.15rem 0.5rem; border-radius: 4px;">✓ TiDB Cloud</span>
+                    </div>
+                    <h3 style="font-size: 1.05rem; font-weight: 700; color: var(--color-text-heading); margin: 0 0 0.35rem 0;">13. Resilience & Assurance</h3>
+                    <p style="font-size: 0.82rem; color: var(--color-text-muted); margin: 0; line-height: 1.4;">
+                        Distributed TiDB ACID transactions, multi-worker concurrency tests, key ring integrity, and disaster recovery SLA.
+                    </p>
+                </div>
+                <div style="margin-top: 1rem; font-size: 0.8rem; font-weight: 600; color: var(--color-primary-600);">
+                    Inspect Resilience & SLA →
+                </div>
+            </a>
+        </div>
+    </div>
     <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 1.5rem; align-items: start;">
         <div class="card">
             <h3 style="margin: 0 0 1rem 0; font-size: 1.15rem; font-weight: 700; color: var(--color-primary-600);">
@@ -475,6 +725,63 @@
 <!-- ======================================================================= -->
 {% if active_tab == 'sessions' %}
 <div id="section-sessions">
+    <!-- Pending Secondary Device Approval Challenges -->
+    <div class="card" style="margin-bottom: 1.5rem;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+            <h3 style="margin: 0; font-size: 1.15rem; font-weight: 700; color: var(--color-primary-600);">
+                Pending Device Approvals ({% if pending_device_requests %}{{ pending_device_requests.count }}{% else %}0{% endif %})
+            </h3>
+            <span style="font-size: 0.82rem; color: var(--color-text-muted);">Strict 1-minute expiration &amp; admin fallback</span>
+        </div>
+        <div class="table-container" style="overflow-x: auto;">
+            <table class="table" style="width: 100%; font-size: 0.85rem;">
+                <thead>
+                    <tr>
+                        <th>Request ID</th>
+                        <th>Target Employee</th>
+                        <th>Requesting IP</th>
+                        <th>Device User-Agent</th>
+                        <th>Initiated At</th>
+                        <th>Expires At</th>
+                        <th>Admin Action</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for req in pending_device_requests %}
+                    <tr>
+                        <td><code>{{ req.request_id|stringformat:"s"|slice:":8" }}...</code></td>
+                        <td><strong>{{ req.user.full_name }}</strong> ({{ req.user.employee_id }})</td>
+                        <td>{{ req.requesting_device_ip|default:"-" }}</td>
+                        <td style="font-size: 0.78rem; color: var(--color-text-muted);">{{ req.requesting_device_agent|truncatechars:35 }}</td>
+                        <td>{{ req.created_at|date:"H:i:s" }}</td>
+                        <td><span class="badge badge-warning">{{ req.expires_at|date:"H:i:s" }}</span></td>
+                        <td>
+                            <form method="post" action="{% url 'accounts:device_admin_approve' req.request_id %}" style="display: inline;">
+                                {% csrf_token %}
+                                {% if req.user.role == 'super_admin' %}
+                                <select name="second_admin_id" required style="font-size: 0.75rem; padding: 0.2rem;">
+                                    <option value="">Select 2nd Admin...</option>
+                                    {% for sa in super_admins %}
+                                    <option value="{{ sa.id }}">{{ sa.employee_id }}</option>
+                                    {% endfor %}
+                                </select>
+                                {% endif %}
+                                <button type="submit" class="btn btn-sm btn-primary">Approve Fallback</button>
+                            </form>
+                        </td>
+                    </tr>
+                    {% empty %}
+                    <tr>
+                        <td colspan="7" style="text-align: center; color: var(--color-text-muted); padding: 1.25rem;">
+                            No pending secondary device authorization challenges.
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
     <div class="card">
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
             <h3 style="margin: 0; font-size: 1.15rem; font-weight: 700; color: var(--color-primary-600);">
@@ -914,6 +1221,75 @@
         </form>
     </div>
 
+    <!-- Security Operations Alerts & Polling Monitor -->
+    <div class="card" style="margin-bottom: 1.5rem; border-left: 4px solid #dc2626;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem; flex-wrap: wrap; gap: 0.5rem;">
+            <div>
+                <h4 style="margin: 0; font-size: 1.1rem; font-weight: 700; color: #b91c1c;">
+                    High-Severity Security Alerts &amp; Triage
+                </h4>
+                <p style="font-size: 0.8rem; color: var(--color-text-muted); margin: 0.2rem 0 0 0;">
+                    Live alerts from repeated failures, account lockouts, privilege elevation, break-glass, and audit anomalies.
+                </p>
+            </div>
+            <div style="display: flex; gap: 0.5rem;">
+                <a href="{% url 'security_alerts_root' %}" class="btn btn-sm btn-outline">Full Alerts Console →</a>
+                <a href="{% url 'security_events_root' %}" class="btn btn-sm btn-secondary">Direct SecOps Feed (/security/events)</a>
+            </div>
+        </div>
+
+        <div class="table-container" style="overflow-x: auto;">
+            <table class="table" style="width: 100%; font-size: 0.84rem;">
+                <thead>
+                    <tr>
+                        <th>Severity</th>
+                        <th>Category</th>
+                        <th>Title</th>
+                        <th>Target Employee</th>
+                        <th>Created At</th>
+                        <th>Status</th>
+                        <th>Action</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for alt in security_alerts_list %}
+                    <tr>
+                        <td><span class="badge" style="background: {% if alt.severity == 'critical' %}#fee2e2; color: #b91c1c;{% elif alt.severity == 'high' %}#ffedd5; color: #c2410c;{% else %}#e0f2fe; color: #0369a1;{% endif %} font-weight: 700;">{{ alt.severity|upper }}</span></td>
+                        <td><code>{{ alt.category }}</code></td>
+                        <td><strong>{{ alt.title }}</strong></td>
+                        <td>{{ alt.employee_id|default:"-" }}</td>
+                        <td>{{ alt.created_at|date:"M d, H:i:s" }}</td>
+                        <td>
+                            {% if alt.status == 'acknowledged' %}
+                            <span class="badge badge-success">✓ Acknowledged</span>
+                            {% else %}
+                            <span class="badge badge-error">● Open</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if alt.status == 'open' %}
+                            <form method="post" action="{% url 'accounts:security_alert_acknowledge' alt.id %}" style="display: flex; gap: 0.25rem;">
+                                {% csrf_token %}
+                                <input type="text" name="reason" placeholder="Reason..." required style="font-size: 0.75rem; padding: 0.2rem 0.4rem; max-width: 110px;">
+                                <button type="submit" class="btn btn-sm btn-secondary">Ack</button>
+                            </form>
+                            {% else %}
+                            <span style="font-size: 0.75rem; color: var(--color-text-muted);">By {{ alt.acknowledged_by.employee_id }}</span>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% empty %}
+                    <tr>
+                        <td colspan="7" style="text-align: center; color: var(--color-text-muted); padding: 1.25rem;">
+                            No open high-severity security operations alerts.
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
     <!-- Stage-by-Stage Architecture Flow Details -->
     <div class="card" style="margin-bottom: 1.5rem;">
         <h4 style="margin: 0 0 1rem 0; font-size: 1.05rem; font-weight: 700; color: var(--color-primary-600);">
@@ -1345,6 +1721,152 @@
                     {% endfor %}
                 </tbody>
             </table>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+<!-- ======================================================================= -->
+<!-- SECTION 13: Threat Protection & Exceptions -->
+<!-- ======================================================================= -->
+{% if active_tab == 'threats' %}
+<div id="section-threats">
+    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; margin-bottom: 1.5rem;">
+        <!-- Throttling & Rate Limit Controls -->
+        <div class="card">
+            <h3 style="margin: 0 0 1rem 0; font-size: 1.15rem; font-weight: 700; color: var(--color-primary-600);">
+                Active Abuse Defense & Throttling Rules
+            </h3>
+            <div class="space-y-3">
+                <div style="padding: 0.85rem; border: 1px solid var(--color-border-subtle); border-radius: 6px; background: #fafafa;">
+                    <div style="font-weight: 600; font-size: 0.9rem; color: var(--color-text-heading);">Sensitive Endpoint Quota</div>
+                    <div style="font-size: 0.85rem; color: #b45309; margin-top: 0.25rem;">60 requests / minute per IP</div>
+                    <div style="font-size: 0.78rem; color: var(--color-text-muted); margin-top: 0.25rem;">
+                        Applies to <code>/auth/login/</code>, <code>/auth/activate/</code>, and <code>/auth/recovery/</code>. Triggers HTTP 429 with Retry-After header.
+                    </div>
+                </div>
+                <div style="padding: 0.85rem; border: 1px solid var(--color-border-subtle); border-radius: 6px; background: #fafafa;">
+                    <div style="font-weight: 600; font-size: 0.9rem; color: var(--color-text-heading);">Account Lockout Safeguard</div>
+                    <div style="font-size: 0.85rem; color: #dc2626; margin-top: 0.25rem;">5 Failed Attempts &rarr; 15-Minute Cool-off</div>
+                    <div style="font-size: 0.78rem; color: var(--color-text-muted); margin-top: 0.25rem;">
+                        Account-keyed distributed tracking in TiDB. Automatically raises high-severity security alert.
+                    </div>
+                </div>
+                <div style="padding: 0.85rem; border: 1px solid var(--color-border-subtle); border-radius: 6px; background: #fafafa;">
+                    <div style="font-weight: 600; font-size: 0.9rem; color: var(--color-text-heading);">Account Enumeration Defense</div>
+                    <div style="font-size: 0.85rem; color: #059669; margin-top: 0.25rem;">✓ Constant-Time Dummy Verification Active</div>
+                    <div style="font-size: 0.78rem; color: var(--color-text-muted); margin-top: 0.25rem;">
+                        Simulated Argon2id password hashing prevents response-time side-channel leaks on nonexistent employee IDs.
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Biometric Attendance Exceptions Queue -->
+        <div class="card">
+            <h3 style="margin: 0 0 1rem 0; font-size: 1.15rem; font-weight: 700; color: var(--color-primary-600);">
+                Biometric Attendance Fallback Queue
+            </h3>
+            <p style="font-size: 0.82rem; color: var(--color-text-muted); margin-bottom: 1rem;">
+                Employees experiencing biometric matching or hardware camera failures submit manual fallback requests here.
+            </p>
+            <div class="table-container" style="overflow-x: auto;">
+                <table class="table" style="width: 100%; font-size: 0.84rem;">
+                    <thead>
+                        <tr>
+                            <th>Employee</th>
+                            <th>Type</th>
+                            <th>Work Date</th>
+                            <th>Reason</th>
+                            <th>Status</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for fb in pending_fallback_requests %}
+                        <tr>
+                            <td><strong>{{ fb.user.employee_id }}</strong></td>
+                            <td><span class="badge" style="background: #e0f2fe; color: #0369a1; font-size: 0.75rem;">{{ fb.request_type }}</span></td>
+                            <td>{{ fb.work_date }}</td>
+                            <td>{{ fb.reason|truncatechars:30 }}</td>
+                            <td><span class="badge" style="background: #fef3c7; color: #b45309; font-size: 0.75rem;">{{ fb.status }}</span></td>
+                        </tr>
+                        {% empty %}
+                        <tr>
+                            <td colspan="5" style="text-align: center; color: var(--color-text-muted); padding: 1.5rem;">
+                                No pending biometric fallback requests.
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+<!-- ======================================================================= -->
+<!-- SECTION 14: Resilience & Assurance -->
+<!-- ======================================================================= -->
+{% if active_tab == 'resilience' %}
+<div id="section-resilience">
+    <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 1.5rem; align-items: start;">
+        <div class="card">
+            <h3 style="margin: 0 0 1rem 0; font-size: 1.15rem; font-weight: 700; color: var(--color-primary-600);">
+                High-Availability & Distributed Storage SLA
+            </h3>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+                <div style="padding: 0.85rem; border: 1px solid var(--color-border-subtle); border-radius: 6px; background: #fafafa;">
+                    <div style="font-weight: 600; font-size: 0.9rem; color: var(--color-text-heading);">Database Engine</div>
+                    <div style="font-size: 0.85rem; color: #059669; margin-top: 0.25rem;">TiDB Cloud Serverless 8.0.11</div>
+                    <div style="font-size: 0.78rem; color: var(--color-text-muted); margin-top: 0.25rem;">
+                        Multi-AZ deployment, TiKV distributed storage, pessimistic locking enabled.
+                    </div>
+                </div>
+                <div style="padding: 0.85rem; border: 1px solid var(--color-border-subtle); border-radius: 6px; background: #fafafa;">
+                    <div style="font-weight: 600; font-size: 0.9rem; color: var(--color-text-heading);">Capacity Benchmark Target</div>
+                    <div style="font-size: 0.85rem; color: #0284c7; margin-top: 0.25rem;">1,000 Simultaneously Active Users</div>
+                    <div style="font-size: 0.78rem; color: var(--color-text-muted); margin-top: 0.25rem;">
+                        Authenticated reads p95 &le; 500ms, p99 &le; 1.5s; writes p95 &le; 800ms.
+                    </div>
+                </div>
+                <div style="padding: 0.85rem; border: 1px solid var(--color-border-subtle); border-radius: 6px; background: #fafafa;">
+                    <div style="font-weight: 600; font-size: 0.9rem; color: var(--color-text-heading);">Outbox Durability Pattern</div>
+                    <div style="font-size: 0.85rem; color: #059669; margin-top: 0.25rem;">✓ Transactional Outbox Active</div>
+                    <div style="font-size: 0.78rem; color: var(--color-text-muted); margin-top: 0.25rem;">
+                        Guarantees at-least-once delivery for post notifications, email alerts, and attendance events.
+                    </div>
+                </div>
+                <div style="padding: 0.85rem; border: 1px solid var(--color-border-subtle); border-radius: 6px; background: #fafafa;">
+                    <div style="font-weight: 600; font-size: 0.9rem; color: var(--color-text-heading);">Cryptographic Key Ring</div>
+                    <div style="font-size: 0.85rem; color: #059669; margin-top: 0.25rem;">Key ID 'k1' Operational</div>
+                    <div style="font-size: 0.78rem; color: var(--color-text-muted); margin-top: 0.25rem;">
+                        AES-256-GCM envelope encryption with 96-bit unique nonces. Supports live re-keying.
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="card">
+            <h3 style="margin: 0 0 1rem 0; font-size: 1.15rem; font-weight: 700; color: var(--color-primary-600);">
+                Backup & Disaster Recovery
+            </h3>
+            <div class="space-y-3" style="font-size: 0.85rem;">
+                <div>
+                    <strong>RPO (Recovery Point Objective):</strong>
+                    <div style="color: var(--color-text-muted);">Continuous Point-in-Time Recovery (PITR)</div>
+                </div>
+                <div>
+                    <strong>RTO (Recovery Time Objective):</strong>
+                    <div style="color: var(--color-text-muted);">&lt; 15 minutes to scratch deployment</div>
+                </div>
+                <div>
+                    <strong>Backup Script:</strong>
+                    <code style="display: block; font-size: 0.78rem; background: #f4f4f4; padding: 0.4rem; border-radius: 4px; margin-top: 0.25rem;">
+                        python scripts/tidb_backup_verify.py
+                    </code>
+                </div>
+            </div>
         </div>
     </div>
 </div>

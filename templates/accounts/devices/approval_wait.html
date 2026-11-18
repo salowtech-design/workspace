@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+
+{% block title %}Secondary Device Authorization — Salow Workspace{% endblock %}
+
+{% block content %}
+<div style="max-width: 520px; margin: 3rem auto; padding: 2rem;" class="card">
+    <div style="text-align: center; margin-bottom: 2rem;">
+        <div style="font-size: 3rem; margin-bottom: 0.5rem;">📱 ➔ 💻</div>
+        <h2 style="font-size: 1.5rem; font-weight: 700; color: var(--color-primary-600); margin: 0 0 0.5rem 0;">
+            Secondary Device Verification
+        </h2>
+        <p style="font-size: 0.88rem; color: var(--color-text-muted); margin: 0;">
+            Your credentials and TOTP have been verified. An active session was detected on another device.
+        </p>
+    </div>
+
+    <!-- Request Details Box -->
+    <div style="background: #fdfaf6; border: 1px solid var(--color-border-subtle); border-radius: 8px; padding: 1.25rem; margin-bottom: 1.5rem;">
+        <div style="display: flex; justify-content: space-between; font-size: 0.85rem; margin-bottom: 0.5rem;">
+            <span style="color: var(--color-text-muted);">Employee:</span>
+            <strong>{{ user.full_name }} ({{ user.employee_id }})</strong>
+        </div>
+        <div style="display: flex; justify-content: space-between; font-size: 0.85rem; margin-bottom: 0.5rem;">
+            <span style="color: var(--color-text-muted);">Request ID:</span>
+            <code style="font-size: 0.8rem;">{{ req.request_id }}</code>
+        </div>
+        <div style="display: flex; justify-content: space-between; font-size: 0.85rem; margin-bottom: 0.5rem;">
+            <span style="color: var(--color-text-muted);">Requesting IP:</span>
+            <span>{{ req.requesting_device_ip|default:"127.0.0.1" }}</span>
+        </div>
+        <div style="display: flex; justify-content: space-between; font-size: 0.85rem;">
+            <span style="color: var(--color-text-muted);">Approval Window:</span>
+            <span style="color: #b45309; font-weight: 600;">Strict 1-Minute Expiration</span>
+        </div>
+    </div>
+
+    <!-- Live HTMX Polling Container -->
+    <div id="approval-status-poll"
+         hx-get="{% url 'accounts:device_approval_status' req.request_id %}"
+         hx-trigger="every 2s"
+         hx-swap="innerHTML"
+         style="text-align: center; padding: 1rem; border-radius: 6px; background: #fafafa; border: 1px dashed var(--color-border-subtle); margin-bottom: 1.5rem;">
+        <div style="display: inline-flex; align-items: center; gap: 0.5rem; color: #d97706; font-size: 0.9rem; font-weight: 600;">
+            <span class="spinner" style="display: inline-block; width: 14px; height: 14px; border: 2px solid #d97706; border-top-color: transparent; border-radius: 50%; animation: spin 1s linear infinite;"></span>
+            Awaiting approval from active device...
+        </div>
+    </div>
+
+    <div style="text-align: center; font-size: 0.82rem; color: var(--color-text-muted);">
+        <p style="margin: 0 0 0.5rem 0;">
+            Please open Salow Workspace on your primary logged-in device and tap <strong>Approve</strong>.
+        </p>
+        <p style="margin: 0;">
+            Device lost or unavailable? Contact an authorized administrator for fallback approval.
+        </p>
+    </div>
+</div>
+{% endblock %}

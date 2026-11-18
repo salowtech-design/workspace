@@ -1,0 +1,104 @@
+{% extends "base.html" %}
+
+{% block title %}Security Alerts Triage Console — Salow Workspace{% endblock %}
+
+{% block content %}
+<div class="content-header" style="margin-bottom: 1.5rem; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 1rem;">
+    <div>
+        <h1 style="font-size: 1.75rem; font-weight: 700; color: #b91c1c; margin: 0;">
+            Security Alerts Triage Console
+        </h1>
+        <p style="color: var(--color-text-muted); font-size: 0.9rem; margin-top: 0.25rem;">
+            Central Security Operations (SecOps) Incident Response &amp; Independent Acknowledgment.
+        </p>
+    </div>
+    <div style="display: flex; gap: 0.75rem;">
+        <a href="{% url 'accounts:admin_iam' %}?tab=investigation" class="btn btn-secondary btn-sm">
+            ← Return to IAM Investigation
+        </a>
+    </div>
+</div>
+
+<!-- Filter Tabs -->
+<div style="display: flex; gap: 0.5rem; margin-bottom: 1.5rem;">
+    <a href="?status=open" class="btn btn-sm {% if status_filter == 'open' %}btn-primary{% else %}btn-outline{% endif %}">
+        Open Alerts
+    </a>
+    <a href="?status=acknowledged" class="btn btn-sm {% if status_filter == 'acknowledged' %}btn-primary{% else %}btn-outline{% endif %}">
+        Acknowledged
+    </a>
+    <a href="?status=" class="btn btn-sm {% if not status_filter %}btn-primary{% else %}btn-outline{% endif %}">
+        All History
+    </a>
+</div>
+
+<!-- Alerts Table -->
+<div class="card">
+    <div class="table-container" style="overflow-x: auto;">
+        <table class="table" style="width: 100%; font-size: 0.85rem;">
+            <thead>
+                <tr>
+                    <th>ID</th>
+                    <th>Severity</th>
+                    <th>Category</th>
+                    <th>Alert Title &amp; Description</th>
+                    <th>Target Subject</th>
+                    <th>Logged At</th>
+                    <th>Status</th>
+                    <th>Review / Acknowledgement</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for alert in alerts %}
+                <tr>
+                    <td><code>#{{ alert.id }}</code></td>
+                    <td>
+                        <span class="badge" style="background: {% if alert.severity == 'critical' %}#fee2e2; color: #b91c1c;{% elif alert.severity == 'high' %}#ffedd5; color: #c2410c;{% else %}#e0f2fe; color: #0369a1;{% endif %} font-weight: 700;">
+                            {{ alert.severity|upper }}
+                        </span>
+                    </td>
+                    <td><code>{{ alert.category }}</code></td>
+                    <td>
+                        <strong>{{ alert.title }}</strong>
+                        {% if alert.description %}
+                        <div style="font-size: 0.78rem; color: var(--color-text-muted); margin-top: 0.2rem;">{{ alert.description }}</div>
+                        {% endif %}
+                    </td>
+                    <td>{{ alert.employee_id|default:"-" }}</td>
+                    <td>{{ alert.created_at|date:"Y-m-d H:i:s" }}</td>
+                    <td>
+                        {% if alert.status == 'acknowledged' %}
+                        <span class="badge badge-success">✓ Acknowledged</span>
+                        {% else %}
+                        <span class="badge badge-error">● Open</span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        {% if alert.status == 'open' and can_acknowledge %}
+                        <form method="post" action="{% url 'accounts:security_alert_acknowledge' alert.id %}" style="display: flex; gap: 0.35rem;">
+                            {% csrf_token %}
+                            <input type="text" name="reason" placeholder="Mandatory reason..." required style="font-size: 0.75rem; padding: 0.25rem 0.5rem; border-radius: 4px; border: 1px solid var(--color-border-subtle);">
+                            <button type="submit" class="btn btn-sm btn-primary">Acknowledge</button>
+                        </form>
+                        {% elif alert.status == 'acknowledged' %}
+                        <div style="font-size: 0.78rem;">
+                            <strong>{{ alert.acknowledged_by.employee_id }}</strong>: {{ alert.acknowledgement_reason }}
+                            <div style="color: var(--color-text-muted); font-size: 0.72rem;">{{ alert.acknowledged_at|date:"M d, H:i" }}</div>
+                        </div>
+                        {% else %}
+                        <span style="font-size: 0.78rem; color: var(--color-text-muted);">Read-Only</span>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% empty %}
+                <tr>
+                    <td colspan="8" style="text-align: center; color: var(--color-text-muted); padding: 2rem;">
+                        No security alerts matching this filter.
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}

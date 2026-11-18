@@ -55,13 +55,16 @@ from apps.accounts.models import (
     ActivationCode,
     AuthEvent,
     CustomUser,
+    DeviceApprovalRequest,
     PasskeyCredential,
     RecoveryCode,
     RecoveryRequest,
+    SecurityAlert,
     ServiceIdentity,
     TOTPCredential,
     UserSession,
 )
+from apps.attendance.models import AttendanceFallbackRequest
 from apps.core.models import AuditLog, EmailOutbox, OutboxEvent, RateLimitRecord
 from apps.directory.models import Department, Team, TeamMembership
 from apps.face.models import FaceTemplate, FaceVerificationLog
@@ -668,6 +671,15 @@ def admin_iam_dashboard_view(request):  # noqa: C901
     rate_limit_records = RateLimitRecord.objects.order_by("-timestamp")[:25]
     business_audits = AuditLog.objects.order_by("-created_at")[:30]
 
+    # Section 13 & 14 Device Approvals & Security Operations
+    pending_device_requests = DeviceApprovalRequest.objects.filter(
+        status=DeviceApprovalRequest.Status.PENDING
+    ).select_related("user")
+    security_alerts_list = SecurityAlert.objects.order_by("-created_at")[:25]
+    pending_fallback_requests = AttendanceFallbackRequest.objects.filter(
+        status=AttendanceFallbackRequest.Status.PENDING
+    ).select_related("user")[:25]
+
     context = {
         "actor": actor,
         "active_tab": active_tab,
@@ -705,6 +717,9 @@ def admin_iam_dashboard_view(request):  # noqa: C901
         "rate_limit_records": rate_limit_records,
         "q_search": q_search,
         "role_choices": CustomUser.Role.choices,
+        "pending_device_requests": pending_device_requests,
+        "security_alerts_list": security_alerts_list,
+        "pending_fallback_requests": pending_fallback_requests,
     }
     return render(request, "accounts/admin/iam_dashboard.html", context)
 
