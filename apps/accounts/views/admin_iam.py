@@ -15,13 +15,17 @@ Provides:
    - Fails safely on timeout or mismatch, grants sudo on full success
 """
 
+import json
 import time
+from datetime import timedelta
 
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied, ValidationError
-from django.db import transaction
+from django.db import models, transaction
+from django.http import StreamingHttpResponse
 from django.shortcuts import redirect, render
+from django.utils import timezone
 
 from apps.accounts.auth.activation import issue_activation_code
 from apps.accounts.auth.audit import log_auth_event
@@ -34,8 +38,19 @@ from apps.accounts.auth.reset import (
     issue_mfa_reset_code,
     reject_administrator_reset,
 )
+from apps.accounts.auth.service_identities import (
+    VALID_SCOPES,
+    issue_service_identity,
+    revoke_service_identity,
+)
 from apps.accounts.auth.sessions import end_session_by_key, revoke_user_sessions
-from apps.accounts.auth.stepup import grant_sudo, is_sudo_active
+from apps.accounts.auth.stepup import (
+    activate_break_glass,
+    grant_sudo,
+    is_break_glass_active,
+    is_sudo_active,
+    revoke_break_glass,
+)
 from apps.accounts.models import (
     ActivationCode,
     AuthEvent,
@@ -43,9 +58,12 @@ from apps.accounts.models import (
     PasskeyCredential,
     RecoveryCode,
     RecoveryRequest,
+    ServiceIdentity,
     TOTPCredential,
     UserSession,
 )
+from apps.core.models import AuditLog, EmailOutbox, OutboxEvent, RateLimitRecord
+from apps.directory.models import Department, Team, TeamMembership
 from apps.face.models import FaceTemplate, FaceVerificationLog
 from apps.face.services import verify_face
 
@@ -405,22 +423,201 @@ def admin_iam_dashboard_view(request):  # noqa: C901
                 messages.success(request, f"Account {target_user.employee_id} reactivated.")
                 return redirect(f"{request.path}?tab=lifecycle")
 
+        # -------------------------------------------------------------------
+        # 6b. Lifecycle: Mark Exited
+        # -------------------------------------------------------------------
+        elif action == "exit_account":
+            active_tab = "lifecycle"
+            target_emp_id = request.POST.get("target_employee_id", "").strip().upper()
+            target_user = CustomUser.objects.filter(employee_id=target_emp_id).first()
+            if not target_user:
+                messages.error(request, f"User {target_emp_id} not found.")
+            elif (
+                target_user.role == CustomUser.Role.SUPER_ADMIN
+                and actor.role != CustomUser.Role.SUPER_ADMIN
+            ):
+                messages.error(request, "Only Super Admins can transition a Super Admin account.")
+            elif target_user.id == actor.id:
+                messages.error(request, "You cannot mark your own account as exited.")
+            else:
+                target_user.is_active = False
+                target_user.status = CustomUser.Status.EXITED
+                target_user.end_date = timezone.now().date()
+                target_user.save(update_fields=["is_active", "status", "end_date", "updated_at"])
+                revoke_user_sessions(target_user)
+                log_auth_event(
+                    event="account_exited_by_admin",
+                    code="WARN",
+                    step="admin_lifecycle",
+                    employee_id=target_user.employee_id,
+                    message=f"Marked as exited by {actor.employee_id}; all active sessions terminated",
+                )
+                messages.success(
+                    request,
+                    f"Account {target_user.employee_id} marked as EXITED. All active sessions terminated.",
+                )
+                return redirect(f"{request.path}?tab=lifecycle")
+
+        # -------------------------------------------------------------------
+        # 8. People, Teams & Groups: Add Team Membership
+        # -------------------------------------------------------------------
+        elif action == "add_team_membership":
+            active_tab = "people_teams"
+            target_emp_id = request.POST.get("target_employee_id", "").strip().upper()
+            team_code = request.POST.get("team_code", "").strip().upper()
+            target_user = CustomUser.objects.filter(employee_id=target_emp_id).first()
+            team = Team.objects.filter(code=team_code).first()
+            if not target_user:
+                messages.error(request, f"User {target_emp_id} not found.")
+            elif not team:
+                messages.error(request, f"Team with code '{team_code}' not found.")
+            else:
+                _, created = TeamMembership.objects.get_or_create(user=target_user, team=team)
+                if created:
+                    messages.success(
+                        request, f"Assigned {target_user.employee_id} to team '{team.name}'."
+                    )
+                else:
+                    messages.info(
+                        request,
+                        f"User {target_user.employee_id} is already a member of team '{team.name}'.",
+                    )
+                return redirect(f"{request.path}?tab=people_teams")
+
+        # -------------------------------------------------------------------
+        # 10. Privileged Access: Break-Glass Emergency Elevation
+        # -------------------------------------------------------------------
+        elif action == "activate_break_glass":
+            active_tab = "privileged"
+            if actor.role not in (CustomUser.Role.SUPER_ADMIN, CustomUser.Role.ADMIN):
+                messages.error(
+                    request, "Only system administrators can activate emergency break-glass."
+                )
+            else:
+                reason = request.POST.get("reason", "").strip()
+                ticket = request.POST.get("ticket", "").strip()
+                try:
+                    activate_break_glass(request, reason=reason, justification_ticket=ticket)
+                    messages.warning(
+                        request,
+                        "EMERGENCY BREAK-GLASS ACTIVATED. Privileged elevation active for 15 minutes.",
+                    )
+                except ValidationError as exc:
+                    messages.error(request, str(exc.message if hasattr(exc, "message") else exc))
+                return redirect(f"{request.path}?tab=privileged")
+
+        elif action == "revoke_break_glass":
+            active_tab = "privileged"
+            revoke_break_glass(request)
+            messages.info(request, "Emergency break-glass privileges terminated.")
+            return redirect(f"{request.path}?tab=privileged")
+
+        # -------------------------------------------------------------------
+        # 11. Service Identities: Provision & Revoke M2M Credentials
+        # -------------------------------------------------------------------
+        elif action == "create_service_identity":
+            active_tab = "services"
+            if actor.role not in (CustomUser.Role.SUPER_ADMIN, CustomUser.Role.ADMIN):
+                messages.error(
+                    request, "Only system administrators can provision Service Identities."
+                )
+            else:
+                name = request.POST.get("name", "").strip()
+                client_id = request.POST.get("client_id", "").strip().lower()
+                scopes = request.POST.getlist("scopes")
+                expires_days = request.POST.get("expires_in_days", "").strip()
+                exp_dt = None
+                if expires_days and expires_days.isdigit() and int(expires_days) > 0:
+                    exp_dt = timezone.now() + timedelta(days=int(expires_days))
+
+                try:
+                    ident, raw_tok = issue_service_identity(
+                        name=name,
+                        client_id=client_id,
+                        scopes=scopes,
+                        created_by=actor,
+                        expires_at=exp_dt,
+                    )
+                    request.session["_salow_issued_service"] = {
+                        "name": ident.name,
+                        "client_id": ident.client_id,
+                        "token": raw_tok,
+                        "scopes": ident.scopes,
+                    }
+                    messages.success(
+                        request,
+                        f"Service Identity '{ident.name}' ({ident.client_id}) provisioned successfully.",
+                    )
+                    return redirect(f"{request.path}?tab=services")
+                except ValidationError as exc:
+                    messages.error(request, str(exc.message if hasattr(exc, "message") else exc))
+
+        elif action == "revoke_service_identity":
+            active_tab = "services"
+            if actor.role not in (CustomUser.Role.SUPER_ADMIN, CustomUser.Role.ADMIN):
+                messages.error(request, "Only system administrators can revoke Service Identities.")
+            else:
+                cid = request.POST.get("client_id", "").strip().lower()
+                if revoke_service_identity(cid, actor=actor):
+                    messages.success(request, f"Service Identity '{cid}' revoked.")
+                else:
+                    messages.error(request, f"Service Identity '{cid}' not found.")
+                return redirect(f"{request.path}?tab=services")
+
+        # -------------------------------------------------------------------
+        # 12. Delivery & Operations: Retry Outbox Item
+        # -------------------------------------------------------------------
+        elif action == "retry_outbox_item":
+            active_tab = "delivery_ops"
+            item_id = request.POST.get("item_id", "").strip()
+            item_type = request.POST.get("item_type", "email")
+            if item_type == "email" and item_id:
+                try:
+                    email_item = EmailOutbox.objects.filter(id=item_id).first()
+                    if email_item:
+                        email_item.status = EmailOutbox.Status.QUEUED
+                        email_item.retry_count = 0
+                        email_item.save(update_fields=["status", "retry_count", "updated_at"])
+                        messages.success(
+                            request, f"Email notification to {email_item.recipient} requeued."
+                        )
+                except (ValueError, ValidationError):
+                    messages.error(request, f"Invalid email outbox ID: {item_id}")
+            elif item_type == "event" and item_id:
+                evt = OutboxEvent.objects.filter(event_id=item_id).first()
+                if evt:
+                    evt.status = OutboxEvent.Status.PENDING
+                    evt.retry_count = 0
+                    evt.save(update_fields=["status", "retry_count"])
+                    messages.success(request, f"Outbox event {evt.event_id[:8]} requeued.")
+            return redirect(f"{request.path}?tab=delivery_ops")
+
     # -----------------------------------------------------------------------
-    # Query datasets for the 7 sections
+    # Query datasets for the 12 areas
     # -----------------------------------------------------------------------
+    issued_service = request.session.pop("_salow_issued_service", None)
+
     # Search / Filters
     q_search = request.GET.get("q", "").strip()
+    q_flow = request.GET.get("q_flow", "").strip()
+
     users_qs = CustomUser.objects.all().order_by("employee_id")
     if q_search:
         users_qs = users_qs.filter(employee_id__icontains=q_search) | users_qs.filter(
             full_name__icontains=q_search
         )
 
-    # Section 3 Stats
+    # Overview & Telemetry Stats
     total_users_count = CustomUser.objects.count()
     mfa_enrolled_count = TOTPCredential.objects.filter(confirmed_at__isnull=False).count()
     active_recovery_codes_count = RecoveryCode.objects.filter(used_at__isnull=True).count()
     passkeys_count = PasskeyCredential.objects.count()
+    active_sessions_count = UserSession.objects.count()
+    events_24h_count = AuthEvent.objects.filter(
+        time__gte=timezone.now() - timedelta(hours=24)
+    ).count()
+    rate_limits_count = RateLimitRecord.objects.count()
+    service_identities_count = ServiceIdentity.objects.filter(is_active=True).count()
 
     # Section 4 Sessions
     active_sessions = UserSession.objects.select_related("user").order_by("-last_activity")[:50]
@@ -432,30 +629,138 @@ def admin_iam_dashboard_view(request):  # noqa: C901
     super_admins = CustomUser.objects.filter(
         role=CustomUser.Role.SUPER_ADMIN, is_active=True
     ).exclude(id=actor.id)
+    recent_recoveries = RecoveryRequest.objects.select_related("user", "approved_by").order_by(
+        "-created_at"
+    )[:25]
 
     # Section 7 Audit
     audit_events = AuthEvent.objects.order_by("-time")[:60]
     if q_search:
         audit_events = audit_events.filter(employee_id__icontains=q_search)
 
+    # Section 8 People & Teams
+    departments = Department.objects.prefetch_related("teams__memberships__user").all()[:20]
+    teams = Team.objects.select_related("department", "lead").all()[:30]
+    memberships = TeamMembership.objects.select_related("team", "user").order_by("-joined_at")[:50]
+
+    # Section 9 Sign-in Investigation
+    investigation_events = AuthEvent.objects.order_by("-time")
+    if q_flow:
+        investigation_events = investigation_events.filter(
+            models.Q(reference_id__icontains=q_flow) | models.Q(employee_id__icontains=q_flow)
+        )
+    investigation_events = investigation_events[:60]
+
+    # Section 10 Privileged Access
+    break_glass_active = is_break_glass_active(request)
+    sudo_active = is_sudo_active(request)
+    break_glass_history = AuthEvent.objects.filter(code="AUTH-BRK-001").order_by("-time")[:15]
+
+    # Section 11 Service Identities
+    service_identities = ServiceIdentity.objects.order_by("-created_at")[:50]
+
+    # Section 12 Delivery & Operations
+    email_outbox_stats = {
+        s: EmailOutbox.objects.filter(status=s).count() for s in EmailOutbox.Status.values
+    }
+    recent_emails = EmailOutbox.objects.order_by("-created_at")[:25]
+    recent_outbox_events = OutboxEvent.objects.order_by("-created_at")[:25]
+    rate_limit_records = RateLimitRecord.objects.order_by("-timestamp")[:25]
+    business_audits = AuditLog.objects.order_by("-created_at")[:30]
+
     context = {
         "actor": actor,
         "active_tab": active_tab,
         "issued_activation": issued_activation,
+        "issued_service": issued_service,
         "users": users_qs[:100],
         "roles_matrix": ROLE_PERMISSIONS_MATRIX,
         "total_users_count": total_users_count,
         "mfa_enrolled_count": mfa_enrolled_count,
         "active_recovery_codes_count": active_recovery_codes_count,
         "passkeys_count": passkeys_count,
+        "active_sessions_count": active_sessions_count,
+        "events_24h_count": events_24h_count,
+        "rate_limits_count": rate_limits_count,
+        "service_identities_count": service_identities_count,
         "active_sessions": active_sessions,
         "pending_recovery_requests": pending_recovery_requests,
+        "recent_recoveries": recent_recoveries,
         "super_admins": super_admins,
         "audit_events": audit_events,
+        "business_audits": business_audits,
+        "departments": departments,
+        "teams": teams,
+        "memberships": memberships,
+        "investigation_events": investigation_events,
+        "q_flow": q_flow,
+        "break_glass_active": break_glass_active,
+        "sudo_active": sudo_active,
+        "break_glass_history": break_glass_history,
+        "service_identities": service_identities,
+        "valid_scopes": VALID_SCOPES,
+        "email_outbox_stats": email_outbox_stats,
+        "recent_emails": recent_emails,
+        "recent_outbox_events": recent_outbox_events,
+        "rate_limit_records": rate_limit_records,
         "q_search": q_search,
         "role_choices": CustomUser.Role.choices,
     }
     return render(request, "accounts/admin/iam_dashboard.html", context)
+
+
+@login_required
+def admin_iam_live_stream_view(request):
+    """
+    Authenticated Server-Sent Events (SSE) live monitoring stream.
+    Streams real-time AuthEvent records to administrative operators.
+    Restricted to system administrators: super_admin and admin.
+    """
+    actor: CustomUser = request.user
+    if actor.role not in (CustomUser.Role.SUPER_ADMIN, CustomUser.Role.ADMIN):
+        raise PermissionDenied("Live security monitoring is restricted to system administrators.")
+
+    # Parse limit safely
+    limit_str = request.GET.get("limit", "20")
+    try:
+        limit = max(1, min(100, int(limit_str)))
+    except (ValueError, TypeError):
+        limit = 20
+
+    # Support standard Last-Event-ID header and last_id query param
+    last_id_str = request.headers.get("Last-Event-ID") or request.GET.get("last_id")
+    last_id = None
+    if last_id_str and last_id_str.isdigit():
+        last_id = int(last_id_str)
+
+    def event_stream():
+        # Initial ping handshake
+        yield f"event: ping\ndata: {json.dumps({'status': 'connected', 'time': timezone.now().isoformat()})}\n\n"
+
+        qs = AuthEvent.objects.all()
+        if last_id is not None:
+            events = qs.filter(id__gt=last_id).order_by("time")[:limit]
+        else:
+            events = reversed(list(qs.order_by("-time")[:limit]))
+
+        for evt in events:
+            payload = {
+                "id": evt.id,
+                "time": evt.time.strftime("%H:%M:%S"),
+                "event": evt.event,
+                "code": evt.code,
+                "step": evt.step,
+                "employee_id": evt.employee_id or "ANONYMOUS",
+                "reference_id": evt.reference_id or "-",
+                "network_address": str(evt.network_address or "-"),
+                "message": evt.message,
+            }
+            yield f"id: {evt.id}\nevent: auth_event\ndata: {json.dumps(payload)}\n\n"
+
+    response = StreamingHttpResponse(event_stream(), content_type="text/event-stream")
+    response["Cache-Control"] = "no-cache"
+    response["X-Accel-Buffering"] = "no"
+    return response
 
 
 @login_required

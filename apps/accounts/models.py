@@ -383,3 +383,37 @@ class RecoveryRequest(models.Model):
 
     def __str__(self):
         return f"RecoveryRequest [{self.request_type}] for {self.user.employee_id} ({self.status})"
+
+
+class ServiceIdentity(models.Model):
+    """
+    Machine-to-machine (M2M) API service identity.
+    Used by background workers, daemons, and external integrations with scoped permissions.
+    API token is stored as a keyed HMAC-SHA256 hash.
+    """
+
+    name = models.CharField(max_length=128)
+    client_id = models.CharField(max_length=64, unique=True, db_index=True)
+    secret_hash = models.CharField(max_length=64, db_index=True)
+    scopes = models.JSONField(default=list, blank=True, help_text="Granted scope strings")
+    is_active = models.BooleanField(default=True, db_index=True)
+    is_non_interactive = models.BooleanField(default=True)
+    expires_at = models.DateTimeField(null=True, blank=True)
+    created_by = models.ForeignKey(
+        CustomUser,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="created_service_identities",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    last_used_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        verbose_name = "Service Identity"
+        verbose_name_plural = "Service Identities"
+
+    def __str__(self):
+        status = "Active" if self.is_active else "Revoked"
+        return f"Service {self.name} [{self.client_id}] ({status})"

@@ -7,7 +7,7 @@ Super admin sensitive actions additionally require a fresh authenticator code.
 from functools import wraps
 from typing import Callable, Optional, Union
 
-from django.core.exceptions import PermissionDenied
+from django.core.exceptions import PermissionDenied, ValidationError
 from django.utils import timezone
 
 from apps.accounts.auth.audit import log_auth_event
@@ -148,6 +148,128 @@ def verify_stepup(request, password: str, totp_code: str = None) -> bool:
 
     grant_sudo(request, user)
     return True
+
+
+BREAK_GLASS_SESSION_KEY = "_salow_break_glass_active"
+BREAK_GLASS_REASON_KEY = "_salow_break_glass_reason"
+BREAK_GLASS_WINDOW_MINUTES = 15
+_USER_BREAK_GLASS_CACHE: dict[int, dict] = {}
+
+
+def activate_break_glass(
+    request_or_user,
+    reason: str,
+    justification_ticket: str = "",
+    user: Optional[CustomUser] = None,
+) -> None:
+    """
+    Emergency Break-Glass Privileged Elevation.
+    Enforces mandatory justification, maximum 15-minute time ceiling,
+    high-severity audit logging, and immediate session attribution.
+    """
+    if not reason or len(reason.strip()) < 10:
+        raise ValidationError(
+            "Emergency break-glass activation requires a detailed justification (min 10 chars)."
+        )
+
+    now_ts = timezone.now().timestamp()
+    target_user = user
+
+    if isinstance(request_or_user, CustomUser):
+        target_user = request_or_user
+    else:
+        request = request_or_user
+        if not target_user and hasattr(request, "user"):
+            target_user = request.user
+        if hasattr(request, "session"):
+            request.session[BREAK_GLASS_SESSION_KEY] = now_ts
+            request.session[BREAK_GLASS_REASON_KEY] = reason.strip()
+
+    if not target_user or not getattr(target_user, "is_authenticated", False):
+        raise PermissionDenied("User must be authenticated to activate emergency break-glass.")
+
+    if target_user.role not in (CustomUser.Role.SUPER_ADMIN, CustomUser.Role.ADMIN):
+        raise PermissionDenied(
+            "Emergency break-glass elevation is strictly restricted to system administrators."
+        )
+
+    _USER_BREAK_GLASS_CACHE[target_user.id] = {
+        "granted_at": now_ts,
+        "reason": reason.strip(),
+        "ticket": justification_ticket.strip(),
+    }
+    # Also automatically grants sudo mode
+    grant_sudo(request_or_user, target_user)
+
+    remote_ip = None
+    if hasattr(request_or_user, "META"):
+        remote_ip = request_or_user.META.get("REMOTE_ADDR")
+
+    log_auth_event(
+        event="break_glass_activated",
+        code="AUTH-BRK-001",
+        step="privileged_break_glass",
+        employee_id=target_user.employee_id,
+        network_address=remote_ip,
+        message=(
+            f"EMERGENCY BREAK-GLASS ACTIVATED by {target_user.employee_id}. "
+            f"Reason: {reason.strip()} [Ticket: {justification_ticket or 'N/A'}]"
+        ),
+    )
+
+
+def is_break_glass_active(target: Union[object, CustomUser]) -> bool:
+    """Check if emergency break-glass status is active (15-min ceiling)."""
+    now_ts = timezone.now().timestamp()
+    window_sec = BREAK_GLASS_WINDOW_MINUTES * 60
+
+    if isinstance(target, CustomUser):
+        if not target.is_authenticated:
+            return False
+        cached = _USER_BREAK_GLASS_CACHE.get(target.id)
+        if cached and (now_ts - cached["granted_at"] < window_sec):
+            return True
+        return False
+
+    request = target
+    if not getattr(request, "user", None) or not request.user.is_authenticated:
+        return False
+
+    if hasattr(request, "session") and BREAK_GLASS_SESSION_KEY in request.session:
+        granted_at = request.session.get(BREAK_GLASS_SESSION_KEY)
+        if granted_at is not None and (now_ts - granted_at) < window_sec:
+            return True
+        return False
+
+    cached = _USER_BREAK_GLASS_CACHE.get(request.user.id)
+    if cached and (now_ts - cached["granted_at"] < window_sec):
+        return True
+
+    return False
+
+
+def revoke_break_glass(request_or_user, user: Optional[CustomUser] = None) -> None:
+    """Revoke emergency break-glass elevation."""
+    target_user = user
+    if isinstance(request_or_user, CustomUser):
+        target_user = request_or_user
+    else:
+        request = request_or_user
+        if hasattr(request, "session"):
+            request.session.pop(BREAK_GLASS_SESSION_KEY, None)
+            request.session.pop(BREAK_GLASS_REASON_KEY, None)
+        if not target_user and hasattr(request, "user"):
+            target_user = request.user
+
+    if target_user and getattr(target_user, "is_authenticated", False):
+        _USER_BREAK_GLASS_CACHE.pop(target_user.id, None)
+        log_auth_event(
+            event="break_glass_deactivated",
+            code="INFO",
+            step="privileged_break_glass",
+            employee_id=target_user.employee_id,
+            message=f"Emergency break-glass mode terminated for {target_user.employee_id}",
+        )
 
 
 def require_sudo(view_func: Callable):

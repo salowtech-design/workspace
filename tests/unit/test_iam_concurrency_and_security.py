@@ -132,8 +132,7 @@ class TestConcurrentReplayProtections:
         def attempt_redeem(worker_id):
             connection.close()
             try:
-                u = CustomUser.objects.get(id=target_employee.id)
-                success = redeem_recovery_code(u, chosen_code)
+                success = redeem_recovery_code(target_employee, chosen_code)
                 return success, worker_id
             except Exception:
                 return False, worker_id

@@ -1,0 +1,142 @@
+{% extends "base.html" %}
+
+{% block title %}Workspace Admin Panel — Salow Workspace{% endblock %}
+
+{% block content %}
+<div class="content-header" style="margin-bottom: 1.5rem; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 1rem;">
+    <div>
+        <h1 style="font-size: 1.75rem; font-weight: 700; color: var(--color-primary-600); margin: 0;">
+            Workspace Admin Panel
+        </h1>
+        <p style="color: var(--color-text-muted); font-size: 0.9rem; margin-top: 0.25rem;">
+            Daily Business Attendance Operations, Staff Work Sessions, and Exception Reviews.
+        </p>
+    </div>
+    {% if actor.role in 'super_admin,admin' %}
+    <a href="{% url 'accounts:admin_iam' %}" class="btn btn-outline" style="display: inline-flex; align-items: center; gap: 0.5rem; font-weight: 600;">
+        <span>🔒</span> Central IAM & Security Console
+    </a>
+    {% endif %}
+</div>
+
+<!-- Architecture Segregation Banner -->
+<div class="card" style="margin-bottom: 1.5rem; background: #f8fafc; border: 1px solid var(--color-border-subtle); padding: 1rem 1.25rem;">
+    <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 1rem;">
+        <div style="display: flex; align-items: center; gap: 0.75rem;">
+            <div style="width: 12px; height: 12px; border-radius: 50%; background: #10b981; box-shadow: 0 0 6px rgba(16, 185, 129, 0.6);"></div>
+            <div>
+                <strong style="font-size: 0.92rem; color: var(--color-text-heading);">Central IAM Security Isolation Active</strong>
+                <p style="margin: 0; font-size: 0.8rem; color: var(--color-text-muted);">
+                    {{ iam_summary.isolation_notice }}
+                </p>
+            </div>
+        </div>
+        <div style="display: flex; gap: 1rem; align-items: center;">
+            <div style="text-align: right;">
+                <div style="font-size: 0.75rem; color: var(--color-text-muted); text-transform: uppercase;">IAM Posture</div>
+                <div style="font-size: 0.88rem; font-weight: 700; color: #047857;">{{ iam_summary.posture }}</div>
+            </div>
+            <div style="text-align: right; border-left: 1px solid var(--color-border-subtle); padding-left: 1rem;">
+                <div style="font-size: 0.75rem; color: var(--color-text-muted); text-transform: uppercase;">Active Sessions</div>
+                <div style="font-size: 0.88rem; font-weight: 700; color: var(--color-primary-600);">{{ iam_summary.active_sessions }}</div>
+            </div>
+            <div style="text-align: right; border-left: 1px solid var(--color-border-subtle); padding-left: 1rem;">
+                <div style="font-size: 0.75rem; color: var(--color-text-muted); text-transform: uppercase;">Registered Staff</div>
+                <div style="font-size: 0.88rem; font-weight: 700; color: var(--color-primary-600);">{{ iam_summary.total_identities }}</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Pending Fallback Exception Requests -->
+<div class="card" style="margin-bottom: 1.5rem;">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+        <h3 style="margin: 0; font-size: 1.15rem; font-weight: 700; color: var(--color-primary-600);">
+            Pending Biometric Fallback Exceptions ({{ pending_fallbacks.count }})
+        </h3>
+    </div>
+    {% if pending_fallbacks %}
+    <div class="table-container" style="overflow-x: auto;">
+        <table class="table" style="width: 100%; font-size: 0.88rem;">
+            <thead>
+                <tr>
+                    <th>Requested At</th>
+                    <th>Employee</th>
+                    <th>Type</th>
+                    <th>Work Date</th>
+                    <th>Reason</th>
+                    <th>Action</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for req in pending_fallbacks %}
+                <tr>
+                    <td>{{ req.created_at|date:"M d, H:i" }}</td>
+                    <td><strong>{{ req.user.full_name }}</strong> ({{ req.user.employee_id }})</td>
+                    <td><span class="badge badge-info">{{ req.get_request_type_display }}</span></td>
+                    <td>{{ req.work_date }}</td>
+                    <td>{{ req.reason|default:"No explanation provided" }}</td>
+                    <td>
+                        <form method="post" style="display: inline-flex; gap: 0.35rem;">
+                            {% csrf_token %}
+                            <input type="hidden" name="action" value="review_fallback">
+                            <input type="hidden" name="request_id" value="{{ req.id }}">
+                            <button type="submit" name="decision" value="approve" class="btn btn-sm btn-primary">Approve</button>
+                            <button type="submit" name="decision" value="reject" class="btn btn-sm btn-outline">Reject</button>
+                        </form>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <p style="color: var(--color-text-muted); font-size: 0.9rem; margin: 0;">
+        No pending fallback requests requiring supervisor review.
+    </p>
+    {% endif %}
+</div>
+
+<!-- Today's Work Sessions -->
+<div class="card" style="margin-bottom: 1.5rem;">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+        <h3 style="margin: 0; font-size: 1.15rem; font-weight: 700; color: var(--color-primary-600);">
+            Today's Attendance Sessions ({{ today_sessions.count }})
+        </h3>
+    </div>
+    {% if today_sessions %}
+    <div class="table-container" style="overflow-x: auto;">
+        <table class="table" style="width: 100%; font-size: 0.88rem;">
+            <thead>
+                <tr>
+                    <th>Employee</th>
+                    <th>Check-In Time</th>
+                    <th>Check-Out Time</th>
+                    <th>Method</th>
+                    <th>Status</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for sess in today_sessions %}
+                <tr>
+                    <td><strong>{{ sess.user.full_name }}</strong> ({{ sess.user.employee_id }})</td>
+                    <td>{{ sess.check_in_at|date:"H:i:s" }}</td>
+                    <td>{{ sess.check_out_at|date:"H:i:s"|default:"Active (In Progress)" }}</td>
+                    <td><span class="badge">{{ sess.get_verification_method_display }}</span></td>
+                    <td>
+                        <span class="badge {% if sess.state == 'open' %}badge-success{% else %}badge-secondary{% endif %}">
+                            {{ sess.get_state_display }}
+                        </span>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <p style="color: var(--color-text-muted); font-size: 0.9rem; margin: 0;">
+        No attendance sessions logged for today yet.
+    </p>
+    {% endif %}
+</div>
+{% endblock %}

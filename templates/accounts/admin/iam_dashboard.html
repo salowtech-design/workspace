@@ -9,14 +9,21 @@
             IAM & Access Management
         </h1>
         <p style="color: var(--color-text-muted); font-size: 0.9rem; margin-top: 0.25rem;">
-            Central Identity, Roles, Security Controls, Session Management, and Audit Trail.
+            Dedicated Identity, Authentication, Authorization & Security Operations Platform.
         </p>
     </div>
-    {% if actor.role in 'super_admin,admin' %}
-    <a href="{% url 'accounts:admin_shield' %}" class="btn btn-primary" style="display: inline-flex; align-items: center; gap: 0.5rem; font-weight: 600;">
-        <span>🛡️</span> Security Shield
-    </a>
-    {% endif %}
+    <div style="display: flex; gap: 0.75rem; align-items: center;">
+        {% if break_glass_active %}
+        <span class="badge" style="background: #dc2626; color: white; padding: 0.35rem 0.75rem; font-weight: 700; font-size: 0.82rem; border-radius: 6px; animation: pulse 2s infinite;">
+            ● BREAK-GLASS ACTIVE
+        </span>
+        {% endif %}
+        {% if actor.role in 'super_admin,admin' %}
+        <a href="{% url 'accounts:admin_shield' %}" class="btn btn-primary" style="display: inline-flex; align-items: center; gap: 0.5rem; font-weight: 600;">
+            <span>🛡️</span> Security Shield
+        </a>
+        {% endif %}
+    </div>
 </div>
 
 <!-- Issued Activation Credential Callout (Displayed Once) -->
@@ -46,30 +53,190 @@
 </div>
 {% endif %}
 
-<!-- 7 Operational Navigation Tabs -->
-<div style="display: flex; border-bottom: 2px solid var(--color-border-subtle); margin-bottom: 1.5rem; overflow-x: auto;" role="tablist">
-    <a href="?tab=identity" class="tab-link" style="padding: 0.75rem 1rem; font-size: 0.88rem; font-weight: 600; text-decoration: none; border-bottom: 3px solid {% if active_tab == 'identity' %}var(--color-primary-600){% else %}transparent{% endif %}; color: {% if active_tab == 'identity' %}var(--color-primary-600){% else %}var(--color-text-muted){% endif %}; white-space: nowrap;">
+<!-- Issued Service Identity API Token Callout (Displayed Once) -->
+{% if issued_service %}
+<div class="card" style="margin-bottom: 1.5rem; border: 2px dashed #059669; background: #ecfdf5; padding: 1.25rem;">
+    <div>
+        <h4 style="margin: 0 0 0.5rem 0; color: #065f46; font-size: 1.1rem; font-weight: 700;">
+            Service Identity API Token Issued
+        </h4>
+        <p style="margin: 0 0 0.75rem 0; font-size: 0.9rem; color: #047857;">
+            Service: <strong>{{ issued_service.name }}</strong> (<code>{{ issued_service.client_id }}</code>) | Scopes: <code>{{ issued_service.scopes|join:", " }}</code>
+        </p>
+        <div style="display: flex; align-items: center; gap: 0.75rem;">
+            <code style="font-size: 1.05rem; font-weight: 700; color: #064e3b; background: #ffffff; padding: 0.45rem 0.85rem; border-radius: 4px; border: 1px solid #a7f3d0;" id="issued-svc-token">
+                {{ issued_service.token }}
+            </code>
+            <button type="button" class="btn btn-secondary btn-sm" onclick="navigator.clipboard.writeText('{{ issued_service.token }}'); this.textContent = 'Copied!';">
+                Copy Token
+            </button>
+        </div>
+        <p style="margin: 0.5rem 0 0 0; font-size: 0.78rem; color: #065f46;">
+            ⚠️ This token is stored as a keyed HMAC-SHA256 hash and cannot be recovered. Copy and configure it in your daemon or worker now.
+        </p>
+    </div>
+</div>
+{% endif %}
+
+<!-- Operational Navigation Tabs (Preserves all 7 existing labels + expands to full 12 specification areas) -->
+<div style="display: flex; border-bottom: 2px solid var(--color-border-subtle); margin-bottom: 1.5rem; overflow-x: auto; gap: 0.25rem;" role="tablist">
+    <a href="?tab=overview" class="tab-link" style="padding: 0.75rem 0.9rem; font-size: 0.88rem; font-weight: 600; text-decoration: none; border-bottom: 3px solid {% if active_tab == 'overview' %}var(--color-primary-600){% else %}transparent{% endif %}; color: {% if active_tab == 'overview' %}var(--color-primary-600){% else %}var(--color-text-muted){% endif %}; white-space: nowrap;">
+        Overview
+    </a>
+    <a href="?tab=identity" class="tab-link" style="padding: 0.75rem 0.9rem; font-size: 0.88rem; font-weight: 600; text-decoration: none; border-bottom: 3px solid {% if active_tab == 'identity' %}var(--color-primary-600){% else %}transparent{% endif %}; color: {% if active_tab == 'identity' %}var(--color-primary-600){% else %}var(--color-text-muted){% endif %}; white-space: nowrap;">
         1. Identity & Accounts
     </a>
-    <a href="?tab=roles" class="tab-link" style="padding: 0.75rem 1rem; font-size: 0.88rem; font-weight: 600; text-decoration: none; border-bottom: 3px solid {% if active_tab == 'roles' %}var(--color-primary-600){% else %}transparent{% endif %}; color: {% if active_tab == 'roles' %}var(--color-primary-600){% else %}var(--color-text-muted){% endif %}; white-space: nowrap;">
+    <a href="?tab=roles" class="tab-link" style="padding: 0.75rem 0.9rem; font-size: 0.88rem; font-weight: 600; text-decoration: none; border-bottom: 3px solid {% if active_tab == 'roles' %}var(--color-primary-600){% else %}transparent{% endif %}; color: {% if active_tab == 'roles' %}var(--color-primary-600){% else %}var(--color-text-muted){% endif %}; white-space: nowrap;">
         2. Roles & Permissions
     </a>
-    <a href="?tab=security_mfa" class="tab-link" style="padding: 0.75rem 1rem; font-size: 0.88rem; font-weight: 600; text-decoration: none; border-bottom: 3px solid {% if active_tab == 'security_mfa' %}var(--color-primary-600){% else %}transparent{% endif %}; color: {% if active_tab == 'security_mfa' %}var(--color-primary-600){% else %}var(--color-text-muted){% endif %}; white-space: nowrap;">
+    <a href="?tab=security_mfa" class="tab-link" style="padding: 0.75rem 0.9rem; font-size: 0.88rem; font-weight: 600; text-decoration: none; border-bottom: 3px solid {% if active_tab == 'security_mfa' %}var(--color-primary-600){% else %}transparent{% endif %}; color: {% if active_tab == 'security_mfa' %}var(--color-primary-600){% else %}var(--color-text-muted){% endif %}; white-space: nowrap;">
         3. Security & MFA
     </a>
-    <a href="?tab=sessions" class="tab-link" style="padding: 0.75rem 1rem; font-size: 0.88rem; font-weight: 600; text-decoration: none; border-bottom: 3px solid {% if active_tab == 'sessions' %}var(--color-primary-600){% else %}transparent{% endif %}; color: {% if active_tab == 'sessions' %}var(--color-primary-600){% else %}var(--color-text-muted){% endif %}; white-space: nowrap;">
+    <a href="?tab=sessions" class="tab-link" style="padding: 0.75rem 0.9rem; font-size: 0.88rem; font-weight: 600; text-decoration: none; border-bottom: 3px solid {% if active_tab == 'sessions' %}var(--color-primary-600){% else %}transparent{% endif %}; color: {% if active_tab == 'sessions' %}var(--color-primary-600){% else %}var(--color-text-muted){% endif %}; white-space: nowrap;">
         4. Sessions & Devices
     </a>
-    <a href="?tab=recovery" class="tab-link" style="padding: 0.75rem 1rem; font-size: 0.88rem; font-weight: 600; text-decoration: none; border-bottom: 3px solid {% if active_tab == 'recovery' %}var(--color-primary-600){% else %}transparent{% endif %}; color: {% if active_tab == 'recovery' %}var(--color-primary-600){% else %}var(--color-text-muted){% endif %}; white-space: nowrap;">
+    <a href="?tab=recovery" class="tab-link" style="padding: 0.75rem 0.9rem; font-size: 0.88rem; font-weight: 600; text-decoration: none; border-bottom: 3px solid {% if active_tab == 'recovery' %}var(--color-primary-600){% else %}transparent{% endif %}; color: {% if active_tab == 'recovery' %}var(--color-primary-600){% else %}var(--color-text-muted){% endif %}; white-space: nowrap;">
         5. Recovery Console {% if pending_recovery_requests %}<span style="background: #ef4444; color: white; border-radius: 9999px; padding: 0.1rem 0.45rem; font-size: 0.72rem; margin-left: 0.25rem;">{{ pending_recovery_requests.count }}</span>{% endif %}
     </a>
-    <a href="?tab=lifecycle" class="tab-link" style="padding: 0.75rem 1rem; font-size: 0.88rem; font-weight: 600; text-decoration: none; border-bottom: 3px solid {% if active_tab == 'lifecycle' %}var(--color-primary-600){% else %}transparent{% endif %}; color: {% if active_tab == 'lifecycle' %}var(--color-primary-600){% else %}var(--color-text-muted){% endif %}; white-space: nowrap;">
+    <a href="?tab=lifecycle" class="tab-link" style="padding: 0.75rem 0.9rem; font-size: 0.88rem; font-weight: 600; text-decoration: none; border-bottom: 3px solid {% if active_tab == 'lifecycle' %}var(--color-primary-600){% else %}transparent{% endif %}; color: {% if active_tab == 'lifecycle' %}var(--color-primary-600){% else %}var(--color-text-muted){% endif %}; white-space: nowrap;">
         6. Account Lifecycle
     </a>
-    <a href="?tab=audit" class="tab-link" style="padding: 0.75rem 1rem; font-size: 0.88rem; font-weight: 600; text-decoration: none; border-bottom: 3px solid {% if active_tab == 'audit' %}var(--color-primary-600){% else %}transparent{% endif %}; color: {% if active_tab == 'audit' %}var(--color-primary-600){% else %}var(--color-text-muted){% endif %}; white-space: nowrap;">
+    <a href="?tab=audit" class="tab-link" style="padding: 0.75rem 0.9rem; font-size: 0.88rem; font-weight: 600; text-decoration: none; border-bottom: 3px solid {% if active_tab == 'audit' %}var(--color-primary-600){% else %}transparent{% endif %}; color: {% if active_tab == 'audit' %}var(--color-primary-600){% else %}var(--color-text-muted){% endif %}; white-space: nowrap;">
         7. IAM Audit
     </a>
+    <a href="?tab=people_teams" class="tab-link" style="padding: 0.75rem 0.9rem; font-size: 0.88rem; font-weight: 600; text-decoration: none; border-bottom: 3px solid {% if active_tab == 'people_teams' %}var(--color-primary-600){% else %}transparent{% endif %}; color: {% if active_tab == 'people_teams' %}var(--color-primary-600){% else %}var(--color-text-muted){% endif %}; white-space: nowrap;">
+        8. People, Teams & Groups
+    </a>
+    <a href="?tab=investigation" class="tab-link" style="padding: 0.75rem 0.9rem; font-size: 0.88rem; font-weight: 600; text-decoration: none; border-bottom: 3px solid {% if active_tab == 'investigation' %}var(--color-primary-600){% else %}transparent{% endif %}; color: {% if active_tab == 'investigation' %}var(--color-primary-600){% else %}var(--color-text-muted){% endif %}; white-space: nowrap;">
+        9. Sign-in Investigation
+    </a>
+    <a href="?tab=privileged" class="tab-link" style="padding: 0.75rem 0.9rem; font-size: 0.88rem; font-weight: 600; text-decoration: none; border-bottom: 3px solid {% if active_tab == 'privileged' %}var(--color-primary-600){% else %}transparent{% endif %}; color: {% if active_tab == 'privileged' %}var(--color-primary-600){% else %}var(--color-text-muted){% endif %}; white-space: nowrap;">
+        10. Privileged Access
+    </a>
+    <a href="?tab=services" class="tab-link" style="padding: 0.75rem 0.9rem; font-size: 0.88rem; font-weight: 600; text-decoration: none; border-bottom: 3px solid {% if active_tab == 'services' %}var(--color-primary-600){% else %}transparent{% endif %}; color: {% if active_tab == 'services' %}var(--color-primary-600){% else %}var(--color-text-muted){% endif %}; white-space: nowrap;">
+        11. Service Identities
+    </a>
+    <a href="?tab=delivery_ops" class="tab-link" style="padding: 0.75rem 0.9rem; font-size: 0.88rem; font-weight: 600; text-decoration: none; border-bottom: 3px solid {% if active_tab == 'delivery_ops' %}var(--color-primary-600){% else %}transparent{% endif %}; color: {% if active_tab == 'delivery_ops' %}var(--color-primary-600){% else %}var(--color-text-muted){% endif %}; white-space: nowrap;">
+        12. Delivery & Operations
+    </a>
 </div>
+
+<!-- ======================================================================= -->
+<!-- SECTION 0: Security Overview -->
+<!-- ======================================================================= -->
+{% if active_tab == 'overview' %}
+<div id="section-overview">
+    <!-- Telemetry Metric Cards -->
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; margin-bottom: 1.5rem;">
+        <div class="card" style="padding: 1rem;">
+            <div style="font-size: 0.78rem; text-transform: uppercase; color: var(--color-text-muted);">Total Identities</div>
+            <div style="font-size: 1.65rem; font-weight: 700; color: var(--color-primary-600); margin-top: 0.25rem;">{{ total_users_count }}</div>
+            <div style="font-size: 0.78rem; color: #10b981; margin-top: 0.25rem;">100% Central Managed</div>
+        </div>
+        <div class="card" style="padding: 1rem;">
+            <div style="font-size: 0.78rem; text-transform: uppercase; color: var(--color-text-muted);">Active Sessions</div>
+            <div style="font-size: 1.65rem; font-weight: 700; color: #0284c7; margin-top: 0.25rem;">{{ active_sessions_count }}</div>
+            <div style="font-size: 0.78rem; color: var(--color-text-muted); margin-top: 0.25rem;">Server-Side Opaque</div>
+        </div>
+        <div class="card" style="padding: 1rem;">
+            <div style="font-size: 0.78rem; text-transform: uppercase; color: var(--color-text-muted);">24h Security Events</div>
+            <div style="font-size: 1.65rem; font-weight: 700; color: #7c3aed; margin-top: 0.25rem;">{{ events_24h_count }}</div>
+            <div style="font-size: 0.78rem; color: var(--color-text-muted); margin-top: 0.25rem;">Durable Append-Only</div>
+        </div>
+        <div class="card" style="padding: 1rem;">
+            <div style="font-size: 0.78rem; text-transform: uppercase; color: var(--color-text-muted);">MFA Enrolled</div>
+            <div style="font-size: 1.65rem; font-weight: 700; color: #059669; margin-top: 0.25rem;">{{ mfa_enrolled_count }}</div>
+            <div style="font-size: 0.78rem; color: var(--color-text-muted); margin-top: 0.25rem;">RFC 6238 Compliant</div>
+        </div>
+        <div class="card" style="padding: 1rem;">
+            <div style="font-size: 0.78rem; text-transform: uppercase; color: var(--color-text-muted);">Active Service IDs</div>
+            <div style="font-size: 1.65rem; font-weight: 700; color: #d97706; margin-top: 0.25rem;">{{ service_identities_count }}</div>
+            <div style="font-size: 0.78rem; color: var(--color-text-muted); margin-top: 0.25rem;">M2M Scoped Tokens</div>
+        </div>
+        <div class="card" style="padding: 1rem;">
+            <div style="font-size: 0.78rem; text-transform: uppercase; color: var(--color-text-muted);">Rate Limit Records</div>
+            <div style="font-size: 1.65rem; font-weight: 700; color: #dc2626; margin-top: 0.25rem;">{{ rate_limits_count }}</div>
+            <div style="font-size: 0.78rem; color: var(--color-text-muted); margin-top: 0.25rem;">TiDB Coordinated</div>
+        </div>
+    </div>
+
+    <!-- Security Invariant Posture Cards -->
+    <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 1.5rem; align-items: start;">
+        <div class="card">
+            <h3 style="margin: 0 0 1rem 0; font-size: 1.15rem; font-weight: 700; color: var(--color-primary-600);">
+                Core Architecture & Cryptographic Invariants
+            </h3>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+                <div style="padding: 0.85rem; border: 1px solid var(--color-border-subtle); border-radius: 6px; background: #fafafa;">
+                    <div style="font-weight: 600; font-size: 0.88rem; color: var(--color-text-heading);">Primary Password Hasher</div>
+                    <div style="font-size: 0.8rem; color: #059669; margin-top: 0.25rem;">✓ Argon2id (RFC 9106) Active</div>
+                    <div style="font-size: 0.75rem; color: var(--color-text-muted); margin-top: 0.25rem;">Constant-time dummy verification on unknown IDs.</div>
+                </div>
+                <div style="padding: 0.85rem; border: 1px solid var(--color-border-subtle); border-radius: 6px; background: #fafafa;">
+                    <div style="font-weight: 600; font-size: 0.88rem; color: var(--color-text-heading);">Credential Encryption</div>
+                    <div style="font-size: 0.8rem; color: #059669; margin-top: 0.25rem;">✓ AES-256-GCM Envelope Active</div>
+                    <div style="font-size: 0.75rem; color: var(--color-text-muted); margin-top: 0.25rem;">Keyring 'k1' operational. TOTP secrets & templates secured.</div>
+                </div>
+                <div style="padding: 0.85rem; border: 1px solid var(--color-border-subtle); border-radius: 6px; background: #fafafa;">
+                    <div style="font-weight: 600; font-size: 0.88rem; color: var(--color-text-heading);">Session Engine</div>
+                    <div style="font-size: 0.8rem; color: #059669; margin-top: 0.25rem;">✓ Opaque Server-Side Database</div>
+                    <div style="font-size: 0.75rem; color: var(--color-text-muted); margin-top: 0.25rem;">8-hour session lifetime, immediate remote invalidation.</div>
+                </div>
+                <div style="padding: 0.85rem; border: 1px solid var(--color-border-subtle); border-radius: 6px; background: #fafafa;">
+                    <div style="font-weight: 600; font-size: 0.88rem; color: var(--color-text-heading);">Self-Service Recovery Token TTL</div>
+                    <div style="font-size: 0.8rem; color: #059669; margin-top: 0.25rem;">✓ Strictly 30 Seconds Enforced</div>
+                    <div style="font-size: 0.75rem; color: var(--color-text-muted); margin-top: 0.25rem;">Single-use HMAC token with atomic DB consumption.</div>
+                </div>
+                <div style="padding: 0.85rem; border: 1px solid var(--color-border-subtle); border-radius: 6px; background: #fafafa;">
+                    <div style="font-weight: 600; font-size: 0.88rem; color: var(--color-text-heading);">Database Engine</div>
+                    <div style="font-size: 0.8rem; color: #059669; margin-top: 0.25rem;">✓ TiDB Cloud (Distributed SQL)</div>
+                    <div style="font-size: 0.75rem; color: var(--color-text-muted); margin-top: 0.25rem;">Schema: salow_workspace, TiKV ACID transactions.</div>
+                </div>
+                <div style="padding: 0.85rem; border: 1px solid var(--color-border-subtle); border-radius: 6px; background: #fafafa;">
+                    <div style="font-weight: 600; font-size: 0.88rem; color: var(--color-text-heading);">Emergency Privileged Access</div>
+                    <div style="font-size: 0.8rem; color: {% if break_glass_active %}#dc2626{% else %}#059669{% endif %}; margin-top: 0.25rem;">
+                        {% if break_glass_active %}● Active (15m Ceiling){% else %}✓ Break-Glass Standby{% endif %}
+                    </div>
+                    <div style="font-size: 0.75rem; color: var(--color-text-muted); margin-top: 0.25rem;">Dual approval and biometric shield support.</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Quick Operational Actions -->
+        <div class="card">
+            <h3 style="margin: 0 0 1rem 0; font-size: 1.15rem; font-weight: 700; color: var(--color-primary-600);">
+                Quick Operational Links
+            </h3>
+            <div class="space-y-2">
+                <a href="?tab=identity" class="btn btn-secondary" style="width: 100%; display: flex; align-items: center; justify-content: space-between; font-size: 0.85rem;">
+                    <span>➕ Provision New Employee</span>
+                    <span>→</span>
+                </a>
+                <a href="?tab=recovery" class="btn btn-secondary" style="width: 100%; display: flex; align-items: center; justify-content: space-between; font-size: 0.85rem;">
+                    <span>🔑 Pending Recoveries ({{ pending_recovery_requests.count }})</span>
+                    <span>→</span>
+                </a>
+                <a href="?tab=investigation" class="btn btn-secondary" style="width: 100%; display: flex; align-items: center; justify-content: space-between; font-size: 0.85rem;">
+                    <span>🔍 Sign-In Live Investigation</span>
+                    <span>→</span>
+                </a>
+                <a href="?tab=services" class="btn btn-secondary" style="width: 100%; display: flex; align-items: center; justify-content: space-between; font-size: 0.85rem;">
+                    <span>🤖 Service Identities (M2M)</span>
+                    <span>→</span>
+                </a>
+                <a href="?tab=privileged" class="btn btn-secondary" style="width: 100%; display: flex; align-items: center; justify-content: space-between; font-size: 0.85rem;">
+                    <span>🚨 Break-Glass Emergency Elevation</span>
+                    <span>→</span>
+                </a>
+                <a href="{% url 'attendance:admin_panel' %}" class="btn btn-outline" style="width: 100%; display: flex; align-items: center; justify-content: space-between; font-size: 0.85rem; margin-top: 0.5rem;">
+                    <span>📋 Open Workspace Admin Panel</span>
+                    <span>→</span>
+                </a>
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
 
 <!-- ======================================================================= -->
 <!-- SECTION 1: Identity & Accounts -->
@@ -95,29 +262,25 @@
                             <th>Name</th>
                             <th>Role</th>
                             <th>Status</th>
-                            <th>Email Verified</th>
+                            <th>Email</th>
                         </tr>
                     </thead>
                     <tbody>
                         {% for u in users %}
                         <tr>
-                            <td><strong>{{ u.employee_id }}</strong></td>
-                            <td>{{ u.full_name }}</td>
-                            <td><span class="badge" style="background: var(--color-bg-subtle); padding: 0.2rem 0.5rem; border-radius: 4px; font-size: 0.78rem;">{{ u.get_role_display }}</span></td>
+                            <td><code>{{ u.employee_id }}</code></td>
+                            <td><strong>{{ u.full_name }}</strong></td>
+                            <td><span class="badge">{{ u.get_role_display }}</span></td>
                             <td>
-                                {% if u.is_active and u.status == 'active' %}
-                                <span style="color: #16a34a; font-weight: 600;">Active</span>
-                                {% elif u.status == 'suspended' %}
-                                <span style="color: #dc2626; font-weight: 600;">Suspended</span>
-                                {% else %}
-                                <span style="color: #ca8a04; font-weight: 600;">{{ u.get_status_display }}</span>
-                                {% endif %}
+                                <span class="badge {% if u.status == 'active' %}badge-success{% elif u.status == 'suspended' or u.status == 'exited' %}badge-danger{% else %}badge-warning{% endif %}">
+                                    {{ u.get_status_display }}
+                                </span>
                             </td>
-                            <td>{% if u.email_verified %}✓ Yes{% else %}<span style="color: var(--color-text-muted);">No</span>{% endif %}</td>
+                            <td>{{ u.email|default:"-" }}</td>
                         </tr>
                         {% empty %}
                         <tr>
-                            <td colspan="5" style="text-align: center; color: var(--color-text-muted); padding: 1.5rem;">No employees found.</td>
+                            <td colspan="5" style="text-align: center; color: var(--color-text-muted); padding: 1.5rem;">No employees found matching criteria.</td>
                         </tr>
                         {% endfor %}
                     </tbody>
@@ -125,158 +288,184 @@
             </div>
         </div>
 
-        <!-- Provision New Employee Form (Issues Activation Code) -->
-        <div class="card" style="border: 1px solid var(--color-primary-500); background: #fdfaf6;">
+        <!-- Provision Employee Card -->
+        {% if actor.role in 'super_admin,admin,hr' %}
+        <div class="card">
             <h3 style="margin: 0 0 0.5rem 0; font-size: 1.15rem; font-weight: 700; color: var(--color-primary-600);">
                 Provision New Employee
             </h3>
             <p style="font-size: 0.82rem; color: var(--color-text-muted); margin-bottom: 1rem;">
-                Creates account and generates a single-use activation code. The administrator never sees or sets permanent passwords.
+                Creates an account with an unusable password and generates a single-use Crockford Base32 activation code.
             </p>
             <form method="post" action="{% url 'accounts:admin_iam' %}" class="space-y-3">
                 {% csrf_token %}
                 <input type="hidden" name="action" value="create_employee">
-
                 <div class="form-group">
                     <label class="form-label" style="font-size: 0.82rem;">Employee ID</label>
                     <input type="text" name="employee_id" class="form-input" placeholder="e.g. ST-EMP-0042" required>
                 </div>
                 <div class="form-group">
                     <label class="form-label" style="font-size: 0.82rem;">Full Name</label>
-                    <input type="text" name="full_name" class="form-input" placeholder="e.g. Maya Chen" required>
+                    <input type="text" name="full_name" class="form-input" placeholder="e.g. Alex Morgan" required>
                 </div>
                 <div class="form-group">
-                    <label class="form-label" style="font-size: 0.82rem;">Company Email (@salowtech.com)</label>
-                    <input type="email" name="email" class="form-input" placeholder="maya.chen@salowtech.com" required>
+                    <label class="form-label" style="font-size: 0.82rem;">Company Email</label>
+                    <input type="email" name="email" class="form-input" placeholder="e.g. alex.morgan@salowtech.com" required>
                 </div>
                 <div class="form-group">
                     <label class="form-label" style="font-size: 0.82rem;">Assigned Role</label>
-                    <select name="role" class="form-input">
-                        {% for r_key, r_label in role_choices %}
-                            {% if actor.role == 'super_admin' or r_key != 'super_admin' %}
-                            <option value="{{ r_key }}" {% if r_key == 'employee' %}selected{% endif %}>{{ r_label }}</option>
+                    <select name="role" class="form-input" required>
+                        {% for val, label in role_choices %}
+                            {% if actor.role == 'super_admin' or val != 'super_admin' %}
+                                {% if actor.role != 'hr' or val in 'employee,intern' %}
+                                <option value="{{ val }}" {% if val == 'employee' %}selected{% endif %}>{{ label }}</option>
+                                {% endif %}
                             {% endif %}
                         {% endfor %}
                     </select>
                 </div>
-                <button type="submit" class="btn btn-primary" style="width: 100%; margin-top: 0.5rem; font-weight: 600;">
-                    Generate Activation Code →
+                <button type="submit" class="btn btn-primary" style="width: 100%; margin-top: 0.5rem;">
+                    Issue One-Time Activation Code
                 </button>
             </form>
         </div>
+        {% endif %}
     </div>
 </div>
 {% endif %}
 
 <!-- ======================================================================= -->
-<!-- SECTION 2: Roles & Permissions Matrix -->
+<!-- SECTION 2: Roles & Permissions -->
 <!-- ======================================================================= -->
 {% if active_tab == 'roles' %}
 <div id="section-roles">
-    <div class="card" style="margin-bottom: 1.5rem;">
-        <h3 style="margin: 0 0 0.5rem 0; font-size: 1.15rem; font-weight: 700; color: var(--color-primary-600);">
-            Salow Workspace Role-Based Access Control (RBAC) Matrix
-        </h3>
-        <p style="font-size: 0.88rem; color: var(--color-text-muted); margin-bottom: 1.25rem;">
-            Hierarchical authorization matrix governing the six primary system roles.
-        </p>
-        <div class="table-container" style="overflow-x: auto;">
-            <table class="table" style="width: 100%; font-size: 0.88rem;">
-                <thead>
-                    <tr>
-                        <th>Role</th>
-                        <th>Description</th>
-                        <th>User Provisioning</th>
-                        <th>Role Management</th>
-                        <th>Recovery Authority</th>
-                        <th>Security Shield</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for r in roles_matrix %}
-                    <tr>
-                        <td><strong>{{ r.role }}</strong></td>
-                        <td style="color: var(--color-text-muted);">{{ r.description }}</td>
-                        <td>{{ r.can_create_users }}</td>
-                        <td>{{ r.can_manage_roles }}</td>
-                        <td>{{ r.recovery_authority }}</td>
-                        <td>{% if r.shield_access %}<span style="color: #16a34a; font-weight: 700;">🛡️ Active</span>{% else %}<span style="color: var(--color-text-muted);">Disabled</span>{% endif %}</td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
+    <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 1.5rem; align-items: start;">
+        <!-- 6-Role RBAC Matrix -->
+        <div class="card">
+            <h3 style="margin: 0 0 0.5rem 0; font-size: 1.15rem; font-weight: 700; color: var(--color-primary-600);">
+                Enterprise Role-Based Access Control (RBAC) Matrix
+            </h3>
+            <p style="font-size: 0.82rem; color: var(--color-text-muted); margin-bottom: 1rem;">
+                Cryptographic authorization bounds enforced on all server actions.
+            </p>
+            <div class="table-container" style="overflow-x: auto;">
+                <table class="table" style="width: 100%; font-size: 0.85rem;">
+                    <thead>
+                        <tr>
+                            <th>Role</th>
+                            <th>Description</th>
+                            <th>User Provisioning</th>
+                            <th>Recovery Authority</th>
+                            <th>Shield Access</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for r in roles_matrix %}
+                        <tr>
+                            <td><strong>{{ r.role }}</strong></td>
+                            <td style="font-size: 0.8rem; color: var(--color-text-muted);">{{ r.description }}</td>
+                            <td>{{ r.can_create_users }}</td>
+                            <td>{{ r.recovery_authority }}</td>
+                            <td>
+                                {% if r.shield_access %}
+                                <span class="badge badge-success">✓ Enabled</span>
+                                {% else %}
+                                <span style="color: var(--color-text-muted); font-size: 0.8rem;">—</span>
+                                {% endif %}
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
         </div>
-    </div>
 
-    {% if actor.role in 'super_admin,admin' %}
-    <div class="card" style="max-width: 500px;">
-        <h4 style="margin: 0 0 0.5rem 0; font-weight: 700; color: var(--color-primary-600);">Update User Role</h4>
-        <form method="post" action="{% url 'accounts:admin_iam' %}" class="space-y-3">
-            {% csrf_token %}
-            <input type="hidden" name="action" value="update_role">
-            <div class="form-group">
-                <label class="form-label" style="font-size: 0.82rem;">Target Employee ID</label>
-                <input type="text" name="target_employee_id" class="form-input" placeholder="e.g. ST-EMP-0001" required>
-            </div>
-            <div class="form-group">
-                <label class="form-label" style="font-size: 0.82rem;">New Role</label>
-                <select name="new_role" class="form-input">
-                    {% for r_key, r_label in role_choices %}
-                        {% if actor.role == 'super_admin' or r_key != 'super_admin' %}
-                        <option value="{{ r_key }}">{{ r_label }}</option>
-                        {% endif %}
-                    {% endfor %}
-                </select>
-            </div>
-            <button type="submit" class="btn btn-secondary" style="width: 100%; font-weight: 600;">
-                Update Role & Revoke Sessions
-            </button>
-        </form>
+        <!-- Role Reassignment Card -->
+        {% if actor.role in 'super_admin,admin' %}
+        <div class="card">
+            <h3 style="margin: 0 0 0.5rem 0; font-size: 1.15rem; font-weight: 700; color: var(--color-primary-600);">
+                Modify Role Assignment
+            </h3>
+            <p style="font-size: 0.82rem; color: var(--color-text-muted); margin-bottom: 1rem;">
+                Reassigning a role immediately terminates all active device sessions for security.
+            </p>
+            <form method="post" action="{% url 'accounts:admin_iam' %}" class="space-y-3">
+                {% csrf_token %}
+                <input type="hidden" name="action" value="update_role">
+                <div class="form-group">
+                    <label class="form-label" style="font-size: 0.82rem;">Target Employee ID</label>
+                    <input type="text" name="target_employee_id" class="form-input" placeholder="e.g. ST-EMP-0010" required>
+                </div>
+                <div class="form-group">
+                    <label class="form-label" style="font-size: 0.82rem;">New Role</label>
+                    <select name="new_role" class="form-input" required>
+                        {% for val, label in role_choices %}
+                            {% if actor.role == 'super_admin' or val != 'super_admin' %}
+                            <option value="{{ val }}">{{ label }}</option>
+                            {% endif %}
+                        {% endfor %}
+                    </select>
+                </div>
+                <button type="submit" class="btn btn-secondary" style="width: 100%; margin-top: 0.5rem;">
+                    Update Role & Invalidate Sessions
+                </button>
+            </form>
+        </div>
+        {% endif %}
     </div>
-    {% endif %}
 </div>
 {% endif %}
 
 <!-- ======================================================================= -->
-<!-- SECTION 3: Security & MFA Overview -->
+<!-- SECTION 3: Security & MFA -->
 <!-- ======================================================================= -->
 {% if active_tab == 'security_mfa' %}
 <div id="section-security-mfa">
-    <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 1rem; margin-bottom: 1.5rem;">
-        <div class="card" style="text-align: center; padding: 1.25rem;">
-            <div style="font-size: 1.75rem; font-weight: 700; color: var(--color-primary-600);">{{ total_users_count }}</div>
-            <div style="font-size: 0.82rem; color: var(--color-text-muted); margin-top: 0.25rem;">Total Accounts</div>
-        </div>
-        <div class="card" style="text-align: center; padding: 1.25rem;">
-            <div style="font-size: 1.75rem; font-weight: 700; color: #16a34a;">{{ mfa_enrolled_count }}</div>
-            <div style="font-size: 0.82rem; color: var(--color-text-muted); margin-top: 0.25rem;">MFA Enrolled</div>
-        </div>
-        <div class="card" style="text-align: center; padding: 1.25rem;">
-            <div style="font-size: 1.75rem; font-weight: 700; color: #2563eb;">{{ active_recovery_codes_count }}</div>
-            <div style="font-size: 0.82rem; color: var(--color-text-muted); margin-top: 0.25rem;">Unused Backup Codes</div>
-        </div>
-        <div class="card" style="text-align: center; padding: 1.25rem;">
-            <div style="font-size: 1.75rem; font-weight: 700; color: #7c3aed;">{{ passkeys_count }}</div>
-            <div style="font-size: 0.82rem; color: var(--color-text-muted); margin-top: 0.25rem;">Registered Passkeys</div>
-        </div>
-    </div>
-
-    <div class="card" style="max-width: 500px;">
-        <h4 style="margin: 0 0 0.5rem 0; font-weight: 700; color: var(--color-primary-600);">Issue Single-Use MFA Reset Code</h4>
-        <p style="font-size: 0.82rem; color: var(--color-text-muted); margin-bottom: 1rem;">
-            Issues a single-use code to allow an employee whose device is inaccessible to re-enroll a fresh authenticator.
-        </p>
-        <form method="post" action="{% url 'accounts:admin_iam' %}" class="space-y-3">
-            {% csrf_token %}
-            <input type="hidden" name="action" value="issue_mfa_reset">
-            <div class="form-group">
-                <label class="form-label" style="font-size: 0.82rem;">Target Employee ID</label>
-                <input type="text" name="target_employee_id" class="form-input" placeholder="e.g. ST-EMP-0001" required>
+    <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 1.5rem; align-items: start;">
+        <!-- MFA Stats Overview -->
+        <div class="card">
+            <h3 style="margin: 0 0 1rem 0; font-size: 1.15rem; font-weight: 700; color: var(--color-primary-600);">
+                MFA & Multi-Factor Telemetry
+            </h3>
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 1rem; margin-bottom: 1.5rem;">
+                <div style="padding: 1rem; border: 1px solid var(--color-border-subtle); border-radius: 6px; background: #fafafa;">
+                    <div style="font-size: 0.78rem; color: var(--color-text-muted); text-transform: uppercase;">Confirmed TOTP MFA</div>
+                    <div style="font-size: 1.5rem; font-weight: 700; color: var(--color-primary-600); margin-top: 0.25rem;">{{ mfa_enrolled_count }} / {{ total_users_count }}</div>
+                </div>
+                <div style="padding: 1rem; border: 1px solid var(--color-border-subtle); border-radius: 6px; background: #fafafa;">
+                    <div style="font-size: 0.78rem; color: var(--color-text-muted); text-transform: uppercase;">Active Backup Codes</div>
+                    <div style="font-size: 1.5rem; font-weight: 700; color: #059669; margin-top: 0.25rem;">{{ active_recovery_codes_count }}</div>
+                </div>
+                <div style="padding: 1rem; border: 1px solid var(--color-border-subtle); border-radius: 6px; background: #fafafa;">
+                    <div style="font-size: 0.78rem; color: var(--color-text-muted); text-transform: uppercase;">Passkeys Registered</div>
+                    <div style="font-size: 1.5rem; font-weight: 700; color: #7c3aed; margin-top: 0.25rem;">{{ passkeys_count }}</div>
+                </div>
             </div>
-            <button type="submit" class="btn btn-secondary" style="width: 100%; font-weight: 600;">
-                Generate MFA Reset Code
-            </button>
-        </form>
+            <div style="padding: 1rem; background: #fdfaf6; border-left: 4px solid var(--color-primary-600); border-radius: 4px; font-size: 0.85rem; color: var(--color-text-body);">
+                <strong>RFC 6238 Invariant:</strong> Authenticator secrets are encrypted via AES-256-GCM. 10 single-use recovery codes are issued upon enrollment. Old credentials are preserved until re-enrollment succeeds atomically.
+            </div>
+        </div>
+
+        <!-- MFA Reset Trigger -->
+        <div class="card">
+            <h3 style="margin: 0 0 0.5rem 0; font-size: 1.15rem; font-weight: 700; color: var(--color-primary-600);">
+                Issue MFA Reset Code
+            </h3>
+            <p style="font-size: 0.82rem; color: var(--color-text-muted); margin-bottom: 1rem;">
+                Delegated authority check: Generates a single-use Crockford code allowing employee to replace their authenticator.
+            </p>
+            <form method="post" action="{% url 'accounts:admin_iam' %}" class="space-y-3">
+                {% csrf_token %}
+                <input type="hidden" name="action" value="issue_mfa_reset">
+                <div class="form-group">
+                    <label class="form-label" style="font-size: 0.82rem;">Target Employee ID</label>
+                    <input type="text" name="target_employee_id" class="form-input" placeholder="e.g. ST-EMP-0010" required>
+                </div>
+                <button type="submit" class="btn btn-secondary" style="width: 100%; margin-top: 0.5rem;">
+                    Generate MFA Reset Code
+                </button>
+            </form>
+        </div>
     </div>
 </div>
 {% endif %}
@@ -288,17 +477,19 @@
 <div id="section-sessions">
     <div class="card">
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
-            <h3 style="margin: 0; font-size: 1.15rem; font-weight: 700; color: var(--color-primary-600);">Active Server-Side Sessions</h3>
-            <span style="font-size: 0.82rem; color: var(--color-text-muted);">Displaying {{ active_sessions.count }} active sessions</span>
+            <h3 style="margin: 0; font-size: 1.15rem; font-weight: 700; color: var(--color-primary-600);">
+                Active Server-Side Sessions ({{ active_sessions.count }})
+            </h3>
+            <span style="font-size: 0.82rem; color: var(--color-text-muted);">Enforced 8-hour absolute ceiling</span>
         </div>
         <div class="table-container" style="overflow-x: auto;">
-            <table class="table" style="width: 100%; font-size: 0.88rem;">
+            <table class="table" style="width: 100%; font-size: 0.85rem;">
                 <thead>
                     <tr>
-                        <th>Employee ID</th>
-                        <th>Session Key</th>
+                        <th>Employee</th>
+                        <th>Session Identifier</th>
                         <th>IP Address</th>
-                        <th>Device / User Agent</th>
+                        <th>MFA Verified</th>
                         <th>Last Activity</th>
                         <th>Action</th>
                     </tr>
@@ -306,23 +497,39 @@
                 <tbody>
                     {% for s in active_sessions %}
                     <tr>
-                        <td><strong>{{ s.user.employee_id }}</strong> ({{ s.user.full_name }})</td>
-                        <td><code>{{ s.session_key|slice:":10" }}...</code></td>
-                        <td>{{ s.ip_address|default:"127.0.0.1" }}</td>
-                        <td style="font-size: 0.78rem; color: var(--color-text-muted);">{{ s.user_agent|truncatechars:35 }}</td>
-                        <td>{{ s.last_activity|timesince }} ago</td>
+                        <td><strong>{{ s.user.full_name }}</strong> ({{ s.user.employee_id }})</td>
+                        <td><code>{{ s.session_key|slice:":8" }}...</code></td>
+                        <td>{{ s.ip_address|default:"-" }}</td>
                         <td>
-                            <form method="post" action="{% url 'accounts:admin_iam' %}" style="display: inline;">
+                            {% if s.mfa_verified %}
+                            <span class="badge badge-success">✓ Verified</span>
+                            {% else %}
+                            <span class="badge badge-warning">Pre-Auth</span>
+                            {% endif %}
+                        </td>
+                        <td>{{ s.last_activity|date:"M d, H:i:s" }}</td>
+                        <td>
+                            <form method="post" action="{% url 'accounts:admin_iam' %}" style="display: inline-flex; gap: 0.25rem;">
                                 {% csrf_token %}
                                 <input type="hidden" name="action" value="revoke_session">
                                 <input type="hidden" name="session_key" value="{{ s.session_key }}">
-                                <button type="submit" class="btn btn-outline btn-sm" style="color: #dc2626; border-color: #dc2626;">Revoke</button>
+                                <button type="submit" class="btn btn-sm btn-outline" style="color: #dc2626; border-color: #dc2626;">
+                                    Revoke
+                                </button>
+                            </form>
+                            <form method="post" action="{% url 'accounts:admin_iam' %}" style="display: inline-flex; margin-left: 0.25rem;">
+                                {% csrf_token %}
+                                <input type="hidden" name="action" value="revoke_user_all_sessions">
+                                <input type="hidden" name="target_employee_id" value="{{ s.user.employee_id }}">
+                                <button type="submit" class="btn btn-sm btn-secondary" title="Revoke all sessions for this employee">
+                                    Revoke All
+                                </button>
                             </form>
                         </td>
                     </tr>
                     {% empty %}
                     <tr>
-                        <td colspan="6" style="text-align: center; color: var(--color-text-muted); padding: 1.5rem;">No active user sessions found.</td>
+                        <td colspan="6" style="text-align: center; color: var(--color-text-muted); padding: 1.5rem;">No active user sessions recorded.</td>
                     </tr>
                     {% endfor %}
                 </tbody>
@@ -337,63 +544,104 @@
 <!-- ======================================================================= -->
 {% if active_tab == 'recovery' %}
 <div id="section-recovery">
-    <div class="card">
+    <!-- Pending Recovery Requests -->
+    <div class="card" style="margin-bottom: 1.5rem;">
         <h3 style="margin: 0 0 0.5rem 0; font-size: 1.15rem; font-weight: 700; color: var(--color-primary-600);">
-            Pending Employee Recovery Queue
+            Pending Recovery Requests ({{ pending_recovery_requests.count }})
         </h3>
-        <p style="font-size: 0.85rem; color: var(--color-text-muted); margin-bottom: 1.25rem;">
-            Recovery requests submitted by employees. Privileged account recoveries require dual-administrator approval.
+        <p style="font-size: 0.82rem; color: var(--color-text-muted); margin-bottom: 1rem;">
+            Super Admin accounts strictly require dual approval from two distinct Super Administrators.
         </p>
-
-        {% if pending_recovery_requests %}
         <div class="table-container" style="overflow-x: auto;">
-            <table class="table" style="width: 100%; font-size: 0.88rem;">
+            <table class="table" style="width: 100%; font-size: 0.85rem;">
                 <thead>
                     <tr>
-                        <th>Req #</th>
-                        <th>Employee ID</th>
-                        <th>Full Name</th>
+                        <th>Date</th>
+                        <th>Employee</th>
                         <th>Type</th>
                         <th>Reason</th>
-                        <th>Submitted</th>
+                        <th>Status</th>
                         <th>Action</th>
                     </tr>
                 </thead>
                 <tbody>
                     {% for req in pending_recovery_requests %}
                     <tr>
-                        <td><strong>#{{ req.id }}</strong></td>
-                        <td>{{ req.user.employee_id }}</td>
-                        <td>{{ req.user.full_name }}</td>
-                        <td><span class="badge" style="background: #eff6ff; color: #1d4ed8; font-size: 0.75rem; padding: 0.2rem 0.5rem;">{{ req.get_request_type_display }}</span></td>
-                        <td style="font-size: 0.82rem; color: var(--color-text-muted);">{{ req.reason|default:"No reason supplied" }}</td>
-                        <td>{{ req.created_at|timesince }} ago</td>
+                        <td>{{ req.created_at|date:"M d, H:i" }}</td>
+                        <td><strong>{{ req.user.full_name }}</strong> ({{ req.user.employee_id }})</td>
+                        <td><span class="badge">{{ req.get_request_type_display }}</span></td>
+                        <td>{{ req.reason|default:"No explanation provided" }}</td>
+                        <td><span class="badge badge-warning">{{ req.get_status_display }}</span></td>
                         <td>
-                            <form method="post" action="{% url 'accounts:admin_iam' %}" style="display: inline-flex; gap: 0.35rem;">
+                            <form method="post" action="{% url 'accounts:admin_iam' %}" style="display: inline-flex; gap: 0.25rem;">
                                 {% csrf_token %}
+                                <input type="hidden" name="action" value="approve_recovery">
                                 <input type="hidden" name="request_id" value="{{ req.id }}">
-                                {% if req.user.role == 'super_admin' or req.user.role == 'admin' %}
-                                <select name="second_approver_id" class="form-input" style="padding: 0.2rem; font-size: 0.75rem;" required>
-                                    <option value="">Select 2nd Admin...</option>
+                                {% if req.user.role == 'super_admin' and super_admins %}
+                                <select name="second_approver_id" class="form-input" style="padding: 0.2rem 0.4rem; font-size: 0.78rem;" required>
+                                    <option value="">Second Approver...</option>
                                     {% for sa in super_admins %}
-                                    <option value="{{ sa.id }}">{{ sa.employee_id }} ({{ sa.full_name }})</option>
+                                    <option value="{{ sa.id }}">{{ sa.full_name }} ({{ sa.employee_id }})</option>
                                     {% endfor %}
                                 </select>
                                 {% endif %}
-                                <button type="submit" name="action" value="approve_recovery" class="btn btn-primary btn-sm">Approve</button>
-                                <button type="submit" name="action" value="reject_recovery" class="btn btn-outline btn-sm" style="color: #dc2626;">Reject</button>
+                                <button type="submit" class="btn btn-sm btn-primary">Approve</button>
+                            </form>
+                            <form method="post" action="{% url 'accounts:admin_iam' %}" style="display: inline-flex; margin-left: 0.25rem;">
+                                {% csrf_token %}
+                                <input type="hidden" name="action" value="reject_recovery">
+                                <input type="hidden" name="request_id" value="{{ req.id }}">
+                                <button type="submit" class="btn btn-sm btn-outline">Reject</button>
                             </form>
                         </td>
+                    </tr>
+                    {% empty %}
+                    <tr>
+                        <td colspan="6" style="text-align: center; color: var(--color-text-muted); padding: 1.5rem;">No pending recovery requests awaiting review.</td>
                     </tr>
                     {% endfor %}
                 </tbody>
             </table>
         </div>
-        {% else %}
-        <div style="text-align: center; padding: 2rem; background: var(--color-bg-subtle); border-radius: 6px; color: var(--color-text-muted);">
-            ✓ No pending recovery requests. The administrator recovery queue is clear.
+    </div>
+
+    <!-- Recent Recovery Operations Log -->
+    <div class="card">
+        <h3 style="margin: 0 0 1rem 0; font-size: 1.15rem; font-weight: 700; color: var(--color-primary-600);">
+            Recent Recovery Operations History
+        </h3>
+        <div class="table-container" style="overflow-x: auto;">
+            <table class="table" style="width: 100%; font-size: 0.85rem;">
+                <thead>
+                    <tr>
+                        <th>Date</th>
+                        <th>Employee</th>
+                        <th>Type</th>
+                        <th>Approved By</th>
+                        <th>Status</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for rec in recent_recoveries %}
+                    <tr>
+                        <td>{{ rec.created_at|date:"Y-m-d H:i" }}</td>
+                        <td><strong>{{ rec.user.employee_id }}</strong></td>
+                        <td>{{ rec.get_request_type_display }}</td>
+                        <td>{{ rec.approved_by.employee_id|default:"Self-Service" }}</td>
+                        <td>
+                            <span class="badge {% if rec.status == 'approved' or rec.status == 'completed' %}badge-success{% elif rec.status == 'rejected' %}badge-danger{% else %}badge-secondary{% endif %}">
+                                {{ rec.get_status_display }}
+                            </span>
+                        </td>
+                    </tr>
+                    {% empty %}
+                    <tr>
+                        <td colspan="5" style="text-align: center; color: var(--color-text-muted); padding: 1.5rem;">No recent recovery operations recorded.</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
         </div>
-        {% endif %}
     </div>
 </div>
 {% endif %}
@@ -403,12 +651,12 @@
 <!-- ======================================================================= -->
 {% if active_tab == 'lifecycle' %}
 <div id="section-lifecycle">
-    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem;">
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1.5rem;">
         <!-- Suspend Account Card -->
         <div class="card" style="border: 1px solid #fecaca;">
             <h4 style="margin: 0 0 0.5rem 0; font-weight: 700; color: #dc2626;">Suspend Account</h4>
             <p style="font-size: 0.82rem; color: var(--color-text-muted); margin-bottom: 1rem;">
-                Immediately revokes all active device sessions and disables future authentication.
+                Immediately revokes all active device sessions and disables future authentication attempts.
             </p>
             <form method="post" action="{% url 'accounts:admin_iam' %}" class="space-y-3">
                 {% csrf_token %}
@@ -427,7 +675,7 @@
         <div class="card" style="border: 1px solid #bbf7d0;">
             <h4 style="margin: 0 0 0.5rem 0; font-weight: 700; color: #16a34a;">Reactivate Account</h4>
             <p style="font-size: 0.82rem; color: var(--color-text-muted); margin-bottom: 1rem;">
-                Restores an account to active status.
+                Restores a suspended or inactive account to active status with existing authenticators.
             </p>
             <form method="post" action="{% url 'accounts:admin_iam' %}" class="space-y-3">
                 {% csrf_token %}
@@ -441,6 +689,25 @@
                 </button>
             </form>
         </div>
+
+        <!-- Mark Exited Card -->
+        <div class="card" style="border: 1px solid #e2e8f0;">
+            <h4 style="margin: 0 0 0.5rem 0; font-weight: 700; color: #475569;">Mark Employee Exited</h4>
+            <p style="font-size: 0.82rem; color: var(--color-text-muted); margin-bottom: 1rem;">
+                Permanently terminates staff employment lifecycle, sets end date to today, and purges all active sessions.
+            </p>
+            <form method="post" action="{% url 'accounts:admin_iam' %}" class="space-y-3">
+                {% csrf_token %}
+                <input type="hidden" name="action" value="exit_account">
+                <div class="form-group">
+                    <label class="form-label" style="font-size: 0.82rem;">Target Employee ID</label>
+                    <input type="text" name="target_employee_id" class="form-input" placeholder="e.g. ST-EMP-0001" required>
+                </div>
+                <button type="submit" class="btn btn-outline" style="width: 100%; color: #475569; border-color: #94a3b8; font-weight: 600;">
+                    Mark Exited & Revoke Access
+                </button>
+            </form>
+        </div>
     </div>
 </div>
 {% endif %}
@@ -450,9 +717,10 @@
 <!-- ======================================================================= -->
 {% if active_tab == 'audit' %}
 <div id="section-audit">
-    <div class="card">
+    <!-- Security AuthEvents -->
+    <div class="card" style="margin-bottom: 1.5rem;">
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
-            <h3 style="margin: 0; font-size: 1.15rem; font-weight: 700; color: var(--color-primary-600);">Real-Time Authentication & IAM Events</h3>
+            <h3 style="margin: 0; font-size: 1.15rem; font-weight: 700; color: var(--color-primary-600);">Real-Time Authentication & Security Events</h3>
             <span style="font-size: 0.82rem; color: var(--color-text-muted);">Recent 60 events</span>
         </div>
         <div class="table-container" style="overflow-x: auto;">
@@ -464,6 +732,7 @@
                         <th>Code</th>
                         <th>Employee ID</th>
                         <th>IP Address</th>
+                        <th>Reference / Flow ID</th>
                         <th>Details</th>
                     </tr>
                 </thead>
@@ -474,12 +743,604 @@
                         <td><strong>{{ evt.event }}</strong></td>
                         <td><code>{{ evt.code }}</code></td>
                         <td>{{ evt.employee_id|default:"-" }}</td>
-                        <td>{{ evt.ip_address|default:"-" }}</td>
+                        <td>{{ evt.network_address|default:"-" }}</td>
+                        <td><code>{{ evt.reference_id|default:"-" }}</code></td>
                         <td style="color: var(--color-text-muted); font-size: 0.8rem;">{{ evt.message|truncatechars:50 }}</td>
                     </tr>
                     {% empty %}
                     <tr>
-                        <td colspan="6" style="text-align: center; color: var(--color-text-muted); padding: 1.5rem;">No authentication events recorded yet.</td>
+                        <td colspan="7" style="text-align: center; color: var(--color-text-muted); padding: 1.5rem;">No authentication events recorded yet.</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- Immutable Business Audit Log -->
+    <div class="card">
+        <h3 style="margin: 0 0 1rem 0; font-size: 1.15rem; font-weight: 700; color: var(--color-primary-600);">
+            Immutable Business & Administration Audit Log (<code>core_auditlog</code>)
+        </h3>
+        <div class="table-container" style="overflow-x: auto;">
+            <table class="table" style="width: 100%; font-size: 0.84rem;">
+                <thead>
+                    <tr>
+                        <th>Created At</th>
+                        <th>Actor</th>
+                        <th>Action Code</th>
+                        <th>Target</th>
+                        <th>Request ID</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for b in business_audits %}
+                    <tr>
+                        <td style="white-space: nowrap; font-family: var(--font-mono); font-size: 0.78rem;">{{ b.created_at|date:"Y-m-d H:i:s" }}</td>
+                        <td><strong>{{ b.actor.employee_id|default:"system" }}</strong></td>
+                        <td><code>{{ b.action }}</code></td>
+                        <td>{{ b.target_type }}:{{ b.target_id }}</td>
+                        <td><code>{{ b.request_id|default:"-" }}</code></td>
+                    </tr>
+                    {% empty %}
+                    <tr>
+                        <td colspan="5" style="text-align: center; color: var(--color-text-muted); padding: 1.5rem;">No business audit logs recorded yet.</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+<!-- ======================================================================= -->
+<!-- SECTION 8: People, Teams & Groups -->
+<!-- ======================================================================= -->
+{% if active_tab == 'people_teams' %}
+<div id="section-people-teams">
+    <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 1.5rem; align-items: start;">
+        <!-- Teams & Departments Table -->
+        <div class="card">
+            <h3 style="margin: 0 0 1rem 0; font-size: 1.15rem; font-weight: 700; color: var(--color-primary-600);">
+                Organizational Teams & Leadership
+            </h3>
+            <div class="table-container" style="overflow-x: auto;">
+                <table class="table" style="width: 100%; font-size: 0.85rem;">
+                    <thead>
+                        <tr>
+                            <th>Team Code</th>
+                            <th>Team Name</th>
+                            <th>Department</th>
+                            <th>Team Lead</th>
+                            <th>Members</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for t in teams %}
+                        <tr>
+                            <td><code>{{ t.code }}</code></td>
+                            <td><strong>{{ t.name }}</strong></td>
+                            <td>{{ t.department.name }}</td>
+                            <td>{{ t.lead.full_name|default:"Not Assigned" }}</td>
+                            <td>{{ t.memberships.count }}</td>
+                        </tr>
+                        {% empty %}
+                        <tr>
+                            <td colspan="5" style="text-align: center; color: var(--color-text-muted); padding: 1.5rem;">No teams configured.</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Add Team Membership -->
+        <div class="card">
+            <h3 style="margin: 0 0 0.5rem 0; font-size: 1.15rem; font-weight: 700; color: var(--color-primary-600);">
+                Assign Team Membership
+            </h3>
+            <p style="font-size: 0.82rem; color: var(--color-text-muted); margin-bottom: 1rem;">
+                Enforces single lead per team and organizational reporting integrity.
+            </p>
+            <form method="post" action="{% url 'accounts:admin_iam' %}" class="space-y-3">
+                {% csrf_token %}
+                <input type="hidden" name="action" value="add_team_membership">
+                <div class="form-group">
+                    <label class="form-label" style="font-size: 0.82rem;">Employee ID</label>
+                    <input type="text" name="target_employee_id" class="form-input" placeholder="e.g. ST-EMP-0010" required>
+                </div>
+                <div class="form-group">
+                    <label class="form-label" style="font-size: 0.82rem;">Select Team</label>
+                    <select name="team_code" class="form-input" required>
+                        {% for t in teams %}
+                        <option value="{{ t.code }}">{{ t.name }} ({{ t.code }})</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <button type="submit" class="btn btn-primary" style="width: 100%; margin-top: 0.5rem;">
+                    Assign Membership
+                </button>
+            </form>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+<!-- ======================================================================= -->
+<!-- SECTION 9: Sign-in Investigation -->
+<!-- ======================================================================= -->
+{% if active_tab == 'investigation' %}
+<div id="section-investigation">
+    <!-- Live Real-Time Stream Banner -->
+    <div class="card" style="margin-bottom: 1.5rem; background: #0f172a; color: #f8fafc; padding: 1.25rem;">
+        <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem;">
+            <div>
+                <div style="display: flex; align-items: center; gap: 0.5rem;">
+                    <div style="width: 10px; height: 10px; border-radius: 50%; background: #10b981; box-shadow: 0 0 8px #10b981;"></div>
+                    <h3 style="margin: 0; font-size: 1.1rem; font-weight: 700; color: #f8fafc;">Live SSE Authentication Monitor</h3>
+                </div>
+                <p style="margin: 0.35rem 0 0 0; font-size: 0.82rem; color: #94a3b8;">
+                    Real-time Server-Sent Events stream from <code>{% url 'accounts:admin_iam_live_stream' %}</code>. Stage trace with zero secret disclosure.
+                </p>
+            </div>
+            <a href="{% url 'accounts:admin_iam_live_stream' %}" target="_blank" class="btn btn-secondary btn-sm" style="background: #334155; color: #f8fafc; border: 1px solid #475569;">
+                Open Raw SSE Feed ↗
+            </a>
+        </div>
+        <!-- Live SSE Stream Event Feed Box -->
+        <div id="live-sse-box" style="margin-top: 1rem; border-top: 1px solid #334155; padding-top: 0.75rem;">
+            <div style="display: flex; justify-content: space-between; align-items: center; font-size: 0.8rem; margin-bottom: 0.5rem;">
+                <span id="sse-status" style="color: #10b981; font-weight: 600;">● Live Stream Connected (Receiving real-time security events)</span>
+                <span style="color: #64748b; font-size: 0.75rem;">Auto-reconnecting SSE feed</span>
+            </div>
+            <div id="live-stream-items" style="max-height: 240px; overflow-y: auto; display: flex; flex-direction: column; gap: 0.4rem; font-family: monospace; font-size: 0.78rem;">
+                <div class="stream-placeholder" style="color: #94a3b8; padding: 0.5rem; text-align: center; border: 1px dashed #334155; border-radius: 4px;">
+                    Listening for real-time authentication events on /auth/admin/iam/live-stream/...
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Search / Filter by Correlation ID or Employee ID -->
+    <div class="card" style="margin-bottom: 1.5rem;">
+        <form method="get" style="display: flex; gap: 0.75rem; align-items: center;">
+            <input type="hidden" name="tab" value="investigation">
+            <input type="text" name="q_flow" value="{{ q_flow }}" placeholder="Search by Flow ID, Correlation ID, or Employee ID..." class="form-input" style="flex: 1;">
+            <button type="submit" class="btn btn-primary">Inspect Flow</button>
+            {% if q_flow %}
+            <a href="?tab=investigation" class="btn btn-outline">Clear</a>
+            {% endif %}
+        </form>
+    </div>
+
+    <!-- Stage-by-Stage Architecture Flow Details -->
+    <div class="card" style="margin-bottom: 1.5rem;">
+        <h4 style="margin: 0 0 1rem 0; font-size: 1.05rem; font-weight: 700; color: var(--color-primary-600);">
+            Authentication State Machine Flow Stages
+        </h4>
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 0.75rem;">
+            <div style="padding: 0.75rem; border-left: 3px solid #3b82f6; background: #f8fafc; border-radius: 4px;">
+                <div style="font-weight: 700; font-size: 0.82rem;">Stage 1: Identity Lookup</div>
+                <div style="font-size: 0.75rem; color: var(--color-text-muted);">Timing-safe dummy hash executed for non-existent users.</div>
+            </div>
+            <div style="padding: 0.75rem; border-left: 3px solid #6366f1; background: #f8fafc; border-radius: 4px;">
+                <div style="font-weight: 700; font-size: 0.82rem;">Stage 2: Lifecycle Eligibility</div>
+                <div style="font-size: 0.75rem; color: var(--color-text-muted);">Guards against unactivated, suspended, and exited accounts.</div>
+            </div>
+            <div style="padding: 0.75rem; border-left: 3px solid #8b5cf6; background: #f8fafc; border-radius: 4px;">
+                <div style="font-weight: 700; font-size: 0.82rem;">Stage 3: Argon2id Verify</div>
+                <div style="font-size: 0.75rem; color: var(--color-text-muted);">Cryptographic verification. A password PASS is NOT a login.</div>
+            </div>
+            <div style="padding: 0.75rem; border-left: 3px solid #ec4899; background: #f8fafc; border-radius: 4px;">
+                <div style="font-weight: 700; font-size: 0.82rem;">Stage 4: MFA Policy Check</div>
+                <div style="font-size: 0.75rem; color: var(--color-text-muted);">Strictly enforces TOTP / Recovery Code second-factor step.</div>
+            </div>
+            <div style="padding: 0.75rem; border-left: 3px solid #10b981; background: #f8fafc; border-radius: 4px;">
+                <div style="font-weight: 700; font-size: 0.82rem;">Stage 5: Session Grant</div>
+                <div style="font-size: 0.75rem; color: var(--color-text-muted);">Opaque server-side session created with clean audit log.</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Sign-in Events Table -->
+    <div class="card">
+        <h4 style="margin: 0 0 1rem 0; font-size: 1.05rem; font-weight: 700; color: var(--color-primary-600);">
+            Sign-in Events Feed
+        </h4>
+        <div class="table-container" style="overflow-x: auto;">
+            <table class="table" style="width: 100%; font-size: 0.84rem;">
+                <thead>
+                    <tr>
+                        <th>Time</th>
+                        <th>Employee</th>
+                        <th>Stage</th>
+                        <th>Event</th>
+                        <th>Sanitized Reason Code</th>
+                        <th>Network IP</th>
+                        <th>Correlation ID</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for evt in investigation_events %}
+                    <tr>
+                        <td style="white-space: nowrap; font-family: var(--font-mono); font-size: 0.78rem;">{{ evt.time|date:"H:i:s" }}</td>
+                        <td><strong>{{ evt.employee_id|default:"ANONYMOUS" }}</strong></td>
+                        <td><code>{{ evt.step }}</code></td>
+                        <td>{{ evt.event }}</td>
+                        <td><code>{{ evt.code }}</code></td>
+                        <td>{{ evt.network_address|default:"-" }}</td>
+                        <td><code>{{ evt.reference_id|default:"-" }}</code></td>
+                    </tr>
+                    {% empty %}
+                    <tr>
+                        <td colspan="7" style="text-align: center; color: var(--color-text-muted); padding: 1.5rem;">No authentication events matching filter.</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+    <script src="/static/iam-monitor.js" defer></script>
+</div>
+{% endif %}
+
+<!-- ======================================================================= -->
+<!-- SECTION 10: Privileged Access & Break-Glass -->
+<!-- ======================================================================= -->
+{% if active_tab == 'privileged' %}
+<div id="section-privileged">
+    <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 1.5rem; align-items: start;">
+        <!-- Privileged Status & Separation of Duties -->
+        <div>
+            <!-- Status Card -->
+            <div class="card" style="margin-bottom: 1.5rem;">
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <div>
+                        <h3 style="margin: 0; font-size: 1.15rem; font-weight: 700; color: var(--color-primary-600);">
+                            Privileged Access Status
+                        </h3>
+                        <p style="margin: 0.25rem 0 0 0; font-size: 0.85rem; color: var(--color-text-muted);">
+                            Sudo Mode: <strong>{% if sudo_active %}<span style="color: #059669;">ACTIVE (10m)</span>{% else %}<span style="color: #64748b;">INACTIVE</span>{% endif %}</strong> |
+                            Break-Glass: <strong>{% if break_glass_active %}<span style="color: #dc2626;">ACTIVE (15m)</span>{% else %}<span style="color: #64748b;">STANDBY</span>{% endif %}</strong>
+                        </p>
+                    </div>
+                    {% if actor.role in 'super_admin,admin' %}
+                    <a href="{% url 'accounts:admin_shield' %}" class="btn btn-primary btn-sm">
+                        Verify Shield 🛡️
+                    </a>
+                    {% endif %}
+                </div>
+            </div>
+
+            <!-- Separation of Duties Matrix -->
+            <div class="card" style="margin-bottom: 1.5rem;">
+                <h4 style="margin: 0 0 1rem 0; font-size: 1.05rem; font-weight: 700; color: var(--color-primary-600);">
+                    Administrative Separation of Duties (SoD)
+                </h4>
+                <div class="table-container" style="overflow-x: auto;">
+                    <table class="table" style="width: 100%; font-size: 0.85rem;">
+                        <thead>
+                            <tr>
+                                <th>Privileged Operation</th>
+                                <th>Super Admin</th>
+                                <th>Admin</th>
+                                <th>Human Resources</th>
+                                <th>Manager</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td>Super Admin Provisioning</td>
+                                <td><span class="badge badge-success">✓ Full</span></td>
+                                <td><span style="color: #dc2626;">✗ Denied</span></td>
+                                <td><span style="color: #dc2626;">✗ Denied</span></td>
+                                <td><span style="color: #dc2626;">✗ Denied</span></td>
+                            </tr>
+                            <tr>
+                                <td>Super Admin Recovery Approval</td>
+                                <td><span class="badge badge-warning">Dual-Approval</span></td>
+                                <td><span style="color: #dc2626;">✗ Denied</span></td>
+                                <td><span style="color: #dc2626;">✗ Denied</span></td>
+                                <td><span style="color: #dc2626;">✗ Denied</span></td>
+                            </tr>
+                            <tr>
+                                <td>Employee Provisioning</td>
+                                <td><span class="badge badge-success">✓ Full</span></td>
+                                <td><span class="badge badge-success">✓ Full</span></td>
+                                <td><span class="badge badge-info">✓ Staff Only</span></td>
+                                <td><span style="color: #dc2626;">✗ Denied</span></td>
+                            </tr>
+                            <tr>
+                                <td>Emergency Break-Glass</td>
+                                <td><span class="badge badge-success">✓ Full</span></td>
+                                <td><span class="badge badge-success">✓ Full</span></td>
+                                <td><span style="color: #dc2626;">✗ Denied</span></td>
+                                <td><span style="color: #dc2626;">✗ Denied</span></td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Break-Glass Audit Trail -->
+            <div class="card">
+                <h4 style="margin: 0 0 1rem 0; font-size: 1.05rem; font-weight: 700; color: var(--color-primary-600);">
+                    Break-Glass Activation Audit Trail (<code>AUTH-BRK-001</code>)
+                </h4>
+                <div class="table-container" style="overflow-x: auto;">
+                    <table class="table" style="width: 100%; font-size: 0.84rem;">
+                        <thead>
+                            <tr>
+                                <th>Timestamp</th>
+                                <th>Administrator</th>
+                                <th>IP Address</th>
+                                <th>Justification</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for b in break_glass_history %}
+                            <tr>
+                                <td style="white-space: nowrap; font-family: var(--font-mono); font-size: 0.78rem;">{{ b.time|date:"Y-m-d H:i:s" }}</td>
+                                <td><strong>{{ b.employee_id }}</strong></td>
+                                <td>{{ b.network_address|default:"-" }}</td>
+                                <td style="font-size: 0.8rem;">{{ b.message }}</td>
+                            </tr>
+                            {% empty %}
+                            <tr>
+                                <td colspan="4" style="text-align: center; color: var(--color-text-muted); padding: 1.5rem;">No break-glass emergency activations recorded.</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- Break-Glass Trigger Card -->
+        <div class="card" style="border: 2px solid {% if break_glass_active %}#dc2626{% else %}var(--color-border-subtle){% endif %};">
+            <h3 style="margin: 0 0 0.5rem 0; font-size: 1.15rem; font-weight: 700; color: #dc2626;">
+                Emergency Break-Glass Control
+            </h3>
+            <p style="font-size: 0.82rem; color: var(--color-text-muted); margin-bottom: 1rem;">
+                Activates emergency elevated authorization for urgent production recovery. Strict 15-minute time ceiling and immutable audit logging enforced.
+            </p>
+            {% if break_glass_active %}
+            <form method="post" action="{% url 'accounts:admin_iam' %}" class="space-y-3">
+                {% csrf_token %}
+                <input type="hidden" name="action" value="revoke_break_glass">
+                <button type="submit" class="btn btn-outline" style="width: 100%; color: #dc2626; border-color: #dc2626; font-weight: 600;">
+                    Terminate Emergency Break-Glass Now
+                </button>
+            </form>
+            {% else %}
+            <form method="post" action="{% url 'accounts:admin_iam' %}" class="space-y-3">
+                {% csrf_token %}
+                <input type="hidden" name="action" value="activate_break_glass">
+                <div class="form-group">
+                    <label class="form-label" style="font-size: 0.82rem;">Mandatory Justification (min 10 chars)</label>
+                    <textarea name="reason" class="form-input" rows="3" placeholder="Provide operational reason for break-glass..." required minlength="10"></textarea>
+                </div>
+                <div class="form-group">
+                    <label class="form-label" style="font-size: 0.82rem;">Incident / Ticket Reference</label>
+                    <input type="text" name="ticket" class="form-input" placeholder="e.g. INC-2026-0042">
+                </div>
+                <button type="submit" class="btn btn-primary" style="width: 100%; background: #dc2626; border-color: #dc2626; font-weight: 600;">
+                    Activate Emergency Break-Glass (15m)
+                </button>
+            </form>
+            {% endif %}
+        </div>
+    </div>
+</div>
+{% endif %}
+
+<!-- ======================================================================= -->
+<!-- SECTION 11: Service Identities -->
+<!-- ======================================================================= -->
+{% if active_tab == 'services' %}
+<div id="section-services">
+    <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 1.5rem; align-items: start;">
+        <!-- Service Identities Table -->
+        <div class="card">
+            <h3 style="margin: 0 0 1rem 0; font-size: 1.15rem; font-weight: 700; color: var(--color-primary-600);">
+                Active Service Identities (M2M API Tokens)
+            </h3>
+            <div class="table-container" style="overflow-x: auto;">
+                <table class="table" style="width: 100%; font-size: 0.85rem;">
+                    <thead>
+                        <tr>
+                            <th>Client ID</th>
+                            <th>Service Name</th>
+                            <th>Granted Scopes</th>
+                            <th>Status</th>
+                            <th>Last Used</th>
+                            <th>Action</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for s in service_identities %}
+                        <tr>
+                            <td><code>{{ s.client_id }}</code></td>
+                            <td><strong>{{ s.name }}</strong></td>
+                            <td style="font-size: 0.78rem;"><code>{{ s.scopes|join:", " }}</code></td>
+                            <td>
+                                {% if s.is_active %}
+                                <span class="badge badge-success">Active</span>
+                                {% else %}
+                                <span class="badge badge-danger">Revoked</span>
+                                {% endif %}
+                            </td>
+                            <td>{{ s.last_used_at|date:"M d, H:i"|default:"Never" }}</td>
+                            <td>
+                                {% if s.is_active %}
+                                <form method="post" action="{% url 'accounts:admin_iam' %}">
+                                    {% csrf_token %}
+                                    <input type="hidden" name="action" value="revoke_service_identity">
+                                    <input type="hidden" name="client_id" value="{{ s.client_id }}">
+                                    <button type="submit" class="btn btn-sm btn-outline" style="color: #dc2626; border-color: #dc2626;">
+                                        Revoke
+                                    </button>
+                                </form>
+                                {% endif %}
+                            </td>
+                        </tr>
+                        {% empty %}
+                        <tr>
+                            <td colspan="6" style="text-align: center; color: var(--color-text-muted); padding: 1.5rem;">No service identities provisioned yet.</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Provision Service Identity Card -->
+        <div class="card">
+            <h3 style="margin: 0 0 0.5rem 0; font-size: 1.15rem; font-weight: 700; color: var(--color-primary-600);">
+                Provision Service Identity
+            </h3>
+            <p style="font-size: 0.82rem; color: var(--color-text-muted); margin-bottom: 1rem;">
+                Issues a scoped Machine-to-Machine API token for background workers or daemons.
+            </p>
+            <form method="post" action="{% url 'accounts:admin_iam' %}" class="space-y-3">
+                {% csrf_token %}
+                <input type="hidden" name="action" value="create_service_identity">
+                <div class="form-group">
+                    <label class="form-label" style="font-size: 0.82rem;">Service Name</label>
+                    <input type="text" name="name" class="form-input" placeholder="e.g. Attendance Sync Worker" required>
+                </div>
+                <div class="form-group">
+                    <label class="form-label" style="font-size: 0.82rem;">Client ID</label>
+                    <input type="text" name="client_id" class="form-input" placeholder="e.g. svc_att_sync_001" required>
+                </div>
+                <div class="form-group">
+                    <label class="form-label" style="font-size: 0.82rem;">Scopes</label>
+                    <div style="display: flex; flex-direction: column; gap: 0.35rem; max-height: 180px; overflow-y: auto; padding: 0.5rem; border: 1px solid var(--color-border-subtle); border-radius: 4px;">
+                        {% for scope_key, scope_desc in valid_scopes.items %}
+                        <label style="display: flex; align-items: center; gap: 0.5rem; font-size: 0.8rem; cursor: pointer;">
+                            <input type="checkbox" name="scopes" value="{{ scope_key }}">
+                            <span><code>{{ scope_key }}</code> <small style="color: var(--color-text-muted);">({{ scope_desc }})</small></span>
+                        </label>
+                        {% endfor %}
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label class="form-label" style="font-size: 0.82rem;">Validity in Days (optional)</label>
+                    <input type="number" name="expires_in_days" class="form-input" placeholder="e.g. 365" min="1">
+                </div>
+                <button type="submit" class="btn btn-primary" style="width: 100%; margin-top: 0.5rem;">
+                    Generate Scoped API Token
+                </button>
+            </form>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+<!-- ======================================================================= -->
+<!-- SECTION 12: Delivery & Operations -->
+<!-- ======================================================================= -->
+{% if active_tab == 'delivery_ops' %}
+<div id="section-delivery-ops">
+    <!-- Queue Health Cards -->
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 1rem; margin-bottom: 1.5rem;">
+        <div class="card" style="padding: 1rem;">
+            <div style="font-size: 0.78rem; text-transform: uppercase; color: var(--color-text-muted);">Queued Emails</div>
+            <div style="font-size: 1.5rem; font-weight: 700; color: #0284c7; margin-top: 0.25rem;">{{ email_outbox_stats.queued|default:0 }}</div>
+        </div>
+        <div class="card" style="padding: 1rem;">
+            <div style="font-size: 0.78rem; text-transform: uppercase; color: var(--color-text-muted);">Delivered Emails</div>
+            <div style="font-size: 1.5rem; font-weight: 700; color: #059669; margin-top: 0.25rem;">{{ email_outbox_stats.delivered|default:0 }}</div>
+        </div>
+        <div class="card" style="padding: 1rem;">
+            <div style="font-size: 0.78rem; text-transform: uppercase; color: var(--color-text-muted);">Dead-Letter Queue (DLQ)</div>
+            <div style="font-size: 1.5rem; font-weight: 700; color: #dc2626; margin-top: 0.25rem;">{{ email_outbox_stats.dead_letter|default:0 }}</div>
+        </div>
+        <div class="card" style="padding: 1rem;">
+            <div style="font-size: 0.78rem; text-transform: uppercase; color: var(--color-text-muted);">Rate Limit Records</div>
+            <div style="font-size: 1.5rem; font-weight: 700; color: #d97706; margin-top: 0.25rem;">{{ rate_limits_count }}</div>
+        </div>
+    </div>
+
+    <!-- Transactional Email Outbox Queue -->
+    <div class="card" style="margin-bottom: 1.5rem;">
+        <h3 style="margin: 0 0 1rem 0; font-size: 1.15rem; font-weight: 700; color: var(--color-primary-600);">
+            Transactional Email Outbox (<code>core_emailoutbox</code>)
+        </h3>
+        <div class="table-container" style="overflow-x: auto;">
+            <table class="table" style="width: 100%; font-size: 0.84rem;">
+                <thead>
+                    <tr>
+                        <th>Created At</th>
+                        <th>Recipient</th>
+                        <th>Type</th>
+                        <th>Status</th>
+                        <th>Retries</th>
+                        <th>Action</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for em in recent_emails %}
+                    <tr>
+                        <td style="white-space: nowrap; font-family: var(--font-mono); font-size: 0.78rem;">{{ em.created_at|date:"M d, H:i:s" }}</td>
+                        <td><code>{{ em.recipient }}</code></td>
+                        <td><span class="badge">{{ em.notification_type }}</span></td>
+                        <td>
+                            <span class="badge {% if em.status == 'delivered' %}badge-success{% elif em.status == 'failed' or em.status == 'dead_letter' %}badge-danger{% else %}badge-info{% endif %}">
+                                {{ em.get_status_display }}
+                            </span>
+                        </td>
+                        <td>{{ em.retry_count }} / {{ em.max_retries }}</td>
+                        <td>
+                            {% if em.status == 'failed' or em.status == 'dead_letter' %}
+                            <form method="post" action="{% url 'accounts:admin_iam' %}">
+                                {% csrf_token %}
+                                <input type="hidden" name="action" value="retry_outbox_item">
+                                <input type="hidden" name="item_type" value="email">
+                                <input type="hidden" name="item_id" value="{{ em.id }}">
+                                <button type="submit" class="btn btn-sm btn-secondary">Retry</button>
+                            </form>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% empty %}
+                    <tr>
+                        <td colspan="6" style="text-align: center; color: var(--color-text-muted); padding: 1.5rem;">No email notifications in queue.</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- Distributed Rate Limit Tracking -->
+    <div class="card">
+        <h3 style="margin: 0 0 1rem 0; font-size: 1.15rem; font-weight: 700; color: var(--color-primary-600);">
+            Centralized Rate Limit Log (<code>core_ratelimitrecord</code>)
+        </h3>
+        <p style="font-size: 0.82rem; color: var(--color-text-muted); margin-bottom: 1rem;">
+            Sliding window rate limit timestamps coordinated across all worker processes via TiDB.
+        </p>
+        <div class="table-container" style="overflow-x: auto;">
+            <table class="table" style="width: 100%; font-size: 0.84rem;">
+                <thead>
+                    <tr>
+                        <th>Throttle Key</th>
+                        <th>Window Timestamp</th>
+                        <th>Logged At</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for r in rate_limit_records %}
+                    <tr>
+                        <td><code>{{ r.key }}</code></td>
+                        <td>{{ r.timestamp }}</td>
+                        <td>{{ r.created_at|date:"M d, H:i:s" }}</td>
+                    </tr>
+                    {% empty %}
+                    <tr>
+                        <td colspan="3" style="text-align: center; color: var(--color-text-muted); padding: 1.5rem;">No active rate limit sliding windows recorded.</td>
                     </tr>
                     {% endfor %}
                 </tbody>

@@ -6,6 +6,10 @@
   <title>{% block title %}Salow Workspace{% endblock %}</title>
   <link rel="stylesheet" href="/static/css/tokens.css">
   <link rel="stylesheet" href="/static/css/components.css">
+  <link rel="manifest" href="/static/manifest.json">
+  <meta name="theme-color" content="#b45309">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   {% block extra_head %}{% endblock %}
 </head>
 <body>
@@ -24,6 +28,9 @@
           <li class="nav-item"><a href="{% url 'directory:list' %}">Directory</a></li>
           <li class="nav-item"><a href="{% url 'accounts:security' %}">Security & Sessions</a></li>
           {% if user.role in 'super_admin,admin,hr,manager' %}
+          <li class="nav-item"><a href="{% url 'attendance:admin_panel' %}">Workspace Admin</a></li>
+          {% endif %}
+          {% if user.role in 'super_admin,admin' %}
           <li class="nav-item"><a href="{% url 'accounts:admin_iam' %}" style="color: var(--color-primary-600); font-weight: 600;">IAM & Access Management</a></li>
           {% endif %}
         </ul>
@@ -62,5 +69,6 @@
       {% block content %}{% endblock %}
     </main>
   </div>
+  <script src="/static/sw-register.js" defer></script>
 </body>
 </html>

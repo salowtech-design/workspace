@@ -1,11 +1,18 @@
+from datetime import timedelta
+
 from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
-from django.core.exceptions import ValidationError
+from django.core.exceptions import PermissionDenied, ValidationError
 from django.shortcuts import redirect, render
 from django.utils import timezone
 
-from apps.attendance.models import AttendanceFallbackRequest
+from apps.accounts.models import AuthEvent, CustomUser, UserSession
+from apps.attendance.models import (
+    AttendanceCorrection,
+    AttendanceFallbackRequest,
+    WorkSession,
+)
 from apps.attendance.selectors import (
     get_attendance_report,
     get_open_session,
@@ -16,6 +23,7 @@ from apps.attendance.services import (
     check_out,
     create_fallback_request,
     get_current_kolkata_date,
+    review_fallback_request,
 )
 from apps.face.engine.stub import StubVerifier
 
@@ -131,3 +139,81 @@ def report_view(request):
         "recent_sessions": get_user_sessions(request.user, limit=30),
     }
     return render(request, "attendance/report.html", context)
+
+
+@login_required
+def attendance_admin_panel_view(request):
+    """
+    Ordinary Workspace Admin Panel for Attendance & Daily Operations.
+    Segregated from central Identity & Security Management.
+    Receives approved, redacted, read-only security summaries.
+    """
+    actor: CustomUser = request.user
+    allowed_roles = (
+        CustomUser.Role.SUPER_ADMIN,
+        CustomUser.Role.ADMIN,
+        CustomUser.Role.HR,
+        CustomUser.Role.MANAGER,
+    )
+    if actor.role not in allowed_roles:
+        raise PermissionDenied("Access restricted to administrative and management personnel.")
+
+    if request.method == "POST":
+        action = request.POST.get("action", "")
+        if action == "review_fallback":
+            request_id = request.POST.get("request_id")
+            decision = request.POST.get("decision", "").strip().lower()
+            reason = request.POST.get("reason", "").strip()
+            try:
+                if not request_id:
+                    raise ValueError("Fallback request ID is required.")
+                review_fallback_request(
+                    request_id=int(request_id),
+                    reviewer=actor,
+                    approved=(decision == "approve"),
+                    review_notes=reason,
+                )
+                messages.success(
+                    request, f"Fallback request #{request_id} successfully {decision}d."
+                )
+            except (ValidationError, PermissionDenied, ValueError, TypeError) as exc:
+                messages.error(request, str(exc))
+            return redirect("attendance:admin_panel")
+
+    # Business attendance metrics
+    today = get_current_kolkata_date(timezone.now())
+    today_sessions = WorkSession.objects.filter(work_date=today).select_related("user")
+    pending_fallbacks = AttendanceFallbackRequest.objects.filter(
+        status=AttendanceFallbackRequest.Status.PENDING
+    ).select_related("user")
+    corrections = AttendanceCorrection.objects.select_related(
+        "session__user", "corrected_by"
+    ).order_by("-created_at")[:10]
+
+    # Redacted Read-Only Security Summary from Central IAM Authority
+    total_staff = CustomUser.objects.count()
+    active_sessions_count = UserSession.objects.count()
+    events_24h = AuthEvent.objects.filter(time__gte=timezone.now() - timedelta(hours=24)).count()
+
+    iam_summary = {
+        "authority": "Salow IAM Platform (Central Monolith Authority)",
+        "posture": "PROTECTED & OPERATIONAL",
+        "total_identities": total_staff,
+        "active_sessions": active_sessions_count,
+        "events_24h": events_24h,
+        "isolation_notice": (
+            "IAM remains the single central identity and authentication authority. "
+            "All identity provisioning, credential vaults, authenticator records, session revocations, "
+            "and recovery operations are strictly managed in the dedicated Identity & Security Console. "
+            "This panel receives only approved, redacted, read-only summaries."
+        ),
+    }
+
+    context = {
+        "today_sessions": today_sessions,
+        "pending_fallbacks": pending_fallbacks,
+        "corrections": corrections,
+        "iam_summary": iam_summary,
+        "actor": actor,
+    }
+    return render(request, "attendance/admin_panel.html", context)

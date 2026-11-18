@@ -9,6 +9,7 @@ from apps.accounts.views.activation import (
 )
 from apps.accounts.views.admin_iam import (
     admin_iam_dashboard_view,
+    admin_iam_live_stream_view,
     admin_security_shield_view,
 )
 from apps.accounts.views.login import (
@@ -68,6 +69,7 @@ urlpatterns = [
     ),
     # Central Admin IAM & Security Shield Area
     path("admin/iam/", admin_iam_dashboard_view, name="admin_iam"),
+    path("admin/iam/live-stream/", admin_iam_live_stream_view, name="admin_iam_live_stream"),
     path("admin/shield/", admin_security_shield_view, name="admin_shield"),
     # Password Recovery & Multi-Factor Workflows (Methods 1, 2, 3)
     path("recovery/forgot-password/", forgot_password_view, name="forgot_password"),
