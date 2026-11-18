@@ -107,10 +107,11 @@ STATIC_ROOT = BASE_DIR / "staticfiles"
 # Default primary key field type
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
-# Session & Cookie Security Defaults
+# Session & Cookie Security Defaults (Phase 1 v4.0 & v6.0 Section 10)
 SESSION_COOKIE_HTTPONLY = True
 SESSION_COOKIE_SAMESITE = "Lax"
-SESSION_COOKIE_AGE = 28800  # 8 hours absolute lifetime (Part 9.2)
+SESSION_COOKIE_AGE = 43200  # Strictly 12 hours absolute lifetime (Section 10)
+SESSION_EXPIRE_AT_BROWSER_CLOSE = True  # Fresh authentication on browser close/reopen (Section 10)
 CSRF_COOKIE_HTTPONLY = True
 CSRF_COOKIE_SAMESITE = "Lax"
 

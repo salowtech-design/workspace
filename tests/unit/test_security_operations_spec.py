@@ -9,8 +9,6 @@ Validates:
 6. Role permissions: Security Reviewer (read-only) vs. Security Admin.
 """
 
-import json
-
 import pytest
 from django.contrib.auth import get_user_model
 from django.core.exceptions import PermissionDenied, ValidationError
@@ -19,7 +17,6 @@ from django.urls import reverse
 from apps.accounts.auth.security_ops import (
     acknowledge_security_alert,
     create_security_alert,
-    get_security_events_stream,
 )
 from apps.accounts.models import AuthEvent, CustomUser, SecurityAlert
 
@@ -159,7 +156,7 @@ class TestSecurityOperations:
         assert "Read-Only" in resp.content.decode()
 
         # POST acknowledge attempt: 403 Forbidden
-        ack_resp = client.post(
+        client.post(
             reverse("accounts:security_alert_acknowledge", kwargs={"alert_id": alert.id}),
             {"reason": "Attempting to acknowledge as reviewer"},
         )
@@ -196,3 +193,38 @@ class TestSecurityOperations:
         client.force_login(standard_employee)
         resp = client.get(reverse("security_events_root"))
         assert resp.status_code == 403
+
+    def test_high_severity_events_automatically_create_security_alerts(self):
+        """High-severity events logged via log_auth_event automatically create SecurityAlerts."""
+        from apps.accounts.auth.audit import log_auth_event
+
+        # 1. Account lockout event
+        log_auth_event(
+            event="account_locked",
+            code="AUTH-LOG-002",
+            step="record_failure",
+            employee_id="ST-EMP-LOCK-01",
+            message="Locked for 15 minutes after 5 failed attempts",
+        )
+        alert_lockout = SecurityAlert.objects.filter(
+            employee_id="ST-EMP-LOCK-01",
+            category=SecurityAlert.Category.ACCOUNT_LOCKOUT,
+        ).first()
+        assert alert_lockout is not None
+        assert alert_lockout.severity == SecurityAlert.Severity.HIGH
+        assert alert_lockout.status == SecurityAlert.Status.OPEN
+
+        # 2. Break-glass emergency access
+        log_auth_event(
+            event="break_glass_activated",
+            code="AUTH-BG-001",
+            step="stepup_break_glass",
+            employee_id="ST-SUP-BG-01",
+            message="Emergency break-glass access activated for 15 minutes",
+        )
+        alert_bg = SecurityAlert.objects.filter(
+            employee_id="ST-SUP-BG-01",
+            category=SecurityAlert.Category.BREAK_GLASS_ACCESS,
+        ).first()
+        assert alert_bg is not None
+        assert alert_bg.severity == SecurityAlert.Severity.CRITICAL

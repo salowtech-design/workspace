@@ -42,7 +42,8 @@ def activate_code_view(request):
 
                 cred = TOTPCredential.objects.filter(user=user, confirmed_at__isnull=False).first()
                 if cred:
-                    return redirect("attendance:panel")
+                    # Section 7 A: If an already activated employee selects Login, direct them to Sign In
+                    return redirect("/auth/login/?flow=signin")
                 return redirect("accounts:activate_mfa_setup")
 
             # Fallback to one-time activation code verification

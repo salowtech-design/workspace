@@ -14,15 +14,20 @@ import hmac
 import secrets
 import uuid
 from datetime import timedelta
-from typing import Optional, Tuple
+from typing import Optional
 
-from django.core.exceptions import PermissionDenied, ValidationError
+from django.core.exceptions import PermissionDenied
 from django.db import transaction
 from django.utils import timezone
 
 from apps.accounts.auth.audit import log_auth_event
 from apps.accounts.auth.config import get_activation_hmac_key
 from apps.accounts.auth.errors import AuthException
+from apps.accounts.auth.lockout import (
+    check_lockout,
+    clear_failed_attempts,
+    record_failed_attempt,
+)
 from apps.accounts.auth.sessions import create_verified_session
 from apps.accounts.models import CustomUser, DeviceApprovalRequest, UserSession
 from apps.core.models import EmailOutbox
@@ -288,7 +293,16 @@ def verify_device_email_otp(
     request_id: uuid.UUID,
     submitted_otp: str,
 ) -> bool:
-    """Verifies the 6-digit email OTP on Device B."""
+    """
+    Verifies the 6-digit email OTP on Device B.
+    Enforces:
+    - 5-minute validity window post-approval.
+    - Anti-replay (cannot re-verify if already completed).
+    - Database-backed independent rate limiting (locks after 5 failed attempts).
+    """
+    lockout_key = f"dev_otp:{request_id}"
+    check_lockout(lockout_key)
+
     with transaction.atomic():
         req = (
             DeviceApprovalRequest.objects.select_for_update()
@@ -298,13 +312,39 @@ def verify_device_email_otp(
         if not req or req.status != DeviceApprovalRequest.Status.APPROVED:
             return False
 
+        # Anti-replay: cannot verify if already completed
+        if req.completed_at is not None:
+            log_auth_event(
+                event="device_email_otp_replay_blocked",
+                code="AUTH-DEV-010",
+                step="device_approval",
+                employee_id=req.user.employee_id,
+                reference_id=str(req.request_id),
+                message="Blocked attempt to reuse completed device approval OTP",
+            )
+            return False
+
+        # 5-minute expiration window post-approval
+        if req.approved_at and timezone.now() > req.approved_at + timedelta(minutes=5):
+            log_auth_event(
+                event="device_email_otp_expired",
+                code="AUTH-DEV-002",
+                step="device_approval",
+                employee_id=req.user.employee_id,
+                reference_id=str(req.request_id),
+                message="Second device email OTP expired (5-minute TTL elapsed)",
+            )
+            return False
+
         clean_otp = submitted_otp.strip()
         key = get_activation_hmac_key()
         computed_hash = hmac.new(key, clean_otp.encode("utf-8"), hashlib.sha256).hexdigest()
 
         if not hmac.compare_digest(computed_hash, req.email_otp_hash):
+            record_failed_attempt(lockout_key, employee_id=req.user.employee_id, threshold=5)
             return False
 
+        clear_failed_attempts(lockout_key)
         req.email_otp_verified = True
         req.save(update_fields=["email_otp_verified"])
 
@@ -322,10 +362,14 @@ def verify_device_email_otp(
 def complete_device_verification_and_login(
     django_request,
     request_id: uuid.UUID,
-    face_verified: bool = True,
+    face_verified: bool = False,
 ) -> CustomUser:
     """
     Final gate: completes face verification, establishes Device B's independent session.
+    Enforces:
+    - Biometric verification mandatory (face_verified=True).
+    - Anti-replay: cannot be completed multiple times.
+    - Independent server session created for Device B.
     """
     if not face_verified:
         raise AuthException("AUTH-DEV-009", step="device_approval", message_override="Biometric face verification failed.")
@@ -338,6 +382,10 @@ def complete_device_verification_and_login(
         )
         if not req or req.status != DeviceApprovalRequest.Status.APPROVED or not req.email_otp_verified:
             raise AuthException("AUTH-DEV-010", step="device_approval", message_override="Incomplete verification steps.")
+
+        # Anti-replay defense: request cannot be reused
+        if req.completed_at is not None:
+            raise AuthException("AUTH-DEV-010", step="device_approval", message_override="Device approval request has already been completed.")
 
         req.face_verified = True
         req.completed_at = timezone.now()

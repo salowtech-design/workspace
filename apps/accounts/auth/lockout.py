@@ -56,13 +56,17 @@ def check_lockout(key: str, employee_id: str = "") -> None:
     record.save(update_fields=["counter", "locked_until", "updated_at"])
 
 
-def record_failed_attempt(key: str, employee_id: str = "") -> int:
+def record_failed_attempt(
+    key: str,
+    employee_id: str = "",
+    threshold: int = LOCKOUT_THRESHOLD,
+) -> int:
     """Increment failure counter and engage lock if threshold reached."""
     with transaction.atomic():
         record, _ = LoginAttempt.objects.select_for_update().get_or_create(key=key)
         record.counter += 1
 
-        if record.counter >= LOCKOUT_THRESHOLD:
+        if record.counter >= threshold:
             record.locked_until = timezone.now() + timedelta(minutes=LOCKOUT_DURATION_MINUTES)
             log_auth_event(
                 event="account_locked",

@@ -880,7 +880,7 @@ def admin_security_shield_view(request):  # noqa: C901
                 else:
                     grant_sudo(request, actor)
                     shield_verified = True
-                    latencies["total_ms"] = round((time.time() - start_total) * 1000, 2)
+                    latencies["total_ms"] = max(0.01, round((time.time() - start_total) * 1000, 2))
                     messages.success(
                         request,
                         f"Administrator Security Shield Verified ({latencies['total_ms']}ms total latency). "
@@ -888,7 +888,7 @@ def admin_security_shield_view(request):  # noqa: C901
                     )
             else:
                 shield_verified = False
-                latencies["total_ms"] = round((time.time() - start_total) * 1000, 2)
+                latencies["total_ms"] = max(0.01, round((time.time() - start_total) * 1000, 2))
 
     context = {
         "actor": actor,

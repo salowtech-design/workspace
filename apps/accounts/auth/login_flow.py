@@ -8,6 +8,8 @@ from typing import Optional
 from django.contrib.auth.hashers import check_password, make_password
 
 from apps.accounts.auth.audit import log_auth_event
+from apps.accounts.auth.config import RETURNING_SIGNIN_LOCKOUT_THRESHOLD
+from apps.accounts.auth.employee_id import validate_employee_id_role_consistency
 from apps.accounts.auth.errors import AuthException
 from apps.accounts.auth.lockout import (
     check_lockout,
@@ -42,7 +44,7 @@ def authenticate_password(
     # 2. Timing-safe password check
     if not user:
         check_password(password, DUMMY_PASSWORD_HASH)
-        record_failed_attempt(lockout_key, employee_id=normalized_id)
+        record_failed_attempt(lockout_key, employee_id=normalized_id, threshold=RETURNING_SIGNIN_LOCKOUT_THRESHOLD)
         log_auth_event(
             event="login_failed_user_not_found",
             code="AUTH-LOG-001",
@@ -53,7 +55,22 @@ def authenticate_password(
         )
         raise AuthException("AUTH-LOG-001", step="auth_password", employee_id=normalized_id)
 
-    # 3. Account status guards
+    # 3. Employee ID role marker consistency check (Section 6)
+    is_role_ok, role_err = validate_employee_id_role_consistency(user.employee_id, user.role)
+    if not is_role_ok:
+        record_failed_attempt(lockout_key, employee_id=normalized_id, threshold=RETURNING_SIGNIN_LOCKOUT_THRESHOLD)
+        log_auth_event(
+            event="role_marker_mismatch",
+            code="AUTH-SEC-001",
+            step="auth_password",
+            employee_id=normalized_id,
+            network_address=ip_address,
+            message=role_err or "Role marker mismatch against assigned role",
+        )
+        # Anti-enumeration: preserve generic failure message
+        raise AuthException("AUTH-LOG-001", step="auth_password", employee_id=normalized_id)
+
+    # 4. Account status guards
     if user.status in (CustomUser.Status.INVITED, CustomUser.Status.ACTIVATING):
         log_auth_event(
             event="login_rejected_unactivated",
@@ -83,9 +100,9 @@ def authenticate_password(
         )
         raise AuthException("AUTH-LOG-003", step="auth_password", employee_id=normalized_id)
 
-    # 4. Check password
+    # 5. Check password
     if not user.check_password(password):
-        record_failed_attempt(lockout_key, employee_id=normalized_id)
+        record_failed_attempt(lockout_key, employee_id=normalized_id, threshold=RETURNING_SIGNIN_LOCKOUT_THRESHOLD)
         log_auth_event(
             event="login_failed_wrong_password",
             code="AUTH-LOG-001",

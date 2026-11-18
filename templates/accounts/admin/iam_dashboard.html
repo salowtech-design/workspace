@@ -83,6 +83,9 @@
     <a href="?tab=overview" class="tab-link" style="padding: 0.75rem 0.9rem; font-size: 0.88rem; font-weight: 600; text-decoration: none; border-bottom: 3px solid {% if active_tab == 'overview' %}var(--color-primary-600){% else %}transparent{% endif %}; color: {% if active_tab == 'overview' %}var(--color-primary-600){% else %}var(--color-text-muted){% endif %}; white-space: nowrap;">
         Overview
     </a>
+    <a href="?tab=authentication" class="tab-link" style="padding: 0.75rem 0.9rem; font-size: 0.88rem; font-weight: 600; text-decoration: none; border-bottom: 3px solid {% if active_tab == 'authentication' %}var(--color-primary-600){% else %}transparent{% endif %}; color: {% if active_tab == 'authentication' %}var(--color-primary-600){% else %}var(--color-text-muted){% endif %}; white-space: nowrap;">
+        Authentication
+    </a>
     <a href="?tab=identity" class="tab-link" style="padding: 0.75rem 0.9rem; font-size: 0.88rem; font-weight: 600; text-decoration: none; border-bottom: 3px solid {% if active_tab == 'identity' %}var(--color-primary-600){% else %}transparent{% endif %}; color: {% if active_tab == 'identity' %}var(--color-primary-600){% else %}var(--color-text-muted){% endif %}; white-space: nowrap;">
         1. Identity & Accounts
     </a>
@@ -186,7 +189,7 @@
 
         <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1rem;">
             <!-- Tile 1: Authentication -->
-            <a href="?tab=security_mfa" class="card iam-tile" style="text-decoration: none; display: flex; flex-direction: column; justify-content: space-between; padding: 1.15rem; border: 1px solid var(--color-border-subtle); background: #ffffff;">
+            <a href="?tab=authentication" class="card iam-tile" style="text-decoration: none; display: flex; flex-direction: column; justify-content: space-between; padding: 1.15rem; border: 1px solid var(--color-border-subtle); background: #ffffff;">
                 <div>
                     <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.5rem;">
                         <span style="font-size: 1.35rem;">🔐</span>
@@ -480,6 +483,114 @@
                 </a>
                 <a href="{% url 'attendance:admin_panel' %}" class="btn btn-outline" style="width: 100%; display: flex; align-items: center; justify-content: space-between; font-size: 0.85rem; margin-top: 0.5rem;">
                     <span>📋 Open Workspace Admin Panel</span>
+                    <span>→</span>
+                </a>
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+<!-- ======================================================================= -->
+<!-- SECTION: Subsystem 1: Authentication -->
+<!-- ======================================================================= -->
+{% if active_tab == 'authentication' %}
+<div id="section-authentication">
+    <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 1.5rem; align-items: start;">
+        <div class="card">
+            <h3 style="margin: 0 0 1rem 0; font-size: 1.15rem; font-weight: 700; color: var(--color-primary-600);">
+                Authentication Architecture &amp; Password Policies (Section 7)
+            </h3>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1.5rem;">
+                <div style="padding: 1rem; border: 1px solid var(--color-border-subtle); border-radius: 6px; background: #fafafa;">
+                    <div style="font-weight: 700; font-size: 0.9rem; color: var(--color-text-heading);">Primary Hasher</div>
+                    <div style="font-size: 0.85rem; color: #059669; font-weight: 600; margin-top: 0.35rem;">✓ Argon2id (RFC 9106)</div>
+                    <p style="font-size: 0.78rem; color: var(--color-text-muted); margin: 0.35rem 0 0 0;">
+                        Memory-hard modern password hashing with constant-time dummy verification on unknown identities to neutralize timing attacks.
+                    </p>
+                </div>
+                <div style="padding: 1rem; border: 1px solid var(--color-border-subtle); border-radius: 6px; background: #fafafa;">
+                    <div style="font-weight: 700; font-size: 0.9rem; color: var(--color-text-heading);">Password Complexity</div>
+                    <div style="font-size: 0.85rem; color: #059669; font-weight: 600; margin-top: 0.35rem;">✓ 12-Character Minimum</div>
+                    <p style="font-size: 0.78rem; color: var(--color-text-muted); margin: 0.35rem 0 0 0;">
+                        Disallows common dictionary words and employee attributes (ID, name). Long passphrases permitted without artificial truncation.
+                    </p>
+                </div>
+            </div>
+
+            <h4 style="margin: 0 0 0.75rem 0; font-size: 1rem; font-weight: 700; color: var(--color-text-heading);">
+                Authentication Flows &amp; Attempt Throttling Boundaries
+            </h4>
+            <div class="table-container" style="overflow-x: auto; margin-bottom: 1.5rem;">
+                <table class="table" style="width: 100%; font-size: 0.85rem;">
+                    <thead>
+                        <tr>
+                            <th>Authentication Flow</th>
+                            <th>Failed Attempts Threshold</th>
+                            <th>Lockout Duration</th>
+                            <th>MFA Requirement</th>
+                            <th>Status Guard</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td><strong>First-Time Activation (Login)</strong></td>
+                            <td><span class="badge" style="background: #e0f2fe; color: #0369a1;">5 attempts</span></td>
+                            <td>15 minutes</td>
+                            <td>Mandatory TOTP Enrollment + 10 Recovery Codes</td>
+                            <td><code>INVITED</code> or <code>ACTIVATING</code></td>
+                        </tr>
+                        <tr>
+                            <td><strong>Returning Employee (Sign In)</strong></td>
+                            <td><span class="badge" style="background: #ffedd5; color: #c2410c;">3 attempts</span></td>
+                            <td>15 minutes</td>
+                            <td>6-digit TOTP or single-use recovery code</td>
+                            <td><code>ACTIVE</code> (Disabled/Locked denied)</td>
+                        </tr>
+                        <tr>
+                            <td><strong>Secondary Device Flow</strong></td>
+                            <td><span class="badge" style="background: #fef3c7; color: #b45309;">5 attempts (OTP)</span></td>
+                            <td>60s Request TTL / 5m OTP</td>
+                            <td>Primary Approval + Email OTP + 1:1 Face Verification</td>
+                            <td>Active multi-session bound</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <h4 style="margin: 0 0 0.75rem 0; font-size: 1rem; font-weight: 700; color: var(--color-text-heading);">
+                Employee ID Syntax Normalization &amp; Role Marker Validation (Section 6)
+            </h4>
+            <div style="background: #f8fafc; border: 1px solid var(--color-border-subtle); border-radius: 6px; padding: 1rem; font-size: 0.85rem; color: var(--color-text-body); line-height: 1.5;">
+                <p style="margin: 0 0 0.5rem 0;">
+                    Accepted identifier formats: <code>name-role-number</code> (e.g. <code>ST-EMP-0001</code>) and <code>name-role</code> (e.g. <code>ALICE-DEV</code>).
+                </p>
+                <p style="margin: 0; color: var(--color-text-muted); font-size: 0.8rem;">
+                    🔒 <strong>Security Invariant:</strong> The role string inside an employee ID is never authorization. Effective privileges come exclusively from database role grants. Mismatches between identifier role marker and database role trigger rejection and audit without revealing account existence.
+                </p>
+            </div>
+        </div>
+
+        <!-- Quick Links -->
+        <div class="card">
+            <h3 style="margin: 0 0 1rem 0; font-size: 1.15rem; font-weight: 700; color: var(--color-primary-600);">
+                Subsystem Controls
+            </h3>
+            <div class="space-y-2">
+                <a href="{% url 'accounts:login' %}" target="_blank" class="btn btn-secondary" style="width: 100%; display: flex; align-items: center; justify-content: space-between; font-size: 0.85rem;">
+                    <span>🔐 Open Public Login Portal</span>
+                    <span>↗</span>
+                </a>
+                <a href="?tab=threats" class="btn btn-secondary" style="width: 100%; display: flex; align-items: center; justify-content: space-between; font-size: 0.85rem;">
+                    <span>🛑 Rate Limit &amp; Abuse Ledger</span>
+                    <span>→</span>
+                </a>
+                <a href="?tab=sessions" class="btn btn-secondary" style="width: 100%; display: flex; align-items: center; justify-content: space-between; font-size: 0.85rem;">
+                    <span>💻 Active Sessions ({{ active_sessions_count }})</span>
+                    <span>→</span>
+                </a>
+                <a href="?tab=security_mfa" class="btn btn-secondary" style="width: 100%; display: flex; align-items: center; justify-content: space-between; font-size: 0.85rem;">
+                    <span>📱 MFA Adoption ({{ mfa_enrolled_count }})</span>
                     <span>→</span>
                 </a>
             </div>
@@ -1185,25 +1296,30 @@
             <div>
                 <div style="display: flex; align-items: center; gap: 0.5rem;">
                     <div style="width: 10px; height: 10px; border-radius: 50%; background: #10b981; box-shadow: 0 0 8px #10b981;"></div>
-                    <h3 style="margin: 0; font-size: 1.1rem; font-weight: 700; color: #f8fafc;">Live SSE Authentication Monitor</h3>
+                    <h3 style="margin: 0; font-size: 1.1rem; font-weight: 700; color: #f8fafc;">Live SecOps Event Stream &amp; Monitor</h3>
                 </div>
                 <p style="margin: 0.35rem 0 0 0; font-size: 0.82rem; color: #94a3b8;">
-                    Real-time Server-Sent Events stream from <code>{% url 'accounts:admin_iam_live_stream' %}</code>. Stage trace with zero secret disclosure.
+                    Section 13 Compliant Append-Only Security Event Stream: <code>GET /security/events?after=&lt;id&gt;</code> (HTMX polling every 15s). Zero secret disclosure.
                 </p>
             </div>
-            <a href="{% url 'accounts:admin_iam_live_stream' %}" target="_blank" class="btn btn-secondary btn-sm" style="background: #334155; color: #f8fafc; border: 1px solid #475569;">
-                Open Raw SSE Feed ↗
-            </a>
-        </div>
-        <!-- Live SSE Stream Event Feed Box -->
-        <div id="live-sse-box" style="margin-top: 1rem; border-top: 1px solid #334155; padding-top: 0.75rem;">
-            <div style="display: flex; justify-content: space-between; align-items: center; font-size: 0.8rem; margin-bottom: 0.5rem;">
-                <span id="sse-status" style="color: #10b981; font-weight: 600;">● Live Stream Connected (Receiving real-time security events)</span>
-                <span style="color: #64748b; font-size: 0.75rem;">Auto-reconnecting SSE feed</span>
+            <div style="display: flex; gap: 0.5rem;">
+                <a href="{% url 'security_events_root' %}" target="_blank" class="btn btn-secondary btn-sm" style="background: #334155; color: #f8fafc; border: 1px solid #475569;">
+                    Open SecOps Feed (/security/events) ↗
+                </a>
+                <a href="{% url 'security_alerts_root' %}" class="btn btn-secondary btn-sm" style="background: #1e293b; color: #f8fafc; border: 1px solid #475569;">
+                    SecOps Alert Triage Console ↗
+                </a>
             </div>
-            <div id="live-stream-items" style="max-height: 240px; overflow-y: auto; display: flex; flex-direction: column; gap: 0.4rem; font-family: monospace; font-size: 0.78rem;">
+        </div>
+        <!-- HTMX Polling Stream Event Feed Box -->
+        <div id="live-secops-box" style="margin-top: 1rem; border-top: 1px solid #334155; padding-top: 0.75rem;">
+            <div style="display: flex; justify-content: space-between; align-items: center; font-size: 0.8rem; margin-bottom: 0.5rem;">
+                <span style="color: #10b981; font-weight: 600;">● SecOps Polling Feed (Active — hx-trigger="every 15s")</span>
+                <span style="color: #64748b; font-size: 0.75rem;">Stable cursor /security/events?after=&lt;id&gt;</span>
+            </div>
+            <div id="secops-stream-feed" hx-get="{% url 'security_events_root' %}" hx-trigger="load, every 15s" hx-swap="innerHTML" style="max-height: 240px; overflow-y: auto; font-family: monospace; font-size: 0.78rem;">
                 <div class="stream-placeholder" style="color: #94a3b8; padding: 0.5rem; text-align: center; border: 1px dashed #334155; border-radius: 4px;">
-                    Listening for real-time authentication events on /auth/admin/iam/live-stream/...
+                    Loading recent security events...
                 </div>
             </div>
         </div>

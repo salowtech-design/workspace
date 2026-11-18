@@ -13,9 +13,9 @@ import uuid
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied
-from django.http import HttpResponse, JsonResponse
+from django.http import HttpResponse
 from django.shortcuts import redirect, render
-from django.views.decorators.http import require_GET, require_POST
+from django.views.decorators.http import require_POST
 
 from apps.accounts.auth.device_approval import (
     approve_device_by_admin,
@@ -131,25 +131,48 @@ def device_email_otp_view(request, request_id: uuid.UUID):
 
 def device_face_verify_view(request, request_id: uuid.UUID):
     """Device B: Step 3 — Server-side face verification check and session establishment."""
+    from django.conf import settings
+
+    from apps.face.engine.stub import StubVerifier
+    from apps.face.models import FaceTemplate, FaceVerificationLog
+
     req = DeviceApprovalRequest.objects.filter(request_id=request_id).first()
     if not req or not req.email_otp_verified:
         messages.error(request, "Prior verification steps not completed.")
         return redirect("accounts:login")
 
+    has_template = FaceTemplate.objects.filter(user=req.user).exists()
+    is_dev = getattr(settings, "DEV_VERIFIER", False)
     error = None
+
     if request.method == "POST":
-        # Execute face verification gate
-        try:
-            complete_device_verification_and_login(request, request_id, face_verified=True)
-            messages.success(request, "Secondary device verified successfully. Welcome to Salow Workspace!")
-            return redirect("attendance:panel")
-        except AuthException as e:
-            error = e.user_message
+        # Execute face verification gate (Section 9 & 17)
+        face_ok = False
+        if is_dev:
+            stub = StubVerifier(allowed=True)
+            res = stub.verify(user_id=req.user.employee_id, challenge_nonce="dev-secondary-nonce", frames=[])
+            face_ok = res.success
+        elif has_template:
+            from apps.face.services import verify_face
+            res = verify_face(user=req.user, purpose=FaceVerificationLog.Purpose.STEP_UP)
+            face_ok = res.success
+            if not face_ok:
+                error = res.error_reason or "Facial recognition similarity score below security threshold."
+        else:
+            error = "Biometric face template not enrolled for this account. Contact your administrator for fallback authorization."
+
+        if face_ok:
+            try:
+                complete_device_verification_and_login(request, request_id, face_verified=True)
+                messages.success(request, "Secondary device verified successfully. Welcome to Salow Workspace!")
+                return redirect("attendance:panel")
+            except AuthException as e:
+                error = e.user_message
 
     return render(
         request,
         "accounts/devices/face_verify.html",
-        {"req": req, "user": req.user, "error": error},
+        {"req": req, "user": req.user, "error": error, "has_template": has_template},
     )
 
 
@@ -171,4 +194,4 @@ def device_admin_approve_view(request, request_id: uuid.UUID):
     except (AuthException, PermissionDenied) as e:
         messages.error(request, str(e))
 
-    return redirect(f"/auth/admin/iam/?tab=sessions")
+    return redirect("/auth/admin/iam/?tab=sessions")

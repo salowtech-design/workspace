@@ -79,6 +79,19 @@ class TestIAMGridNavigation:
         assert "Daily Work Posts" not in html
         assert "Certificate Verification Portal" not in html
 
+    def test_authentication_subsystem_tab(self, client, admin_actor):
+        """Tab 1 (Authentication) renders password policies, Argon2id, and throttling thresholds."""
+        client.force_login(admin_actor)
+        resp = client.get(reverse("accounts:admin_iam") + "?tab=authentication")
+        assert resp.status_code == 200
+        html = resp.content.decode()
+        assert "Authentication Architecture" in html
+        assert "Argon2id (RFC 9106)" in html
+        assert "First-Time Activation (Login)" in html
+        assert "Returning Employee (Sign In)" in html
+        assert "5 attempts" in html
+        assert "3 attempts" in html
+
     def test_threat_protection_subsystem_tab(self, client, admin_actor):
         """Tab 13 (Threats & Exceptions) renders rate limits and fallback queue."""
         client.force_login(admin_actor)

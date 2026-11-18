@@ -324,3 +324,70 @@ class TestLockoutAndLoginFlow:
         # Complete MFA challenge
         complete_mfa_challenge(request, authenticated_user, code)
         assert request.session.get("_salow_mfa_verified") is True
+
+    def test_employee_id_syntax_and_role_marker_parsing(self):
+        """Validates format normalization and role marker parsing per Section 6."""
+        from apps.accounts.auth.employee_id import (
+            normalize_employee_id,
+            parse_role_marker_from_id,
+            validate_employee_id_role_consistency,
+        )
+
+        assert normalize_employee_id("  st-emp-0001  ") == "ST-EMP-0001"
+        assert parse_role_marker_from_id("ST-EMP-0001") == "EMP"
+        assert parse_role_marker_from_id("ALICE-DEV") == "DEV"
+        assert parse_role_marker_from_id("JOHN-ADMIN-01") == "ADMIN"
+
+        # Valid role consistency
+        is_ok, _ = validate_employee_id_role_consistency("ST-EMP-0001", CustomUser.Role.EMPLOYEE)
+        assert is_ok is True
+
+        # Role mismatch: identifier claims ADMIN but account is EMPLOYEE
+        is_bad, reason = validate_employee_id_role_consistency("ALICE-ADMIN-01", CustomUser.Role.EMPLOYEE)
+        assert is_bad is False
+        assert "does not match assigned role" in reason
+
+    def test_employee_id_role_marker_mismatch_rejected_in_login(self, db):
+        """User with mismatched ID role marker (e.g. claims ADMIN in ID) is rejected per Section 6."""
+        user = CustomUser.objects.create(
+            employee_id="SPOOF-ADMIN-01",
+            full_name="Privilege Impersonator",
+            role=CustomUser.Role.EMPLOYEE,  # Authoritative DB role is EMPLOYEE, not ADMIN!
+            status=CustomUser.Status.ACTIVE,
+        )
+        user.set_password("ValidStrongPassword123!")
+        user.save()
+
+        with pytest.raises(AuthException) as exc_info:
+            authenticate_password(employee_id="SPOOF-ADMIN-01", password="ValidStrongPassword123!")
+        # Preserves anti-enumeration generic code
+        assert exc_info.value.code == "AUTH-LOG-001"
+
+    def test_returning_employee_sign_in_locks_after_three_failed_attempts(self, db):
+        """Returning employee sign-in enforces 3-attempt lockout per Section 7 table."""
+        user = CustomUser.objects.create(
+            employee_id="ST-EMP-THR-01",
+            full_name="Three Attempt User",
+            role=CustomUser.Role.EMPLOYEE,
+            status=CustomUser.Status.ACTIVE,
+        )
+        user.set_password("ValidStrongPassword123!")
+        user.save()
+
+        # Attempt 1: wrong password
+        with pytest.raises(AuthException):
+            authenticate_password("ST-EMP-THR-01", "WrongPassword1!")
+
+        # Attempt 2: wrong password
+        with pytest.raises(AuthException):
+            authenticate_password("ST-EMP-THR-01", "WrongPassword2!")
+
+        # Attempt 3: wrong password -> engages lockout
+        with pytest.raises(AuthException):
+            authenticate_password("ST-EMP-THR-01", "WrongPassword3!")
+
+        # 4th attempt: blocked by lockout even with correct password
+        with pytest.raises(AuthException) as exc:
+            authenticate_password("ST-EMP-THR-01", "ValidStrongPassword123!")
+        assert exc.value.code == "AUTH-LOG-002"
+        assert "consecutive failures" in str(exc.value)

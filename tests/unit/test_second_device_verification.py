@@ -10,14 +10,12 @@ Validates:
 7. Anti-replay and rejection handling.
 """
 
-import uuid
 from datetime import timedelta
 
 import pytest
 from django.contrib.auth import get_user_model
 from django.core.exceptions import PermissionDenied
 from django.test import Client
-from django.urls import reverse
 from django.utils import timezone
 
 from apps.accounts.auth.device_approval import (
@@ -104,7 +102,6 @@ class TestSecondDeviceVerification:
 
     def test_create_device_approval_request_strict_one_minute_expiry(self, dual_device_user):
         """Pending challenge has strictly 1-minute expiration window."""
-        t_before = timezone.now()
         req = create_device_approval_request(
             user=dual_device_user,
             ip_address="192.168.1.100",
@@ -222,3 +219,58 @@ class TestSecondDeviceVerification:
         )
         assert approved_req.status == DeviceApprovalRequest.Status.APPROVED
         assert approved_req.approval_type == "admin_fallback"
+
+    def test_expired_email_otp_rejected(self, dual_device_user):
+        """Email OTP submitted after 5 minutes is rejected."""
+        req = create_device_approval_request(user=dual_device_user)
+        approve_device_by_existing_session(req.request_id, approver=dual_device_user)
+
+        email = EmailOutbox.objects.filter(recipient=dual_device_user.email).latest("created_at")
+        import re
+        raw_otp = re.search(r"code is: (\d{6})", email.body_text).group(1)
+
+        # Fast forward approved_at past 5 minutes
+        req.approved_at = timezone.now() - timedelta(minutes=6)
+        req.save(update_fields=["approved_at"])
+
+        assert verify_device_email_otp(req.request_id, raw_otp) is False
+
+    def test_replaying_completed_device_request_rejected(self, rf, dual_device_user):
+        """Completed approval request cannot be reused or re-verified (anti-replay)."""
+        req = create_device_approval_request(user=dual_device_user)
+        approve_device_by_existing_session(req.request_id, approver=dual_device_user)
+
+        email = EmailOutbox.objects.filter(recipient=dual_device_user.email).latest("created_at")
+        import re
+        raw_otp = re.search(r"code is: (\d{6})", email.body_text).group(1)
+        assert verify_device_email_otp(req.request_id, raw_otp) is True
+
+        request_b = rf.get("/")
+        request_b.session = Client().session
+        complete_device_verification_and_login(request_b, req.request_id, face_verified=True)
+
+        # Replay attempt 1: verify OTP again on completed request
+        assert verify_device_email_otp(req.request_id, raw_otp) is False
+
+        # Replay attempt 2: create session again on completed request
+        request_c = rf.get("/")
+        request_c.session = Client().session
+        with pytest.raises(AuthException) as exc:
+            complete_device_verification_and_login(request_c, req.request_id, face_verified=True)
+        assert "already been completed" in str(exc.value)
+
+    def test_unverified_face_rejected(self, rf, dual_device_user):
+        """Attempting to complete device login without verified face raises AuthException."""
+        req = create_device_approval_request(user=dual_device_user)
+        approve_device_by_existing_session(req.request_id, approver=dual_device_user)
+
+        email = EmailOutbox.objects.filter(recipient=dual_device_user.email).latest("created_at")
+        import re
+        raw_otp = re.search(r"code is: (\d{6})", email.body_text).group(1)
+        verify_device_email_otp(req.request_id, raw_otp)
+
+        request_b = rf.get("/")
+        request_b.session = Client().session
+        with pytest.raises(AuthException) as exc:
+            complete_device_verification_and_login(request_b, req.request_id, face_verified=False)
+        assert "Biometric face verification failed" in str(exc.value)

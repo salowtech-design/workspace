@@ -25,6 +25,7 @@ from apps.attendance.services import (
     get_current_kolkata_date,
     review_fallback_request,
 )
+from apps.core.workday import refresh_daily_workspace_context
 from apps.face.engine.stub import StubVerifier
 
 
@@ -32,7 +33,9 @@ from apps.face.engine.stub import StubVerifier
 def panel_view(request):
     """
     Renders personal attendance dashboard with active session, history, and fallback requests.
+    Synchronizes daily workday context (Asia/Kolkata) preserving historical records (Section 11).
     """
+    workday_ctx = refresh_daily_workspace_context(request.user)
     open_session = get_open_session(request.user)
     recent_sessions = get_user_sessions(request.user, limit=10)
     my_requests = AttendanceFallbackRequest.objects.filter(user=request.user).order_by(
@@ -44,6 +47,7 @@ def panel_view(request):
         "recent_sessions": recent_sessions,
         "my_requests": my_requests,
         "dev_verifier_active": getattr(settings, "DEV_VERIFIER", False),
+        "workday": workday_ctx,
     }
     return render(request, "attendance/panel.html", context)
 
