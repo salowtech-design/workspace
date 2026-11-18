@@ -156,7 +156,7 @@ def test_landing_page_progressive_disclosure_query_params(client):
     assert resp_login.status_code == 200
     html_login = resp_login.content.decode()
     assert 'id="login-flow-container" style="display: block;' in html_login
-    assert 'name="activation_code"' in html_login
+    assert 'name="password"' in html_login
 
 
 @pytest.mark.django_db
