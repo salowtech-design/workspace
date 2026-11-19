@@ -50,10 +50,12 @@ def login_view(request):
             request.POST.get("totp_code", "").strip() or request.POST.get("token", "").strip()
         )
         recovery_code = request.POST.get("recovery_code", "").strip()
-        ip_addr = request.META.get("REMOTE_ADDR")
+        ip_addr = getattr(request, "client_ip", None) or request.META.get("REMOTE_ADDR")
 
         try:
             user = authenticate_password(emp_id, password, ip_address=ip_addr)
+            from apps.accounts.auth.risk_engine import evaluate_login_risk
+            evaluate_login_risk(user, ip_addr or "127.0.0.1", request.META.get("HTTP_USER_AGENT", ""))
 
             # Check if user has completed MFA setup
             cred = TOTPCredential.objects.filter(user=user, confirmed_at__isnull=False).first()
@@ -116,6 +118,11 @@ def login_view(request):
             return redirect("accounts:mfa_challenge")
         except AuthException as e:
             error = e.user_message
+            try:
+                from apps.accounts.auth.spraying_detection import record_auth_failure_and_check_spray
+                record_auth_failure_and_check_spray(ip_addr or "127.0.0.1", emp_id)
+            except Exception:
+                pass
 
     return render(
         request,

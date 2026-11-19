@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+
+{% block title %}IAM Step-Up Re-Authentication — Salow Tech{% endblock %}
+
+{% block content %}
+<div style="max-width: 480px; margin: 3rem auto; padding: 2.5rem;" class="card">
+    <div style="text-align: center; margin-bottom: 2rem;">
+        <div style="font-size: 2.75rem; margin-bottom: 0.5rem;">🛡️</div>
+        <h2 style="font-size: 1.5rem; font-weight: 800; color: #b45309; margin: 0 0 0.5rem 0;">
+            Assurance Level 2 Step-Up
+        </h2>
+        <div style="font-size: 0.85rem; font-weight: 600; color: var(--color-primary-600); text-transform: uppercase; letter-spacing: 1px;">
+            Sensitive Administrative Action
+        </div>
+        <p style="font-size: 0.88rem; color: var(--color-text-muted); margin: 0.75rem 0 0 0;">
+            Action: <code>{{ action }}</code>. Re-enter your IAM password and fresh TOTP to elevate assurance for 5 minutes.
+        </p>
+    </div>
+
+    {% if error %}
+    <div class="alert alert-danger" style="margin-bottom: 1.5rem;" role="alert">
+        {{ error }}
+    </div>
+    {% endif %}
+
+    <form method="post" action="{% url 'iam:stepup' %}" style="display: flex; flex-direction: column; gap: 1.25rem;">
+        {% csrf_token %}
+        <input type="hidden" name="action" value="{{ action }}">
+        <input type="hidden" name="next" value="{{ next_url }}">
+
+        <div>
+            <label for="password" style="display: block; font-size: 0.85rem; font-weight: 600; margin-bottom: 0.35rem;">
+                IAM Password
+            </label>
+            <input type="password"
+                   id="password"
+                   name="password"
+                   required
+                   autofocus
+                   placeholder="••••••••••••••••"
+                   style="width: 100%; padding: 0.65rem 0.85rem; border: 1px solid var(--color-border); border-radius: 6px; font-size: 0.95rem;">
+        </div>
+
+        <div>
+            <label for="totp_code" style="display: block; font-size: 0.85rem; font-weight: 600; margin-bottom: 0.35rem;">
+                Fresh IAM TOTP Code
+            </label>
+            <input type="text"
+                   id="totp_code"
+                   name="totp_code"
+                   required
+                   maxlength="6"
+                   pattern="[0-9]{6}"
+                   inputmode="numeric"
+                   autocomplete="one-time-code"
+                   placeholder="000000"
+                   style="width: 100%; padding: 0.65rem 0.85rem; border: 1px solid var(--color-border); border-radius: 6px; font-size: 1.1rem; letter-spacing: 4px; text-align: center;">
+        </div>
+
+        <button type="submit" class="btn btn-primary" style="width: 100%; padding: 0.75rem; font-weight: 700; font-size: 1rem; margin-top: 0.5rem;">
+            Authorize Sensitive Operation
+        </button>
+        <a href="{{ next_url }}" class="btn btn-outline" style="width: 100%; text-align: center; text-decoration: none;">
+            Cancel
+        </a>
+    </form>
+</div>
+{% endblock %}

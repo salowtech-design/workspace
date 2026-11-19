@@ -84,12 +84,15 @@ def create_device_approval_request(
     user: CustomUser,
     ip_address: Optional[str] = None,
     user_agent: Optional[str] = None,
+    requesting_device_id: Optional[str] = None,
 ) -> DeviceApprovalRequest:
     """
-    Creates a pending secondary device approval challenge with strict 1-minute expiration.
+    Creates a pending secondary device approval challenge with strict 1-minute expiration
+    and a transaction-bound 2-digit number challenge for visual matching verification.
     """
     now = timezone.now()
     expires = now + timedelta(seconds=DEVICE_APPROVAL_EXPIRY_SECONDS)
+    challenge_num = secrets.randbelow(90) + 10  # 10 to 99
 
     with transaction.atomic():
         # Expire any previous pending requests for this user
@@ -102,8 +105,10 @@ def create_device_approval_request(
             user=user,
             requesting_device_ip=ip_address,
             requesting_device_agent=(user_agent or "")[:255],
+            requesting_device_id=requesting_device_id or "",
             status=DeviceApprovalRequest.Status.PENDING,
             expires_at=expires,
+            number_challenge=challenge_num,
         )
 
         log_auth_event(
@@ -113,7 +118,7 @@ def create_device_approval_request(
             employee_id=user.employee_id,
             network_address=ip_address,
             reference_id=str(req.request_id),
-            message=f"Second device approval initiated (expires in {DEVICE_APPROVAL_EXPIRY_SECONDS}s)",
+            message=f"Second device approval initiated with challenge [{challenge_num}] (expires in {DEVICE_APPROVAL_EXPIRY_SECONDS}s)",
         )
 
         return req
@@ -138,9 +143,12 @@ def check_and_expire_request(req: DeviceApprovalRequest) -> DeviceApprovalReques
 def approve_device_by_existing_session(
     request_id: uuid.UUID,
     approver: CustomUser,
+    submitted_number: Optional[int] = None,
+    approving_device_id: Optional[str] = None,
 ) -> DeviceApprovalRequest:
     """
     Approves pending second-device request by the employee on Device A.
+    Enforces number matching between Device A and Device B when challenge is provided.
     Generates single-use company email OTP.
     """
     with transaction.atomic():
@@ -160,6 +168,22 @@ def approve_device_by_existing_session(
         if req.user_id != approver.id:
             raise PermissionDenied("You can only approve device requests for your own account.")
 
+        # Mandatory Number Matching (Section 5.2)
+        if submitted_number is not None:
+            try:
+                if int(submitted_number) != req.number_challenge:
+                    raise AuthException(
+                        "AUTH-DEV-012",
+                        step="device_approval",
+                        message_override="Challenge number mismatch. Verification number does not match requesting device.",
+                    )
+            except (ValueError, TypeError):
+                raise AuthException(
+                    "AUTH-DEV-012",
+                    step="device_approval",
+                    message_override="Invalid challenge number format.",
+                )
+
         # Generate 6-digit email OTP
         raw_otp = f"{secrets.randbelow(900000) + 100000}"
         key = get_activation_hmac_key()
@@ -169,6 +193,7 @@ def approve_device_by_existing_session(
         req.approved_by = approver
         req.approved_at = timezone.now()
         req.approval_type = "primary_device"
+        req.approving_device_id = approving_device_id or ""
         req.email_otp_hash = otp_hash
         req.save()
 

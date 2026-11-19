@@ -19,36 +19,84 @@ from apps.accounts.models import CustomUser
 
 # Mapping of parsed role markers to authoritative CustomUser.Role values
 ROLE_MARKER_MAP = {
-    # Employee / Engineer markers
-    "EMP": {CustomUser.Role.EMPLOYEE},
-    "EMPLOYEE": {CustomUser.Role.EMPLOYEE},
-    "ENG": {CustomUser.Role.EMPLOYEE},
-    "DEV": {CustomUser.Role.EMPLOYEE},
-    "STAFF": {CustomUser.Role.EMPLOYEE},
-    "BENCH": {CustomUser.Role.EMPLOYEE},
-    # Admin markers
+    # Base Employee / Engineer markers (Preserved across subsequent role promotions)
+    "EMP": {
+        CustomUser.Role.EMPLOYEE,
+        CustomUser.Role.MANAGER,
+        CustomUser.Role.HR,
+        CustomUser.Role.SECURITY_ADMIN,
+        CustomUser.Role.SECURITY_REVIEWER,
+        CustomUser.Role.ADMIN,
+        CustomUser.Role.SUPER_ADMIN,
+    },
+    "EMPLOYEE": {
+        CustomUser.Role.EMPLOYEE,
+        CustomUser.Role.MANAGER,
+        CustomUser.Role.HR,
+        CustomUser.Role.SECURITY_ADMIN,
+        CustomUser.Role.SECURITY_REVIEWER,
+        CustomUser.Role.ADMIN,
+        CustomUser.Role.SUPER_ADMIN,
+    },
+    "ENG": {
+        CustomUser.Role.EMPLOYEE,
+        CustomUser.Role.MANAGER,
+        CustomUser.Role.HR,
+        CustomUser.Role.SECURITY_ADMIN,
+        CustomUser.Role.SECURITY_REVIEWER,
+        CustomUser.Role.ADMIN,
+        CustomUser.Role.SUPER_ADMIN,
+    },
+    "DEV": {
+        CustomUser.Role.EMPLOYEE,
+        CustomUser.Role.MANAGER,
+        CustomUser.Role.HR,
+        CustomUser.Role.SECURITY_ADMIN,
+        CustomUser.Role.SECURITY_REVIEWER,
+        CustomUser.Role.ADMIN,
+        CustomUser.Role.SUPER_ADMIN,
+    },
+    "STAFF": {
+        CustomUser.Role.EMPLOYEE,
+        CustomUser.Role.MANAGER,
+        CustomUser.Role.HR,
+        CustomUser.Role.SECURITY_ADMIN,
+        CustomUser.Role.SECURITY_REVIEWER,
+        CustomUser.Role.ADMIN,
+        CustomUser.Role.SUPER_ADMIN,
+    },
+    "BENCH": {
+        CustomUser.Role.EMPLOYEE,
+        CustomUser.Role.MANAGER,
+        CustomUser.Role.HR,
+        CustomUser.Role.SECURITY_ADMIN,
+        CustomUser.Role.SECURITY_REVIEWER,
+        CustomUser.Role.ADMIN,
+        CustomUser.Role.SUPER_ADMIN,
+    },
+    # Admin markers (Privileged; cannot be held by lower roles)
     "ADM": {CustomUser.Role.ADMIN, CustomUser.Role.SUPER_ADMIN},
     "ADMIN": {CustomUser.Role.ADMIN, CustomUser.Role.SUPER_ADMIN},
     "SADMIN": {CustomUser.Role.SUPER_ADMIN},
     "SUPERADMIN": {CustomUser.Role.SUPER_ADMIN},
     # Human Resources markers
-    "HR": {CustomUser.Role.HR},
+    "HR": {CustomUser.Role.HR, CustomUser.Role.ADMIN, CustomUser.Role.SUPER_ADMIN},
     # Manager markers
-    "MGR": {CustomUser.Role.MANAGER},
-    "MANAGER": {CustomUser.Role.MANAGER},
-    "LEAD": {CustomUser.Role.MANAGER},
-    # Intern markers
-    "INT": {CustomUser.Role.INTERN},
-    "INTERN": {CustomUser.Role.INTERN},
+    "MGR": {CustomUser.Role.MANAGER, CustomUser.Role.ADMIN, CustomUser.Role.SUPER_ADMIN},
+    "MANAGER": {CustomUser.Role.MANAGER, CustomUser.Role.ADMIN, CustomUser.Role.SUPER_ADMIN},
+    "LEAD": {CustomUser.Role.MANAGER, CustomUser.Role.ADMIN, CustomUser.Role.SUPER_ADMIN},
+    # Intern markers (can promote to employee/manager)
+    "INT": {CustomUser.Role.INTERN, CustomUser.Role.EMPLOYEE, CustomUser.Role.MANAGER},
+    "INTERN": {CustomUser.Role.INTERN, CustomUser.Role.EMPLOYEE, CustomUser.Role.MANAGER},
     # Security Admin markers
-    "SECADMIN": {CustomUser.Role.SECURITY_ADMIN},
-    "SEC_ADMIN": {CustomUser.Role.SECURITY_ADMIN},
-    "SEC": {CustomUser.Role.SECURITY_ADMIN, CustomUser.Role.SECURITY_REVIEWER},
+    "SECADMIN": {CustomUser.Role.SECURITY_ADMIN, CustomUser.Role.SUPER_ADMIN},
+    "SEC_ADMIN": {CustomUser.Role.SECURITY_ADMIN, CustomUser.Role.SUPER_ADMIN},
+    "SEC": {CustomUser.Role.SECURITY_ADMIN, CustomUser.Role.SECURITY_REVIEWER, CustomUser.Role.SUPER_ADMIN},
     # Security Reviewer markers
-    "SECREV": {CustomUser.Role.SECURITY_REVIEWER},
-    "SEC_REV": {CustomUser.Role.SECURITY_REVIEWER},
-    "REVIEWER": {CustomUser.Role.SECURITY_REVIEWER},
-    "REV": {CustomUser.Role.SECURITY_REVIEWER},
+    "SECREV": {CustomUser.Role.SECURITY_REVIEWER, CustomUser.Role.SECURITY_ADMIN, CustomUser.Role.SUPER_ADMIN},
+    "SEC_REV": {CustomUser.Role.SECURITY_REVIEWER, CustomUser.Role.SECURITY_ADMIN, CustomUser.Role.SUPER_ADMIN},
+    "REVIEWER": {CustomUser.Role.SECURITY_REVIEWER, CustomUser.Role.SECURITY_ADMIN, CustomUser.Role.SUPER_ADMIN},
+    "REV": {CustomUser.Role.SECURITY_REVIEWER, CustomUser.Role.SECURITY_ADMIN, CustomUser.Role.SUPER_ADMIN},
 }
 
 
@@ -64,6 +112,7 @@ def parse_role_marker_from_id(employee_id: str) -> Optional[str]:
     Parses the role marker segment from an employee ID.
     Supports formats:
     - name-role-number (e.g. ST-EMP-0001 -> 'EMP')
+    - role-department-number (e.g. EMP-BD-001 -> 'EMP')
     - name-role (e.g. ST-HR -> 'HR', ALICE-DEV -> 'DEV')
     """
     normalized = normalize_employee_id(employee_id)
@@ -72,19 +121,18 @@ def parse_role_marker_from_id(employee_id: str) -> Optional[str]:
 
     parts = normalized.split("-")
     if len(parts) >= 3:
-        # Format: name-role-number (e.g., ST-EMP-0001, TIDB-CONC-TEST-01)
-        # Check parts from left to right for known role markers
-        for part in parts[1:]:
-            if part in ROLE_MARKER_MAP:
-                return part
+        # Check all parts for known role markers (prioritizing prefix or middle)
+        for part in parts:
+            if part.upper() in ROLE_MARKER_MAP:
+                return part.upper()
         # Default middle segment
         return parts[1]
     elif len(parts) == 2:
         # Format: name-role (e.g. ALICE-DEV) or prefix-role (e.g. ST-HR)
-        if parts[1] in ROLE_MARKER_MAP:
-            return parts[1]
-        if parts[0] in ROLE_MARKER_MAP:
-            return parts[0]
+        if parts[1].upper() in ROLE_MARKER_MAP:
+            return parts[1].upper()
+        if parts[0].upper() in ROLE_MARKER_MAP:
+            return parts[0].upper()
         return parts[1]
     return None
 
@@ -118,3 +166,49 @@ def validate_employee_id_role_consistency(
         )
 
     return True, None
+
+
+def reissue_employee_id(
+    user: CustomUser,
+    new_employee_id: str,
+    actor: CustomUser,
+    reason: str,
+) -> CustomUser:
+    """
+    Audited administrative re-issuance of employee ID upon role promotion or organizational re-alignment.
+    Requires actor to be SUPER_ADMIN or ADMIN.
+    """
+    from django.core.exceptions import PermissionDenied, ValidationError
+    from apps.accounts.auth.audit import log_auth_event
+
+    if actor.role not in (CustomUser.Role.SUPER_ADMIN, CustomUser.Role.ADMIN):
+        raise PermissionDenied("Only administrators may re-issue employee identifiers.")
+
+    if not reason or not reason.strip():
+        raise ValidationError("A documented justification reason is required to re-issue an employee ID.")
+
+    normalized_new_id = normalize_employee_id(new_employee_id)
+    if not normalized_new_id:
+        raise ValidationError("New employee ID cannot be empty.")
+
+    old_id = user.employee_id
+    if old_id == normalized_new_id:
+        return user
+
+    if CustomUser.objects.filter(employee_id=normalized_new_id).exclude(pk=user.pk).exists():
+        raise ValidationError(f"Employee ID '{normalized_new_id}' is already assigned to another account.")
+
+    user._allow_employee_id_change = True
+    user.employee_id = normalized_new_id
+    user.save(update_fields=["employee_id", "updated_at"])
+
+    log_auth_event(
+        event="employee_id_reissued",
+        code="AUTH-ADMIN-REISSUE",
+        step="reissue_employee_id",
+        employee_id=normalized_new_id,
+        reference_id=f"REISSUE-{old_id}->{normalized_new_id}",
+        message=f"Employee ID reissued from {old_id} to {normalized_new_id} by {actor.employee_id}. Reason: {reason}",
+    )
+    return user
+

@@ -120,11 +120,12 @@ class CustomUser(AbstractBaseUser, PermissionsMixin):
     def save(self, *args, **kwargs):
         self.clean()
         if self.pk:
-            original = CustomUser.objects.get(pk=self.pk)
-            if original.employee_id != self.employee_id:
-                raise ValidationError(
-                    "Employee ID is immutable and cannot be changed after creation."
-                )
+            original = CustomUser.objects.filter(pk=self.pk).values("employee_id").first()
+            if original and original["employee_id"] != self.employee_id:
+                if not getattr(self, "_allow_employee_id_change", False):
+                    raise ValidationError(
+                        "Employee ID is immutable and cannot be changed after creation."
+                    )
         super().save(*args, **kwargs)
 
 
@@ -465,6 +466,12 @@ class DeviceApprovalRequest(models.Model):
     rejection_reason = models.CharField(max_length=255, blank=True, default="")
 
     # Email OTP & Face Verification
+    number_challenge = models.PositiveSmallIntegerField(
+        default=0,
+        help_text="Transaction-bound 2-digit number challenge for visual matching verification",
+    )
+    requesting_device_id = models.CharField(max_length=64, blank=True, default="")
+    approving_device_id = models.CharField(max_length=64, blank=True, default="")
     email_otp_hash = models.CharField(max_length=64, blank=True, default="")
     email_otp_verified = models.BooleanField(default=False)
     face_verified = models.BooleanField(default=False)
@@ -547,3 +554,254 @@ class SecurityAlert(models.Model):
 
     def __str__(self):
         return f"SecurityAlert [{self.severity.upper()}] {self.category} ({self.status})"
+
+
+class IAMAdminIdentity(models.Model):
+    """
+    Dedicated IAM Administrator Identity.
+    Strictly segregated from ordinary Workspace employee credentials and authorities.
+    Enforces minimum 16-character password, independent TOTP secret, and explicit assurance levels.
+    """
+
+    class Role(models.TextChoices):
+        SUPER_ADMIN = "super_admin", "Super Admin"
+        ADMIN = "admin", "Admin"
+        SECURITY_ADMIN = "security_admin", "Security Admin"
+        SECURITY_REVIEWER = "security_reviewer", "Security Reviewer"
+
+    class Status(models.TextChoices):
+        ACTIVE = "active", "Active"
+        SUSPENDED = "suspended", "Suspended"
+        LOCKED = "locked", "Locked"
+
+    admin_id = models.CharField(
+        max_length=32,
+        unique=True,
+        db_index=True,
+        help_text="Dedicated IAM identifier (e.g. IAM-SUPER-01, IAM-ADMIN-01)",
+    )
+    user = models.OneToOneField(
+        "CustomUser",
+        on_delete=models.CASCADE,
+        related_name="iam_admin_profile",
+        help_text="Authoritative link to real person/employee record for non-repudiation.",
+    )
+    password_hash = models.CharField(max_length=255)
+    encrypted_totp_secret = models.BinaryField(null=True, blank=True)
+    totp_nonce = models.BinaryField(null=True, blank=True)
+    totp_key_id = models.CharField(max_length=32, blank=True, default="")
+    totp_confirmed_at = models.DateTimeField(null=True, blank=True)
+    last_used_step = models.BigIntegerField(default=0)
+    role = models.CharField(max_length=32, choices=Role.choices, default=Role.ADMIN)
+    status = models.CharField(max_length=32, choices=Status.choices, default=Status.ACTIVE)
+    failed_login_attempts = models.PositiveSmallIntegerField(default=0)
+    locked_until = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    last_login_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        verbose_name = "IAM Admin Identity"
+        verbose_name_plural = "IAM Admin Identities"
+        ordering = ["admin_id"]
+
+    def __str__(self):
+        return f"{self.admin_id} ({self.role}) [{self.status}]"
+
+
+class IAMSession(models.Model):
+    """
+    Dedicated server-side session authority for IAM console on iam.salowtech.com.
+    Maintains assurance level (L1 baseline, L2 step-up, L3 dual-control).
+    """
+
+    session_key = models.CharField(max_length=64, unique=True, db_index=True)
+    iam_admin = models.ForeignKey(
+        IAMAdminIdentity,
+        on_delete=models.CASCADE,
+        related_name="sessions",
+    )
+    assurance_level = models.PositiveSmallIntegerField(default=1)  # 1 = L1, 2 = L2, 3 = L3
+    stepup_action = models.CharField(max_length=128, blank=True, default="")
+    stepup_expires_at = models.DateTimeField(null=True, blank=True)
+    ip_address = models.GenericIPAddressField(null=True, blank=True)
+    user_agent = models.CharField(max_length=255, blank=True, default="")
+    created_at = models.DateTimeField(auto_now_add=True)
+    last_activity = models.DateTimeField(auto_now=True)
+    is_active = models.BooleanField(default=True, db_index=True)
+
+    class Meta:
+        verbose_name = "IAM Session"
+        verbose_name_plural = "IAM Sessions"
+        ordering = ["-last_activity"]
+
+    def __str__(self):
+        return f"IAMSession {self.session_key[:8]}... [{self.iam_admin.admin_id}] (L{self.assurance_level})"
+
+
+class AuditCheckpoint(models.Model):
+    """
+    Subsystem 1: Cryptographic hash chaining and signed checkpoints.
+    Guarantees tamper evidence across append-only AuthEvents and AuditLogs.
+    """
+
+    checkpoint_id = models.CharField(max_length=64, primary_key=True)
+    start_event_id = models.BigIntegerField(default=0)
+    end_event_id = models.BigIntegerField(default=0)
+    event_count = models.PositiveIntegerField(default=0)
+    cumulative_hash = models.CharField(max_length=64, db_index=True)
+    previous_checkpoint_hash = models.CharField(max_length=64, default="")
+    signature = models.TextField(blank=True, default="")
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+    verified_at = models.DateTimeField(null=True, blank=True)
+    status = models.CharField(max_length=32, default="valid", db_index=True)  # valid, tampered
+
+    class Meta:
+        verbose_name = "Audit Checkpoint"
+        verbose_name_plural = "Audit Checkpoints"
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"Checkpoint {self.checkpoint_id} ({self.status}) - {self.event_count} events"
+
+
+class SecurityIncident(models.Model):
+    """
+    Subsystem 12: Incident response, severity tracking, containment, and PIR.
+    """
+
+    class Severity(models.TextChoices):
+        LOW = "low", "Low"
+        MEDIUM = "medium", "Medium"
+        HIGH = "high", "High"
+        CRITICAL = "critical", "Critical"
+
+    class Status(models.TextChoices):
+        INVESTIGATING = "investigating", "Investigating"
+        CONTAINED = "contained", "Contained"
+        REMEDIATED = "remediated", "Remediated"
+        CLOSED = "closed", "Closed"
+
+    incident_id = models.CharField(max_length=64, unique=True, db_index=True)
+    title = models.CharField(max_length=255)
+    severity = models.CharField(max_length=16, choices=Severity.choices, default=Severity.HIGH)
+    status = models.CharField(max_length=20, choices=Status.choices, default=Status.INVESTIGATING)
+    lead_responder = models.ForeignKey(
+        CustomUser,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="led_incidents",
+    )
+    description = models.TextField(blank=True, default="")
+    containment_steps = models.TextField(blank=True, default="")
+    recovery_steps = models.TextField(blank=True, default="")
+    lessons_learned = models.TextField(blank=True, default="")
+    evidence_references = models.JSONField(default=list, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+    contained_at = models.DateTimeField(null=True, blank=True)
+    closed_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        verbose_name = "Security Incident"
+        verbose_name_plural = "Security Incidents"
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"Incident [{self.incident_id}] {self.title} ({self.status})"
+
+
+class AccessReviewCampaign(models.Model):
+    """
+    Subsystem 8: Quarterly access reviews and dormant-account detection.
+    """
+
+    class Status(models.TextChoices):
+        ACTIVE = "active", "Active"
+        COMPLETED = "completed", "Completed"
+
+    name = models.CharField(max_length=128)
+    quarter = models.CharField(max_length=16, db_index=True)  # e.g. "2026-Q1"
+    reviewer = models.ForeignKey(
+        CustomUser,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="assigned_reviews",
+    )
+    status = models.CharField(max_length=20, choices=Status.choices, default=Status.ACTIVE)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        verbose_name = "Access Review Campaign"
+        verbose_name_plural = "Access Review Campaigns"
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"Campaign {self.name} [{self.quarter}] ({self.status})"
+
+
+class AccessReviewItem(models.Model):
+    """Individual account assessment within an Access Review Campaign."""
+
+    class Decision(models.TextChoices):
+        PENDING = "pending", "Pending Decision"
+        CERTIFIED = "certified", "Access Certified"
+        REVOKED = "revoked", "Access Revoked"
+        FLAGGED_DORMANT = "flagged_dormant", "Flagged Dormant"
+
+    campaign = models.ForeignKey(
+        AccessReviewCampaign,
+        on_delete=models.CASCADE,
+        related_name="items",
+    )
+    user = models.ForeignKey(
+        CustomUser,
+        on_delete=models.CASCADE,
+        related_name="access_reviews",
+    )
+    decision = models.CharField(max_length=32, choices=Decision.choices, default=Decision.PENDING)
+    reason = models.TextField(blank=True, default="")
+    decided_by = models.ForeignKey(
+        CustomUser,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="decided_review_items",
+    )
+    decided_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        verbose_name = "Access Review Item"
+        verbose_name_plural = "Access Review Items"
+        unique_together = [["campaign", "user"]]
+
+    def __str__(self):
+        return f"Review for {self.user.employee_id} in {self.campaign.quarter}: {self.decision}"
+
+
+class WorkspaceSecurityPolicy(models.Model):
+    """
+    Section 11: Workspace Security Administration Policy.
+    Controls workspace-specific policies delegated from Central IAM.
+    """
+
+    policy_key = models.CharField(max_length=64, unique=True, db_index=True)
+    policy_value = models.JSONField(default=dict)
+    justification = models.TextField(blank=True, default="")
+    updated_by = models.ForeignKey(
+        CustomUser,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="workspace_policy_updates",
+    )
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "Workspace Security Policy"
+        verbose_name_plural = "Workspace Security Policies"
+
+    def __str__(self):
+        return f"WorkspacePolicy: {self.policy_key}"

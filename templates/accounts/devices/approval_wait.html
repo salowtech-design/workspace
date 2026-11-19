@@ -34,6 +34,19 @@
         </div>
     </div>
 
+    <!-- Mandatory Visual Number Matching Challenge (Section 5.2) -->
+    <div style="text-align: center; margin: 1.5rem 0; padding: 1.25rem; background: #fffbeb; border: 2px dashed #f59e0b; border-radius: 8px;">
+        <div style="font-size: 0.82rem; color: #92400e; font-weight: 700; text-transform: uppercase; letter-spacing: 1px;">
+            Verification Match Number
+        </div>
+        <div style="font-size: 3rem; font-weight: 800; color: #b45309; letter-spacing: 6px; margin: 0.5rem 0;" id="device-number-challenge">
+            {{ req.number_challenge }}
+        </div>
+        <div style="font-size: 0.82rem; color: #78350f;">
+            Verify that this exact number matches the number displayed on your primary device.
+        </div>
+    </div>
+
     <!-- Live HTMX Polling Container -->
     <div id="approval-status-poll"
          hx-get="{% url 'accounts:device_approval_status' req.request_id %}"

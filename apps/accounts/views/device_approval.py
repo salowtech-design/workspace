@@ -96,7 +96,14 @@ def device_decision_view(request, request_id: uuid.UUID):
 
     try:
         if decision == "approve":
-            approve_device_by_existing_session(request_id, request.user)
+            challenge_num = request.POST.get("matching_number")
+            submitted_number = int(challenge_num) if challenge_num and challenge_num.isdigit() else None
+            approve_device_by_existing_session(
+                request_id,
+                request.user,
+                submitted_number=submitted_number,
+                approving_device_id=request.session.session_key or "",
+            )
             messages.success(request, f"Secondary device approved. Verification code sent to {req.user.email}.")
         else:
             reject_device_request(request_id, request.user, reason=reason)

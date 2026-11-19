@@ -42,7 +42,7 @@ class SecurityHeadersMiddleware:
         response.headers.setdefault("X-Frame-Options", "DENY")
         response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
         response.headers.setdefault(
-            "Permissions-Policy", "camera=(self), microphone=(), geolocation=()"
+            "Permissions-Policy", "camera=(self), microphone=(), geolocation=(self)"
         )
 
         return response
@@ -100,11 +100,23 @@ class RateLimitMiddleware:
 
     def _get_client_ip(self, request) -> str:
         remote_addr = request.META.get("REMOTE_ADDR", "127.0.0.1")
-        trusted_proxies = getattr(settings, "TRUSTED_PROXIES", ["127.0.0.1", "::1", "localhost"])
-        x_forwarded_for = request.META.get("HTTP_X_FORWARDED_FOR")
+        trusted_proxies = getattr(settings, "TRUSTED_PROXIES", ["127.0.0.1", "::1", "localhost", "testclient"])
 
+        # 1. Direct Cloudflare header if request arrives via trusted reverse proxy
+        cf_ip = request.META.get("HTTP_CF_CONNECTING_IP")
+        if cf_ip and remote_addr in trusted_proxies:
+            client_ip = cf_ip.strip()
+            request.client_ip = client_ip
+            return client_ip
+
+        # 2. X-Forwarded-For: evaluated only when REMOTE_ADDR is an authenticated trusted proxy
+        x_forwarded_for = request.META.get("HTTP_X_FORWARDED_FOR")
         if x_forwarded_for and remote_addr in trusted_proxies:
-            return x_forwarded_for.split(",")[0].strip()
+            client_ip = x_forwarded_for.split(",")[0].strip()
+            request.client_ip = client_ip
+            return client_ip
+
+        request.client_ip = remote_addr
         return remote_addr
 
     def _render_429_response(self, request, retry_after: int = 60) -> HttpResponse:
@@ -150,6 +162,7 @@ class RateLimitMiddleware:
         return resp
 
     def __call__(self, request):  # noqa: C901
+        self._get_client_ip(request)
         path = request.path_info
         if path.startswith("/static/"):
             return self.get_response(request)

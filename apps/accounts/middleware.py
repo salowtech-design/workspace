@@ -1,8 +1,88 @@
+from django.conf import settings
 from django.contrib.auth import logout
+from django.core.exceptions import PermissionDenied
+from django.http import HttpResponseForbidden, HttpResponseNotFound
 from django.shortcuts import redirect
 from django.urls import reverse
 
+from apps.accounts.auth.iam_auth import get_iam_session_from_request
 from apps.accounts.models import CustomUser, TOTPCredential
+
+
+class HostSecurityIsolationMiddleware:
+    """
+    Enforces Non-Negotiable Architecture (Section 3):
+    Two separate security authorities within the existing Django modular monolith:
+    1. Workspace Security operates on "app.salowtech.com"
+       - Controls employee access, workspace passwords, workspace sessions (__Host-workspace_session).
+    2. Central IAM operates on "iam.salowtech.com"
+       - Dedicated IAM administrator identities, passwords, and sessions (__Host-iam_session).
+    3. Strict Isolation:
+       - Workspace session cannot authenticate IAM.
+       - IAM session cannot authenticate Workspace.
+       - Requests to each hostname cannot cross-authenticate.
+    """
+
+    IAM_HOST = getattr(settings, "IAM_HOSTNAME", "iam.salowtech.com")
+    WORKSPACE_HOST = getattr(settings, "WORKSPACE_HOSTNAME", "app.salowtech.com")
+
+    EXEMPT_PREFIXES = (
+        "/health",
+        "/ready",
+        "/static/",
+    )
+
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request):
+        path = request.path_info
+        if any(path.startswith(prefix) for prefix in self.EXEMPT_PREFIXES):
+            return self.get_response(request)
+
+        host = request.get_host().split(":")[0].lower()
+        request.is_iam_host = (host == self.IAM_HOST.lower()) or path.startswith("/iam/")
+
+        # -------------------------------------------------------------------
+        # 1. IAM Host Authority (iam.salowtech.com)
+        # -------------------------------------------------------------------
+        if host == self.IAM_HOST.lower():
+            # Workspace application modules are prohibited on iam.salowtech.com
+            workspace_prefixes = ("/attendance", "/posts", "/directory", "/certificates")
+            if any(path.startswith(prefix) for prefix in workspace_prefixes):
+                return HttpResponseNotFound("Workspace applications are not accessible on iam.salowtech.com.")
+
+            # Resolve dedicated IAM session
+            iam_session = get_iam_session_from_request(request)
+            request.iam_session = iam_session
+            request.iam_admin = iam_session.iam_admin if iam_session else None
+
+            # Root path redirects to IAM console or login
+            if path in ("/", ""):
+                if iam_session:
+                    return redirect("iam:dashboard")
+                return redirect("iam:login")
+
+            # Allow public IAM endpoints
+            if path.startswith(("/iam/login", "/auth/login")):
+                return self.get_response(request)
+
+            # Require active IAM session for all other IAM host endpoints
+            if not iam_session:
+                login_url = reverse("iam:login")
+                return redirect(f"{login_url}?next={path}")
+
+            return self.get_response(request)
+
+        # -------------------------------------------------------------------
+        # 2. Workspace Host Authority (app.salowtech.com)
+        # -------------------------------------------------------------------
+        # On Workspace host, direct access to root IAM is segregated
+        if host == self.WORKSPACE_HOST.lower() and path.startswith("/iam/"):
+            # Redirect to the dedicated IAM hostname
+            return redirect(f"https://{self.IAM_HOST}{path}")
+
+        return self.get_response(request)
 
 
 class AccountSecurityMiddleware:
@@ -19,6 +99,7 @@ class AccountSecurityMiddleware:
         "/auth/mfa/challenge",
         "/auth/recovery",
         "/auth/logout",
+        "/iam/",
         "/health",
         "/ready",
         "/verify",

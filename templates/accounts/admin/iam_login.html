@@ -1,0 +1,81 @@
+{% extends "base.html" %}
+
+{% block title %}IAM Administrator Sign-In — Salow Tech{% endblock %}
+
+{% block content %}
+<div style="max-width: 480px; margin: 3rem auto; padding: 2.5rem;" class="card">
+    <div style="text-align: center; margin-bottom: 2rem;">
+        <div style="font-size: 2.75rem; margin-bottom: 0.5rem;">🔐</div>
+        <h2 style="font-size: 1.5rem; font-weight: 800; color: var(--color-primary-600); margin: 0 0 0.5rem 0;">
+            Central IAM Console
+        </h2>
+        <div style="font-size: 0.85rem; font-weight: 600; color: #b45309; text-transform: uppercase; letter-spacing: 1px;">
+            iam.salowtech.com • Authority Level 1
+        </div>
+        <p style="font-size: 0.88rem; color: var(--color-text-muted); margin: 0.75rem 0 0 0;">
+            Dedicated sign-in for Central IAM administrators. Requires dedicated credentials (min 16 characters) and fresh IAM TOTP.
+        </p>
+    </div>
+
+    {% if error %}
+    <div class="alert alert-danger" style="margin-bottom: 1.5rem;" role="alert">
+        {{ error }}
+    </div>
+    {% endif %}
+
+    <form method="post" action="{% url 'iam:login' %}" style="display: flex; flex-direction: column; gap: 1.25rem;">
+        {% csrf_token %}
+        <input type="hidden" name="next" value="{{ request.GET.next|default:'' }}">
+
+        <div>
+            <label for="admin_id" style="display: block; font-size: 0.85rem; font-weight: 600; margin-bottom: 0.35rem;">
+                Dedicated IAM Admin ID
+            </label>
+            <input type="text"
+                   id="admin_id"
+                   name="admin_id"
+                   required
+                   autofocus
+                   placeholder="e.g. IAM-SUPER-01"
+                   style="width: 100%; padding: 0.65rem 0.85rem; border: 1px solid var(--color-border); border-radius: 6px; font-size: 0.95rem; text-transform: uppercase;">
+        </div>
+
+        <div>
+            <label for="password" style="display: block; font-size: 0.85rem; font-weight: 600; margin-bottom: 0.35rem;">
+                IAM Master Password <span style="font-size: 0.75rem; color: var(--color-text-muted);">(min 16 chars)</span>
+            </label>
+            <input type="password"
+                   id="password"
+                   name="password"
+                   required
+                   minlength="16"
+                   placeholder="••••••••••••••••"
+                   style="width: 100%; padding: 0.65rem 0.85rem; border: 1px solid var(--color-border); border-radius: 6px; font-size: 0.95rem;">
+        </div>
+
+        <div>
+            <label for="totp_code" style="display: block; font-size: 0.85rem; font-weight: 600; margin-bottom: 0.35rem;">
+                Fresh IAM TOTP Authenticator Code
+            </label>
+            <input type="text"
+                   id="totp_code"
+                   name="totp_code"
+                   required
+                   maxlength="6"
+                   pattern="[0-9]{6}"
+                   inputmode="numeric"
+                   autocomplete="one-time-code"
+                   placeholder="000000"
+                   style="width: 100%; padding: 0.65rem 0.85rem; border: 1px solid var(--color-border); border-radius: 6px; font-size: 1.1rem; letter-spacing: 4px; text-align: center;">
+        </div>
+
+        <button type="submit" class="btn btn-primary" style="width: 100%; padding: 0.75rem; font-weight: 700; font-size: 1rem; margin-top: 0.5rem;">
+            Authenticate to Central IAM
+        </button>
+    </form>
+
+    <div style="margin-top: 2rem; padding-top: 1.25rem; border-top: 1px solid var(--color-border-subtle); text-align: center; font-size: 0.8rem; color: var(--color-text-muted);">
+        Looking for employee workspace? <a href="https://app.salowtech.com/auth/login/?flow=signin" style="color: var(--color-primary-600); font-weight: 600;">Go to Salow Workspace</a>
+    </div>
+</div>
+{% endblock %}

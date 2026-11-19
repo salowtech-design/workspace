@@ -24,6 +24,8 @@ urlpatterns = [
     path("security/events", security_events_view, name="security_events_root"),
     path("security/events/", security_events_view, name="security_events_root_slash"),
     path("security/alerts/", security_alerts_view, name="security_alerts_root"),
+    # Central IAM Platform (iam.salowtech.com)
+    path("iam/", include("apps.accounts.iam_urls", namespace="iam")),
     # Application modules
     path("auth/", include("apps.accounts.urls", namespace="accounts")),
     path("directory/", include("apps.directory.urls", namespace="directory")),

@@ -742,6 +742,31 @@ def admin_iam_live_stream_view(request):
     except (ValueError, TypeError):
         limit = 20
 
+    # HTMX Polling Support (Section 13 & Defect 7)
+    if request.headers.get("HX-Request") or request.GET.get("format") == "html":
+        from django.http import HttpResponse
+        events = AuthEvent.objects.order_by("-time")[:limit]
+        rows = []
+        for evt in events:
+            is_info = (evt.code == "INFO")
+            badge_color = "#059669" if is_info else "#dc2626"
+            t_str = evt.time.strftime("%H:%M:%S") if evt.time else ""
+            row_html = (
+                f'<div style="display:flex; justify-content:space-between; align-items:center; '
+                f'padding:0.4rem 0.6rem; margin-bottom:4px; border-radius:4px; background:#1e293b; '
+                f'border-left:3px solid {badge_color}; color:#f1f5f9; font-size:0.85rem;">'
+                f'<div style="display:flex; gap:0.75rem; align-items:center; flex-wrap:wrap;">'
+                f'<span style="color:#94a3b8;">{t_str}</span>'
+                f'<span style="padding:0.15rem 0.4rem; border-radius:3px; background:{badge_color}; font-weight:700; font-size:0.72rem;">{evt.event}</span>'
+                f'<span style="font-weight:600; color:#38bdf8;">{evt.employee_id or "ANONYMOUS"}</span>'
+                f'<span style="color:#cbd5e1;">[{evt.step}] {evt.message}</span>'
+                f'</div>'
+                f'<div style="color:#64748b; font-size:0.72rem;">{evt.reference_id or "-"} | {evt.network_address or "-"}</div>'
+                f'</div>'
+            )
+            rows.append(row_html)
+        return HttpResponse("".join(rows) or '<div style="color:#94a3b8; padding:0.5rem;">No security events recorded.</div>', content_type="text/html")
+
     # Support standard Last-Event-ID header and last_id query param
     last_id_str = request.headers.get("Last-Event-ID") or request.GET.get("last_id")
     last_id = None

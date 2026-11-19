@@ -1,20 +1,72 @@
-// Workspace Resumption & Minimize Policy (Section 10)
-// Return <= 30s: resume UI context without prompt.
-// Return > 30s: require fresh sign-in and restore permitted task.
+// Workspace Resumption & Visibility Preservation Policy (Section 10 & Defect 8)
+// Return <= 30s: resume UI context seamlessly without prompt.
+// Return > 30s: require fresh authentication while strictly preserving permitted form drafts and work state.
 (function() {
+  'use strict';
+
+  var DRAFT_PREFIX = '_salow_draft_';
+
+  function snapshotFormData() {
+    var data = {};
+    var forms = document.querySelectorAll('form');
+    forms.forEach(function(form, fIdx) {
+      var elements = form.querySelectorAll('input:not([type="password"]):not([type="hidden"]), textarea, select');
+      elements.forEach(function(el) {
+        if (el.name && el.value) {
+          data[el.name] = el.value;
+        }
+      });
+    });
+    if (Object.keys(data).length > 0) {
+      try {
+        var key = DRAFT_PREFIX + window.location.pathname;
+        sessionStorage.setItem(key, JSON.stringify(data));
+      } catch (e) {}
+    }
+    return data;
+  }
+
+  function restoreFormData() {
+    try {
+      var key = DRAFT_PREFIX + window.location.pathname;
+      var raw = sessionStorage.getItem(key);
+      if (!raw) return;
+      var data = JSON.parse(raw);
+      var restored = false;
+      Object.keys(data).forEach(function(name) {
+        var el = document.querySelector('[name="' + CSS.escape(name) + '"]');
+        if (el && !el.value) {
+          el.value = data[name];
+          restored = true;
+        }
+      });
+      if (restored) {
+        sessionStorage.removeItem(key);
+      }
+    } catch (e) {}
+  }
+
   document.addEventListener('visibilitychange', function() {
     if (document.visibilityState === 'hidden') {
       sessionStorage.setItem('_salow_minimized_at', Date.now().toString());
+      snapshotFormData();
     } else if (document.visibilityState === 'visible') {
       var minimizedAt = sessionStorage.getItem('_salow_minimized_at');
       if (minimizedAt) {
         var elapsed = Date.now() - parseInt(minimizedAt, 10);
         sessionStorage.removeItem('_salow_minimized_at');
         if (elapsed > 30000) {
+          snapshotFormData();
           var nextRoute = encodeURIComponent(window.location.pathname + window.location.search);
           window.location.href = '/auth/login/?flow=signin&next=' + nextRoute;
         }
       }
     }
   });
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', restoreFormData);
+  } else {
+    restoreFormData();
+  }
 })();
