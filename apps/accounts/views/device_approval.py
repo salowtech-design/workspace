@@ -83,6 +83,38 @@ def device_approval_status_view(request, request_id: uuid.UUID):
 
 
 @login_required
+def check_pending_device_approval_view(request):
+    """
+    Device A: Polling endpoint (`hx-trigger="every 3s"`) that checks if a secondary
+    device is requesting approval for this user's account (Section 5.1).
+    Renders modal popup with transaction-bound number matching when pending.
+    """
+    from django.utils import timezone
+    now = timezone.now()
+    pending_req = (
+        DeviceApprovalRequest.objects.filter(
+            user=request.user,
+            status=DeviceApprovalRequest.Status.PENDING,
+            expires_at__gt=now,
+        )
+        .order_by("-created_at")
+        .first()
+    )
+
+    if not pending_req:
+        return HttpResponse("")
+
+    return render(
+        request,
+        "accounts/devices/device_a_approval_modal.html",
+        {
+            "req": pending_req,
+            "number_challenge": pending_req.number_challenge,
+        },
+    )
+
+
+@login_required
 @require_POST
 def device_decision_view(request, request_id: uuid.UUID):
     """Device A: Approve or Reject requesting secondary device."""

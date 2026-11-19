@@ -205,17 +205,17 @@ class TestConcurrentReplayProtections:
 @pytest.mark.django_db
 class TestProxyHeaderValidation:
     def test_spoofed_x_forwarded_for_defense(self):
-        """RateLimitMiddleware extracts the outermost client IP without trusting spoofed hops."""
+        """RateLimitMiddleware extracts the outermost client IP without trusting spoofed hops when untrusted."""
         rf = RequestFactory()
 
         middleware = RateLimitMiddleware(lambda r: None)
-        req = rf.get("/auth/login/", HTTP_X_FORWARDED_FOR="198.51.100.1, 203.0.113.195, 10.0.0.1")
+        req = rf.get("/auth/login/", HTTP_X_FORWARDED_FOR="198.51.100.1, 203.0.113.195, 10.0.0.1", REMOTE_ADDR="127.0.0.1")
         ip = middleware._get_client_ip(req)
-        # Must extract the leftmost client IP
+        # Must extract the leftmost client IP when arriving via trusted proxy
         assert ip == "198.51.100.1"
 
-        # Missing X-Forwarded-For falls back to REMOTE_ADDR
-        req2 = rf.get("/auth/login/", REMOTE_ADDR="192.0.2.45")
+        # Missing or untrusted X-Forwarded-For falls back to REMOTE_ADDR
+        req2 = rf.get("/auth/login/", HTTP_X_FORWARDED_FOR="10.99.99.99", REMOTE_ADDR="192.0.2.45")
         ip2 = middleware._get_client_ip(req2)
         assert ip2 == "192.0.2.45"
 

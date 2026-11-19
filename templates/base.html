@@ -69,7 +69,13 @@
       {% block content %}{% endblock %}
     </main>
   </div>
-  {% if user.is_authenticated %}
+  {% if user.is_authenticated and not request.is_iam_host %}
+  <!-- Live HTMX Polling for Incoming Second-Device Approvals on Primary Device (Section 5.1) -->
+  <div id="device-approval-notification-container"
+       hx-get="{% url 'accounts:check_pending_device_approval' %}"
+       hx-trigger="every 3s"
+       hx-swap="innerHTML">
+  </div>
   <script src="/static/session-resumption.js" defer></script>
   {% endif %}
   <script src="/static/htmx.min.js" defer></script>

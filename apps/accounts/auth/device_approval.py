@@ -169,7 +169,13 @@ def approve_device_by_existing_session(
             raise PermissionDenied("You can only approve device requests for your own account.")
 
         # Mandatory Number Matching (Section 5.2)
-        if submitted_number is not None:
+        if req.number_challenge:
+            if submitted_number is None:
+                raise AuthException(
+                    "AUTH-DEV-012",
+                    step="device_approval",
+                    message_override="Challenge number matching is mandatory for device approval.",
+                )
             try:
                 if int(submitted_number) != req.number_challenge:
                     raise AuthException(
@@ -242,6 +248,10 @@ def approve_device_by_admin(
         check_and_expire_request(req)
         if req.status != DeviceApprovalRequest.Status.PENDING:
             raise AuthException("AUTH-DEV-004", step="device_approval", message_override=f"Request cannot be approved ({req.status}).")
+
+        # Strict No Self-Approval (Section 9)
+        if admin_user.id == req.user_id:
+            raise PermissionDenied("Self-approval is strictly prohibited for administrator fallback.")
 
         # Dual control check for Super Admin target
         if req.user.role == CustomUser.Role.SUPER_ADMIN:

@@ -13,6 +13,7 @@ from apps.accounts.views.admin_iam import (
     admin_security_shield_view,
 )
 from apps.accounts.views.device_approval import (
+    check_pending_device_approval_view,
     device_admin_approve_view,
     device_approval_status_view,
     device_approval_wait_view,
@@ -161,6 +162,11 @@ urlpatterns = [
     # Admin Audit Console
     path("console/auth-events/", console_auth_events_view, name="console_auth_events"),
     # Second-Device Verification Workflow (Section 9)
+    path(
+        "devices/approval/pending-check/",
+        check_pending_device_approval_view,
+        name="check_pending_device_approval",
+    ),
     path(
         "devices/approval/<uuid:request_id>/wait/",
         device_approval_wait_view,

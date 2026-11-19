@@ -124,14 +124,15 @@ class TestAuditTamperEvidenceSubsystem1:
 
 @pytest.mark.django_db
 class TestAlertEscalationSubsystem2:
-    def test_alert_escalation_after_15_minutes(self):
-        """Unacknowledged alerts older than 15 minutes escalate to CRITICAL."""
+    def test_alert_escalation_after_15_minutes(self, sec_admin):
+        """Unacknowledged alerts older than 15 minutes escalate to CRITICAL and dispatch outbox notifications."""
         old_time = timezone.now() - timedelta(minutes=16)
 
         alert = SecurityAlert.objects.create(
             category=SecurityAlert.Category.REPEATED_AUTH_FAILURES,
             severity=SecurityAlert.Severity.MEDIUM,
             title="Suspicious failed logins",
+            description="3 failed attempts from 192.168.1.5",
             status=SecurityAlert.Status.OPEN,
         )
         # Set created_at into the past
@@ -143,6 +144,12 @@ class TestAlertEscalationSubsystem2:
         alert.refresh_from_db()
         assert alert.severity == SecurityAlert.Severity.CRITICAL
         assert "SLA Breach" in alert.description
+
+        # Verify escalation email dispatched to Security Reviewer / Admin
+        from apps.core.models import EmailOutbox
+        queued_email = EmailOutbox.objects.filter(recipient=sec_admin.email).latest("created_at")
+        assert "ESCALATION - CRITICAL" in queued_email.subject
+        assert "3 failed attempts" in queued_email.body_text
 
 
 @pytest.mark.django_db

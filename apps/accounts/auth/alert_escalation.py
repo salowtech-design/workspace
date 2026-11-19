@@ -68,7 +68,7 @@ def escalate_unacknowledged_alerts() -> List[SecurityAlert]:
                             f"Category: {alert.category}\n"
                             f"Severity: CRITICAL (Escalated after 15 minutes unacknowledged)\n"
                             f"Created At: {alert.created_at.isoformat()}\n\n"
-                            f"Details: {alert.details}\n"
+                            f"Details: {alert.description}\n"
                         ),
                         status=EmailOutbox.Status.QUEUED,
                     )

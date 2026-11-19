@@ -125,10 +125,12 @@ class TestSecondDeviceVerification:
         assert req.status == DeviceApprovalRequest.Status.EXPIRED
 
     def test_primary_device_approval_flow_and_email_otp(self, dual_device_user):
-        """Device A approves request; single-use OTP is sent to company email."""
+        """Device A approves request with matching number; single-use OTP is sent to company email."""
         req = create_device_approval_request(user=dual_device_user)
 
-        approved_req = approve_device_by_existing_session(req.request_id, approver=dual_device_user)
+        approved_req = approve_device_by_existing_session(
+            req.request_id, approver=dual_device_user, submitted_number=req.number_challenge
+        )
         assert approved_req.status == DeviceApprovalRequest.Status.APPROVED
         assert approved_req.approved_by == dual_device_user
         assert approved_req.email_otp_hash != ""
@@ -138,16 +140,58 @@ class TestSecondDeviceVerification:
         assert email is not None
         assert "Second Device Verification OTP" in email.subject
 
+    def test_number_matching_enforcement_and_rejections(self, dual_device_user):
+        """Number matching is strictly mandatory; missing or mismatched numbers are rejected."""
+        req = create_device_approval_request(user=dual_device_user)
+
+        # 1. Missing challenge number rejected
+        with pytest.raises(AuthException) as exc1:
+            approve_device_by_existing_session(req.request_id, approver=dual_device_user, submitted_number=None)
+        assert "mandatory" in str(exc1.value).lower()
+
+        # 2. Mismatched challenge number rejected
+        wrong_number = (req.number_challenge + 1) if req.number_challenge < 99 else 10
+        with pytest.raises(AuthException) as exc2:
+            approve_device_by_existing_session(req.request_id, approver=dual_device_user, submitted_number=wrong_number)
+        assert "mismatch" in str(exc2.value).lower()
+
+        # 3. Matching challenge number accepted
+        approved = approve_device_by_existing_session(
+            req.request_id, approver=dual_device_user, submitted_number=req.number_challenge
+        )
+        assert approved.status == DeviceApprovalRequest.Status.APPROVED
+
+    def test_device_a_htmx_polling_renders_modal(self, rf, dual_device_user):
+        """Device A's HTMX polling endpoint renders approval modal with matching number when pending."""
+        from apps.accounts.views.device_approval import check_pending_device_approval_view
+
+        request = rf.get("/auth/devices/approval/pending-check/")
+        request.user = dual_device_user
+
+        # No pending request: returns empty
+        resp1 = check_pending_device_approval_view(request)
+        assert resp1.status_code == 200
+        assert resp1.content.decode("utf-8") == ""
+
+        # Pending request created: returns modal with number challenge
+        req = create_device_approval_request(user=dual_device_user)
+        resp2 = check_pending_device_approval_view(request)
+        assert resp2.status_code == 200
+        html = resp2.content.decode("utf-8")
+        assert "Secondary Device Access Request" in html
+        assert str(req.number_challenge) in html
+        assert "id_matching_number" in html
+
     def test_different_user_cannot_approve_device_request(self, dual_device_user, admin_user):
         """Arbitrary user cannot approve device request belonging to another employee."""
         req = create_device_approval_request(user=dual_device_user)
         with pytest.raises(PermissionDenied):
-            approve_device_by_existing_session(req.request_id, approver=admin_user)
+            approve_device_by_existing_session(req.request_id, approver=admin_user, submitted_number=req.number_challenge)
 
     def test_secondary_device_email_otp_verification(self, dual_device_user):
         """Device B submits the 6-digit email OTP; successfully validates against hash."""
         req = create_device_approval_request(user=dual_device_user)
-        approve_device_by_existing_session(req.request_id, approver=dual_device_user)
+        approve_device_by_existing_session(req.request_id, approver=dual_device_user, submitted_number=req.number_challenge)
 
         # Retrieve raw OTP from queued email
         email = EmailOutbox.objects.filter(recipient=dual_device_user.email).latest("created_at")
@@ -167,7 +211,7 @@ class TestSecondDeviceVerification:
     def test_complete_device_verification_and_session_creation(self, rf, dual_device_user):
         """After email OTP and biometric face check, independent session is granted."""
         req = create_device_approval_request(user=dual_device_user)
-        approve_device_by_existing_session(req.request_id, approver=dual_device_user)
+        approve_device_by_existing_session(req.request_id, approver=dual_device_user, submitted_number=req.number_challenge)
 
         email = EmailOutbox.objects.filter(recipient=dual_device_user.email).latest("created_at")
         import re
@@ -220,10 +264,17 @@ class TestSecondDeviceVerification:
         assert approved_req.status == DeviceApprovalRequest.Status.APPROVED
         assert approved_req.approval_type == "admin_fallback"
 
+    def test_admin_fallback_self_approval_prohibited(self, admin_user):
+        """Administrator cannot approve their own fallback device request (no self-approval)."""
+        req = create_device_approval_request(user=admin_user)
+        with pytest.raises(PermissionDenied) as exc:
+            approve_device_by_admin(req.request_id, admin_user=admin_user)
+        assert "Self-approval is strictly prohibited" in str(exc.value)
+
     def test_expired_email_otp_rejected(self, dual_device_user):
         """Email OTP submitted after 5 minutes is rejected."""
         req = create_device_approval_request(user=dual_device_user)
-        approve_device_by_existing_session(req.request_id, approver=dual_device_user)
+        approve_device_by_existing_session(req.request_id, approver=dual_device_user, submitted_number=req.number_challenge)
 
         email = EmailOutbox.objects.filter(recipient=dual_device_user.email).latest("created_at")
         import re
@@ -238,7 +289,7 @@ class TestSecondDeviceVerification:
     def test_replaying_completed_device_request_rejected(self, rf, dual_device_user):
         """Completed approval request cannot be reused or re-verified (anti-replay)."""
         req = create_device_approval_request(user=dual_device_user)
-        approve_device_by_existing_session(req.request_id, approver=dual_device_user)
+        approve_device_by_existing_session(req.request_id, approver=dual_device_user, submitted_number=req.number_challenge)
 
         email = EmailOutbox.objects.filter(recipient=dual_device_user.email).latest("created_at")
         import re
@@ -262,7 +313,7 @@ class TestSecondDeviceVerification:
     def test_unverified_face_rejected(self, rf, dual_device_user):
         """Attempting to complete device login without verified face raises AuthException."""
         req = create_device_approval_request(user=dual_device_user)
-        approve_device_by_existing_session(req.request_id, approver=dual_device_user)
+        approve_device_by_existing_session(req.request_id, approver=dual_device_user, submitted_number=req.number_challenge)
 
         email = EmailOutbox.objects.filter(recipient=dual_device_user.email).latest("created_at")
         import re

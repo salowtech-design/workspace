@@ -193,6 +193,7 @@ def verify_totp_code(
                 matched_step = test_step
                 break
 
+        step_to_record = matched_step or current_step
         if matched_step is not None and matched_step <= locked_cred.last_used_step:
             log_auth_event(
                 event="totp_replay_rejected",
@@ -203,10 +204,28 @@ def verify_totp_code(
             )
             raise AuthException("AUTH-MFA-003", step="verify_totp", employee_id=user.employee_id)
 
-        locked_cred.last_used_step = matched_step or current_step
+        # Atomic conditional update across concurrent workers on all database engines
+        now_ts = timezone.now()
+        rows_updated = TOTPCredential.objects.filter(
+            id=locked_cred.id,
+            last_used_step__lt=step_to_record,
+        ).update(
+            last_used_step=step_to_record,
+            confirmed_at=locked_cred.confirmed_at or now_ts,
+        )
+        if rows_updated == 0:
+            log_auth_event(
+                event="totp_replay_rejected",
+                code="AUTH-MFA-003",
+                step="verify_totp",
+                employee_id=user.employee_id,
+                message=f"Replay detected: step {step_to_record} already recorded by concurrent transaction",
+            )
+            raise AuthException("AUTH-MFA-003", step="verify_totp", employee_id=user.employee_id)
+
+        locked_cred.last_used_step = step_to_record
         if locked_cred.confirmed_at is None:
-            locked_cred.confirmed_at = timezone.now()
-        locked_cred.save(update_fields=["last_used_step", "confirmed_at"])
+            locked_cred.confirmed_at = now_ts
 
         log_auth_event(
             event="totp_verified",
