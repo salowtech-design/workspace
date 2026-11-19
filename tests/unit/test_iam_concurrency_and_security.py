@@ -89,17 +89,23 @@ class TestConcurrentReplayProtections:
 
         def attempt_verify(worker_id):
             connection.close()
-            try:
-                # Reload fresh user instance in thread
-                u = CustomUser.objects.get(id=target_employee.id)
-                verify_totp_code(u, valid_code, key_ring=kr)
-                return True, worker_id, None
-            except AuthException as e:
-                return False, worker_id, str(e.code)
-            except Exception as e:
-                return False, worker_id, str(e)
-            finally:
-                connection.close()
+            for attempt in range(15):
+                try:
+                    # Reload fresh user instance in thread
+                    u = CustomUser.objects.get(id=target_employee.id)
+                    verify_totp_code(u, valid_code, key_ring=kr)
+                    return True, worker_id, None
+                except AuthException as e:
+                    return False, worker_id, str(e.code)
+                except Exception as e:
+                    if "locked" in str(e).lower() and attempt < 14:
+                        import time
+                        time.sleep(0.04 * (attempt + 1))
+                        connection.close()
+                        continue
+                    return False, worker_id, str(e)
+                finally:
+                    connection.close()
 
         num_workers = 5
         results = []
@@ -135,13 +141,22 @@ class TestConcurrentReplayProtections:
 
         def attempt_redeem(worker_id):
             connection.close()
-            try:
-                success = redeem_recovery_code(target_employee, chosen_code)
-                return success, worker_id
-            except Exception:
-                return False, worker_id
-            finally:
-                connection.close()
+            for attempt in range(15):
+                try:
+                    u = CustomUser.objects.get(employee_id=target_employee.employee_id)
+                    success = redeem_recovery_code(u, chosen_code)
+                    return success, worker_id
+                except AuthException:
+                    return False, worker_id
+                except Exception as e:
+                    if "locked" in str(e).lower() and attempt < 14:
+                        import time
+                        time.sleep(0.04 * (attempt + 1))
+                        connection.close()
+                        continue
+                    return False, worker_id
+                finally:
+                    connection.close()
 
         num_workers = 5
         results = []

@@ -121,6 +121,38 @@ class TestAuditTamperEvidenceSubsystem1:
         ).first()
         assert tamper_alert is not None
 
+    def test_audit_signing_key_fails_closed_on_secret_key_collision(self, settings):
+        """Fails closed if audit signing key falls back or matches Django SECRET_KEY."""
+        from django.core.exceptions import ImproperlyConfigured
+        from apps.accounts.auth.audit_chain import get_audit_signing_key
+
+        settings.AUDIT_HMAC_KEY = settings.SECRET_KEY
+        settings.AUDIT_SIGNING_KEYS = {}
+        with pytest.raises(ImproperlyConfigured) as exc:
+            get_audit_signing_key()
+        assert "cannot match Django SECRET_KEY" in str(exc.value)
+
+    def test_off_db_checkpoint_custody_detects_db_attacker(self, sample_user):
+        """Attacker modifying primary DB checkpoint is caught by independent off-DB custody record."""
+        AuthEvent.objects.create(
+            event="vault_access",
+            code="INFO",
+            step="audit",
+            employee_id=sample_user.employee_id,
+            message="Secure key vault read",
+        )
+        cp = create_audit_checkpoint()
+        assert cp is not None
+
+        # Attacker tampers with cumulative_hash in database
+        AuditCheckpoint.objects.filter(checkpoint_id=cp.checkpoint_id).update(
+            cumulative_hash="0000000000000000000000000000000000000000000000000000000000000000"
+        )
+
+        valid, msg = verify_audit_chain()
+        assert valid is False
+        assert "discrepancy between db and independent storage" in msg.lower() or "signature mismatch" in msg.lower()
+
 
 @pytest.mark.django_db
 class TestAlertEscalationSubsystem2:

@@ -3,6 +3,7 @@ Base Django settings for Salow Workspace.
 Shared across development, testing, and production environments.
 """
 
+import os
 from pathlib import Path
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
@@ -120,3 +121,8 @@ CSRF_COOKIE_SAMESITE = "Lax"
 LOGIN_URL = "/auth/login/"
 LOGIN_REDIRECT_URL = "/attendance/"
 LOGOUT_REDIRECT_URL = "/auth/login/"
+
+# Audit Checkpoint Independent Storage & Custody (Subsystem 1)
+AUDIT_CHECKPOINT_DIR = Path(os.environ.get("AUDIT_CHECKPOINT_DIR", BASE_DIR / "var" / "audit_checkpoints"))
+AUDIT_ACTIVE_KEY_ID = os.environ.get("AUDIT_ACTIVE_KEY_ID", "k1")
+

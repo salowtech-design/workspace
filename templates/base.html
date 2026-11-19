@@ -14,7 +14,7 @@
 </head>
 <body>
   <div class="app-shell">
-    {% if user.is_authenticated %}
+    {% if request.user.is_authenticated %}
     <aside class="sidebar">
       <div class="brand" style="display: flex; align-items: center; gap: 0.75rem;">
         <img src="/static/img/logo.jpg" alt="Salow Technologies Logo" style="height: 36px; width: 36px; object-fit: contain; border-radius: 6px;">
@@ -27,10 +27,10 @@
           <li class="nav-item"><a href="{% url 'certificates:list' %}">Certificates</a></li>
           <li class="nav-item"><a href="{% url 'directory:list' %}">Directory</a></li>
           <li class="nav-item"><a href="{% url 'accounts:security' %}">Security & Sessions</a></li>
-          {% if user.role in 'super_admin,admin,hr,manager' %}
+          {% if request.user.role in 'super_admin,admin,hr,manager' %}
           <li class="nav-item"><a href="{% url 'attendance:admin_panel' %}">Workspace Admin</a></li>
           {% endif %}
-          {% if user.role in 'super_admin,admin' %}
+          {% if request.user.role in 'super_admin,admin' %}
           <li class="nav-item"><a href="{% url 'accounts:admin_iam' %}" style="color: var(--color-primary-600); font-weight: 600;">IAM & Access Management</a></li>
           {% endif %}
         </ul>
@@ -38,10 +38,10 @@
       <div style="margin-top: auto; padding-top: var(--space-4); border-top: 1px solid var(--color-border-subtle);">
         <div style="display: flex; align-items: center; justify-content: space-between;">
           <div>
-            <div style="font-size: var(--text-sm); font-weight: 600;">{{ user.full_name }}</div>
-            <div style="font-size: var(--text-xs); color: var(--color-text-muted);">{{ user.employee_id }} ({{ user.get_role_display }})</div>
+            <div style="font-size: var(--text-sm); font-weight: 600;">{{ request.user.full_name }}</div>
+            <div style="font-size: var(--text-xs); color: var(--color-text-muted);">{{ request.user.employee_id }} ({{ request.user.get_role_display }})</div>
           </div>
-          {% if user.role in 'super_admin,admin' %}
+          {% if request.user.role in 'super_admin,admin' %}
           <a href="{% url 'accounts:admin_shield' %}" title="Administrator Security Shield" id="admin-security-shield-btn" style="text-decoration: none; font-size: 1.25rem; display: inline-flex; align-items: center; justify-content: center; padding: 0.25rem 0.35rem; border-radius: 6px; border: 1px solid rgba(0,0,0,0.1); background: var(--color-bg-subtle, #f8fafc); cursor: pointer;" aria-label="Administrator Security Shield">
             🛡️
           </a>
@@ -55,7 +55,7 @@
     </aside>
     {% endif %}
 
-    <main class="main-content" style="{% if not user.is_authenticated %}margin: 0 auto;{% endif %}">
+    <main class="main-content" style="{% if not request.user.is_authenticated %}margin: 0 auto;{% endif %}">
       {% if messages %}
         <div class="messages-container">
           {% for message in messages %}

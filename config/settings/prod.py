@@ -14,12 +14,35 @@ DEBUG = False
 
 # Production MUST NOT allow the development stub verifier
 DEV_VERIFIER = False
+if os.environ.get("DEV_VERIFIER", "false").lower() in ("true", "1", "yes"):
+    raise ImproperlyConfigured("DEV_VERIFIER cannot be enabled in production environments.")
 
 SECRET_KEY = os.environ.get("DJANGO_SECRET_KEY")
 if not SECRET_KEY or len(SECRET_KEY) < 50:
     raise ImproperlyConfigured(
         "DJANGO_SECRET_KEY must be set in production and be at least 50 characters long."
     )
+
+# Independent Audit Signing Key Custody (Subsystem 1 — strictly separated from SECRET_KEY)
+raw_audit_key = os.environ.get("AUDIT_HMAC_KEY")
+if not raw_audit_key or len(raw_audit_key) < 32:
+    raise ImproperlyConfigured(
+        "AUDIT_HMAC_KEY must be independently configured in production and be at least 32 characters long."
+    )
+if raw_audit_key == SECRET_KEY:
+    raise ImproperlyConfigured(
+        "AUDIT_HMAC_KEY cannot match DJANGO_SECRET_KEY. Audit signing keys must be independently managed."
+    )
+AUDIT_HMAC_KEY = raw_audit_key
+AUDIT_ACTIVE_KEY_ID = os.environ.get("AUDIT_ACTIVE_KEY_ID", "k1")
+AUDIT_SIGNING_KEYS = {
+    AUDIT_ACTIVE_KEY_ID: raw_audit_key,
+}
+audit_checkpoint_path = os.environ.get("AUDIT_CHECKPOINT_DIR")
+if not audit_checkpoint_path:
+    AUDIT_CHECKPOINT_DIR = BASE_DIR / "var" / "audit_checkpoints"
+else:
+    AUDIT_CHECKPOINT_DIR = Path(audit_checkpoint_path)
 
 raw_allowed_hosts = os.environ.get("ALLOWED_HOSTS", "")
 ALLOWED_HOSTS = [h.strip() for h in raw_allowed_hosts.split(",") if h.strip()]

@@ -11,6 +11,15 @@ DEBUG = False
 SECRET_KEY = "test-secret-key-salow-workspace-for-automated-testing-suite"
 ALLOWED_HOSTS = ["*"]
 
+# Independent Audit Signing Key Custody (strictly separated from SECRET_KEY)
+AUDIT_HMAC_KEY = "independent-audit-signing-key-test-custody-32bytes-secret"
+AUDIT_SIGNING_KEYS = {
+    "k1": "independent-audit-signing-key-test-custody-32bytes-secret",
+    "k2": "independent-audit-signing-key-rotated-32bytes-secret",
+}
+AUDIT_ACTIVE_KEY_ID = "k1"
+AUDIT_CHECKPOINT_DIR = BASE_DIR / "var" / "test_audit_checkpoints"
+
 DEV_VERIFIER = True
 
 # Password hashers: Argon2id primary as required by architectural authority

@@ -29,7 +29,12 @@ from apps.accounts.auth.lockout import (
     record_failed_attempt,
 )
 from apps.accounts.auth.sessions import create_verified_session
-from apps.accounts.models import CustomUser, DeviceApprovalRequest, UserSession
+from apps.accounts.models import (
+    BiometricAssertion,
+    CustomUser,
+    DeviceApprovalRequest,
+    UserSession,
+)
 from apps.core.models import EmailOutbox
 
 DEVICE_APPROVAL_EXPIRY_SECONDS = 60  # Strictly 1 minute per specification
@@ -394,20 +399,79 @@ def verify_device_email_otp(
         return True
 
 
+def issue_device_biometric_assertion(
+    user: CustomUser,
+    approval_request: DeviceApprovalRequest,
+    challenge_nonce: str,
+    outcome: str = "verified",
+    confidence_score: float = 0.95,
+    liveness_score: float = 0.90,
+    device_id: str = "",
+) -> BiometricAssertion:
+    """
+    Issues a server-side, transaction-bound biometric verification assertion.
+    Guarantees that face verification cannot be bypassed with a client-supplied boolean.
+    Valid for exactly 2 minutes; single-use only.
+    """
+    now = timezone.now()
+    single_use_token = secrets.token_urlsafe(32)
+
+    assertion = BiometricAssertion.objects.create(
+        user=user,
+        device_id=device_id or (approval_request.requesting_device_id or ""),
+        approval_request=approval_request,
+        purpose="device_approval",
+        challenge_nonce=challenge_nonce,
+        outcome=outcome,
+        confidence_score=confidence_score,
+        liveness_score=liveness_score,
+        single_use_nonce=single_use_token,
+        issued_at=now,
+        expires_at=now + timedelta(minutes=2),
+        is_consumed=False,
+    )
+
+    log_auth_event(
+        event="biometric_assertion_issued",
+        code="INFO",
+        step="device_approval",
+        employee_id=user.employee_id,
+        reference_id=str(assertion.id),
+        message=f"Biometric assertion issued for request {approval_request.request_id} (outcome={outcome})",
+    )
+    return assertion
+
+
 def complete_device_verification_and_login(
     django_request,
     request_id: uuid.UUID,
-    face_verified: bool = False,
+    assertion_token: Optional[str] = None,
+    face_verified: Optional[bool] = None,
 ) -> CustomUser:
     """
     Final gate: completes face verification, establishes Device B's independent session.
     Enforces:
-    - Biometric verification mandatory (face_verified=True).
-    - Anti-replay: cannot be completed multiple times.
+    - Server-issued, transaction-bound verification assertion mandatory.
+    - Caller-supplied boolean flags (face_verified=True) are strictly rejected.
+    - Single-use anti-replay: assertion and request cannot be reused.
     - Independent server session created for Device B.
     """
-    if not face_verified:
-        raise AuthException("AUTH-DEV-009", step="device_approval", message_override="Biometric face verification failed.")
+    if face_verified is not None and not assertion_token:
+        # Explicitly deny caller-provided boolean bypass (Defect 5.4)
+        raise AuthException(
+            "AUTH-DEV-009",
+            step="device_approval",
+            message_override="Caller-supplied face_verified boolean is strictly prohibited; a server-issued verification assertion is required.",
+        )
+
+    if not assertion_token:
+        raise AuthException(
+            "AUTH-DEV-009",
+            step="device_approval",
+            message_override="Server-issued biometric verification assertion token is required.",
+        )
+
+    now = timezone.now()
 
     with transaction.atomic():
         req = (
@@ -422,8 +486,32 @@ def complete_device_verification_and_login(
         if req.completed_at is not None:
             raise AuthException("AUTH-DEV-010", step="device_approval", message_override="Device approval request has already been completed.")
 
+        # Validate and atomically consume server assertion
+        assertion = (
+            BiometricAssertion.objects.select_for_update()
+            .filter(
+                single_use_nonce=assertion_token,
+                user=req.user,
+                approval_request=req,
+                outcome="verified",
+                is_consumed=False,
+                expires_at__gt=now,
+            )
+            .first()
+        )
+        if not assertion:
+            raise AuthException(
+                "AUTH-DEV-009",
+                step="device_approval",
+                message_override="Biometric verification assertion is invalid, expired, or previously consumed.",
+            )
+
+        assertion.is_consumed = True
+        assertion.consumed_at = now
+        assertion.save(update_fields=["is_consumed", "consumed_at"])
+
         req.face_verified = True
-        req.completed_at = timezone.now()
+        req.completed_at = now
 
         # Create independent server session for Device B
         create_verified_session(django_request, req.user)
@@ -436,7 +524,7 @@ def complete_device_verification_and_login(
             step="device_approval",
             employee_id=req.user.employee_id,
             reference_id=str(req.request_id),
-            message="Second device session successfully established with dual verification",
+            message=f"Second device session successfully established via server-issued biometric assertion [{assertion.id}]",
         )
 
         return req.user

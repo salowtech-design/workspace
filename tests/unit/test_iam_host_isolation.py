@@ -17,7 +17,7 @@ from datetime import timedelta
 import pytest
 import pyotp
 from django.contrib.auth.hashers import check_password
-from django.core.exceptions import ValidationError
+from django.core.exceptions import PermissionDenied, ValidationError
 from django.test import Client, RequestFactory
 from django.utils import timezone
 
@@ -25,7 +25,10 @@ from apps.accounts.auth.crypto import decrypt_totp_secret
 from apps.accounts.auth.errors import AuthException
 from apps.accounts.auth.iam_auth import (
     authenticate_iam_admin,
+    approve_dual_approval_request,
     check_iam_assurance,
+    consume_dual_approval_request,
+    create_dual_approval_request,
     create_iam_admin_identity,
     create_iam_session,
     get_iam_session_from_request,
@@ -195,6 +198,71 @@ class TestIAMAuthenticationAndAssurance:
 
         # Independent second Super Admin approver succeeds
         assert check_iam_assurance(request, required_level=3, action_name="break_glass", approver_admin=admin_2) is True
+
+    def test_level_3_dual_control_full_lifecycle(self, rf, superadmin_person, second_superadmin_person):
+        """Full transaction-bound Level 3 dual approval request, second approver L2, and consumption."""
+        admin_1, raw_totp_1 = create_iam_admin_identity(
+            user=superadmin_person,
+            admin_id="IAM-SUPER-06",
+            password="Strong16CharMasterPass!",
+            role=IAMAdminIdentity.Role.SUPER_ADMIN,
+        )
+        admin_2, raw_totp_2 = create_iam_admin_identity(
+            user=second_superadmin_person,
+            admin_id="IAM-SUPER-07",
+            password="Strong16CharMasterPass!",
+            role=IAMAdminIdentity.Role.SUPER_ADMIN,
+        )
+
+        req1 = rf.get("/")
+        session_1 = create_iam_session(admin_1, req1, assurance_level=1)
+        stepup_iam_assurance(session_1, "Strong16CharMasterPass!", pyotp.TOTP(raw_totp_1).now(), action_name="rotate_root_keys")
+
+        # 1. Requester creates dual approval request
+        dual_req = create_dual_approval_request(
+            requester_session=session_1,
+            action="rotate_root_keys",
+            target_id="KEY-VAULT-01",
+            reason="Scheduled bi-annual audit key rotation drill",
+        )
+        assert dual_req.status == "pending"
+
+        # 2. Requester attempting self-approval is strictly forbidden
+        req2 = rf.get("/")
+        session_2 = create_iam_session(admin_2, req2, assurance_level=1)
+        with pytest.raises(PermissionDenied):
+            approve_dual_approval_request(session_1, dual_req.request_id)
+
+        # 3. Second approver without L2 step-up is rejected
+        with pytest.raises(AuthException) as exc:
+            approve_dual_approval_request(session_2, dual_req.request_id)
+        assert "Second approver must complete independent fresh Level 2 step-up" in str(exc.value)
+
+        # 4. Second approver completes independent fresh Level 2 step-up for the same action
+        stepup_iam_assurance(session_2, "Strong16CharMasterPass!", pyotp.TOTP(raw_totp_2).now(), action_name="rotate_root_keys")
+        approved_req = approve_dual_approval_request(session_2, dual_req.request_id)
+        assert approved_req.status == "approved"
+        assert approved_req.approver == admin_2
+
+        # 5. Assurance check passes with dual_request_id
+        assert check_iam_assurance(req1, required_level=3, action_name="rotate_root_keys", dual_request_id=dual_req.request_id) is True
+
+        # 6. Privileged execution consumes dual approval atomically (anti-replay)
+        consumed = consume_dual_approval_request(
+            dual_req.request_id,
+            expected_action="rotate_root_keys",
+            expected_target_id="KEY-VAULT-01",
+        )
+        assert consumed.status == "consumed"
+        assert consumed.consumed_at is not None
+
+        # Replay attempt fails
+        with pytest.raises(AuthException):
+            consume_dual_approval_request(
+                dual_req.request_id,
+                expected_action="rotate_root_keys",
+                expected_target_id="KEY-VAULT-01",
+            )
 
     def test_protect_last_super_admin(self, superadmin_person):
         """The last active Super Admin identity cannot be demoted, suspended, or deleted."""

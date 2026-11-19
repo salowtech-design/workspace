@@ -41,17 +41,42 @@
     </form>
   </div>
   {% else %}
-  <div
-    style="display: flex; justify-content: space-between; align-items: center; background-color: var(--color-bg-subtle); border-radius: var(--radius-md); padding: var(--space-4); margin-bottom: var(--space-4);">
-    <div>
-      <div style="font-weight: 600; color: var(--color-text-main);">Not Checked In</div>
-      <div style="font-size: var(--text-sm); color: var(--color-text-muted);">
-        No active work session recorded for today.
+  <div style="background-color: var(--color-bg-subtle); border-radius: var(--radius-md); padding: var(--space-4); margin-bottom: var(--space-4);">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: var(--space-3);">
+      <div>
+        <div style="font-weight: 600; color: var(--color-text-main);">Not Checked In</div>
+        <div style="font-size: var(--text-sm); color: var(--color-text-muted);">
+          No active work session recorded for today.
+        </div>
+      </div>
+      <div>
+        <button type="button" id="toggle-camera-btn" class="btn btn-secondary" style="font-size: var(--text-xs);">
+          📷 Live Camera Preview
+        </button>
       </div>
     </div>
-    <form method="post" action="{% url 'attendance:check_in' %}">
+
+    <!-- WebRTC Live Camera Capture Viewport -->
+    <div id="attendance-camera-box" style="display: none; background: #18181b; border-radius: 8px; height: 260px; max-width: 420px; margin: 0 auto 1rem auto; flex-direction: column; align-items: center; justify-content: center; position: relative; border: 2px solid var(--color-primary-500); overflow: hidden;">
+      <video id="attendance-video" autoplay playsinline muted style="width: 100%; height: 100%; object-fit: cover; display: none;"></video>
+      <div id="attendance-camera-placeholder" style="display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; width: 100%; color: #94a3b8;">
+        <div style="width: 120px; height: 150px; border: 2px dashed #38bdf8; border-radius: 50%; display: flex; align-items: center; justify-content: center;">
+          <span style="font-size: 0.75rem; color: #7dd3fc;">Align Face</span>
+        </div>
+        <button type="button" id="start-attendance-camera-btn" class="btn btn-secondary" style="margin-top: 0.75rem; font-size: 0.75rem;">
+          Enable Camera (getUserMedia)
+        </button>
+      </div>
+      <canvas id="attendance-canvas" style="display: none;"></canvas>
+      <div style="position: absolute; bottom: 6px; font-size: 0.7rem; color: #94a3b8; background: rgba(0,0,0,0.65); padding: 2px 8px; border-radius: 4px;">
+        1:1 In-Memory Embedding Match • Zero Image Retention
+      </div>
+    </div>
+
+    <form method="post" action="{% url 'attendance:check_in' %}" id="attendance-checkin-form">
       {% csrf_token %}
-      <button type="submit" class="btn btn-primary">
+      <input type="hidden" name="frame_data" id="attendance-frame-input" value="">
+      <button type="submit" class="btn btn-primary" style="width: 100%; font-weight: 600;">
         {% if dev_verifier_active %}Check In (Dev Stub){% else %}Check In with Face{% endif %}
       </button>
     </form>
@@ -159,4 +184,61 @@
   <p style="color: var(--color-text-muted); font-size: var(--text-sm);">No previous attendance sessions found.</p>
   {% endif %}
 </div>
+
+<script>
+document.addEventListener("DOMContentLoaded", function() {
+    const toggleBtn = document.getElementById("toggle-camera-btn");
+    const cameraBox = document.getElementById("attendance-camera-box");
+    const video = document.getElementById("attendance-video");
+    const placeholder = document.getElementById("attendance-camera-placeholder");
+    const startBtn = document.getElementById("start-attendance-camera-btn");
+    const canvas = document.getElementById("attendance-canvas");
+    const frameInput = document.getElementById("attendance-frame-input");
+    const form = document.getElementById("attendance-checkin-form");
+
+    async function initAttendanceCamera() {
+        if (cameraBox) cameraBox.style.display = "flex";
+        if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({
+                    video: { facingMode: "user", width: { ideal: 640 }, height: { ideal: 480 } }
+                });
+                if (video) {
+                    video.srcObject = stream;
+                    video.style.display = "block";
+                }
+                if (placeholder) placeholder.style.display = "none";
+            } catch (err) {
+                console.warn("Attendance camera getUserMedia unavailable:", err);
+            }
+        }
+    }
+
+    if (toggleBtn) {
+        toggleBtn.addEventListener("click", function() {
+            if (cameraBox.style.display === "none") {
+                initAttendanceCamera();
+            } else {
+                cameraBox.style.display = "none";
+            }
+        });
+    }
+
+    if (startBtn) {
+        startBtn.addEventListener("click", initAttendanceCamera);
+    }
+
+    if (form) {
+        form.addEventListener("submit", function() {
+            if (video && video.srcObject && video.videoWidth) {
+                canvas.width = video.videoWidth;
+                canvas.height = video.videoHeight;
+                const ctx = canvas.getContext("2d");
+                ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+                frameInput.value = canvas.toDataURL("image/jpeg", 0.85);
+            }
+        });
+    }
+});
+</script>
 {% endblock %}

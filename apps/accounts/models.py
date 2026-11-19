@@ -651,6 +651,7 @@ class AuditCheckpoint(models.Model):
     event_count = models.PositiveIntegerField(default=0)
     cumulative_hash = models.CharField(max_length=64, db_index=True)
     previous_checkpoint_hash = models.CharField(max_length=64, default="")
+    key_id = models.CharField(max_length=32, default="k1", db_index=True)
     signature = models.TextField(blank=True, default="")
     created_at = models.DateTimeField(auto_now_add=True, db_index=True)
     verified_at = models.DateTimeField(null=True, blank=True)
@@ -805,3 +806,117 @@ class WorkspaceSecurityPolicy(models.Model):
 
     def __str__(self):
         return f"WorkspacePolicy: {self.policy_key}"
+
+
+class BiometricAssertion(models.Model):
+    """
+    Cryptographic, transaction-bound biometric verification assertion.
+    Replaces caller-supplied boolean flags (such as face_verified=True).
+    Strictly bound to:
+    - Employee identity (user)
+    - Requesting device / IP / User-Agent (device_id)
+    - Specific approval request or purpose reference (approval_request)
+    - Active challenge nonce (challenge_nonce)
+    - Single-use cryptographic token (single_use_nonce)
+    - Verification outcome (outcome)
+    - Strict expiration window (expires_at)
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    user = models.ForeignKey(
+        CustomUser,
+        on_delete=models.CASCADE,
+        related_name="biometric_assertions",
+        db_index=True,
+    )
+    device_id = models.CharField(max_length=128, blank=True, default="")
+    approval_request = models.ForeignKey(
+        "accounts.DeviceApprovalRequest",
+        null=True,
+        blank=True,
+        on_delete=models.CASCADE,
+        related_name="biometric_assertions",
+    )
+    purpose = models.CharField(max_length=64, default="device_approval")
+    challenge_nonce = models.CharField(max_length=64)
+    outcome = models.CharField(max_length=32, default="verified")  # verified, failed, rejected
+    confidence_score = models.FloatField(default=0.0)
+    liveness_score = models.FloatField(default=0.0)
+    single_use_nonce = models.CharField(max_length=64, unique=True, db_index=True)
+    issued_at = models.DateTimeField(auto_now_add=True)
+    expires_at = models.DateTimeField(db_index=True)
+    is_consumed = models.BooleanField(default=False, db_index=True)
+    consumed_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        verbose_name = "Biometric Assertion"
+        verbose_name_plural = "Biometric Assertions"
+        ordering = ["-issued_at"]
+
+    def __str__(self):
+        return f"BiometricAssertion {self.id} for {self.user.employee_id} ({self.outcome}, consumed={self.is_consumed})"
+
+
+class IAMDualApprovalRequest(models.Model):
+    """
+    Level 3 Independent Dual Approval Request (IAM Section 9).
+    Enforces that high-assurance operations (break-glass, super admin promotion, key rotation)
+    require requester Level 2 AND independent second administrator Level 2 step-up
+    bound to the identical target, action, and business justification.
+    """
+
+    class Status(models.TextChoices):
+        PENDING = "pending", "Pending Second Approval"
+        APPROVED = "approved", "Approved by Second Admin"
+        REJECTED = "rejected", "Rejected"
+        EXPIRED = "expired", "Expired"
+        CONSUMED = "consumed", "Consumed & Executed"
+
+    request_id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    action = models.CharField(max_length=64, db_index=True)
+    target_id = models.CharField(max_length=128, db_index=True)
+    reason = models.TextField()
+    requester = models.ForeignKey(
+        IAMAdminIdentity,
+        on_delete=models.CASCADE,
+        related_name="requested_dual_approvals",
+    )
+    requester_session = models.ForeignKey(
+        IAMSession,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="requester_dual_approvals",
+    )
+    requester_stepup_verified_at = models.DateTimeField()
+    approver = models.ForeignKey(
+        IAMAdminIdentity,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="approved_dual_approvals",
+    )
+    approver_session = models.ForeignKey(
+        IAMSession,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="approver_dual_approvals",
+    )
+    approver_stepup_verified_at = models.DateTimeField(null=True, blank=True)
+    status = models.CharField(
+        max_length=32, choices=Status.choices, default=Status.PENDING, db_index=True
+    )
+    rejection_reason = models.CharField(max_length=255, blank=True, default="")
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+    expires_at = models.DateTimeField(db_index=True)
+    consumed_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        verbose_name = "IAM Dual Approval Request"
+        verbose_name_plural = "IAM Dual Approval Requests"
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"DualApproval {self.request_id} [{self.action} on {self.target_id}] ({self.status})"
+

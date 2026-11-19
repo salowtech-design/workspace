@@ -39,10 +39,16 @@ def run_backup_and_verify() -> int:
         return 0
 
     try:
+        import pymysql
+
+        pymysql.install_as_MySQLdb()
         import MySQLdb
     except ImportError:
-        print("[ERROR] mysqlclient (MySQLdb) is not installed.")
-        return 1
+        try:
+            import MySQLdb
+        except ImportError:
+            print("[ERROR] mysqlclient (MySQLdb) is not installed.")
+            return 1
 
     try:
         conn = MySQLdb.connect(

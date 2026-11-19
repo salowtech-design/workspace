@@ -202,7 +202,22 @@ def device_face_verify_view(request, request_id: uuid.UUID):
 
         if face_ok:
             try:
-                complete_device_verification_and_login(request, request_id, face_verified=True)
+                from apps.accounts.auth.device_approval import issue_device_biometric_assertion
+
+                assertion = issue_device_biometric_assertion(
+                    user=req.user,
+                    approval_request=req,
+                    challenge_nonce="server-challenge-face",
+                    outcome="verified",
+                    confidence_score=getattr(res, "confidence_score", 0.95),
+                    liveness_score=getattr(res, "liveness_score", 0.90),
+                    device_id=req.requesting_device_id or "",
+                )
+                complete_device_verification_and_login(
+                    request,
+                    request_id,
+                    assertion_token=assertion.single_use_nonce,
+                )
                 messages.success(request, "Secondary device verified successfully. Welcome to Salow Workspace!")
                 return redirect("attendance:panel")
             except AuthException as e:

@@ -62,12 +62,22 @@ def check_in_view(request):
 
     try:
         is_dev = getattr(settings, "DEV_VERIFIER", False)
-        verifier = StubVerifier(allowed=is_dev)
-        result = verifier.verify(
-            user_id=request.user.employee_id,
-            challenge_nonce="m0-dev-nonce",
-            frames=[],
-        )
+        if is_dev:
+            verifier = StubVerifier(allowed=is_dev)
+            result = verifier.verify(
+                user_id=request.user.employee_id,
+                challenge_nonce="m0-dev-nonce",
+                frames=[],
+            )
+        else:
+            from apps.face.models import FaceVerificationLog
+            from apps.face.services import verify_face
+            frame_data = request.POST.get("frame_data")
+            result = verify_face(
+                user=request.user,
+                purpose=FaceVerificationLog.Purpose.ATTENDANCE_CHECK_IN,
+                frame_data={"frame": frame_data} if frame_data else None,
+            )
         session = check_in(user=request.user, verification=result)
         messages.success(
             request,

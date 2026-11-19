@@ -26,6 +26,7 @@ from apps.accounts.auth.device_approval import (
     complete_device_verification_and_login,
     create_device_approval_request,
     is_second_device_request,
+    issue_device_biometric_assertion,
     reject_device_request,
     verify_device_email_otp,
 )
@@ -222,7 +223,23 @@ class TestSecondDeviceVerification:
         request_b = rf.get("/")
         request_b.session = Client().session
 
-        user_out = complete_device_verification_and_login(request_b, req.request_id, face_verified=True)
+        # Caller-supplied boolean flag is strictly prohibited (Defect 5.4)
+        with pytest.raises(AuthException) as exc:
+            complete_device_verification_and_login(request_b, req.request_id, face_verified=True)
+        assert "Caller-supplied face_verified boolean is strictly prohibited" in str(exc.value)
+
+        # Server-issued cryptographic assertion successfully authorizes session
+        assertion = issue_device_biometric_assertion(
+            user=dual_device_user,
+            approval_request=req,
+            challenge_nonce="test-nonce-gate",
+            outcome="verified",
+        )
+        user_out = complete_device_verification_and_login(
+            request_b,
+            req.request_id,
+            assertion_token=assertion.single_use_nonce,
+        )
         assert user_out == dual_device_user
         assert request_b.session.get("_salow_mfa_verified") is True
 
@@ -298,7 +315,17 @@ class TestSecondDeviceVerification:
 
         request_b = rf.get("/")
         request_b.session = Client().session
-        complete_device_verification_and_login(request_b, req.request_id, face_verified=True)
+        assertion = issue_device_biometric_assertion(
+            user=dual_device_user,
+            approval_request=req,
+            challenge_nonce="replay-test-nonce",
+            outcome="verified",
+        )
+        complete_device_verification_and_login(
+            request_b,
+            req.request_id,
+            assertion_token=assertion.single_use_nonce,
+        )
 
         # Replay attempt 1: verify OTP again on completed request
         assert verify_device_email_otp(req.request_id, raw_otp) is False
@@ -307,11 +334,15 @@ class TestSecondDeviceVerification:
         request_c = rf.get("/")
         request_c.session = Client().session
         with pytest.raises(AuthException) as exc:
-            complete_device_verification_and_login(request_c, req.request_id, face_verified=True)
+            complete_device_verification_and_login(
+                request_c,
+                req.request_id,
+                assertion_token=assertion.single_use_nonce,
+            )
         assert "already been completed" in str(exc.value)
 
     def test_unverified_face_rejected(self, rf, dual_device_user):
-        """Attempting to complete device login without verified face raises AuthException."""
+        """Attempting to complete device login without verified face assertion raises AuthException."""
         req = create_device_approval_request(user=dual_device_user)
         approve_device_by_existing_session(req.request_id, approver=dual_device_user, submitted_number=req.number_challenge)
 
@@ -324,4 +355,4 @@ class TestSecondDeviceVerification:
         request_b.session = Client().session
         with pytest.raises(AuthException) as exc:
             complete_device_verification_and_login(request_b, req.request_id, face_verified=False)
-        assert "Biometric face verification failed" in str(exc.value)
+        assert "Caller-supplied face_verified boolean is strictly prohibited" in str(exc.value)

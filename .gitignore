@@ -84,3 +84,7 @@ coverage.xml
 .DS_Store
 Thumbs.db
 ehthumbs.db
+
+# Backups and archives
+backups/
+*.zip

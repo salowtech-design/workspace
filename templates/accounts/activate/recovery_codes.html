@@ -16,7 +16,7 @@
     <div style="background: var(--color-bg-base); padding: 1.25rem; border-radius: 8px; border: 1px solid var(--color-border-subtle); margin-bottom: 1.25rem;">
         <div id="codes-container" style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; text-align: center;">
             {% for code in recovery_codes %}
-            <div class="recovery-code-item" style="background: white; padding: 0.55rem 0.5rem; border-radius: 4px; font-family: var(--font-mono); font-weight: bold; letter-spacing: 1px; color: var(--color-primary-700); border: 1px solid var(--color-border-subtle); font-size: 0.95rem;">
+            <div class="recovery-code-item recovery-code" style="background: white; padding: 0.55rem 0.5rem; border-radius: 4px; font-family: var(--font-mono); font-weight: bold; letter-spacing: 1px; color: var(--color-primary-700); border: 1px solid var(--color-border-subtle); font-size: 0.95rem;">
                 {{ code }}
             </div>
             {% endfor %}
