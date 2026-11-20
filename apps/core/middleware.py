@@ -240,6 +240,14 @@ class RateLimitMiddleware:
             if RateLimitMiddleware._cleanup_counter % 50 == 0:
                 RateLimitRecord.objects.filter(timestamp__lte=cutoff).delete()
         except Exception as e:
-            logger.debug("Failed to record rate limit entry: %s", e)
+            logger.error("Rate limit database check error: %s", e)
+            if is_sensitive and not getattr(settings, "DEBUG", True):
+                # Fail-closed for sensitive authentication and recovery endpoints in production
+                from django.http import HttpResponse
+                return HttpResponse(
+                    "Security throttle service temporarily unavailable. Please retry later.",
+                    status=503,
+                    content_type="text/plain; charset=utf-8",
+                )
 
         return self.get_response(request)

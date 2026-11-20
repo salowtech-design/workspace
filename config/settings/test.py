@@ -8,8 +8,15 @@ from .base import *  # noqa: F403
 from .base import BASE_DIR
 
 DEBUG = False
+TESTING = True
 SECRET_KEY = "test-secret-key-salow-workspace-for-automated-testing-suite"
 ALLOWED_HOSTS = ["*"]
+
+# Test Cryptographic Keys
+BIOMETRIC_PRIMARY_KEY_HEX = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+ACTIVATION_HMAC_KEY = "test-activation-hmac-key-32bytes-secret-val!"
+EMAIL_PAYLOAD_KEY_HEX = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+SESSION_HMAC_KEY = "test-session-hmac-key-32bytes-secret-val-x!"
 
 # Independent Audit Signing Key Custody (strictly separated from SECRET_KEY)
 AUDIT_HMAC_KEY = "independent-audit-signing-key-test-custody-32bytes-secret"

@@ -31,7 +31,24 @@ services:
       - mailpit
     volumes:
       - .:/app
-    command: python manage.py runserver 0.0.0.0:8000
+    command: gunicorn config.wsgi:application --bind 0.0.0.0:8000 --workers 4 --threads 2 --timeout 60 --graceful-timeout 30
+
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: salow-worker
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      - EMAIL_HOST=mailpit
+      - EMAIL_PORT=1025
+    depends_on:
+      - web
+    volumes:
+      - .:/app
+    command: python manage.py process_email_outbox --loop --interval 10
 
 volumes:
   mailpit_data:

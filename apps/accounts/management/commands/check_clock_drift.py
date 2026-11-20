@@ -16,7 +16,7 @@ from django.utils import timezone
 
 from apps.accounts.models import SecurityAlert
 
-MAX_ALLOWED_DRIFT_SECONDS = 2.0
+MAX_ALLOWED_DRIFT_SECONDS = 1.0
 NTP_SERVERS = ["time.google.com", "pool.ntp.org", "time.windows.com"]
 
 
@@ -73,6 +73,17 @@ class Command(BaseCommand):
                 self.style.WARNING(
                     "External NTP query timed out or UDP 123 blocked. System time evaluated against internal monotonic reference."
                 )
+            )
+            import json
+            SecurityAlert.objects.create(
+                category=SecurityAlert.Category.AUDIT_INTEGRITY,
+                severity=SecurityAlert.Severity.HIGH,
+                title="NTP Synchronization Source Unavailable",
+                description=json.dumps({
+                    "error": "All configured NTP servers (time.google.com, pool.ntp.org, time.windows.com) timed out or UDP 123 blocked.",
+                    "local_timestamp": datetime.fromtimestamp(local_time, tz=dt_tz.utc).isoformat(),
+                }),
+                status=SecurityAlert.Status.OPEN,
             )
             return
 

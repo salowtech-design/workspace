@@ -110,6 +110,7 @@ STATIC_ROOT = BASE_DIR / "staticfiles"
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 # Session & Cookie Security Defaults (Phase 1 v4.0 & v6.0 Section 10, Security Contract v1.0 Section 4)
+SESSION_ENGINE = "apps.accounts.auth.session_backend"
 SESSION_COOKIE_HTTPONLY = True
 SESSION_COOKIE_SAMESITE = "Lax"
 SESSION_COOKIE_AGE = 43200  # Strictly 12 hours absolute lifetime (Section 10)

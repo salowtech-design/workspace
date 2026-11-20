@@ -20,7 +20,8 @@ from apps.face.engine.crypto import BiometricKeyRing
 def get_auth_key_ring() -> BiometricKeyRing:
     """Retrieve key ring for symmetric secret encryption at rest."""
     keys = get_biometric_key_ring_dict()
-    return BiometricKeyRing(keys=keys, active_key_id="k1")
+    active_key_id = os.getenv("BIOMETRIC_ACTIVE_KEY_ID", "k1")
+    return BiometricKeyRing(keys=keys, active_key_id=active_key_id)
 
 
 def get_key(key_id: str) -> bytes:

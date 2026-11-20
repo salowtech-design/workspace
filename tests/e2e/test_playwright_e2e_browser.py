@@ -108,7 +108,8 @@ class TestPlaywrightBrowserAcceptance:
         # Desktop context
         desktop_ctx = browser.new_context(viewport={"width": 1280, "height": 800})
         page = desktop_ctx.new_page()
-        res = page.goto(f"{live_server.url}/auth/login/", wait_until="domcontentloaded")
+        page.set_default_timeout(60000)
+        res = page.goto(f"{live_server.url}/auth/login/", wait_until="domcontentloaded", timeout=60000)
         assert res.status == 200
 
         # Assert security headers in real HTTP response

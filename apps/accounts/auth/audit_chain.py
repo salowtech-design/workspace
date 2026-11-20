@@ -251,13 +251,11 @@ def verify_audit_chain() -> Tuple[bool, str]:
                 _record_tamper_alert(cp, msg)
                 return False, msg
         else:
-            # Sync or warn if custody file is missing
-            try:
-                export_checkpoint_off_db(cp)
-            except Exception as e:
-                msg = f"Missing independent custody file for {cp.checkpoint_id} and export failed: {e}"
-                _record_tamper_alert(cp, msg)
-                return False, msg
+            # A missing independent checkpoint must be treated as an integrity/custody failure.
+            # Never silently regenerate or recreate it from primary database state.
+            msg = f"INTEGRITY VIOLATION: Missing independent custody checkpoint file for {cp.checkpoint_id}!"
+            _record_tamper_alert(cp, msg)
+            return False, msg
 
         # 4. Recompute event hash chain over underlying events
         events = AuthEvent.objects.filter(

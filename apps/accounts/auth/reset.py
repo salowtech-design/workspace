@@ -276,8 +276,8 @@ def approve_administrator_reset(
         # Check recovery authority
         check_recovery_authority(actor, target_user, second_approver)
 
-        # Generate single-use token
-        _, raw_token = issue_email_token(
+        # Generate single-use token (keyed hash stored in ActivationCode)
+        code_record, raw_token = issue_email_token(
             user=target_user,
             purpose=ActivationCode.Purpose.PASSWORD_RESET,
             ttl_minutes=15,
@@ -286,7 +286,8 @@ def approve_administrator_reset(
         req.status = RecoveryRequest.Status.APPROVED
         req.approved_by = actor
         req.approved_at = timezone.now()
-        req.reset_token = raw_token
+        req.token_hash = code_record.keyed_hash
+        req.reset_token = ""  # Plaintext token is never persisted in storage
         req.token_expires_at = timezone.now() + timezone.timedelta(minutes=15)
 
         if second_approver:
@@ -624,6 +625,11 @@ def complete_email_password_reset(raw_token: str, new_password: str) -> CustomUs
     with transaction.atomic():
         set_user_password(user, new_password)
         revoke_user_sessions(user)
+        # Mark approved recovery request completed if active
+        RecoveryRequest.objects.filter(
+            user=user,
+            status=RecoveryRequest.Status.APPROVED,
+        ).update(status=RecoveryRequest.Status.COMPLETED)
         # Invalidate any other live reset tokens
         ActivationCode.objects.filter(
             user=user,

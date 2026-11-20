@@ -23,17 +23,21 @@ from apps.core.models import EmailOutbox
 logger = logging.getLogger(__name__)
 
 
-def _get_encryption_key() -> tuple[bytes, str]:
+def _get_encryption_key(key_id: Optional[str] = None) -> tuple[bytes, str]:
     """Retrieve active 256-bit AES key for outbox payload encryption."""
-    keys = get_biometric_key_ring_dict()
-    key_id = "k1"
-    key = keys.get(key_id)
-    if not key:
-        # Fallback 256-bit key
-        import hashlib
+    from apps.accounts.auth.config import get_biometric_key_ring_dict
 
-        key = hashlib.sha256(b"SalowWorkspaceEmailPayloadDefaultKey2026").digest()
-    return key, key_id
+    keys = get_biometric_key_ring_dict()
+    kid = key_id or os.getenv("EMAIL_PAYLOAD_ACTIVE_KEY_ID", "k1")
+    key = keys.get(kid)
+    if not key:
+        key_hex = os.getenv("EMAIL_PAYLOAD_KEY_HEX")
+        if key_hex and len(key_hex) == 64:
+            return bytes.fromhex(key_hex), kid
+        if not settings.DEBUG:
+            raise ImproperlyConfigured("Valid encryption key required for email payload encryption.")
+        key = hashlib.sha256(b"SalowWorkspaceEmailPayloadDevOnly2026").digest()
+    return key, kid
 
 
 def encrypt_payload(data_dict: dict) -> tuple[bytes, bytes, str]:
@@ -48,12 +52,7 @@ def encrypt_payload(data_dict: dict) -> tuple[bytes, bytes, str]:
 
 def decrypt_payload(ciphertext: bytes, nonce: bytes, key_id: str) -> dict:
     """Decrypt payload data dictionary using AES-256-GCM."""
-    keys = get_biometric_key_ring_dict()
-    key = keys.get(key_id)
-    if not key:
-        import hashlib
-
-        key = hashlib.sha256(b"SalowWorkspaceEmailPayloadDefaultKey2026").digest()
+    key, _ = _get_encryption_key(key_id)
     aesgcm = AESGCM(key)
     plaintext = aesgcm.decrypt(nonce, ciphertext, associated_data=key_id.encode("utf-8"))
     return json.loads(plaintext.decode("utf-8"))
@@ -146,10 +145,17 @@ def notify_admin_reset_requested(
 def notify_admin_reset_approved(employee_id: str, employee_email: str, reset_url: str):
     """Event: Administrator approves password reset. Send password-reset link to verified employee email."""
     subject = "[Salow Tech IAM] Password Reset Approved by Administrator"
-    body = (
+    template = (
         f"Hello,\n\nYour administrator has approved your password reset request for {employee_id}.\n"
         f"Please click the link below to set your new password:\n\n"
         f"{reset_url}\n\n"
+        f"This link is single-use and will expire in 15 minutes.\n"
+        f"Salow Tech Security Team"
+    )
+    body = (
+        f"Hello,\n\nYour administrator has approved your password reset request for {employee_id}.\n"
+        f"Please click the link below to set your new password:\n\n"
+        f"[CONFIDENTIAL LINK ENCRYPTED IN SECURE PAYLOAD]\n\n"
         f"This link is single-use and will expire in 15 minutes.\n"
         f"Salow Tech Security Team"
     )
@@ -158,7 +164,7 @@ def notify_admin_reset_approved(employee_id: str, employee_email: str, reset_url
         subject=subject,
         body_text=body,
         notification_type="admin_reset_approved",
-        sensitive_payload={"reset_url": reset_url, "employee_id": employee_id},
+        sensitive_payload={"reset_url": reset_url, "template": template, "employee_id": employee_id},
     )
 
 
@@ -199,10 +205,18 @@ def notify_password_changed(employee_id: str, employee_email: str, method: str):
 def notify_email_reset_link_requested(employee_id: str, employee_email: str, reset_url: str):
     """Event: Email password-reset link requested (Method 2 Route C)."""
     subject = "[Salow Tech IAM] Password Reset Link"
-    body = (
+    template = (
         f"Hello,\n\nA request was received to reset your Salow Workspace password for {employee_id}.\n"
         f"Click the link below to safely continue your password reset:\n\n"
         f"{reset_url}\n\n"
+        f"This link is single-use, account-bound, and expires in 15 minutes.\n"
+        f"If you did not request this, please disregard this email.\n"
+        f"Salow Tech Security Team"
+    )
+    body = (
+        f"Hello,\n\nA request was received to reset your Salow Workspace password for {employee_id}.\n"
+        f"Click the link below to safely continue your password reset:\n\n"
+        f"[CONFIDENTIAL LINK ENCRYPTED IN SECURE PAYLOAD]\n\n"
         f"This link is single-use, account-bound, and expires in 15 minutes.\n"
         f"If you did not request this, please disregard this email.\n"
         f"Salow Tech Security Team"
@@ -212,17 +226,25 @@ def notify_email_reset_link_requested(employee_id: str, employee_email: str, res
         subject=subject,
         body_text=body,
         notification_type="email_reset_link",
-        sensitive_payload={"reset_url": reset_url, "employee_id": employee_id},
+        sensitive_payload={"reset_url": reset_url, "template": template, "employee_id": employee_id},
     )
 
 
 def notify_mfa_replacement_requested(employee_id: str, employee_email: str, verification_url: str):
     """Event: Authenticator replacement requested (Method 3)."""
     subject = "[Salow Tech Security] Lost or Replaced Authenticator Verification"
-    body = (
+    template = (
         f"Hello,\n\nA request to replace the registered authenticator for Employee ID {employee_id} was submitted.\n"
         f"Click the link below to verify your company email and proceed with authenticator setup:\n\n"
         f"{verification_url}\n\n"
+        f"This link is single-use and expires in 15 minutes.\n"
+        f"If you did not request an authenticator replacement, notify IT security immediately.\n"
+        f"Salow Tech Security Team"
+    )
+    body = (
+        f"Hello,\n\nA request to replace the registered authenticator for Employee ID {employee_id} was submitted.\n"
+        f"Click the link below to verify your company email and proceed with authenticator setup:\n\n"
+        f"[CONFIDENTIAL LINK ENCRYPTED IN SECURE PAYLOAD]\n\n"
         f"This link is single-use and expires in 15 minutes.\n"
         f"If you did not request an authenticator replacement, notify IT security immediately.\n"
         f"Salow Tech Security Team"
@@ -232,7 +254,7 @@ def notify_mfa_replacement_requested(employee_id: str, employee_email: str, veri
         subject=subject,
         body_text=body,
         notification_type="mfa_replacement_requested",
-        sensitive_payload={"verification_url": verification_url, "employee_id": employee_id},
+        sensitive_payload={"verification_url": verification_url, "template": template, "employee_id": employee_id},
     )
 
 
@@ -297,10 +319,17 @@ def notify_suspicious_activity(employee_id: str, employee_email: str, activity_s
 def send_email_verification_link(employee_id: str, employee_email: str, verification_url: str):
     """Event: Email ownership verification link."""
     subject = "[Salow Tech IAM] Verify Your Company Email Address"
-    body = (
+    template = (
         f"Hello,\n\nPlease verify ownership of your company email address for Employee ID {employee_id}.\n"
         f"Click the link below to confirm:\n\n"
         f"{verification_url}\n\n"
+        f"This verification link is single-use and expires in 24 hours.\n"
+        f"Salow Tech Identity & Access Management"
+    )
+    body = (
+        f"Hello,\n\nPlease verify ownership of your company email address for Employee ID {employee_id}.\n"
+        f"Click the link below to confirm:\n\n"
+        f"[CONFIDENTIAL LINK ENCRYPTED IN SECURE PAYLOAD]\n\n"
         f"This verification link is single-use and expires in 24 hours.\n"
         f"Salow Tech Identity & Access Management"
     )
@@ -309,55 +338,100 @@ def send_email_verification_link(employee_id: str, employee_email: str, verifica
         subject=subject,
         body_text=body,
         notification_type="email_verification",
-        sensitive_payload={"verification_url": verification_url, "employee_id": employee_id},
+        sensitive_payload={"verification_url": verification_url, "template": template, "employee_id": employee_id},
     )
 
 
 # ---------------------------------------------------------------------------
-# Outbox Background Delivery Worker
+# Outbox Background Delivery Worker (Atomic Multi-Worker Concurrency Protection)
 # ---------------------------------------------------------------------------
 
 
 def process_email_outbox(batch_size: int = 50) -> tuple[int, int]:
     """
-    Process pending and retry-pending emails from the outbox.
-    Returns (success_count, failure_count).
+    Process pending and retry-pending emails from the outbox with atomic row claiming.
     Ensures safe bounded exponential backoff, atomic updates, and payload wiping on delivery.
     """
     now = timezone.now()
-    eligible_events = list(
-        EmailOutbox.objects.filter(
-            status__in=[EmailOutbox.Status.QUEUED, EmailOutbox.Status.RETRY_PENDING],
-            scheduled_at__lte=now,
-        ).order_by("created_at")[:batch_size]
-    )
+    stale_lease_threshold = now - timezone.timedelta(minutes=10)
 
+    # 1. Recover stranded SENDING events from crashed workers
+    EmailOutbox.objects.filter(
+        status=EmailOutbox.Status.SENDING,
+        updated_at__lte=stale_lease_threshold,
+    ).update(status=EmailOutbox.Status.RETRY_PENDING)
+
+    # 2. Atomic claim batch under row locking
+    claimed_ids = []
+    with transaction.atomic():
+        candidates = list(
+            EmailOutbox.objects.select_for_update(skip_locked=True)
+            .filter(
+                status__in=[EmailOutbox.Status.QUEUED, EmailOutbox.Status.RETRY_PENDING],
+                scheduled_at__lte=now,
+            )
+            .order_by("created_at")[:batch_size]
+        )
+        for item in candidates:
+            item.status = EmailOutbox.Status.SENDING
+            item.save(update_fields=["status", "updated_at"])
+            claimed_ids.append(item.id)
+
+    if not claimed_ids:
+        return 0, 0
+
+    eligible_events = list(EmailOutbox.objects.filter(id__in=claimed_ids))
     success_count = 0
     failure_count = 0
-
     from_email = getattr(settings, "DEFAULT_FROM_EMAIL", "iam-noreply@salowtech.com")
 
     for item in eligible_events:
-        item.status = EmailOutbox.Status.SENDING
-        item.save(update_fields=["status"])
-
         failed = False
         error_msg = ""
+        msg_body = item.body_text
+        msg_html = item.body_html
 
-        try:
-            msg = EmailMultiAlternatives(
-                subject=item.subject,
-                body=item.body_text,
-                from_email=from_email,
-                to=[item.recipient],
-            )
-            if item.body_html:
-                msg.attach_alternative(item.body_html, "text/html")
-            msg.send(fail_silently=False)
-        except Exception as exc:  # noqa: BLE001
-            failed = True
-            error_msg = str(exc)
-            logger.warning("Failed to send email %s to %s: %s", item.id, item.recipient, error_msg)
+        # In-memory decrypt sensitive payload right before transmission
+        if item.encrypted_payload and item.payload_nonce and item.payload_key_id:
+            try:
+                payload = decrypt_payload(
+                    bytes(item.encrypted_payload),
+                    bytes(item.payload_nonce),
+                    item.payload_key_id,
+                )
+                if isinstance(payload, dict):
+                    if "template" in payload:
+                        msg_body = payload["template"]
+                    elif "reset_url" in payload:
+                        msg_body = msg_body.replace(
+                            "[CONFIDENTIAL LINK ENCRYPTED IN SECURE PAYLOAD]",
+                            payload["reset_url"],
+                        )
+                    elif "verification_url" in payload:
+                        msg_body = msg_body.replace(
+                            "[CONFIDENTIAL LINK ENCRYPTED IN SECURE PAYLOAD]",
+                            payload["verification_url"],
+                        )
+            except Exception as e:
+                failed = True
+                error_msg = f"Failed to decrypt payload: {e}"
+                logger.error("Failed to decrypt sensitive email payload for outbox %s: %s", item.id, e)
+
+        if not failed:
+            try:
+                msg = EmailMultiAlternatives(
+                    subject=item.subject,
+                    body=msg_body,
+                    from_email=from_email,
+                    to=[item.recipient],
+                )
+                if msg_html:
+                    msg.attach_alternative(msg_html, "text/html")
+                msg.send(fail_silently=False)
+            except Exception as exc:  # noqa: BLE001
+                failed = True
+                error_msg = str(exc)
+                logger.warning("Failed to send email %s to %s: %s", item.id, item.recipient, error_msg)
 
         with transaction.atomic():
             if failed:
@@ -368,15 +442,14 @@ def process_email_outbox(batch_size: int = 50) -> tuple[int, int]:
                     item.status = EmailOutbox.Status.DEAD_LETTER
                 else:
                     item.status = EmailOutbox.Status.RETRY_PENDING
-                    # Exponential backoff with jitter
                     backoff_seconds = min(3600, 30 * (2 ** (item.retry_count - 1)))
                     item.scheduled_at = timezone.now() + timezone.timedelta(seconds=backoff_seconds)
-                item.save(update_fields=["status", "retry_count", "last_error", "scheduled_at"])
+                item.save(update_fields=["status", "retry_count", "last_error", "scheduled_at", "updated_at"])
             else:
                 success_count += 1
                 item.status = EmailOutbox.Status.ACCEPTED_BY_TRANSPORT
                 item.sent_at = timezone.now()
-                # Security hygiene: Wipe encrypted payload on successful delivery
+                # Wipe sensitive payload immediately upon transmission
                 item.encrypted_payload = None
                 item.payload_nonce = None
                 item.payload_key_id = ""
@@ -387,6 +460,7 @@ def process_email_outbox(batch_size: int = 50) -> tuple[int, int]:
                         "encrypted_payload",
                         "payload_nonce",
                         "payload_key_id",
+                        "updated_at",
                     ]
                 )
 

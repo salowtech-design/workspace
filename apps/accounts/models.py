@@ -262,6 +262,7 @@ class UserSession(models.Model):
 
     user = models.ForeignKey(CustomUser, on_delete=models.CASCADE, related_name="active_sessions")
     session_key = models.CharField(max_length=40, unique=True, db_index=True)
+    session_digest = models.CharField(max_length=64, blank=True, default="", db_index=True)
     ip_address = models.GenericIPAddressField(null=True, blank=True)
     user_agent = models.CharField(max_length=255, blank=True)
     mfa_verified = models.BooleanField(default=False)
@@ -272,6 +273,12 @@ class UserSession(models.Model):
         ordering = ["-last_activity"]
         verbose_name = "User Session"
         verbose_name_plural = "User Sessions"
+
+    def save(self, *args, **kwargs):
+        if self.session_key and not self.session_digest:
+            from apps.accounts.auth.session_backend import hash_session_bearer
+            self.session_digest = hash_session_bearer(self.session_key)
+        super().save(*args, **kwargs)
 
     def __str__(self):
         emp_id = self.user.employee_id
@@ -373,8 +380,9 @@ class RecoveryRequest(models.Model):
     )
     second_approved_at = models.DateTimeField(null=True, blank=True)
 
-    # Generated reset token after approval
-    reset_token = models.CharField(max_length=128, blank=True, default="")
+    # Generated reset token verifier after approval (never store raw reset token)
+    token_hash = models.CharField(max_length=128, blank=True, default="", db_index=True)
+    reset_token = models.CharField(max_length=128, blank=True, default="", editable=False)
     token_expires_at = models.DateTimeField(null=True, blank=True)
 
     created_at = models.DateTimeField(auto_now_add=True, db_index=True)
@@ -616,6 +624,7 @@ class IAMSession(models.Model):
     """
 
     session_key = models.CharField(max_length=64, unique=True, db_index=True)
+    session_digest = models.CharField(max_length=64, blank=True, default="", db_index=True)
     iam_admin = models.ForeignKey(
         IAMAdminIdentity,
         on_delete=models.CASCADE,
@@ -634,6 +643,12 @@ class IAMSession(models.Model):
         verbose_name = "IAM Session"
         verbose_name_plural = "IAM Sessions"
         ordering = ["-last_activity"]
+
+    def save(self, *args, **kwargs):
+        if self.session_key and not self.session_digest:
+            from apps.accounts.auth.iam_auth import hash_session_bearer
+            self.session_digest = hash_session_bearer(self.session_key)
+        super().save(*args, **kwargs)
 
     def __str__(self):
         return f"IAMSession {self.session_key[:8]}... [{self.iam_admin.admin_id}] (L{self.assurance_level})"

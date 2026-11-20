@@ -11,6 +11,8 @@ Implements Non-Negotiable Architecture (Section 3 & 4.1):
 5. Protection for the last active Super Admin.
 """
 
+import hashlib
+import hmac
 import secrets
 import time
 import uuid
@@ -22,9 +24,11 @@ from django.conf import settings
 from django.contrib.auth.hashers import check_password, make_password
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import transaction
+from django.db.models import Q
 from django.utils import timezone
 
 from apps.accounts.auth.audit import log_auth_event
+from apps.accounts.auth.config import get_session_hmac_key
 from apps.accounts.auth.crypto import decrypt_totp_secret, encrypt_totp_secret
 from apps.accounts.auth.errors import AuthException
 from apps.accounts.auth.lockout import check_lockout, clear_failed_attempts, record_failed_attempt
@@ -90,6 +94,14 @@ def create_iam_admin_identity(
     return iam_admin, raw_totp_secret
 
 
+def hash_session_bearer(raw_bearer: str) -> str:
+    """Compute keyed HMAC-SHA256 digest of session bearer token."""
+    if not raw_bearer:
+        return ""
+    key = get_session_hmac_key()
+    return hmac.new(key, str(raw_bearer).encode("utf-8"), "sha256").hexdigest()
+
+
 def authenticate_iam_admin(
     admin_id: str,
     password: str,
@@ -100,7 +112,7 @@ def authenticate_iam_admin(
     Executes dedicated IAM Administrator sign-in (Section 4.1):
     1. Dedicated IAM administrator ID.
     2. Dedicated IAM password (min 16 chars).
-    3. Fresh IAM TOTP.
+    3. Fresh IAM TOTP with atomic row-level anti-replay protection.
     4. Account lifecycle and risk checks.
     5. Returns authenticated IAMAdminIdentity.
     """
@@ -108,92 +120,103 @@ def authenticate_iam_admin(
     lockout_key = f"iam_login:{clean_admin_id}"
     check_lockout(lockout_key)
 
-    iam_admin = (
-        IAMAdminIdentity.objects.select_related("user")
-        .filter(admin_id=clean_admin_id)
-        .first()
-    )
-
-    if not iam_admin:
-        record_failed_attempt(lockout_key, threshold=3)
-        # Prevent timing enumeration
-        check_password(password, "pbkdf2_sha256$600000$dummy$dummypasswordhashforunknownaccounts")
-        raise AuthException(
-            "AUTH-IAM-001",
-            step="iam_login",
-            message_override="Invalid IAM administrator credentials.",
+    with transaction.atomic():
+        iam_admin = (
+            IAMAdminIdentity.objects.select_for_update()
+            .select_related("user")
+            .filter(admin_id=clean_admin_id)
+            .first()
         )
 
-    if iam_admin.status != IAMAdminIdentity.Status.ACTIVE:
-        raise AuthException(
-            "AUTH-IAM-002",
-            step="iam_login",
-            message_override=f"IAM administrator account is {iam_admin.status}.",
+        if not iam_admin:
+            record_failed_attempt(lockout_key, threshold=3)
+            # Prevent timing enumeration
+            check_password(password, "pbkdf2_sha256$600000$dummy$dummypasswordhashforunknownaccounts")
+            raise AuthException(
+                "AUTH-IAM-001",
+                step="iam_login",
+                message_override="Invalid IAM administrator credentials.",
+            )
+
+        if iam_admin.status != IAMAdminIdentity.Status.ACTIVE:
+            raise AuthException(
+                "AUTH-IAM-002",
+                step="iam_login",
+                message_override=f"IAM administrator account is {iam_admin.status}.",
+            )
+
+        # 1. Verify password
+        if not check_password(password, iam_admin.password_hash):
+            record_failed_attempt(lockout_key, employee_id=iam_admin.user.employee_id, threshold=3)
+            iam_admin.failed_login_attempts += 1
+            if iam_admin.failed_login_attempts >= 3:
+                iam_admin.status = IAMAdminIdentity.Status.LOCKED
+                iam_admin.locked_until = timezone.now() + timedelta(minutes=30)
+            iam_admin.save(update_fields=["failed_login_attempts", "status", "locked_until"])
+            raise AuthException(
+                "AUTH-IAM-001",
+                step="iam_login",
+                message_override="Invalid IAM administrator credentials.",
+            )
+
+        # 2. Verify independent TOTP
+        if not iam_admin.encrypted_totp_secret:
+            raise AuthException(
+                "AUTH-IAM-003",
+                step="iam_login",
+                message_override="IAM Administrator TOTP is not enrolled.",
+            )
+
+        raw_secret = decrypt_totp_secret(
+            bytes(iam_admin.encrypted_totp_secret),
+            bytes(iam_admin.totp_nonce) if iam_admin.totp_nonce else b"",
+            iam_admin.totp_key_id,
         )
+        totp = pyotp.TOTP(raw_secret, interval=30)
+        current_time = timezone.now()
+        current_step = int(current_time.timestamp() // 30)
+        cleaned_code = totp_code.strip()
+        is_valid = totp.verify(cleaned_code, for_time=current_time, valid_window=1)
+        if not is_valid:
+            record_failed_attempt(lockout_key, employee_id=iam_admin.user.employee_id, threshold=3)
+            raise AuthException(
+                "AUTH-IAM-005",
+                step="iam_login",
+                message_override="Invalid IAM TOTP verification code.",
+            )
 
-    # 1. Verify password
-    if not check_password(password, iam_admin.password_hash):
-        record_failed_attempt(lockout_key, employee_id=iam_admin.user.employee_id, threshold=3)
-        iam_admin.failed_login_attempts += 1
-        if iam_admin.failed_login_attempts >= 3:
-            iam_admin.status = IAMAdminIdentity.Status.LOCKED
-            iam_admin.locked_until = timezone.now() + timedelta(minutes=30)
-        iam_admin.save(update_fields=["failed_login_attempts", "status", "locked_until"])
-        raise AuthException(
-            "AUTH-IAM-001",
-            step="iam_login",
-            message_override="Invalid IAM administrator credentials.",
-        )
+        # Anti-replay: cannot reuse same TOTP step or past steps
+        matched_step = None
+        for step_offset in [0, -1, 1]:
+            test_step = current_step + step_offset
+            if totp.generate_otp(test_step) == cleaned_code:
+                matched_step = test_step
+                break
 
-    # 2. Verify independent TOTP
-    if not iam_admin.encrypted_totp_secret:
-        raise AuthException(
-            "AUTH-IAM-003",
-            step="iam_login",
-            message_override="IAM Administrator TOTP is not enrolled.",
-        )
-
-    raw_secret = decrypt_totp_secret(
-        bytes(iam_admin.encrypted_totp_secret),
-        bytes(iam_admin.totp_nonce) if iam_admin.totp_nonce else b"",
-        iam_admin.totp_key_id,
-    )
-    totp = pyotp.TOTP(raw_secret, interval=30)
-    current_step = int(time.time() // 30)
-
-    # Anti-replay: cannot reuse same TOTP step
-    if totp.verify(totp_code.strip(), valid_window=1):
-        # Prevent step replay
-        if current_step <= iam_admin.last_used_step:
+        step_to_record = matched_step or current_step
+        if matched_step is not None and matched_step <= iam_admin.last_used_step:
             raise AuthException(
                 "AUTH-IAM-004",
                 step="iam_login",
                 message_override="TOTP code has already been used. Please wait for the next 30-second token.",
             )
-        iam_admin.last_used_step = current_step
-    else:
-        record_failed_attempt(lockout_key, employee_id=iam_admin.user.employee_id, threshold=3)
-        raise AuthException(
-            "AUTH-IAM-005",
+        iam_admin.last_used_step = step_to_record
+
+        # Reset failure tracking on full success
+        clear_failed_attempts(lockout_key)
+        iam_admin.failed_login_attempts = 0
+        iam_admin.last_login_at = timezone.now()
+        iam_admin.save(update_fields=["failed_login_attempts", "last_login_at", "last_used_step"])
+
+        log_auth_event(
+            event="iam_admin_authenticated",
+            code="INFO",
             step="iam_login",
-            message_override="Invalid IAM TOTP verification code.",
+            employee_id=iam_admin.user.employee_id,
+            network_address=client_ip,
+            reference_id=iam_admin.admin_id,
+            message=f"Dedicated IAM Admin [{iam_admin.admin_id}] authenticated (Assurance Level 1)",
         )
-
-    # Reset failure tracking on full success
-    clear_failed_attempts(lockout_key)
-    iam_admin.failed_login_attempts = 0
-    iam_admin.last_login_at = timezone.now()
-    iam_admin.save(update_fields=["failed_login_attempts", "last_login_at", "last_used_step"])
-
-    log_auth_event(
-        event="iam_admin_authenticated",
-        code="INFO",
-        step="iam_login",
-        employee_id=iam_admin.user.employee_id,
-        network_address=client_ip,
-        reference_id=iam_admin.admin_id,
-        message=f"Dedicated IAM Admin [{iam_admin.admin_id}] authenticated (Assurance Level 1)",
-    )
 
     return iam_admin
 
@@ -205,13 +228,16 @@ def create_iam_session(
 ) -> IAMSession:
     """
     Creates an independent server-side session authority for iam.salowtech.com.
+    Persists only the keyed digest; the raw bearer token is set in request.session_key_iam for cookie dispatch.
     """
-    session_key = secrets.token_urlsafe(48)
+    raw_token = secrets.token_urlsafe(48)
+    digest = hash_session_bearer(raw_token)
     client_ip = getattr(request, "client_ip", None) or request.META.get("REMOTE_ADDR", "127.0.0.1")
     user_agent = request.META.get("HTTP_USER_AGENT", "")[:255]
 
     session = IAMSession.objects.create(
-        session_key=session_key,
+        session_key=digest,
+        session_digest=digest,
         iam_admin=iam_admin,
         assurance_level=assurance_level,
         ip_address=client_ip,
@@ -219,7 +245,7 @@ def create_iam_session(
         is_active=True,
     )
 
-    request.session_key_iam = session_key
+    request.session_key_iam = raw_token
     request.iam_admin = iam_admin
     request.iam_session = session
 
@@ -230,7 +256,7 @@ def get_iam_session_from_request(request) -> Optional[IAMSession]:
     """
     Resolves the authoritative IAMSession from the dedicated IAM cookie (__Host-salow_iam_session).
     Enforces idle expiry (10 min) and absolute expiry (8 hours).
-    Strictly prohibits legacy cookie fallback.
+    Resolves session via keyed HMAC-SHA256 digest lookup.
     """
     cookie_name = IAM_SESSION_COOKIE_NAME
     session_key = (
@@ -242,9 +268,11 @@ def get_iam_session_from_request(request) -> Optional[IAMSession]:
     if not session_key:
         return None
 
+    digest = hash_session_bearer(session_key)
+
     session = (
         IAMSession.objects.select_related("iam_admin", "iam_admin__user")
-        .filter(session_key=session_key, is_active=True)
+        .filter(Q(session_key=digest) | Q(session_digest=digest) | Q(session_key=session_key), is_active=True)
         .first()
     )
 
@@ -438,14 +466,17 @@ def consume_dual_approval_request(
     request_id: uuid.UUID,
     expected_action: str,
     expected_target_id: str,
+    expected_payload_digest: Optional[str] = None,
 ) -> IAMDualApprovalRequest:
     """
     Atomically validates and marks a Level 3 dual approval as consumed to prevent replay attacks.
+    Exhaustively revalidates identities, sessions, active status, fresh assurance, and payload binding.
     """
     now = timezone.now()
     with transaction.atomic():
         req = (
             IAMDualApprovalRequest.objects.select_for_update()
+            .select_related("requester__user", "approver__user", "requester_session", "approver_session")
             .filter(request_id=request_id)
             .first()
         )
@@ -461,6 +492,33 @@ def consume_dual_approval_request(
         if req.action != expected_action or req.target_id != str(expected_target_id):
             raise AuthException("AUTH-IAM-L3-008", step="dual_approval", message_override="Dual approval parameters do not match executed action.")
 
+        # Revalidate payload digest if specified or bound
+        if expected_payload_digest and hasattr(req, "payload_digest") and req.payload_digest:
+            if req.payload_digest != expected_payload_digest:
+                raise AuthException("AUTH-IAM-L3-009", step="dual_approval", message_override="Dual approval payload digest mismatch.")
+
+        # Revalidate requester status and authorization
+        requester = req.requester
+        if not requester or requester.status != IAMAdminIdentity.Status.ACTIVE or not requester.user.is_active:
+            raise AuthException("AUTH-IAM-L3-010", step="dual_approval", message_override="Requester administrator account is no longer active.")
+
+        # Revalidate approver status and authorization
+        approver = req.approver
+        if not approver or approver.status != IAMAdminIdentity.Status.ACTIVE or not approver.user.is_active:
+            raise AuthException("AUTH-IAM-L3-011", step="dual_approval", message_override="Approver administrator account is no longer active.")
+
+        # Revalidate separation of duties (no self-approval)
+        if requester.id == approver.id:
+            raise PermissionDenied("Requester and approver must be distinct identities.")
+
+        # Revalidate sessions
+        if req.requester_session and not req.requester_session.is_active:
+            raise AuthException("AUTH-IAM-L3-012", step="dual_approval", message_override="Requester session has expired or was revoked.")
+
+        if req.approver_session and not req.approver_session.is_active:
+            raise AuthException("AUTH-IAM-L3-013", step="dual_approval", message_override="Approver session has expired or was revoked.")
+
+        # Atomically consume
         req.status = IAMDualApprovalRequest.Status.CONSUMED
         req.consumed_at = now
         req.save(update_fields=["status", "consumed_at"])
@@ -471,7 +529,7 @@ def consume_dual_approval_request(
             step="dual_approval",
             employee_id=req.requester.user.employee_id,
             reference_id=str(req.request_id),
-            message=f"Level 3 dual approval [{req.request_id}] consumed transactionally for execution.",
+            message=f"Level 3 dual approval [{req.request_id}] consumed transactionally by {req.requester.admin_id} (Approved by {req.approver.admin_id}).",
         )
         return req
 

@@ -38,6 +38,38 @@ AUDIT_ACTIVE_KEY_ID = os.environ.get("AUDIT_ACTIVE_KEY_ID", "k1")
 AUDIT_SIGNING_KEYS = {
     AUDIT_ACTIVE_KEY_ID: raw_audit_key,
 }
+
+# Cryptographic Key Separation and Validation (Workstream C)
+raw_biometric_key = os.environ.get("BIOMETRIC_PRIMARY_KEY_HEX")
+if not raw_biometric_key or len(raw_biometric_key) != 64:
+    raise ImproperlyConfigured(
+        "BIOMETRIC_PRIMARY_KEY_HEX must be set in production as a 64-character hex string (256-bit AES key)."
+    )
+
+raw_activation_key = os.environ.get("ACTIVATION_HMAC_KEY")
+if not raw_activation_key or len(raw_activation_key) < 32:
+    raise ImproperlyConfigured(
+        "ACTIVATION_HMAC_KEY must be configured in production with at least 32 characters."
+    )
+
+raw_email_key = os.environ.get("EMAIL_PAYLOAD_KEY_HEX")
+if not raw_email_key or len(raw_email_key) != 64:
+    raise ImproperlyConfigured(
+        "EMAIL_PAYLOAD_KEY_HEX must be set in production as a 64-character hex string (256-bit AES key)."
+    )
+
+raw_session_key = os.environ.get("SESSION_HMAC_KEY")
+if not raw_session_key or len(raw_session_key) < 32:
+    raise ImproperlyConfigured(
+        "SESSION_HMAC_KEY must be configured in production with at least 32 characters."
+    )
+
+# Disallow key reuse across purposes
+key_set = {SECRET_KEY, raw_audit_key, raw_activation_key, raw_session_key, raw_biometric_key, raw_email_key}
+if len(key_set) < 6:
+    raise ImproperlyConfigured(
+        "Cryptographic keys must be unique per purpose; key duplication across purposes is strictly prohibited."
+    )
 audit_checkpoint_path = os.environ.get("AUDIT_CHECKPOINT_DIR")
 if not audit_checkpoint_path:
     AUDIT_CHECKPOINT_DIR = BASE_DIR / "var" / "audit_checkpoints"
