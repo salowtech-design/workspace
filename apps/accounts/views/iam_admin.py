@@ -67,7 +67,7 @@ def iam_login_view(request):
                 next_url = request.GET.get("next") or reverse("iam:dashboard")
 
                 response = redirect(next_url)
-                # Set host-only IAM session cookie
+                # Set host-only IAM session cookie (__Host-salow_iam_session)
                 cookie_name = IAM_SESSION_COOKIE_NAME
                 secure = getattr(settings, "SESSION_COOKIE_SECURE", False)
                 response.set_cookie(
@@ -75,18 +75,9 @@ def iam_login_view(request):
                     session.session_key,
                     httponly=True,
                     secure=secure,
-                    samesite="Lax",
+                    samesite="Strict" if secure else "Lax",
                     path="/",
                 )
-                # Also set fallback for non-SSL test environments
-                if not secure:
-                    response.set_cookie(
-                        "iam_session_id",
-                        session.session_key,
-                        httponly=True,
-                        samesite="Lax",
-                        path="/",
-                    )
                 return response
             except AuthException as exc:
                 error = exc.user_message

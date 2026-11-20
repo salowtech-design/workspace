@@ -311,7 +311,11 @@ class TestHostnameIsolationAndCookies:
             HTTP_HOST="iam.salowtech.com",
         )
         assert login_resp.status_code == 302
-        assert login_resp.cookies.get("iam_session_id") or login_resp.cookies.get("__Host-iam_session")
+        assert (
+            login_resp.cookies.get("__Host-salow_iam_session")
+            or login_resp.cookies.get("salow_iam_session")
+            or login_resp.cookies.get("__Host-iam_session")
+        )
 
         # 4. Workspace host ignores IAM session cookie
         workspace_resp = client.get("/attendance/", HTTP_HOST="app.salowtech.com")

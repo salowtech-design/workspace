@@ -37,9 +37,9 @@ from apps.accounts.models import (
 )
 
 IAM_ADMIN_MIN_PASSWORD_LENGTH = 16
-IAM_SESSION_COOKIE_NAME = getattr(settings, "IAM_SESSION_COOKIE_NAME", "__Host-iam_session")
-IAM_SESSION_IDLE_TIMEOUT_MINUTES = 30
-IAM_SESSION_ABSOLUTE_TIMEOUT_HOURS = 12
+IAM_SESSION_COOKIE_NAME = getattr(settings, "IAM_SESSION_COOKIE_NAME", "__Host-salow_iam_session")
+IAM_SESSION_IDLE_TIMEOUT_MINUTES = 10
+IAM_SESSION_ABSOLUTE_TIMEOUT_HOURS = 8
 
 
 def create_iam_admin_identity(
@@ -228,11 +228,16 @@ def create_iam_session(
 
 def get_iam_session_from_request(request) -> Optional[IAMSession]:
     """
-    Resolves the authoritative IAMSession from the dedicated IAM cookie (__Host-iam_session).
-    Enforces idle expiry (30 min) and absolute expiry (12 hours).
+    Resolves the authoritative IAMSession from the dedicated IAM cookie (__Host-salow_iam_session).
+    Enforces idle expiry (10 min) and absolute expiry (8 hours).
+    Strictly prohibits legacy cookie fallback.
     """
     cookie_name = IAM_SESSION_COOKIE_NAME
-    session_key = request.COOKIES.get(cookie_name) or request.COOKIES.get("iam_session_id")
+    session_key = (
+        request.COOKIES.get(cookie_name)
+        or request.COOKIES.get("__Host-salow_iam_session")
+        or request.COOKIES.get("salow_iam_session")
+    )
 
     if not session_key:
         return None

@@ -109,11 +109,21 @@ STATIC_ROOT = BASE_DIR / "staticfiles"
 # Default primary key field type
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
-# Session & Cookie Security Defaults (Phase 1 v4.0 & v6.0 Section 10)
+# Session & Cookie Security Defaults (Phase 1 v4.0 & v6.0 Section 10, Security Contract v1.0 Section 4)
 SESSION_COOKIE_HTTPONLY = True
 SESSION_COOKIE_SAMESITE = "Lax"
 SESSION_COOKIE_AGE = 43200  # Strictly 12 hours absolute lifetime (Section 10)
 SESSION_EXPIRE_AT_BROWSER_CLOSE = True  # Fresh authentication on browser close/reopen (Section 10)
+
+# In production (HTTPS), prefix with __Host- per RFC 6265bis.
+# In insecure HTTP dev/test, use un-prefixed name because user agents drop __Host- on plain HTTP.
+if os.environ.get("SESSION_COOKIE_SECURE", "false").lower() == "true":
+    SESSION_COOKIE_NAME = "__Host-salow_workspace_session"
+    IAM_SESSION_COOKIE_NAME = "__Host-salow_iam_session"
+else:
+    SESSION_COOKIE_NAME = "salow_workspace_session"
+    IAM_SESSION_COOKIE_NAME = "salow_iam_session"
+
 CSRF_COOKIE_HTTPONLY = True
 CSRF_COOKIE_SAMESITE = "Lax"
 

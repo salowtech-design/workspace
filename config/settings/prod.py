@@ -69,12 +69,13 @@ DATABASES = {
     }
 }
 
-# Strict Cookie Security
+# Strict Cookie Security (Contract v1.0 Section 4)
 SESSION_COOKIE_SECURE = True
 SESSION_COOKIE_HTTPONLY = True
-SESSION_COOKIE_SAMESITE = "Lax"
+SESSION_COOKIE_SAMESITE = "Strict"
 SESSION_COOKIE_AGE = 43200  # 12 hours baseline
-SESSION_COOKIE_NAME = "__Host-workspace_session"
+SESSION_COOKIE_NAME = "__Host-salow_workspace_session"
+IAM_SESSION_COOKIE_NAME = "__Host-salow_iam_session"
 
 CSRF_COOKIE_SECURE = True
 CSRF_COOKIE_HTTPONLY = True
