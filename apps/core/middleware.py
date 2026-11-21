@@ -234,8 +234,7 @@ class RateLimitMiddleware:
                         bucket.save(update_fields=["count", "updated_at"])
 
                     if bucket.count > limit:
-                        retry_after = max(1, int(round((bucket.reset_at - now_dt).total_seconds())))
-                        return self._render_429_response(request, retry_after=retry_after)
+                        return self._render_429_response(request, retry_after=self.WINDOW_SECONDS)
 
             RateLimitMiddleware._cleanup_counter += 1
             if RateLimitMiddleware._cleanup_counter % 50 == 0:
