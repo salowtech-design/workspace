@@ -302,7 +302,7 @@ def run_real_backup_and_restore_drill() -> int:
 
         iam_sess_tbl = f"{scratch_prefix}accounts_iamsession"
         if iam_sess_tbl in [f"{scratch_prefix}{t}" for t in critical_tables]:
-            cursor.execute(f"UPDATE `{iam_sess_tbl}` SET is_active = FALSE, stepup_action = 'disaster_recovery_invalidation';")
+            cursor.execute(f"UPDATE `{iam_sess_tbl}` SET is_active = FALSE;")
 
         # 2. Invalidate pending device approvals
         dev_tbl = f"{scratch_prefix}accounts_deviceapprovalrequest"

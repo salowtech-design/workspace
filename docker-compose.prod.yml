@@ -1,0 +1,84 @@
+# Salow Workspace — Production Multi-Container Compose Topology
+# Fail-closed production architecture adhering to Section 16 & Gate 8 specifications:
+# - Zero source code mounts (production image is fully self-contained)
+# - No Mailpit or permissive test credentials
+# - Strict multi-worker Gunicorn web application cluster
+# - Dedicated outbox email worker, domain events worker, and security scheduler
+# - Non-root execution with health checks and log streaming
+
+version: "3.8"
+
+services:
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: salow-workspace:production
+    restart: always
+    ports:
+      - "127.0.0.1:8000:8000" # Localhost only; ingress terminated via TLS reverse proxy (Nginx / OCI LB)
+    env_file:
+      - .env.production
+    environment:
+      - DJANGO_SETTINGS_MODULE=config.settings.prod
+      - PYTHONUNBUFFERED=1
+    command: >
+      gunicorn config.wsgi:application
+      --bind 0.0.0.0:8000
+      --workers 4
+      --threads 2
+      --timeout 60
+      --graceful-timeout 30
+      --access-logfile -
+      --error-logfile -
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  email_worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: salow-workspace:production
+    restart: always
+    env_file:
+      - .env.production
+    environment:
+      - DJANGO_SETTINGS_MODULE=config.settings.prod
+      - PYTHONUNBUFFERED=1
+    depends_on:
+      - web
+    command: python manage.py process_email_outbox --loop --interval 5 --batch-size 50
+
+  events_worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: salow-workspace:production
+    restart: always
+    env_file:
+      - .env.production
+    environment:
+      - DJANGO_SETTINGS_MODULE=config.settings.prod
+      - PYTHONUNBUFFERED=1
+    depends_on:
+      - web
+    command: python -c "import time; from django.core.management import call_command; import django; django.setup(); [time.sleep(5) or call_command('process_outbox_events') for _ in iter(int, 1)]"
+
+  security_scheduler:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: salow-workspace:production
+    restart: always
+    env_file:
+      - .env.production
+    environment:
+      - DJANGO_SETTINGS_MODULE=config.settings.prod
+      - PYTHONUNBUFFERED=1
+    depends_on:
+      - web
+    command: python manage.py run_security_scheduler --interval 10

@@ -51,3 +51,6 @@ else:
             "NAME": BASE_DIR / "test_db.sqlite3",
         }
     }
+
+AUDIT_HMAC_KEY = os.environ.get("AUDIT_HMAC_KEY", "dev-audit-hmac-key-salow-at-least-32-chars")
+AUDIT_SIGNING_KEYS = {"k1": AUDIT_HMAC_KEY}

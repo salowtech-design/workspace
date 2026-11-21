@@ -50,5 +50,19 @@ services:
       - .:/app
     command: python manage.py process_email_outbox --loop --interval 10
 
+  scheduler:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: salow-scheduler
+    restart: unless-stopped
+    env_file:
+      - .env
+    depends_on:
+      - web
+    volumes:
+      - .:/app
+    command: python manage.py run_security_scheduler --interval 10
+
 volumes:
   mailpit_data:
