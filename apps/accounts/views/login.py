@@ -54,8 +54,24 @@ def login_view(request):
 
         try:
             user = authenticate_password(emp_id, password, ip_address=ip_addr)
-            from apps.accounts.auth.risk_engine import evaluate_login_risk
-            evaluate_login_risk(user, ip_addr or "127.0.0.1", request.META.get("HTTP_USER_AGENT", ""))
+            from apps.accounts.auth.risk_engine import decide_login_risk, RiskDecision
+            risk_decision, risk_score, risk_signals = decide_login_risk(
+                user, ip_addr or "127.0.0.1", request.META.get("HTTP_USER_AGENT", "")
+            )
+            if risk_decision == RiskDecision.CONTAIN:
+                user.status = CustomUser.Status.LOCKED
+                user.save(update_fields=["status"])
+                raise AuthException(
+                    "AUTH-SEC-002",
+                    step="login_risk",
+                    message_override="Account security hold applied due to suspicious activity. Please contact IT Security.",
+                )
+            elif risk_decision == RiskDecision.DENY:
+                raise AuthException(
+                    "AUTH-SEC-001",
+                    step="login_risk",
+                    message_override="Sign-in request blocked by security policy. Please try again later.",
+                )
 
             # Check if user has completed MFA setup
             cred = TOTPCredential.objects.filter(user=user, confirmed_at__isnull=False).first()
@@ -91,7 +107,7 @@ def login_view(request):
                     user,
                     ip_address=ip_addr,
                     user_agent=request.META.get("HTTP_USER_AGENT"),
-                ) and request.POST.get("device_approval") != "skip":
+                ):
                     req_dev = create_device_approval_request(
                         user=user,
                         ip_address=ip_addr,
@@ -208,7 +224,7 @@ def mfa_challenge_view(request):  # noqa: C901
                     user,
                     ip_address=request.META.get("REMOTE_ADDR"),
                     user_agent=request.META.get("HTTP_USER_AGENT"),
-                ) and request.POST.get("device_approval") != "skip":
+                ):
                     req_dev = create_device_approval_request(
                         user=user,
                         ip_address=request.META.get("REMOTE_ADDR"),

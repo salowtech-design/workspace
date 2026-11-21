@@ -76,3 +76,61 @@ def evaluate_login_risk(
         )
 
     return total_score, signals
+
+
+class RiskDecision:
+    ALLOW = "allow"
+    CHALLENGE = "challenge"
+    DENY = "deny"
+    CONTAIN = "contain"
+
+
+def decide_login_risk(
+    user: CustomUser,
+    client_ip: str,
+    user_agent: str,
+) -> Tuple[str, int, List[str]]:
+    """
+    Evaluates dynamic risk signals and outputs an authoritative authentication decision:
+    - ALLOW (score < 40): Normal authentication flow.
+    - CHALLENGE (40 <= score < 75): Requires additional MFA challenge / 2-step verification.
+    - DENY (75 <= score < 90): Block authentication attempt with generic security message.
+    - CONTAIN (score >= 90): Immediately lock user account and generate CRITICAL SecurityAlert.
+    Note: After-hours login alone does not block an employee.
+    """
+    score, signals = evaluate_login_risk(user, client_ip, user_agent)
+
+    # Rule 5: After-hours access signal (+10, informational only, never blocks alone)
+    now = timezone.now()
+    try:
+        import zoneinfo
+        kolkata_tz = zoneinfo.ZoneInfo("Asia/Kolkata")
+        local_time = now.astimezone(kolkata_tz)
+        if local_time.hour < 6 or local_time.hour >= 22:
+            score += 10
+            signals.append("after_hours_login")
+    except Exception:
+        pass
+
+    total_score = min(score, 100)
+
+    if total_score >= 90:
+        decision = RiskDecision.CONTAIN
+    elif total_score >= 75:
+        decision = RiskDecision.DENY
+    elif total_score >= 40:
+        decision = RiskDecision.CHALLENGE
+    else:
+        decision = RiskDecision.ALLOW
+
+    if decision in (RiskDecision.DENY, RiskDecision.CONTAIN):
+        log_auth_event(
+            event="risk_policy_enforced",
+            code="CRITICAL" if decision == RiskDecision.CONTAIN else "WARNING",
+            step="risk_engine",
+            employee_id=user.employee_id,
+            network_address=client_ip,
+            message=f"Risk engine decision: {decision.upper()} (score: {total_score}/100, signals: {', '.join(signals)})",
+        )
+
+    return decision, total_score, signals

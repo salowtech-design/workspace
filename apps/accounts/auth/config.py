@@ -63,6 +63,35 @@ def get_biometric_key_ring_dict() -> dict[str, bytes]:
     return {"k1": fallback_key}
 
 
+def get_email_key_ring_dict() -> dict[str, bytes]:
+    """Retrieve active 256-bit AES keys for transactional email payload encryption."""
+    ring_json = os.getenv("EMAIL_KEY_RING_JSON")
+    if ring_json:
+        try:
+            raw_dict = json.loads(ring_json)
+            return {k: bytes.fromhex(v) for k, v in raw_dict.items()}
+        except Exception as e:
+            raise ImproperlyConfigured(f"Invalid EMAIL_KEY_RING_JSON: {e}")
+
+    primary_key_hex = os.getenv("EMAIL_PAYLOAD_KEY_HEX") or getattr(
+        settings, "EMAIL_PAYLOAD_KEY_HEX", None
+    )
+    if primary_key_hex and len(primary_key_hex) == 64:
+        secondary_hex = os.getenv("EMAIL_PAYLOAD_SECONDARY_KEY_HEX") or getattr(
+            settings, "EMAIL_PAYLOAD_SECONDARY_KEY_HEX", None
+        )
+        res = {"k1": bytes.fromhex(primary_key_hex)}
+        if secondary_hex and len(secondary_hex) == 64:
+            res["k2"] = bytes.fromhex(secondary_hex)
+        return res
+
+    if not getattr(settings, "DEBUG", True) and not getattr(settings, "TESTING", False):
+        raise ImproperlyConfigured("EMAIL_PAYLOAD_KEY_HEX must be explicitly configured in production.")
+
+    fallback_key = hashlib.sha256(b"SalowWorkspaceEmailKeyRingDevOnly2026").digest()
+    return {"k1": fallback_key}
+
+
 # Operational limits
 ACTIVATION_TTL_HOURS = int(os.getenv("AUTH_ACTIVATION_TTL_HOURS", "48"))
 MAX_ACTIVATION_ATTEMPTS = 5

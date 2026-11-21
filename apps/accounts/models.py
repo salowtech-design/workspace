@@ -891,6 +891,7 @@ class IAMDualApprovalRequest(models.Model):
     action = models.CharField(max_length=64, db_index=True)
     target_id = models.CharField(max_length=128, db_index=True)
     reason = models.TextField()
+    payload_digest = models.CharField(max_length=64, blank=True, default="", db_index=True)
     requester = models.ForeignKey(
         IAMAdminIdentity,
         on_delete=models.CASCADE,

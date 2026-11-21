@@ -168,6 +168,8 @@ class EmailOutbox(models.Model):
 
     # Notification metadata
     notification_type = models.CharField(max_length=64, db_index=True)
+    idempotency_key = models.CharField(max_length=128, blank=True, default="", db_index=True)
+    claimed_by = models.CharField(max_length=64, blank=True, default="")
     status = models.CharField(
         max_length=32, choices=Status.choices, default=Status.QUEUED, db_index=True
     )

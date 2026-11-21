@@ -259,11 +259,9 @@ def get_iam_session_from_request(request) -> Optional[IAMSession]:
     Resolves session via keyed HMAC-SHA256 digest lookup.
     """
     cookie_name = IAM_SESSION_COOKIE_NAME
-    session_key = (
-        request.COOKIES.get(cookie_name)
-        or request.COOKIES.get("__Host-salow_iam_session")
-        or request.COOKIES.get("salow_iam_session")
-    )
+    session_key = request.COOKIES.get(cookie_name)
+    if not session_key and not getattr(settings, "SESSION_COOKIE_SECURE", False):
+        session_key = request.COOKIES.get("salow_iam_session")
 
     if not session_key:
         return None
@@ -272,7 +270,7 @@ def get_iam_session_from_request(request) -> Optional[IAMSession]:
 
     session = (
         IAMSession.objects.select_related("iam_admin", "iam_admin__user")
-        .filter(Q(session_key=digest) | Q(session_digest=digest) | Q(session_key=session_key), is_active=True)
+        .filter(Q(session_key=digest) | Q(session_digest=digest), is_active=True)
         .first()
     )
 
@@ -304,6 +302,15 @@ def get_iam_session_from_request(request) -> Optional[IAMSession]:
     return session
 
 
+def compute_payload_digest(payload: Any) -> str:
+    """Computes canonical SHA-256 digest over normalized payload data."""
+    if isinstance(payload, (dict, list)):
+        canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"))
+    else:
+        canonical = str(payload)
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
 def stepup_iam_assurance(
     iam_session: IAMSession,
     password: str,
@@ -313,43 +320,62 @@ def stepup_iam_assurance(
     """
     Elevates IAM session to Assurance Level 2 (L2) for sensitive operations.
     Strictly bound to exact action_name and valid for 5 minutes.
+    Atomically locks IAMAdminIdentity to prevent TOTP replay races across workers.
     """
-    iam_admin = iam_session.iam_admin
-    if not check_password(password, iam_admin.password_hash):
-        return False
+    with transaction.atomic():
+        iam_admin = (
+            IAMAdminIdentity.objects.select_for_update()
+            .get(id=iam_session.iam_admin_id)
+        )
+        if not check_password(password, iam_admin.password_hash):
+            return False
 
-    raw_secret = decrypt_totp_secret(
-        bytes(iam_admin.encrypted_totp_secret),
-        bytes(iam_admin.totp_nonce) if iam_admin.totp_nonce else b"",
-        iam_admin.totp_key_id,
-    )
-    totp = pyotp.TOTP(raw_secret, interval=30)
-    current_step = int(time.time() // 30)
+        if not iam_admin.encrypted_totp_secret:
+            return False
 
-    if not totp.verify(totp_code.strip(), valid_window=1):
-        return False
+        raw_secret = decrypt_totp_secret(
+            bytes(iam_admin.encrypted_totp_secret),
+            bytes(iam_admin.totp_nonce) if iam_admin.totp_nonce else b"",
+            iam_admin.totp_key_id,
+        )
+        totp = pyotp.TOTP(raw_secret, interval=30)
+        current_time = timezone.now()
+        current_step = int(current_time.timestamp() // 30)
+        cleaned_code = totp_code.strip()
 
-    if current_step <= iam_admin.last_used_step:
-        return False
+        if not totp.verify(cleaned_code, for_time=current_time, valid_window=1):
+            return False
 
-    iam_admin.last_used_step = current_step
-    iam_admin.save(update_fields=["last_used_step"])
+        matched_step = None
+        for step_offset in [0, -1, 1]:
+            test_step = current_step + step_offset
+            if totp.generate_otp(test_step) == cleaned_code:
+                matched_step = test_step
+                break
 
-    iam_session.assurance_level = 2
-    iam_session.stepup_action = action_name
-    iam_session.stepup_expires_at = timezone.now() + timedelta(minutes=5)
-    iam_session.save(update_fields=["assurance_level", "stepup_action", "stepup_expires_at"])
+        step_to_record = matched_step or current_step
+        if matched_step is not None and matched_step <= iam_admin.last_used_step:
+            return False
 
-    log_auth_event(
-        event="iam_assurance_elevated",
-        code="INFO",
-        step="stepup",
-        employee_id=iam_admin.user.employee_id,
-        reference_id=iam_admin.admin_id,
-        message=f"IAM session elevated to Level 2 for action '{action_name}' (expires in 5m)",
-    )
+        iam_admin.last_used_step = step_to_record
+        iam_admin.save(update_fields=["last_used_step"])
 
-    return True
+        iam_session.refresh_from_db()
+        iam_session.assurance_level = 2
+        iam_session.stepup_action = action_name
+        iam_session.stepup_expires_at = timezone.now() + timedelta(minutes=5)
+        iam_session.save(update_fields=["assurance_level", "stepup_action", "stepup_expires_at"])
+
+        log_auth_event(
+            event="iam_assurance_elevated",
+            code="INFO",
+            step="stepup",
+            employee_id=iam_admin.user.employee_id,
+            reference_id=iam_admin.admin_id,
+            message=f"IAM session elevated to Level 2 for action '{action_name}' (expires in 5m)",
+        )
+
+        return True
 
 
 def create_dual_approval_request(
@@ -357,10 +383,12 @@ def create_dual_approval_request(
     action: str,
     target_id: str,
     reason: str,
+    payload_digest: str = "",
 ) -> IAMDualApprovalRequest:
     """
     Initiates a Level 3 independent dual-approval request (Section 9).
     Requester must hold an active Level 2 assurance session bound to action.
+    Binds canonical payload digest to mutation parameters.
     """
     now = timezone.now()
     if (
@@ -379,6 +407,7 @@ def create_dual_approval_request(
         action=action,
         target_id=str(target_id),
         reason=reason,
+        payload_digest=payload_digest or "",
         requester=requester_session.iam_admin,
         requester_session=requester_session,
         requester_stepup_verified_at=now,
@@ -493,9 +522,11 @@ def consume_dual_approval_request(
             raise AuthException("AUTH-IAM-L3-008", step="dual_approval", message_override="Dual approval parameters do not match executed action.")
 
         # Revalidate payload digest if specified or bound
-        if expected_payload_digest and hasattr(req, "payload_digest") and req.payload_digest:
+        if expected_payload_digest is not None:
             if req.payload_digest != expected_payload_digest:
                 raise AuthException("AUTH-IAM-L3-009", step="dual_approval", message_override="Dual approval payload digest mismatch.")
+        elif req.payload_digest:
+            raise AuthException("AUTH-IAM-L3-009", step="dual_approval", message_override="Dual approval requires payload digest verification.")
 
         # Revalidate requester status and authorization
         requester = req.requester
@@ -541,6 +572,7 @@ def check_iam_assurance(
     approver_admin: Optional[Any] = None,
     approver_session: Optional[IAMSession] = None,
     dual_request_id: Optional[uuid.UUID] = None,
+    payload_digest: Optional[str] = None,
 ) -> bool:
     """
     Centralized server-side assurance enforcement (Section 9):
@@ -587,6 +619,8 @@ def check_iam_assurance(
             if not req or req.requester_id != iam_session.iam_admin.id:
                 return False
             if req.approver_id == iam_session.iam_admin.id:
+                return False
+            if payload_digest is not None and req.payload_digest != payload_digest:
                 return False
             return True
 

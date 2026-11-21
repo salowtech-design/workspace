@@ -145,16 +145,16 @@ class TestConcurrentReplayProtections:
                 try:
                     u = CustomUser.objects.get(employee_id=target_employee.employee_id)
                     success = redeem_recovery_code(u, chosen_code)
-                    return success, worker_id
-                except AuthException:
-                    return False, worker_id
+                    return success, worker_id, None
+                except AuthException as e:
+                    return False, worker_id, f"AuthException: {e}"
                 except Exception as e:
                     if "locked" in str(e).lower() and attempt < 14:
                         import time
                         time.sleep(0.04 * (attempt + 1))
                         connection.close()
                         continue
-                    return False, worker_id
+                    return False, worker_id, f"Exception: {e}"
                 finally:
                     connection.close()
 
@@ -165,8 +165,8 @@ class TestConcurrentReplayProtections:
             for f in concurrent.futures.as_completed(futures):
                 results.append(f.result())
 
-        success_count = sum(1 for ok, _ in results if ok)
-        assert success_count == 1, f"Expected 1 redemption, got {success_count}."
+        success_count = sum(1 for ok, _, _ in results if ok)
+        assert success_count == 1, f"Expected 1 redemption, got {success_count}. Results: {results}"
 
         # Confirm code is marked used in DB (used_at is set)
         code_record = RecoveryCode.objects.filter(

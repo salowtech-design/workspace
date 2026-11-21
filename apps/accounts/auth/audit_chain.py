@@ -40,8 +40,17 @@ def get_audit_signing_key(key_id: Optional[str] = None) -> Tuple[str, bytes]:
     if isinstance(key_dict, dict) and target_id in key_dict:
         raw_key = key_dict[target_id]
     elif single_key:
+        if key_id and key_id not in ("k1", active_id):
+            raise ImproperlyConfigured(
+                f"Historical audit signing key '{key_id}' not found in key custody. "
+                "Historical keys must be preserved in AUDIT_SIGNING_KEYS for verification."
+            )
         raw_key = single_key
-        target_id = "k1"
+        target_id = target_id or "k1"
+    elif key_id:
+        raise ImproperlyConfigured(
+            f"Historical audit signing key '{key_id}' not found in key custody."
+        )
 
     if not raw_key:
         raise ImproperlyConfigured(

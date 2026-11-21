@@ -208,13 +208,18 @@ def approve_device_by_existing_session(
         req.email_otp_hash = otp_hash
         req.save()
 
-        # Queue OTP email via EmailOutbox
+        # Queue OTP email securely via transactional outbox with envelope encryption
         if req.user.email:
-            EmailOutbox.objects.create(
+            from apps.core.email_service import queue_email
+            queue_email(
                 recipient=req.user.email,
                 subject="Salow Workspace — Second Device Verification OTP",
-                body_text=f"Your one-time secondary device verification code is: {raw_otp}. Valid for 5 minutes.",
-                status=EmailOutbox.Status.QUEUED,
+                body_text="Your one-time secondary device verification code is: [CONFIDENTIAL CODE ENCRYPTED IN SECURE PAYLOAD]. Valid for 5 minutes.",
+                notification_type="device_approval_otp",
+                sensitive_payload={
+                    "otp": raw_otp,
+                    "template": f"Your one-time secondary device verification code is: {raw_otp}. Valid for 5 minutes.",
+                },
             )
 
         log_auth_event(
@@ -279,11 +284,16 @@ def approve_device_by_admin(
         req.save()
 
         if req.user.email:
-            EmailOutbox.objects.create(
+            from apps.core.email_service import queue_email
+            queue_email(
                 recipient=req.user.email,
                 subject="Salow Workspace — Admin Approved Device OTP",
-                body_text=f"Your administrator-approved device verification code is: {raw_otp}. Valid for 5 minutes.",
-                status=EmailOutbox.Status.QUEUED,
+                body_text="Your administrator-approved device verification code is: [CONFIDENTIAL CODE ENCRYPTED IN SECURE PAYLOAD]. Valid for 5 minutes.",
+                notification_type="device_approval_admin_otp",
+                sensitive_payload={
+                    "otp": raw_otp,
+                    "template": f"Your administrator-approved device verification code is: {raw_otp}. Valid for 5 minutes.",
+                },
             )
 
         log_auth_event(
@@ -515,7 +525,8 @@ def complete_device_verification_and_login(
 
         # Create independent server session for Device B
         create_verified_session(django_request, req.user)
-        req.session_key = django_request.session.session_key
+        from apps.accounts.auth.session_backend import hash_session_bearer
+        req.session_key = hash_session_bearer(django_request.session.session_key) if django_request.session.session_key else ""
         req.save()
 
         log_auth_event(

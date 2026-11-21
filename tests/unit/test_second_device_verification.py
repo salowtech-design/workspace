@@ -38,6 +38,17 @@ from apps.core.models import EmailOutbox
 User = get_user_model()
 
 
+def _extract_otp(email: EmailOutbox) -> str:
+    if email.encrypted_payload and email.payload_nonce and email.payload_key_id:
+        from apps.core.email_service import decrypt_payload
+        payload = decrypt_payload(bytes(email.encrypted_payload), bytes(email.payload_nonce), email.payload_key_id)
+        if isinstance(payload, dict) and "otp" in payload:
+            return payload["otp"]
+    import re
+    match = re.search(r"code is: (\d{6})", email.body_text)
+    return match.group(1) if match else ""
+
+
 @pytest.fixture
 def dual_device_user(db):
     user = User.objects.create(
@@ -196,10 +207,8 @@ class TestSecondDeviceVerification:
 
         # Retrieve raw OTP from queued email
         email = EmailOutbox.objects.filter(recipient=dual_device_user.email).latest("created_at")
-        import re
-        match = re.search(r"code is: (\d{6})", email.body_text)
-        assert match is not None
-        raw_otp = match.group(1)
+        raw_otp = _extract_otp(email)
+        assert len(raw_otp) == 6
 
         # Invalid OTP rejected
         assert verify_device_email_otp(req.request_id, "999999") is False
@@ -215,8 +224,7 @@ class TestSecondDeviceVerification:
         approve_device_by_existing_session(req.request_id, approver=dual_device_user, submitted_number=req.number_challenge)
 
         email = EmailOutbox.objects.filter(recipient=dual_device_user.email).latest("created_at")
-        import re
-        raw_otp = re.search(r"code is: (\d{6})", email.body_text).group(1)
+        raw_otp = _extract_otp(email)
         verify_device_email_otp(req.request_id, raw_otp)
 
         # Execute final login on Device B
@@ -294,8 +302,7 @@ class TestSecondDeviceVerification:
         approve_device_by_existing_session(req.request_id, approver=dual_device_user, submitted_number=req.number_challenge)
 
         email = EmailOutbox.objects.filter(recipient=dual_device_user.email).latest("created_at")
-        import re
-        raw_otp = re.search(r"code is: (\d{6})", email.body_text).group(1)
+        raw_otp = _extract_otp(email)
 
         # Fast forward approved_at past 5 minutes
         req.approved_at = timezone.now() - timedelta(minutes=6)
@@ -309,8 +316,7 @@ class TestSecondDeviceVerification:
         approve_device_by_existing_session(req.request_id, approver=dual_device_user, submitted_number=req.number_challenge)
 
         email = EmailOutbox.objects.filter(recipient=dual_device_user.email).latest("created_at")
-        import re
-        raw_otp = re.search(r"code is: (\d{6})", email.body_text).group(1)
+        raw_otp = _extract_otp(email)
         assert verify_device_email_otp(req.request_id, raw_otp) is True
 
         request_b = rf.get("/")
@@ -347,8 +353,7 @@ class TestSecondDeviceVerification:
         approve_device_by_existing_session(req.request_id, approver=dual_device_user, submitted_number=req.number_challenge)
 
         email = EmailOutbox.objects.filter(recipient=dual_device_user.email).latest("created_at")
-        import re
-        raw_otp = re.search(r"code is: (\d{6})", email.body_text).group(1)
+        raw_otp = _extract_otp(email)
         verify_device_email_otp(req.request_id, raw_otp)
 
         request_b = rf.get("/")

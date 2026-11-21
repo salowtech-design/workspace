@@ -8,6 +8,7 @@ delivery status tracking, idempotent processing, and exponential backoff retry.
 import json
 import logging
 import os
+import uuid
 from typing import Optional
 
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
@@ -17,7 +18,9 @@ from django.db import transaction
 from django.utils import timezone
 
 from apps.accounts.auth.audit import log_auth_event
-from apps.accounts.auth.config import get_biometric_key_ring_dict
+import hashlib
+from django.core.exceptions import ImproperlyConfigured
+from apps.accounts.auth.config import get_email_key_ring_dict
 from apps.core.models import EmailOutbox
 
 logger = logging.getLogger(__name__)
@@ -25,16 +28,16 @@ logger = logging.getLogger(__name__)
 
 def _get_encryption_key(key_id: Optional[str] = None) -> tuple[bytes, str]:
     """Retrieve active 256-bit AES key for outbox payload encryption."""
-    from apps.accounts.auth.config import get_biometric_key_ring_dict
+    from apps.accounts.auth.config import get_email_key_ring_dict
 
-    keys = get_biometric_key_ring_dict()
+    keys = get_email_key_ring_dict()
     kid = key_id or os.getenv("EMAIL_PAYLOAD_ACTIVE_KEY_ID", "k1")
     key = keys.get(kid)
     if not key:
-        key_hex = os.getenv("EMAIL_PAYLOAD_KEY_HEX")
+        key_hex = os.getenv("EMAIL_PAYLOAD_KEY_HEX") or getattr(settings, "EMAIL_PAYLOAD_KEY_HEX", None)
         if key_hex and len(key_hex) == 64:
             return bytes.fromhex(key_hex), kid
-        if not settings.DEBUG:
+        if not getattr(settings, "DEBUG", True) and not getattr(settings, "TESTING", False):
             raise ImproperlyConfigured("Valid encryption key required for email payload encryption.")
         key = hashlib.sha256(b"SalowWorkspaceEmailPayloadDevOnly2026").digest()
     return key, kid
@@ -65,14 +68,21 @@ def queue_email(
     body_html: str = "",
     notification_type: str = "general",
     sensitive_payload: Optional[dict] = None,
+    idempotency_key: Optional[str] = None,
 ) -> EmailOutbox:
     """
     Queue an email notification in the transactional outbox.
     Must be called within an atomic transaction alongside IAM business operations.
     If sensitive_payload is provided, it is encrypted via AES-256-GCM before insert.
+    Supports idempotency_key to prevent duplicate outbound messages.
     """
     if not recipient:
         raise ValueError("Recipient email is required to queue email notification.")
+
+    if idempotency_key:
+        existing = EmailOutbox.objects.filter(idempotency_key=idempotency_key).first()
+        if existing:
+            return existing
 
     enc_payload = None
     payload_nonce = None
@@ -87,6 +97,7 @@ def queue_email(
         body_text=body_text.strip(),
         body_html=body_html.strip() if body_html else "",
         notification_type=notification_type,
+        idempotency_key=idempotency_key or "",
         status=EmailOutbox.Status.QUEUED,
         encrypted_payload=enc_payload,
         payload_nonce=payload_nonce,
@@ -354,12 +365,13 @@ def process_email_outbox(batch_size: int = 50) -> tuple[int, int]:
     """
     now = timezone.now()
     stale_lease_threshold = now - timezone.timedelta(minutes=10)
+    worker_id = f"worker-{os.getpid()}-{uuid.uuid4().hex[:8]}"
 
     # 1. Recover stranded SENDING events from crashed workers
     EmailOutbox.objects.filter(
         status=EmailOutbox.Status.SENDING,
         updated_at__lte=stale_lease_threshold,
-    ).update(status=EmailOutbox.Status.RETRY_PENDING)
+    ).update(status=EmailOutbox.Status.RETRY_PENDING, claimed_by="")
 
     # 2. Atomic claim batch under row locking
     claimed_ids = []
@@ -374,7 +386,8 @@ def process_email_outbox(batch_size: int = 50) -> tuple[int, int]:
         )
         for item in candidates:
             item.status = EmailOutbox.Status.SENDING
-            item.save(update_fields=["status", "updated_at"])
+            item.claimed_by = worker_id
+            item.save(update_fields=["status", "claimed_by", "updated_at"])
             claimed_ids.append(item.id)
 
     if not claimed_ids:
@@ -412,6 +425,11 @@ def process_email_outbox(batch_size: int = 50) -> tuple[int, int]:
                             "[CONFIDENTIAL LINK ENCRYPTED IN SECURE PAYLOAD]",
                             payload["verification_url"],
                         )
+                    elif "otp" in payload:
+                        msg_body = msg_body.replace(
+                            "[CONFIDENTIAL CODE ENCRYPTED IN SECURE PAYLOAD]",
+                            payload["otp"],
+                        )
             except Exception as e:
                 failed = True
                 error_msg = f"Failed to decrypt payload: {e}"
@@ -444,11 +462,13 @@ def process_email_outbox(batch_size: int = 50) -> tuple[int, int]:
                     item.status = EmailOutbox.Status.RETRY_PENDING
                     backoff_seconds = min(3600, 30 * (2 ** (item.retry_count - 1)))
                     item.scheduled_at = timezone.now() + timezone.timedelta(seconds=backoff_seconds)
-                item.save(update_fields=["status", "retry_count", "last_error", "scheduled_at", "updated_at"])
+                item.claimed_by = ""
+                item.save(update_fields=["status", "retry_count", "last_error", "scheduled_at", "claimed_by", "updated_at"])
             else:
                 success_count += 1
                 item.status = EmailOutbox.Status.ACCEPTED_BY_TRANSPORT
                 item.sent_at = timezone.now()
+                item.claimed_by = ""
                 # Wipe sensitive payload immediately upon transmission
                 item.encrypted_payload = None
                 item.payload_nonce = None
@@ -457,6 +477,7 @@ def process_email_outbox(batch_size: int = 50) -> tuple[int, int]:
                     update_fields=[
                         "status",
                         "sent_at",
+                        "claimed_by",
                         "encrypted_payload",
                         "payload_nonce",
                         "payload_key_id",

@@ -46,7 +46,7 @@ class SessionStore(DBSessionStore):
     def load(self):
         """
         Load session data from database by looking up the keyed digest of the incoming cookie.
-        Supports fallback for any legacy unhashed sessions during transition.
+        Strictly prohibits unhashed raw session lookups.
         """
         if not self.session_key:
             self._session_key = None
@@ -60,15 +60,6 @@ class SessionStore(DBSessionStore):
             )
             return self.decode(s.session_data)
         except (self.model.DoesNotExist, SuspiciousOperation):
-            # Fallback for transition of legacy sessions
-            try:
-                s = self.model.objects.get(
-                    session_key=self.session_key,
-                    expire_date__gt=timezone.now(),
-                )
-                return self.decode(s.session_data)
-            except (self.model.DoesNotExist, SuspiciousOperation):
-                pass
             self._session_key = None
             return {}
 
@@ -76,10 +67,7 @@ class SessionStore(DBSessionStore):
         if not session_key:
             return False
         db_key = self._get_db_session_key(session_key)
-        return (
-            self.model.objects.filter(session_key=db_key).exists()
-            or self.model.objects.filter(session_key=session_key).exists()
-        )
+        return self.model.objects.filter(session_key=db_key).exists()
 
     def create_model_instance(self, data):
         """Create a new session model instance using the keyed digest."""
@@ -96,4 +84,4 @@ class SessionStore(DBSessionStore):
                 return
             session_key = self.session_key
         db_key = self._get_db_session_key(session_key)
-        self.model.objects.filter(session_key__in=[db_key, session_key]).delete()
+        self.model.objects.filter(session_key=db_key).delete()

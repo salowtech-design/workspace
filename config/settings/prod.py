@@ -38,6 +38,13 @@ AUDIT_ACTIVE_KEY_ID = os.environ.get("AUDIT_ACTIVE_KEY_ID", "k1")
 AUDIT_SIGNING_KEYS = {
     AUDIT_ACTIVE_KEY_ID: raw_audit_key,
 }
+raw_historical = os.environ.get("AUDIT_HISTORICAL_KEYS_JSON")
+if raw_historical:
+    try:
+        hist_dict = json.loads(raw_historical)
+        AUDIT_SIGNING_KEYS.update(hist_dict)
+    except Exception as e:
+        raise ImproperlyConfigured(f"Invalid AUDIT_HISTORICAL_KEYS_JSON: {e}")
 
 # Cryptographic Key Separation and Validation (Workstream C)
 raw_biometric_key = os.environ.get("BIOMETRIC_PRIMARY_KEY_HEX")
@@ -72,9 +79,10 @@ if len(key_set) < 6:
     )
 audit_checkpoint_path = os.environ.get("AUDIT_CHECKPOINT_DIR")
 if not audit_checkpoint_path:
-    AUDIT_CHECKPOINT_DIR = BASE_DIR / "var" / "audit_checkpoints"
-else:
-    AUDIT_CHECKPOINT_DIR = Path(audit_checkpoint_path)
+    raise ImproperlyConfigured(
+        "AUDIT_CHECKPOINT_DIR must be explicitly configured to an independent off-database custody path in production."
+    )
+AUDIT_CHECKPOINT_DIR = Path(audit_checkpoint_path)
 
 raw_allowed_hosts = os.environ.get("ALLOWED_HOSTS", "")
 ALLOWED_HOSTS = [h.strip() for h in raw_allowed_hosts.split(",") if h.strip()]

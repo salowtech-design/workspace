@@ -100,7 +100,6 @@ def iam_logout_view(request):
 
     response = redirect("iam:login")
     response.delete_cookie(IAM_SESSION_COOKIE_NAME, path="/")
-    response.delete_cookie("iam_session_id", path="/")
     return response
 
 

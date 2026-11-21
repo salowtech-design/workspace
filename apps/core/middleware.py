@@ -212,11 +212,9 @@ class RateLimitMiddleware:
             for k in keys_to_check:
                 timestamps = self._storage.setdefault(k, [])
                 timestamps[:] = [t for t in timestamps if t > cutoff]
-
-                if len(timestamps) >= limit:
-                    return self._render_429_response(request)
-
                 timestamps.append(now)
+                if len(timestamps) > limit:
+                    return self._render_429_response(request)
 
             if len(self._storage) > 500:
                 stale_keys = [k for k, ts in self._storage.items() if not ts or ts[-1] <= cutoff]
@@ -227,13 +225,12 @@ class RateLimitMiddleware:
         try:
             from apps.core.models import RateLimitRecord
 
-            # Check database sliding window count across all workers
+            # Atomic distributed sliding window enforcement across all workers
             for k in keys_to_check:
-                db_count = RateLimitRecord.objects.filter(key=k, timestamp__gt=cutoff).count()
-                if db_count >= limit:
-                    return self._render_429_response(request)
-
                 RateLimitRecord.objects.create(key=k, timestamp=now)
+                db_count = RateLimitRecord.objects.filter(key=k, timestamp__gt=cutoff).count()
+                if db_count > limit:
+                    return self._render_429_response(request)
 
             # Periodic background pruning of expired records
             RateLimitMiddleware._cleanup_counter += 1
