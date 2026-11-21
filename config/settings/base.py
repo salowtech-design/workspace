@@ -137,3 +137,9 @@ LOGOUT_REDIRECT_URL = "/auth/login/"
 AUDIT_CHECKPOINT_DIR = Path(os.environ.get("AUDIT_CHECKPOINT_DIR", BASE_DIR / "var" / "audit_checkpoints"))
 AUDIT_ACTIVE_KEY_ID = os.environ.get("AUDIT_ACTIVE_KEY_ID", "k1")
 
+# Hostname Routing & Device Capacity Configuration (Final IAM & Multi-Device)
+IAM_HOSTNAME = os.environ.get("IAM_HOSTNAME", "iam.salowtech.com")
+WORKSPACE_HOSTNAME = os.environ.get("WORKSPACE_HOSTNAME", "app.salowtech.com")
+MAX_CONCURRENT_DEVICES = int(os.environ.get("MAX_CONCURRENT_DEVICES", "3"))
+
+

@@ -5,7 +5,7 @@ Root URL Configuration for Salow Workspace.
 from django.urls import include, path
 
 from apps.certificates.views import public_verify_view
-from apps.core.views import health_probe, home_view, readiness_probe, styleguide_view
+from apps.core.views import health_probe, home_view, readiness_probe, service_worker_view, styleguide_view
 from apps.accounts.views.security_operations import (
     security_alerts_view,
     security_events_view,
@@ -17,6 +17,8 @@ urlpatterns = [
     path("health/", health_probe, name="health_probe_slash"),
     path("ready", readiness_probe, name="readiness_probe"),
     path("ready/", readiness_probe, name="readiness_probe_slash"),
+    # Root-scoped PWA Service Worker
+    path("sw.js", service_worker_view, name="service_worker"),
     # Public verification portal
     path("verify/", public_verify_view, name="public_verify"),
     path("verify/<str:identifier>/", public_verify_view, name="public_verify_id"),

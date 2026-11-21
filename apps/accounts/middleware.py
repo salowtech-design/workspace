@@ -41,21 +41,23 @@ class HostSecurityIsolationMiddleware:
             return self.get_response(request)
 
         host = request.get_host().split(":")[0].lower()
-        request.is_iam_host = (host == self.IAM_HOST.lower()) or path.startswith("/iam/")
 
         # -------------------------------------------------------------------
         # 1. IAM Host Authority (iam.salowtech.com)
         # -------------------------------------------------------------------
         if host == self.IAM_HOST.lower():
-            # Workspace application modules are prohibited on iam.salowtech.com
-            workspace_prefixes = ("/attendance", "/posts", "/directory", "/certificates")
-            if any(path.startswith(prefix) for prefix in workspace_prefixes):
-                return HttpResponseNotFound("Workspace applications are not accessible on iam.salowtech.com.")
+            request.urlconf = "config.urls_iam"
+            request.is_iam_host = True
 
             # Resolve dedicated IAM session
             iam_session = get_iam_session_from_request(request)
             request.iam_session = iam_session
             request.iam_admin = iam_session.iam_admin if iam_session else None
+
+            # Workspace application modules are strictly prohibited on iam.salowtech.com
+            workspace_prefixes = ("/attendance", "/posts", "/directory", "/certificates")
+            if any(path.startswith(prefix) for prefix in workspace_prefixes):
+                return HttpResponseNotFound("Workspace applications are not accessible on iam.salowtech.com.")
 
             # Root path redirects to IAM console or login
             if path in ("/", ""):
@@ -64,12 +66,12 @@ class HostSecurityIsolationMiddleware:
                 return redirect("iam:login")
 
             # Allow public IAM endpoints
-            if path.startswith(("/iam/login", "/auth/login")):
+            if path.startswith(("/iam/login", "/login", "/auth/login")):
                 return self.get_response(request)
 
             # Require active IAM session for all other IAM host endpoints
             if not iam_session:
-                login_url = reverse("iam:login")
+                login_url = reverse("iam:login", urlconf="config.urls_iam")
                 return redirect(f"{login_url}?next={path}")
 
             return self.get_response(request)
@@ -77,10 +79,24 @@ class HostSecurityIsolationMiddleware:
         # -------------------------------------------------------------------
         # 2. Workspace Host Authority (app.salowtech.com)
         # -------------------------------------------------------------------
-        # On Workspace host, direct access to root IAM is segregated
-        if host == self.WORKSPACE_HOST.lower() and path.startswith("/iam/"):
-            # Redirect to the dedicated IAM hostname
-            return redirect(f"https://{self.IAM_HOST}{path}")
+        if host == self.WORKSPACE_HOST.lower():
+            request.urlconf = "config.urls_workspace"
+            request.is_iam_host = False
+
+            # On Workspace host, direct access to root IAM is segregated
+            if path.startswith("/iam/"):
+                return redirect(f"https://{self.IAM_HOST}{path}")
+
+            return self.get_response(request)
+
+        # -------------------------------------------------------------------
+        # 3. Development / Testserver Fallback
+        # -------------------------------------------------------------------
+        request.is_iam_host = path.startswith("/iam/")
+        if request.is_iam_host:
+            iam_session = get_iam_session_from_request(request)
+            request.iam_session = iam_session
+            request.iam_admin = iam_session.iam_admin if iam_session else None
 
         return self.get_response(request)
 

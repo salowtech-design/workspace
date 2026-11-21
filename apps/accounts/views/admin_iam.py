@@ -18,6 +18,7 @@ Provides:
 import json
 import time
 from datetime import timedelta
+from typing import Any, Optional
 
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
@@ -43,7 +44,16 @@ from apps.accounts.auth.service_identities import (
     issue_service_identity,
     revoke_service_identity,
 )
-from apps.accounts.auth.sessions import end_session_by_key, revoke_user_sessions
+from apps.accounts.auth.iam_auth import (
+    check_iam_assurance,
+    compute_payload_digest,
+    get_iam_session_from_request,
+)
+from apps.accounts.auth.sessions import (
+    end_session_by_key,
+    revoke_user_sessions,
+    synchronize_employee_lifecycle_revocation,
+)
 from apps.accounts.auth.stepup import (
     activate_break_glass,
     grant_sudo,
@@ -56,6 +66,8 @@ from apps.accounts.models import (
     AuthEvent,
     CustomUser,
     DeviceApprovalRequest,
+    IAMAdminIdentity,
+    IAMSession,
     PasskeyCredential,
     RecoveryCode,
     RecoveryRequest,
@@ -134,35 +146,82 @@ ROLE_PERMISSIONS_MATRIX = [
 ]
 
 
-@login_required
+def enforce_mutation_assurance(request, action_name: str, required_level: int, payload: Any = None) -> Optional[Any]:
+    """
+    Enforces required IAM assurance level (L1, L2, L3) with canonical payload binding.
+    If session lacks required assurance, redirects to step-up or displays error.
+    """
+    session = getattr(request, "iam_session", None) or get_iam_session_from_request(request)
+    if not session:
+        return None
+
+    digest = compute_payload_digest(payload) if payload else None
+    if not check_iam_assurance(request, required_level=required_level, action_name=action_name, payload_digest=digest):
+        if required_level == 2:
+            stepup_url = "/iam/stepup/"
+            return redirect(f"{stepup_url}?action={action_name}&next={request.get_full_path()}")
+        elif required_level == 3:
+            messages.error(request, f"Operation '{action_name}' requires independent Level 3 Dual Approval from a second Super Administrator.")
+            return redirect(request.get_full_path())
+    return None
+
+
 def admin_iam_dashboard_view(request):  # noqa: C901
     """
     Central IAM & Access Management Console.
-    Restricted to authorized administrative roles: super_admin, admin, hr, manager.
-    Provides 7 functional sections:
-    1. Identity & Accounts
-    2. Roles & Permissions
-    3. Security & MFA
-    4. Sessions & Devices
-    5. Recovery Console
-    6. Account Lifecycle
-    7. IAM Audit
+    Restricted to authorized administrative roles: super_admin, admin, security_admin, hr, manager.
+    Authoritative principal: IAMAdminIdentity when accessed via IAM host/session.
     """
-    actor: CustomUser = request.user
-    allowed_roles = (
-        CustomUser.Role.SUPER_ADMIN,
-        CustomUser.Role.ADMIN,
-        CustomUser.Role.HR,
-        CustomUser.Role.MANAGER,
-    )
-    if actor.role not in allowed_roles:
-        raise PermissionDenied("Access restricted to administrative and management roles.")
+    # Resolve dedicated IAM session & identity
+    iam_session = getattr(request, "iam_session", None) or get_iam_session_from_request(request)
+    if iam_session:
+        request.iam_session = iam_session
+        request.iam_admin = iam_session.iam_admin
+        if not getattr(request, "user", None) or not request.user.is_authenticated:
+            request.user = iam_session.iam_admin.user
+
+    iam_admin: Optional[IAMAdminIdentity] = getattr(request, "iam_admin", None)
+    actor: Optional[CustomUser] = getattr(request, "user", None)
+
+    # If neither IAM administrator nor authenticated user is present, redirect to login
+    if not iam_admin and (not actor or not actor.is_authenticated):
+        login_url = "/iam/login/" if getattr(request, "is_iam_host", False) else "/auth/login/"
+        return redirect(f"{login_url}?next={request.path}")
+
+    # Enforce authorization
+    if iam_admin:
+        if iam_admin.status != IAMAdminIdentity.Status.ACTIVE:
+            raise PermissionDenied("IAM administrator account is inactive or suspended.")
+        if iam_admin.role == IAMAdminIdentity.Role.SECURITY_REVIEWER and request.method == "POST":
+            raise PermissionDenied("Security Reviewers hold read-only audit inspection privileges.")
+        actor = iam_admin.user
+    else:
+        allowed_roles = (
+            CustomUser.Role.SUPER_ADMIN,
+            CustomUser.Role.ADMIN,
+            CustomUser.Role.HR,
+            CustomUser.Role.MANAGER,
+        )
+        if actor.role not in allowed_roles:
+            raise PermissionDenied("Access restricted to administrative and management roles.")
 
     active_tab = request.GET.get("tab") or request.POST.get("tab") or "identity"
     issued_activation = request.session.pop("_salow_issued_activation", None)
 
     if request.method == "POST":
         action = request.POST.get("action", "")
+
+        # Scoped role enforcement for Workspace Security Admin
+        if iam_admin and iam_admin.role == IAMAdminIdentity.Role.SECURITY_ADMIN:
+            if action in ("create_employee", "update_role"):
+                target_role = request.POST.get("role") or request.POST.get("new_role")
+                if target_role == CustomUser.Role.SUPER_ADMIN:
+                    messages.error(request, "Workspace Security Admins cannot provision or promote Super Admin accounts.")
+                    return redirect(f"{request.path}?tab={active_tab}")
+            elif action in ("activate_break_glass", "create_service_identity"):
+                messages.error(request, "Workspace Security Admins cannot execute root IAM elevation operations.")
+                return redirect(f"{request.path}?tab={active_tab}")
+
 
         # -------------------------------------------------------------------
         # 1. Identity & Accounts: Create Employee with Activation Code
@@ -257,6 +316,12 @@ def admin_iam_dashboard_view(request):  # noqa: C901
             elif actor.role not in (CustomUser.Role.SUPER_ADMIN, CustomUser.Role.ADMIN):
                 messages.error(request, "You do not have permission to modify roles.")
             else:
+                payload = {"target_employee_id": target_emp_id, "new_role": new_role}
+                req_level = 3 if (new_role == CustomUser.Role.SUPER_ADMIN or target_user.role == CustomUser.Role.SUPER_ADMIN) else 2
+                redirect_resp = enforce_mutation_assurance(request, "update_role", required_level=req_level, payload=payload)
+                if redirect_resp:
+                    return redirect_resp
+
                 old_role = target_user.role
                 target_user.role = new_role
                 target_user.save(update_fields=["role", "updated_at"])
@@ -285,6 +350,11 @@ def admin_iam_dashboard_view(request):  # noqa: C901
             else:
                 try:
                     check_recovery_authority(actor, target_user)
+                    payload = {"target_employee_id": target_emp_id, "action": "issue_mfa_reset"}
+                    redirect_resp = enforce_mutation_assurance(request, "issue_mfa_reset", required_level=2, payload=payload)
+                    if redirect_resp:
+                        return redirect_resp
+
                     _, raw_code = issue_mfa_reset_code(
                         target_user=target_user,
                         issuing_admin=actor,
@@ -324,6 +394,11 @@ def admin_iam_dashboard_view(request):  # noqa: C901
             target_emp_id = request.POST.get("target_employee_id", "").strip().upper()
             target_user = CustomUser.objects.filter(employee_id=target_emp_id).first()
             if target_user:
+                payload = {"target_employee_id": target_emp_id, "action": "revoke_user_all_sessions"}
+                redirect_resp = enforce_mutation_assurance(request, "revoke_user_all_sessions", required_level=2, payload=payload)
+                if redirect_resp:
+                    return redirect_resp
+
                 count = revoke_user_sessions(target_user)
                 messages.success(
                     request, f"Revoked all {count} active sessions for {target_user.employee_id}."
@@ -389,16 +464,22 @@ def admin_iam_dashboard_view(request):  # noqa: C901
             elif target_user.id == actor.id:
                 messages.error(request, "You cannot suspend your own account.")
             else:
+                payload = {"target_employee_id": target_emp_id, "action": "suspend_account"}
+                req_level = 3 if target_user.role == CustomUser.Role.SUPER_ADMIN else 2
+                redirect_resp = enforce_mutation_assurance(request, "suspend_account", required_level=req_level, payload=payload)
+                if redirect_resp:
+                    return redirect_resp
+
                 target_user.is_active = False
                 target_user.status = CustomUser.Status.SUSPENDED
                 target_user.save(update_fields=["is_active", "status", "updated_at"])
-                revoke_user_sessions(target_user)
+                synchronize_employee_lifecycle_revocation(target_user)
                 log_auth_event(
                     event="account_suspended_by_admin",
                     code="WARN",
                     step="admin_lifecycle",
                     employee_id=target_user.employee_id,
-                    message=f"Suspended by {actor.employee_id}; sessions revoked",
+                    message=f"Suspended by {actor.employee_id}; all workspace and IAM sessions revoked",
                 )
                 messages.success(
                     request,
@@ -413,6 +494,11 @@ def admin_iam_dashboard_view(request):  # noqa: C901
             if not target_user:
                 messages.error(request, f"User {target_emp_id} not found.")
             else:
+                payload = {"target_employee_id": target_emp_id, "action": "reactivate_account"}
+                redirect_resp = enforce_mutation_assurance(request, "reactivate_account", required_level=2, payload=payload)
+                if redirect_resp:
+                    return redirect_resp
+
                 target_user.is_active = True
                 target_user.status = CustomUser.Status.ACTIVE
                 target_user.save(update_fields=["is_active", "status", "updated_at"])
@@ -443,11 +529,17 @@ def admin_iam_dashboard_view(request):  # noqa: C901
             elif target_user.id == actor.id:
                 messages.error(request, "You cannot mark your own account as exited.")
             else:
+                payload = {"target_employee_id": target_emp_id, "action": "exit_account"}
+                req_level = 3 if target_user.role == CustomUser.Role.SUPER_ADMIN else 2
+                redirect_resp = enforce_mutation_assurance(request, "exit_account", required_level=req_level, payload=payload)
+                if redirect_resp:
+                    return redirect_resp
+
                 target_user.is_active = False
                 target_user.status = CustomUser.Status.EXITED
                 target_user.end_date = timezone.now().date()
                 target_user.save(update_fields=["is_active", "status", "end_date", "updated_at"])
-                revoke_user_sessions(target_user)
+                synchronize_employee_lifecycle_revocation(target_user)
                 log_auth_event(
                     event="account_exited_by_admin",
                     code="WARN",
@@ -525,6 +617,10 @@ def admin_iam_dashboard_view(request):  # noqa: C901
                     request, "Only system administrators can provision Service Identities."
                 )
             else:
+                redirect_resp = enforce_mutation_assurance(request, "create_service_identity", required_level=2)
+                if redirect_resp:
+                    return redirect_resp
+
                 name = request.POST.get("name", "").strip()
                 client_id = request.POST.get("client_id", "").strip().lower()
                 scopes = request.POST.getlist("scopes")
@@ -560,6 +656,10 @@ def admin_iam_dashboard_view(request):  # noqa: C901
             if actor.role not in (CustomUser.Role.SUPER_ADMIN, CustomUser.Role.ADMIN):
                 messages.error(request, "Only system administrators can revoke Service Identities.")
             else:
+                redirect_resp = enforce_mutation_assurance(request, "revoke_service_identity", required_level=2)
+                if redirect_resp:
+                    return redirect_resp
+
                 cid = request.POST.get("client_id", "").strip().lower()
                 if revoke_service_identity(cid, actor=actor):
                     messages.success(request, f"Service Identity '{cid}' revoked.")

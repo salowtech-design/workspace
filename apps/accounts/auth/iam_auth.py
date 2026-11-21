@@ -145,6 +145,18 @@ def authenticate_iam_admin(
                 message_override=f"IAM administrator account is {iam_admin.status}.",
             )
 
+        # Linked employee identity lifecycle synchronization (Phase 1 IAM Invariant)
+        if (
+            iam_admin.user.status != CustomUser.Status.ACTIVE
+            or not iam_admin.user.is_active
+        ):
+            raise AuthException(
+                "AUTH-IAM-006",
+                step="iam_login",
+                message_override=f"Authoritative employee identity is {iam_admin.user.status}. IAM administrator access denied.",
+            )
+
+
         # 1. Verify password
         if not check_password(password, iam_admin.password_hash):
             record_failed_attempt(lockout_key, employee_id=iam_admin.user.employee_id, threshold=3)
@@ -290,11 +302,16 @@ def get_iam_session_from_request(request) -> Optional[IAMSession]:
         session.save(update_fields=["is_active"])
         return None
 
-    # 3. Account status check
-    if session.iam_admin.status != IAMAdminIdentity.Status.ACTIVE:
+    # 3. Account status check (IAM Admin and linked employee identity lifecycle)
+    if (
+        session.iam_admin.status != IAMAdminIdentity.Status.ACTIVE
+        or session.iam_admin.user.status != CustomUser.Status.ACTIVE
+        or not session.iam_admin.user.is_active
+    ):
         session.is_active = False
         session.save(update_fields=["is_active"])
         return None
+
 
     # Update last activity
     session.last_activity = now
@@ -580,7 +597,7 @@ def check_iam_assurance(
     - Level 2: Sensitive action step-up re-authentication bound to action and valid.
     - Level 3: Privileged operation requiring Level 2 AND independent second approver Level 2 (no self-approval).
     """
-    iam_session: Optional[IAMSession] = getattr(request, "iam_session", None)
+    iam_session: Optional[IAMSession] = getattr(request, "iam_session", None) or get_iam_session_from_request(request)
     if not iam_session or not iam_session.is_active:
         return False
 

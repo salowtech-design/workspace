@@ -41,3 +41,26 @@ def home_view(request):
 def styleguide_view(request):
     """Visual style guide showcasing design tokens, components, and accessible states."""
     return render(request, "styleguide.html")
+
+
+def service_worker_view(request):
+    """
+    Serves the root-scoped PWA service worker with explicit Service-Worker-Allowed header.
+    Allows sw.js to control scope '/' while being safely cached.
+    """
+    import os
+    from django.conf import settings
+    from django.http import HttpResponse
+
+    sw_path = os.path.join(settings.BASE_DIR, "static", "sw.js")
+    try:
+        with open(sw_path, "r", encoding="utf-8") as f:
+            content = f.read()
+        resp = HttpResponse(content, content_type="application/javascript; charset=utf-8")
+        resp["Service-Worker-Allowed"] = "/"
+        resp["Cache-Control"] = "no-cache, no-store, must-revalidate"
+        return resp
+    except Exception as e:
+        logger.error("Failed to read sw.js: %s", e)
+        return HttpResponse("// sw unavailable", content_type="application/javascript", status=404)
+

@@ -53,14 +53,15 @@ from django.conf import settings
 
 
 def _json_serial(obj):
-    """JSON serializer for objects not serializable by default json code."""
+    """JSON serializer preserving Decimal precision as tagged string."""
     if isinstance(obj, (datetime, date)):
         return obj.isoformat()
     if isinstance(obj, decimal.Decimal):
-        return float(obj)
+        return {"__type__": "decimal", "value": str(obj)}
     if isinstance(obj, (bytes, bytearray)):
         return base64.b64encode(obj).decode("ascii")
     raise TypeError(f"Type {type(obj)} not serializable")
+
 
 
 def _get_backup_encryption_key() -> bytes:
@@ -147,7 +148,7 @@ def run_real_backup_and_restore_drill() -> int:
             row_count = len(raw_rows)
             total_extracted_rows += row_count
 
-            # Convert row values safely for JSON serialization
+            # Convert row values safely for JSON serialization (preserving Decimal precision)
             serialized_rows = []
             for r in raw_rows:
                 converted_r = []
@@ -155,7 +156,7 @@ def run_real_backup_and_restore_drill() -> int:
                     if isinstance(val, (datetime, date)):
                         converted_r.append(val.isoformat())
                     elif isinstance(val, decimal.Decimal):
-                        converted_r.append(float(val))
+                        converted_r.append({"__type__": "decimal", "value": str(val)})
                     elif isinstance(val, (bytes, bytearray)):
                         converted_r.append(base64.b64encode(val).decode("ascii"))
                     else:
@@ -239,22 +240,28 @@ def run_real_backup_and_restore_drill() -> int:
 
         restored_data = json.loads(decrypted_bytes.decode("utf-8"))
         scratch_prefix = f"_scratch_r_{timestamp_str[:8]}_"
+        scratch_db = os.getenv("TIDB_SCRATCH_DB_NAME")
 
-        # Restore sample of critical core tables into isolated scratch tables
-        critical_tables = [
-            t for t in ["django_migrations", "accounts_customuser", "accounts_usersession",
-                        "accounts_iamsession", "accounts_totpcredential", "accounts_auditcheckpoint",
-                        "core_emailoutbox", "accounts_deviceapprovalrequest", "accounts_iamdualapprovalrequest"]
-            if t in restored_data["tables"]
-        ]
+        cursor.execute("SET FOREIGN_KEY_CHECKS = 0;")
+        if scratch_db:
+            cursor.execute(f"CREATE DATABASE IF NOT EXISTS `{scratch_db}`;")
+            print(f"[*] Target scratch restore endpoint: `{scratch_db}`")
 
-        for tbl in critical_tables:
-            scratch_table = f"{scratch_prefix}{tbl}"
-            cursor.execute(f"DROP TABLE IF EXISTS `{scratch_table}`;")
-            # Create scratch table
-            create_sql = restored_data["tables"][tbl]["create_sql"]
-            # Rename in create sql
-            renamed_sql = create_sql.replace(f"CREATE TABLE `{tbl}`", f"CREATE TABLE `{scratch_table}`")
+        all_restore_tables = list(restored_data["tables"].keys())
+        print(f"[*] Phase 3: Restoring all {len(all_restore_tables)} operational tables...")
+
+        for tbl in all_restore_tables:
+            if scratch_db:
+                target_table = f"`{scratch_db}`.`{tbl}`"
+                cursor.execute(f"DROP TABLE IF EXISTS {target_table};")
+                create_sql = restored_data["tables"][tbl]["create_sql"]
+                renamed_sql = create_sql.replace(f"CREATE TABLE `{tbl}`", f"CREATE TABLE {target_table}")
+            else:
+                target_table = f"`{scratch_prefix}{tbl}`"
+                cursor.execute(f"DROP TABLE IF EXISTS {target_table};")
+                create_sql = restored_data["tables"][tbl]["create_sql"]
+                renamed_sql = create_sql.replace(f"CREATE TABLE `{tbl}`", f"CREATE TABLE {target_table}")
+
             cursor.execute(renamed_sql)
 
             # Insert restored rows
@@ -265,12 +272,14 @@ def run_real_backup_and_restore_drill() -> int:
             if rows:
                 col_names = ", ".join(f"`{c}`" for c in cols)
                 placeholders = ", ".join(["%s"] * len(cols))
-                insert_sql = f"INSERT INTO `{scratch_table}` ({col_names}) VALUES ({placeholders});"
+                insert_sql = f"INSERT INTO {target_table} ({col_names}) VALUES ({placeholders});"
 
                 for r in rows:
                     unserialized_r = []
                     for c_name, val in zip(cols, r):
-                        if c_name in ("encrypted_template", "encrypted_secret", "encrypted_payload", "nonce", "totp_nonce", "payload_nonce"):
+                        if isinstance(val, dict) and val.get("__type__") == "decimal":
+                            val = decimal.Decimal(val["value"])
+                        elif c_name in ("encrypted_template", "encrypted_secret", "encrypted_payload", "nonce", "totp_nonce", "payload_nonce"):
                             if isinstance(val, str):
                                 try:
                                     val = base64.b64decode(val)
@@ -281,13 +290,14 @@ def run_real_backup_and_restore_drill() -> int:
                 conn.commit()
 
             # Verify row counts match
-            cursor.execute(f"SELECT COUNT(*) FROM `{scratch_table}`;")
+            cursor.execute(f"SELECT COUNT(*) FROM {target_table};")
             scratch_count = cursor.fetchone()[0]
             if scratch_count != tbl_info["row_count"]:
-                print(f"[FAIL] Restored row count mismatch on `{scratch_table}`: expected {tbl_info['row_count']}, got {scratch_count}")
+                print(f"[FAIL] Restored row count mismatch on {target_table}: expected {tbl_info['row_count']}, got {scratch_count}")
+                cursor.execute("SET FOREIGN_KEY_CHECKS = 1;")
                 return 1
 
-        print(f"[+] Phase 3 Complete: Successfully restored and verified {len(critical_tables)} critical tables in scratch schema.")
+        print(f"[+] Phase 3 Complete: Successfully restored and verified all {len(all_restore_tables)} tables in isolated scratch schema.")
 
         # -------------------------------------------------------------------
         # Phase 4: Mandatory Post-Restore Security Reconciliation
@@ -296,31 +306,34 @@ def run_real_backup_and_restore_drill() -> int:
         print("[*] Phase 4: Executing mandatory security reconciliation on restored state...")
 
         # 1. Invalidate stale sessions
-        session_tbl = f"{scratch_prefix}accounts_usersession"
-        if session_tbl in [f"{scratch_prefix}{t}" for t in critical_tables]:
-            cursor.execute(f"UPDATE `{session_tbl}` SET mfa_verified = FALSE, last_activity = '2000-01-01 00:00:00';")
+        def _get_target(tbl_name):
+            return f"`{scratch_db}`.`{tbl_name}`" if scratch_db else f"`{scratch_prefix}{tbl_name}`"
 
-        iam_sess_tbl = f"{scratch_prefix}accounts_iamsession"
-        if iam_sess_tbl in [f"{scratch_prefix}{t}" for t in critical_tables]:
-            cursor.execute(f"UPDATE `{iam_sess_tbl}` SET is_active = FALSE;")
+        session_tbl = _get_target("accounts_usersession")
+        cursor.execute(f"UPDATE {session_tbl} SET mfa_verified = FALSE, last_activity = '2000-01-01 00:00:00';")
+
+        iam_sess_tbl = _get_target("accounts_iamsession")
+        cursor.execute(f"UPDATE {iam_sess_tbl} SET is_active = FALSE;")
 
         # 2. Invalidate pending device approvals
-        dev_tbl = f"{scratch_prefix}accounts_deviceapprovalrequest"
-        if dev_tbl in [f"{scratch_prefix}{t}" for t in critical_tables]:
-            cursor.execute(f"UPDATE `{dev_tbl}` SET status = 'expired' WHERE status = 'pending';")
+        dev_tbl = _get_target("accounts_deviceapprovalrequest")
+        cursor.execute(f"UPDATE {dev_tbl} SET status = 'expired' WHERE status = 'pending';")
 
         # 3. Invalidate pending dual approval requests
-        dual_tbl = f"{scratch_prefix}accounts_iamdualapprovalrequest"
-        if dual_tbl in [f"{scratch_prefix}{t}" for t in critical_tables]:
-            cursor.execute(f"UPDATE `{dual_tbl}` SET status = 'expired' WHERE status = 'pending';")
+        dual_tbl = _get_target("accounts_iamdualapprovalrequest")
+        cursor.execute(f"UPDATE {dual_tbl} SET status = 'expired' WHERE status = 'pending';")
 
         conn.commit()
 
         # Clean up scratch tables cleanly
-        for tbl in critical_tables:
-            scratch_table = f"{scratch_prefix}{tbl}"
-            cursor.execute(f"DROP TABLE IF EXISTS `{scratch_table}`;")
+        for tbl in all_restore_tables:
+            if scratch_db:
+                cursor.execute(f"DROP TABLE IF EXISTS `{scratch_db}`.`{tbl}`;")
+            else:
+                cursor.execute(f"DROP TABLE IF EXISTS `{scratch_prefix}{tbl}`;")
         conn.commit()
+        cursor.execute("SET FOREIGN_KEY_CHECKS = 1;")
+
 
         t_recon_duration = time.perf_counter() - t_recon_start
         t_restore_duration = time.perf_counter() - t_restore_start

@@ -88,6 +88,73 @@ def revoke_user_sessions(user: CustomUser, keep_session_key: str = None) -> int:
     return count
 
 
+def synchronize_employee_lifecycle_revocation(user: CustomUser) -> dict:
+    """
+    Synchronously revokes all active authorities, sessions, pending approvals,
+    and recovery requests across both Workspace and IAM domains when an employee
+    is suspended, exited, or locked out.
+    """
+    revoked_stats = {
+        "workspace_sessions": 0,
+        "iam_sessions": 0,
+        "device_requests": 0,
+        "recovery_requests": 0,
+        "dual_approvals": 0,
+    }
+
+    # 1. Revoke all Workspace sessions
+    revoked_stats["workspace_sessions"] = revoke_user_sessions(user)
+
+    # 2. Revoke all IAM sessions and suspend IAM identity if linked
+    from apps.accounts.models import (
+        DeviceApprovalRequest,
+        IAMAdminIdentity,
+        IAMDualApprovalRequest,
+        IAMSession,
+        RecoveryRequest,
+    )
+
+    try:
+        if hasattr(user, "iam_admin_profile") and user.iam_admin_profile:
+            iam_admin = user.iam_admin_profile
+            active_iam_sessions = IAMSession.objects.filter(iam_admin=iam_admin, is_active=True)
+            revoked_stats["iam_sessions"] = active_iam_sessions.count()
+            active_iam_sessions.update(is_active=False)
+
+            if user.status != CustomUser.Status.ACTIVE:
+                iam_admin.status = IAMAdminIdentity.Status.SUSPENDED
+                iam_admin.save(update_fields=["status"])
+    except Exception:
+        pass
+
+    # 3. Reject pending DeviceApprovalRequests
+    revoked_stats["device_requests"] = DeviceApprovalRequest.objects.filter(
+        user=user, status=DeviceApprovalRequest.Status.PENDING
+    ).update(status=DeviceApprovalRequest.Status.REJECTED)
+
+    # 4. Reject pending RecoveryRequests
+    revoked_stats["recovery_requests"] = RecoveryRequest.objects.filter(
+        user=user, status=RecoveryRequest.Status.PENDING
+    ).update(status=RecoveryRequest.Status.REJECTED)
+
+    # 5. Expire pending IAMDualApprovalRequests where user is requester or approver
+    revoked_stats["dual_approvals"] = IAMDualApprovalRequest.objects.filter(
+        Q(requester__user=user) | Q(approver__user=user),
+        status="pending",
+    ).update(status="expired")
+
+    log_auth_event(
+        event="employee_lifecycle_revocation_synchronized",
+        code="WARN",
+        step="lifecycle_synchronization",
+        employee_id=user.employee_id,
+        message=f"Lifecycle revocation synchronized: {revoked_stats}",
+    )
+
+    return revoked_stats
+
+
+
 def end_session_by_key(user: CustomUser, session_key: str) -> bool:
     """End a specific session from user's /security management page."""
     digest = hash_session_bearer(session_key)

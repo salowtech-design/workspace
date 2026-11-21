@@ -1,6 +1,4 @@
 import logging
-import threading
-import time
 from typing import Dict, List
 
 from django.conf import settings
@@ -73,7 +71,6 @@ class RateLimitMiddleware:
     WINDOW_SECONDS = 60
 
     _storage: Dict[str, List[float]] = {}
-    _lock = threading.Lock()
     _cleanup_counter: int = 0
 
     def __init__(self, get_response):
@@ -82,12 +79,12 @@ class RateLimitMiddleware:
     @classmethod
     def reset(cls):
         """Reset rate limiter state (used in testing)."""
-        with cls._lock:
-            cls._storage.clear()
-            cls._cleanup_counter = 0
+        cls._storage.clear()
+        cls._cleanup_counter = 0
         try:
-            from apps.core.models import RateLimitRecord
+            from apps.core.models import RateLimitBucket, RateLimitRecord
 
+            RateLimitBucket.objects.all().delete()
             RateLimitRecord.objects.all().delete()
         except Exception as e:
             logger.debug("Failed to reset rate limit records: %s", e)
@@ -97,6 +94,7 @@ class RateLimitMiddleware:
             _USER_SUDO_CACHE.clear()
         except Exception as e:
             logger.debug("Failed to clear sudo cache: %s", e)
+
 
     def _get_client_ip(self, request) -> str:
         remote_addr = request.META.get("REMOTE_ADDR", "127.0.0.1")
@@ -167,15 +165,12 @@ class RateLimitMiddleware:
         if path.startswith("/static/"):
             return self.get_response(request)
 
-        now = time.time()
-        cutoff = now - self.WINDOW_SECONDS
-
-        # Trigger cleanup if threshold reached (so even /health triggers eviction under high key volume)
-        with self._lock:
-            if len(self._storage) > 500:
-                stale_keys = [k for k, ts in self._storage.items() if not ts or ts[-1] <= cutoff]
-                for k in stale_keys:
-                    self._storage.pop(k, None)
+        if len(self._storage) > 500:
+            import time
+            cutoff = time.time() - self.WINDOW_SECONDS
+            stale_keys = [k for k, ts in list(self._storage.items()) if not ts or ts[-1] <= cutoff]
+            for k in stale_keys:
+                self._storage.pop(k, None)
 
         if path in ("/health", "/ready"):
             return self.get_response(request)
@@ -208,39 +203,50 @@ class RateLimitMiddleware:
         if account_id and is_sensitive:
             keys_to_check.append(f"acc:{account_id}:sensitive")
 
-        with self._lock:
-            for k in keys_to_check:
-                timestamps = self._storage.setdefault(k, [])
-                timestamps[:] = [t for t in timestamps if t > cutoff]
-                timestamps.append(now)
-                if len(timestamps) > limit:
-                    return self._render_429_response(request)
-
-            if len(self._storage) > 500:
-                stale_keys = [k for k, ts in self._storage.items() if not ts or ts[-1] <= cutoff]
-                for k in stale_keys:
-                    self._storage.pop(k, None)
-
-        # Record in centralized database for distributed cluster coordination
         try:
-            from apps.core.models import RateLimitRecord
+            from datetime import timedelta
+            from django.db import transaction
+            from django.utils import timezone
+            from apps.core.models import RateLimitBucket
 
-            # Atomic distributed sliding window enforcement across all workers
+            now_dt = timezone.now()
+            window_delta = timedelta(seconds=self.WINDOW_SECONDS)
+
             for k in keys_to_check:
-                RateLimitRecord.objects.create(key=k, timestamp=now)
-                db_count = RateLimitRecord.objects.filter(key=k, timestamp__gt=cutoff).count()
-                if db_count > limit:
-                    return self._render_429_response(request)
+                with transaction.atomic():
+                    bucket = (
+                        RateLimitBucket.objects.select_for_update()
+                        .filter(bucket_key=k)
+                        .first()
+                    )
+                    if not bucket:
+                        bucket = RateLimitBucket.objects.create(
+                            bucket_key=k,
+                            count=1,
+                            reset_at=now_dt + window_delta,
+                        )
+                    elif now_dt >= bucket.reset_at:
+                        bucket.count = 1
+                        bucket.reset_at = now_dt + window_delta
+                        bucket.save(update_fields=["count", "reset_at", "updated_at"])
+                    else:
+                        bucket.count += 1
+                        bucket.save(update_fields=["count", "updated_at"])
 
-            # Periodic background pruning of expired records
+                    if bucket.count > limit:
+                        retry_after = max(1, int(round((bucket.reset_at - now_dt).total_seconds())))
+                        return self._render_429_response(request, retry_after=retry_after)
+
             RateLimitMiddleware._cleanup_counter += 1
             if RateLimitMiddleware._cleanup_counter % 50 == 0:
-                RateLimitRecord.objects.filter(timestamp__lte=cutoff).delete()
+                RateLimitBucket.objects.filter(reset_at__lt=now_dt - timedelta(minutes=5)).delete()
         except Exception as e:
-            logger.error("Rate limit database check error: %s", e)
+            if "database is locked" in str(e).lower():
+                logger.debug("Rate limit SQLite lock contention: %s", e)
+            else:
+                logger.error("Rate limit database check error: %s", e)
             if is_sensitive and not getattr(settings, "DEBUG", True):
                 # Fail-closed for sensitive authentication and recovery endpoints in production
-                from django.http import HttpResponse
                 return HttpResponse(
                     "Security throttle service temporarily unavailable. Please retry later.",
                     status=503,
@@ -248,3 +254,4 @@ class RateLimitMiddleware:
                 )
 
         return self.get_response(request)
+

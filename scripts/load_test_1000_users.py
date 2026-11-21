@@ -19,6 +19,9 @@ import sys
 import time
 from pathlib import Path
 
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(line_buffering=True)
+
 # Setup Django environment
 BASE_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(BASE_DIR))
@@ -129,7 +132,7 @@ def run_stage_a_baseline() -> dict:
     return {"login_ms": lat_login, "nav_ms": lat_nav, "draft_ms": lat_draft}
 
 
-def run_stage_b_scaling(concurrency_tiers=(10, 25, 50, 100, 250)):
+def run_stage_b_scaling(concurrency_tiers=(10, 25, 50, 100, 250), max_workers: int = 25):
     """Stage B — Gradual Concurrency Scaling."""
     print("\n" + "=" * 65)
     print("STAGE B: GRADUAL CONCURRENCY SCALING")
@@ -168,7 +171,7 @@ def run_stage_b_scaling(concurrency_tiers=(10, 25, 50, 100, 250)):
                     return 0.0, False
 
         t_start = time.time()
-        max_threads = min(tier, 25)
+        max_threads = min(tier, max_workers)
         with concurrent.futures.ThreadPoolExecutor(max_workers=max_threads) as executor:
             futures = [executor.submit(worker_nav, i) for i in range(1, tier + 1)]
             for f in concurrent.futures.as_completed(futures):
@@ -303,9 +306,10 @@ if __name__ == "__main__":
     print("SALOW WORKSPACE — ENTERPRISE IAM MULTI-STAGE CAPACITY BENCHMARK")
     print("=================================================================")
 
-    prepare_benchmark_accounts(total_accounts=max(args.users, 1000))
+    prepare_benchmark_accounts(total_accounts=max(args.users, 100))
     run_stage_a_baseline()
-    run_stage_b_scaling(concurrency_tiers=(10, 25, 50, 100, 250, 500))
+    tiers = [t for t in (10, 25, 50, 100, 250, 500) if t <= args.users] or [args.users]
+    run_stage_b_scaling(concurrency_tiers=tiers, max_workers=args.workers)
     run_stage_d_authenticated_workload(num_users=args.users, max_workers=args.workers)
     run_stage_e_abuse_workload()
     print("\n[+] Benchmark suite completed successfully.")

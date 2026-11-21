@@ -143,6 +143,27 @@ class RateLimitRecord(models.Model):
         return f"RateLimitRecord for {self.key} at {self.timestamp}"
 
 
+class RateLimitBucket(models.Model):
+    """
+    TiDB-safe atomic rate limit bucket.
+    Replaces check-then-count with pessimistic serialized row locks (select_for_update)
+    within atomic transactions, eliminating process-local in-memory state and race conditions.
+    """
+
+    bucket_key = models.CharField(max_length=191, unique=True, db_index=True)
+    count = models.PositiveIntegerField(default=1)
+    reset_at = models.DateTimeField(db_index=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "Rate Limit Bucket"
+        verbose_name_plural = "Rate Limit Buckets"
+
+    def __str__(self):
+        return f"RateLimitBucket({self.bucket_key}, count={self.count})"
+
+
 class EmailOutbox(models.Model):
     """
     Transactional email outbox model for reliable IAM notifications.

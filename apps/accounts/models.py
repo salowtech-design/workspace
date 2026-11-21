@@ -257,12 +257,50 @@ class AuthEvent(models.Model):
         return f"[{self.time}] {self.code} ({self.reference_id}) - {self.event}"
 
 
+class ApprovedDevice(models.Model):
+    """
+    Durable persistent approved device model (Milestone Multi-Device Foundation).
+    Supports concurrent active devices across Desktop, Tablet, and Mobile form factors (up to MAX_CONCURRENT_DEVICES).
+    """
+
+    class DeviceType(models.TextChoices):
+        DESKTOP = "desktop", "Desktop"
+        MOBILE = "mobile", "Mobile"
+        TABLET = "tablet", "Tablet"
+
+    user = models.ForeignKey(CustomUser, on_delete=models.CASCADE, related_name="approved_devices")
+    device_id = models.CharField(max_length=64, unique=True, db_index=True)
+    display_name = models.CharField(max_length=128)
+    device_type = models.CharField(max_length=32, choices=DeviceType.choices, default=DeviceType.DESKTOP)
+    platform_metadata = models.TextField(blank=True, default="{}")
+    registration_time = models.DateTimeField(auto_now_add=True)
+    last_used_time = models.DateTimeField(auto_now=True)
+    is_approved = models.BooleanField(default=False)
+    is_revoked = models.BooleanField(default=False)
+    approval_reference_id = models.CharField(max_length=64, blank=True, default="")
+
+    class Meta:
+        ordering = ["-last_used_time"]
+        verbose_name = "Approved Device"
+        verbose_name_plural = "Approved Devices"
+
+    def __str__(self):
+        return f"{self.display_name} ({self.device_type}) - {self.user.employee_id}"
+
+
 class UserSession(models.Model):
     """Active server-side tracking of user sessions."""
 
     user = models.ForeignKey(CustomUser, on_delete=models.CASCADE, related_name="active_sessions")
     session_key = models.CharField(max_length=40, unique=True, db_index=True)
     session_digest = models.CharField(max_length=64, blank=True, default="", db_index=True)
+    device = models.ForeignKey(
+        ApprovedDevice,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="sessions",
+    )
     ip_address = models.GenericIPAddressField(null=True, blank=True)
     user_agent = models.CharField(max_length=255, blank=True)
     mfa_verified = models.BooleanField(default=False)

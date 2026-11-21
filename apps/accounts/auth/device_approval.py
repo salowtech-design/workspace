@@ -16,6 +16,7 @@ import uuid
 from datetime import timedelta
 from typing import Optional
 
+from django.conf import settings
 from django.core.exceptions import PermissionDenied
 from django.db import transaction
 from django.utils import timezone
@@ -30,6 +31,7 @@ from apps.accounts.auth.lockout import (
 )
 from apps.accounts.auth.sessions import create_verified_session
 from apps.accounts.models import (
+    ApprovedDevice,
     BiometricAssertion,
     CustomUser,
     DeviceApprovalRequest,
@@ -38,7 +40,8 @@ from apps.accounts.models import (
 from apps.core.models import EmailOutbox
 
 DEVICE_APPROVAL_EXPIRY_SECONDS = 60  # Strictly 1 minute per specification
-MAX_CONCURRENT_DEVICES = 2
+MAX_CONCURRENT_DEVICES = getattr(settings, "MAX_CONCURRENT_DEVICES", 3)
+
 
 
 def is_second_device_request(
@@ -526,8 +529,35 @@ def complete_device_verification_and_login(
         # Create independent server session for Device B
         create_verified_session(django_request, req.user)
         from apps.accounts.auth.session_backend import hash_session_bearer
-        req.session_key = hash_session_bearer(django_request.session.session_key) if django_request.session.session_key else ""
+        raw_sess_key = django_request.session.session_key or ""
+        sess_digest = hash_session_bearer(raw_sess_key) if raw_sess_key else ""
+        req.session_key = sess_digest
         req.save()
+
+        # Provision or activate durable ApprovedDevice record
+        dev_id = req.requesting_device_id or f"dev-{uuid.uuid4().hex[:16]}"
+        agent = req.requesting_device_agent or ""
+        dev_type = ApprovedDevice.DeviceType.DESKTOP
+        if any(m in agent for m in ("Mobile", "Android", "iPhone")):
+            dev_type = ApprovedDevice.DeviceType.MOBILE
+        elif any(t in agent for t in ("Tablet", "iPad")):
+            dev_type = ApprovedDevice.DeviceType.TABLET
+
+        approved_device, _ = ApprovedDevice.objects.update_or_create(
+            device_id=dev_id,
+            defaults={
+                "user": req.user,
+                "display_name": f"{req.user.full_name}'s {dev_type.capitalize()}",
+                "device_type": dev_type,
+                "platform_metadata": agent[:500],
+                "is_approved": True,
+                "is_revoked": False,
+                "approval_reference_id": str(req.request_id),
+            },
+        )
+
+        if sess_digest:
+            UserSession.objects.filter(session_key=sess_digest).update(device=approved_device)
 
         log_auth_event(
             event="second_device_session_established",
