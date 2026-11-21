@@ -6,7 +6,7 @@ Provides reliable at-least-once domain event dispatching without Postgres-specif
 import uuid
 from typing import Callable, Optional
 
-from django.db import transaction
+from django.db import connection, transaction
 from django.utils import timezone
 
 from apps.core.models import OutboxEvent
@@ -50,9 +50,10 @@ def process_outbox_batch(batch_size: int = 50) -> tuple[int, int]:
     failure_count = 0
 
     with transaction.atomic():
+        can_skip = getattr(connection.features, "has_select_for_update_skip_locked", False)
+        qs = OutboxEvent.objects.select_for_update(skip_locked=True) if can_skip else OutboxEvent.objects.select_for_update()
         events = list(
-            OutboxEvent.objects.select_for_update(skip_locked=True)
-            .filter(status=OutboxEvent.Status.PENDING)
+            qs.filter(status=OutboxEvent.Status.PENDING)
             .order_by("created_at")[:batch_size]
         )
         if not events:

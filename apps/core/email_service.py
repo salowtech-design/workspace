@@ -14,7 +14,7 @@ from typing import Optional
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from django.conf import settings
 from django.core.mail import EmailMultiAlternatives
-from django.db import transaction
+from django.db import connection, transaction
 from django.utils import timezone
 
 from apps.accounts.auth.audit import log_auth_event
@@ -376,9 +376,10 @@ def process_email_outbox(batch_size: int = 50) -> tuple[int, int]:
     # 2. Atomic claim batch under row locking
     claimed_ids = []
     with transaction.atomic():
+        can_skip = getattr(connection.features, "has_select_for_update_skip_locked", False)
+        qs = EmailOutbox.objects.select_for_update(skip_locked=True) if can_skip else EmailOutbox.objects.select_for_update()
         candidates = list(
-            EmailOutbox.objects.select_for_update(skip_locked=True)
-            .filter(
+            qs.filter(
                 status__in=[EmailOutbox.Status.QUEUED, EmailOutbox.Status.RETRY_PENDING],
                 scheduled_at__lte=now,
             )

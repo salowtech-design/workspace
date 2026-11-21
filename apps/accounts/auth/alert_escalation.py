@@ -15,7 +15,8 @@ from django.utils import timezone
 
 from apps.accounts.auth.audit import log_auth_event
 from apps.accounts.models import CustomUser, SecurityAlert
-from apps.core.models import EmailOutbox, OutboxEvent
+from apps.core.models import EmailOutbox
+from apps.core.outbox import publish_event
 
 ALERT_SLA_MINUTES = 15
 
@@ -74,7 +75,7 @@ def escalate_unacknowledged_alerts() -> List[SecurityAlert]:
                     )
 
             # 2. Emit durable domain outbox event
-            OutboxEvent.objects.create(
+            publish_event(
                 event_type="security_alert.escalated",
                 payload={
                     "alert_id": alert.id,
@@ -82,7 +83,7 @@ def escalate_unacknowledged_alerts() -> List[SecurityAlert]:
                     "severity": alert.severity,
                     "title": alert.title,
                 },
-                status=OutboxEvent.Status.PENDING,
+                event_id=f"esc-alert-{alert.id}-{int(timezone.now().timestamp())}",
             )
 
             log_auth_event(
