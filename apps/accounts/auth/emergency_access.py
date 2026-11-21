@@ -34,9 +34,14 @@ MAX_EMERGENCY_WINDOW_MINUTES = 15
 
 
 def _verify_custodian(admin_id: str, password: str, totp_code: str) -> IAMAdminIdentity:
-    """Verifies custodian identity, status, password, and fresh TOTP code."""
+    """Verifies custodian identity, status, password, and fresh TOTP code under atomic lock."""
     clean_id = admin_id.strip().upper()
-    admin = IAMAdminIdentity.objects.filter(admin_id=clean_id).first()
+    admin = (
+        IAMAdminIdentity.objects.select_for_update()
+        .select_related("user")
+        .filter(admin_id=clean_id)
+        .first()
+    )
     if not admin:
         raise AuthException("AUTH-EMG-001", step="emergency_access", message_override=f"Custodian [{clean_id}] not found.")
 
@@ -46,11 +51,9 @@ def _verify_custodian(admin_id: str, password: str, totp_code: str) -> IAMAdminI
     if admin.role != IAMAdminIdentity.Role.SUPER_ADMIN:
         raise PermissionDenied(f"Custodian [{clean_id}] must hold the Super Admin role.")
 
-    if not admin.user.check_password(password) and not admin.password_hash:
-        raise AuthException("AUTH-EMG-003", step="emergency_access", message_override=f"Invalid password for custodian [{clean_id}].")
-
+    target_hash = admin.password_hash or (admin.user.password if admin.user else "")
     from django.contrib.auth.hashers import check_password
-    if not check_password(password, admin.password_hash):
+    if not target_hash or not check_password(password, target_hash):
         raise AuthException("AUTH-EMG-003", step="emergency_access", message_override=f"Invalid password for custodian [{clean_id}].")
 
     if not admin.encrypted_totp_secret:

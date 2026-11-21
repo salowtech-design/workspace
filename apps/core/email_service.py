@@ -14,7 +14,7 @@ from typing import Optional
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from django.conf import settings
 from django.core.mail import EmailMultiAlternatives
-from django.db import connection, transaction
+from django.db import IntegrityError, connection, transaction
 from django.utils import timezone
 
 from apps.accounts.auth.audit import log_auth_event
@@ -43,14 +43,14 @@ def _get_encryption_key(key_id: Optional[str] = None) -> tuple[bytes, str]:
     return key, kid
 
 
-def encrypt_payload(data_dict: dict) -> tuple[bytes, bytes, str]:
+def encrypt_payload(data_dict: dict, key_id: Optional[str] = None) -> tuple[bytes, bytes, str]:
     """Encrypt payload data dictionary using AES-256-GCM."""
-    key, key_id = _get_encryption_key()
+    key, used_key_id = _get_encryption_key(key_id)
     nonce = os.urandom(12)
     aesgcm = AESGCM(key)
     plaintext = json.dumps(data_dict).encode("utf-8")
-    ciphertext = aesgcm.encrypt(nonce, plaintext, associated_data=key_id.encode("utf-8"))
-    return ciphertext, nonce, key_id
+    ciphertext = aesgcm.encrypt(nonce, plaintext, associated_data=used_key_id.encode("utf-8"))
+    return ciphertext, nonce, used_key_id
 
 
 def decrypt_payload(ciphertext: bytes, nonce: bytes, key_id: str) -> dict:

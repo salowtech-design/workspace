@@ -220,15 +220,17 @@ def mfa_challenge_view(request):  # noqa: C901
                 )
 
             if not error:
+                client_ip = getattr(request, "client_ip", None) or request.META.get("REMOTE_ADDR")
+                user_agent = request.META.get("HTTP_USER_AGENT")
                 if is_second_device_request(
                     user,
-                    ip_address=request.META.get("REMOTE_ADDR"),
-                    user_agent=request.META.get("HTTP_USER_AGENT"),
+                    ip_address=client_ip,
+                    user_agent=user_agent,
                 ):
                     req_dev = create_device_approval_request(
                         user=user,
-                        ip_address=request.META.get("REMOTE_ADDR"),
-                        user_agent=request.META.get("HTTP_USER_AGENT"),
+                        ip_address=client_ip,
+                        user_agent=user_agent,
                     )
                     return redirect("accounts:device_approval_wait", request_id=req_dev.request_id)
 

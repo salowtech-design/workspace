@@ -139,7 +139,7 @@ class Command(BaseCommand):
                             bytes(item.payload_nonce) if item.payload_nonce else b"",
                             item.payload_key_id,
                         )
-                        new_enc, new_nonce, assigned_kid = encrypt_payload(payload_dict)
+                        new_enc, new_nonce, assigned_kid = encrypt_payload(payload_dict, key_id=new_key_id)
                         test_dec = decrypt_payload(new_enc, new_nonce, assigned_kid)
                         if test_dec != payload_dict:
                             raise CommandError(f"Integrity check failed during re-encryption of EmailOutbox {item.id}")

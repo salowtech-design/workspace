@@ -6,7 +6,7 @@ Provides reliable at-least-once domain event dispatching without Postgres-specif
 import uuid
 from typing import Callable, Optional
 
-from django.db import connection, transaction
+from django.db import IntegrityError, connection, transaction
 from django.utils import timezone
 
 from apps.core.models import OutboxEvent
@@ -26,18 +26,21 @@ def publish_event(event_type: str, payload: dict, event_id: Optional[str] = None
     """
     Publish a domain event to the outbox table.
     Should be called inside an atomic transaction alongside business mutations.
-    Accepts optional event_id for publisher idempotency.
+    Accepts optional event_id for publisher idempotency with concurrency race safety.
     """
     eid = event_id or str(uuid.uuid4())
     existing = OutboxEvent.objects.filter(event_id=eid).first()
     if existing:
         return existing
-    return OutboxEvent.objects.create(
-        event_id=eid,
-        event_type=event_type,
-        payload=payload,
-        status=OutboxEvent.Status.PENDING,
-    )
+    try:
+        return OutboxEvent.objects.create(
+            event_id=eid,
+            event_type=event_type,
+            payload=payload,
+            status=OutboxEvent.Status.PENDING,
+        )
+    except IntegrityError:
+        return OutboxEvent.objects.filter(event_id=eid).first()
 
 
 def process_outbox_batch(batch_size: int = 50) -> tuple[int, int]:

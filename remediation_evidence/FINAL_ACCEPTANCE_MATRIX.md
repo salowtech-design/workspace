@@ -48,13 +48,13 @@
 | **Gate 4** | IAM TOTP Replay & Dual-Approval Correctness | **PASSED** | Pessimistic locking on step-up TOTP verification; canonical payload digest binding in dual control. |
 | **Gate 5** | Real FRS Pipeline & 1:1 Biometric Matching | **PASSED** | Server-side 1:1 biometric assertion verification; caller-supplied `face_verified` booleans strictly rejected. |
 | **Gate 6** | TiDB Disaster Recovery & Backup Verification Drill | **PASSED** | 54 tables, 778 rows extracted, encrypted (AES-256-GCM + HMAC seal), restored into scratch schema, post-restore reconciliation executed. RTO: 21.24s. |
-| **Gate 7** | Full Automated Test & Concurrency Suite Green | **PASSED** | 274 unit & security tests pass (100%); 7 live TiDB concurrency tests pass; 5 Playwright E2E browser tests pass. |
+| **Gate 7** | Full Automated Test & Concurrency Suite Green | **PASSED** | 277 unit & security tests pass (100%); 7 live TiDB concurrency tests pass; 5 Playwright E2E browser tests pass. |
 
 ---
 
 ### 3. Verification Test Evidence Summary
 
-- **Unit & Security Suite**: 274 passed in 249.77s (`pytest tests/unit/ tests/security/`).
+- **Unit & Security Suite**: 277 passed in 307.89s (`pytest tests/unit/ tests/security/`).
 - **Playwright E2E Suite**: 5 passed in 138.14s (`pytest tests/e2e/`).
 - **Live TiDB Cloud Concurrency**: 7 passed in 25.10s (`python scripts/verify_tidb_concurrency.py`).
   - Concurrent TOTP Replay Prevention: 1 Success, 4 Rejections.

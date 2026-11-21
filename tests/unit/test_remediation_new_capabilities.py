@@ -246,6 +246,48 @@ class TestMultiWindowSprayingDetection:
             else:
                 assert detected is True
 
-        # Confirm subnet rate-limit record exists
-        record = RateLimitRecord.objects.filter(key=f"{subnet_ips[-1]}:sensitive").first()
-        assert record is not None
+        # Confirm subnet rate-limit record exists and immediately exceeds sensitive threshold (>= 10 records)
+        records = RateLimitRecord.objects.filter(key=f"{subnet_ips[-1]}:sensitive")
+        assert records.count() >= 10, f"Expected at least 10 records for immediate block, got {records.count()}"
+
+    def test_spraying_detection_blocks_subsequent_request_immediately(self):
+        """Spraying detection inserts sufficient records to immediately block attacker IP."""
+        test_ip = "198.51.100.42"
+        for i in range(1, 6):
+            AuthEvent.objects.create(
+                event="login_failed",
+                code="AUTH-LOK-001",
+                step="password",
+                employee_id=f"ST-FAST-TARGET-{i}",
+                network_address=test_ip,
+            )
+        detected = record_auth_failure_and_check_spray(test_ip, "ST-FAST-TARGET-5")
+        assert detected is True
+
+        # RateLimitRecord count must exceed SENSITIVE_LIMIT (5)
+        count = RateLimitRecord.objects.filter(key=f"{test_ip}:sensitive").count()
+        assert count >= 10
+
+
+@pytest.mark.django_db
+class TestKeyRotationAndOutboxRobustness:
+    def test_email_outbox_encrypt_with_key_id(self):
+        """encrypt_payload accepts specific key_id and decrypts round-trip."""
+        from apps.core.email_service import decrypt_payload, encrypt_payload
+
+        payload = {"otp": "123456", "template": "Test code: 123456"}
+        enc, nonce, kid = encrypt_payload(payload, key_id="k1")
+        assert kid == "k1"
+        assert len(enc) > 0
+
+        dec = decrypt_payload(enc, nonce, kid)
+        assert dec["otp"] == "123456"
+
+    def test_publish_event_idempotent_duplicate(self):
+        """publish_event returns existing event when duplicate event_id is supplied."""
+        from apps.core.outbox import publish_event
+
+        e1 = publish_event("test.event", {"data": 1}, event_id="unique-evt-001")
+        e2 = publish_event("test.event", {"data": 2}, event_id="unique-evt-001")
+        assert e1.event_id == e2.event_id == "unique-evt-001"
+        assert e2.payload == {"data": 1}

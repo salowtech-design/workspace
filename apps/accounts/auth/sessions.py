@@ -27,7 +27,7 @@ def create_verified_session(request, user: CustomUser) -> None:
     request.session.set_expiry(STAFF_SESSION_MAX_HOURS * 3600)
 
     session_key = request.session.session_key
-    ip_addr = request.META.get("REMOTE_ADDR")
+    ip_addr = getattr(request, "client_ip", None) or request.META.get("REMOTE_ADDR")
     agent = request.META.get("HTTP_USER_AGENT", "")[:255]
 
     if session_key:

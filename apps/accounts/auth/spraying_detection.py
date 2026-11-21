@@ -137,12 +137,13 @@ def record_auth_failure_and_check_spray(
                 status=SecurityAlert.Status.OPEN,
             )
 
-            # Block IP in distributed RateLimitRecord
+            # Immediately block IP in distributed RateLimitRecord exceeding sensitive threshold
             try:
-                RateLimitRecord.objects.create(
-                    key=f"{clean_ip}:sensitive",
-                    timestamp=now_ts + 1800,  # 30-minute block
-                )
+                records = [
+                    RateLimitRecord(key=f"{clean_ip}:sensitive", timestamp=now_ts + 1800)
+                    for _ in range(10)
+                ]
+                RateLimitRecord.objects.bulk_create(records)
             except Exception:
                 pass
 
