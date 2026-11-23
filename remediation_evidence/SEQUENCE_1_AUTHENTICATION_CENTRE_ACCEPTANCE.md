@@ -196,3 +196,39 @@ tests\unit\test_iam_recovery_and_email.py ..............                 [100%]
 
 ### Acceptance Test Suite
 - `tests/unit/test_authentication_centre_seq1.py`: Comprehensive test suite verifying all 30 acceptance requirements (AUTH-001 through AUTH-030).
+
+---
+
+## 6. End-to-End Operational Smoke Test Evidence
+
+Executed against both `iam.salowtech.com` and `app.salowtech.com` virtual hosts:
+
+```
+Route 1 /console/authentication/ (anon): 302 /iam/login/?next=/console/authentication/
+Route 2 /auth/sign-in/: 302
+Route 3 /login/ on app.salowtech.com: 200
+Route 4 /console/authentication/ (authenticated): 200
+Landing page contains exactly two sub-options: SUCCESS
+Route 5 /console/authentication/control/: 200
+Workspace Control Dashboard rendered: SUCCESS
+Route 6 /console/authentication/iam/: 200
+IAM Administrator Dashboard rendered: SUCCESS
+Route 7 /console/heartbeat/ POST status: 200 {'status': 'ok', 'admin_id': 'ADM-F936EE73', 'presence_status': 'ACTIVE', 'heartbeat_at': '2026-11-23T16:02:16.372457+00:00'}
+Heartbeat endpoint active: SUCCESS
+
+>>> ALL 7 SMOKE TESTS COMPLETED WITH 100% SUCCESS! <<<
+```
+
+---
+
+## 7. Sign-off & Verification
+
+- **Architectural Authority**: Fully compliant with *Salow Workspace Authentication Sequence 1 — Complete Implementation Contract v1.0* and *EXECUTION PROMPT: Run and Implement v1.0*.
+- **Implementation Status**: `COMPLETED`
+- **Verification Status**: `100% PASS` (30/30 acceptance tests, 57/57 regression tests, 7/7 route smoke tests).
+- **Latest Commits**:
+  - `dd62d19`: feat(iam): Complete Sequence 1 Authentication Centre Implementation (AUTH-001 - AUTH-030)
+  - `9df3c53`: fix(iam): isolate base template navigation by domain and repair presence status calculation
+- **Database Status**: TiDB Cloud Serverless / SQLite test replica migrations up to date (`accounts.0014` applied).
+- **System Check**: 0 issues (0 silenced).
+
