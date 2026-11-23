@@ -1,0 +1,164 @@
+{% extends "base.html" %}
+
+{% block title %}Authentication Centre | Salow Workspace IAM{% endblock %}
+
+{% block content %}
+<div class="min-h-screen bg-[#0B0F19] text-gray-100 py-10 px-4 sm:px-6 lg:px-8">
+    <div class="max-w-7xl mx-auto space-y-8">
+
+        <!-- Top Header Breadcrumb & Status -->
+        <div class="flex flex-col md:flex-row md:items-center md:justify-between border-b border-gray-800 pb-6 gap-4">
+            <div>
+                <div class="flex items-center space-x-2 text-xs font-mono text-cyan-400 mb-1">
+                    <a href="{% url 'iam:dashboard' %}" class="hover:underline">IAM CONSOLE</a>
+                    <span>/</span>
+                    <span class="text-gray-400">AUTHENTICATION CENTRE</span>
+                </div>
+                <h1 class="text-3xl font-bold tracking-tight text-white font-mono flex items-center gap-3">
+                    <svg class="w-8 h-8 text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"></path></svg>
+                    Authentication Centre
+                </h1>
+                <p class="text-sm text-gray-400 mt-1 max-w-2xl">
+                    Central authority for enterprise authentication security. Controls and monitors Workspace employee logins and IAM administrator sign-ins across two strictly isolated security domains.
+                </p>
+            </div>
+            <div class="flex items-center space-x-4">
+                <div class="bg-gray-900 border border-gray-800 rounded-xl px-4 py-2.5 flex items-center space-x-3">
+                    <span class="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse"></span>
+                    <div class="text-xs font-mono">
+                        <div class="text-gray-400">Security Health</div>
+                        <div class="font-semibold text-emerald-400">{{ healthy_deps }}/{{ total_deps }} Dependencies Operational</div>
+                    </div>
+                </div>
+                <div class="bg-gray-900 border border-gray-800 rounded-xl px-4 py-2.5 text-xs font-mono">
+                    <div class="text-gray-400">Authenticated Admin</div>
+                    <div class="text-cyan-400 font-semibold">{{ iam_admin.admin_id }} ({{ iam_admin.role }})</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Flash Messages -->
+        {% if messages %}
+        <div class="space-y-2">
+            {% for message in messages %}
+            <div class="p-4 rounded-xl border text-sm font-medium {% if message.tags == 'error' %}bg-rose-950/60 border-rose-800 text-rose-300{% elif message.tags == 'success' %}bg-emerald-950/60 border-emerald-800 text-emerald-300{% else %}bg-gray-900 border-gray-700 text-gray-200{% endif %}">
+                {{ message }}
+            </div>
+            {% endfor %}
+        </div>
+        {% endif %}
+
+        <!-- THE TWO MANDATORY SUB-OPTIONS (Contract Section 3) -->
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
+
+            <!-- Sub-Option 1: Authentication Control (Workspace Employee Domain) -->
+            <div class="bg-[#111827] border border-gray-800 hover:border-cyan-500/50 rounded-2xl p-7 flex flex-col justify-between transition-all shadow-xl hover:shadow-cyan-500/10 relative overflow-hidden group">
+                <div class="absolute -top-20 -right-20 w-44 h-44 bg-cyan-500/10 rounded-full blur-2xl group-hover:bg-cyan-500/20 transition-all"></div>
+                <div class="space-y-5">
+                    <div class="flex items-center justify-between">
+                        <span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold bg-cyan-950 text-cyan-400 border border-cyan-800/60 font-mono">
+                            Sub-Option 1 · Employee Security Domain
+                        </span>
+                        <span class="text-xs text-gray-500 font-mono">Host: app.salowtech.com</span>
+                    </div>
+                    <div>
+                        <h2 class="text-2xl font-bold text-white font-mono group-hover:text-cyan-400 transition-colors">
+                            Authentication Control
+                        </h2>
+                        <p class="text-sm text-gray-400 mt-2 leading-relaxed">
+                            Controls and monitors Workspace employee Login & Sign-In transactions. Governs employee identity references, Workspace authentication policy (12-char min), MFA/TOTP, approved devices, login risk decisions, and active employee sessions.
+                        </p>
+                    </div>
+
+                    <!-- Domain Snapshot Metrics -->
+                    <div class="grid grid-cols-3 gap-3 pt-2">
+                        <div class="bg-gray-900/90 border border-gray-800 rounded-xl p-3">
+                            <div class="text-[11px] font-mono text-gray-400 uppercase">24h Attempts</div>
+                            <div class="text-xl font-bold font-mono text-white mt-1">{{ ws_metrics.total_attempts }}</div>
+                        </div>
+                        <div class="bg-gray-900/90 border border-gray-800 rounded-xl p-3">
+                            <div class="text-[11px] font-mono text-gray-400 uppercase">Success Rate</div>
+                            <div class="text-xl font-bold font-mono text-emerald-400 mt-1">{{ ws_metrics.success_rate }}%</div>
+                        </div>
+                        <div class="bg-gray-900/90 border border-gray-800 rounded-xl p-3">
+                            <div class="text-[11px] font-mono text-gray-400 uppercase">Challenges</div>
+                            <div class="text-xl font-bold font-mono text-amber-400 mt-1">{{ ws_metrics.challenged_count }}</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="pt-8">
+                    <a href="{% url 'iam:auth_control' %}"
+                        class="w-full flex items-center justify-center py-3.5 px-4 rounded-xl text-sm font-semibold text-white bg-gradient-to-r from-cyan-600 to-indigo-600 hover:from-cyan-500 hover:to-indigo-500 border border-cyan-500/40 shadow-lg shadow-cyan-500/20 transition-all font-mono">
+                        Open Authentication Control Dashboard &rarr;
+                    </a>
+                </div>
+            </div>
+
+            <!-- Sub-Option 2: IAM Authentication (Administrator Domain) -->
+            <div class="bg-[#111827] border border-gray-800 hover:border-indigo-500/50 rounded-2xl p-7 flex flex-col justify-between transition-all shadow-xl hover:shadow-indigo-500/10 relative overflow-hidden group">
+                <div class="absolute -top-20 -right-20 w-44 h-44 bg-indigo-500/10 rounded-full blur-2xl group-hover:bg-indigo-500/20 transition-all"></div>
+                <div class="space-y-5">
+                    <div class="flex items-center justify-between">
+                        <span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold bg-indigo-950 text-indigo-400 border border-indigo-800/60 font-mono">
+                            Sub-Option 2 · Administrative Security Domain
+                        </span>
+                        <span class="text-xs text-gray-500 font-mono">Host: iam.salowtech.com</span>
+                    </div>
+                    <div>
+                        <h2 class="text-2xl font-bold text-white font-mono group-hover:text-indigo-400 transition-colors">
+                            IAM Authentication
+                        </h2>
+                        <p class="text-sm text-gray-400 mt-2 leading-relaxed">
+                            Monitors and investigates dedicated IAM administrator sign-ins. Governs privileged administrator eligibility, IAM password policy (16-char min), Level 1/2/3 assurance, 5-second presence tracking, and dual-control IAM recovery cases.
+                        </p>
+                    </div>
+
+                    <!-- Domain Snapshot Metrics -->
+                    <div class="grid grid-cols-3 gap-3 pt-2">
+                        <div class="bg-gray-900/90 border border-gray-800 rounded-xl p-3">
+                            <div class="text-[11px] font-mono text-gray-400 uppercase">24h Admin Logins</div>
+                            <div class="text-xl font-bold font-mono text-white mt-1">{{ iam_metrics.total_attempts }}</div>
+                        </div>
+                        <div class="bg-gray-900/90 border border-gray-800 rounded-xl p-3">
+                            <div class="text-[11px] font-mono text-gray-400 uppercase">Assurance Floor</div>
+                            <div class="text-xl font-bold font-mono text-cyan-400 mt-1">Level 1</div>
+                        </div>
+                        <div class="bg-gray-900/90 border border-gray-800 rounded-xl p-3">
+                            <div class="text-[11px] font-mono text-gray-400 uppercase">Min Password</div>
+                            <div class="text-xl font-bold font-mono text-indigo-400 mt-1">16 Chars</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="pt-8">
+                    <a href="{% url 'iam:auth_iam' %}"
+                        class="w-full flex items-center justify-center py-3.5 px-4 rounded-xl text-sm font-semibold text-white bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 border border-indigo-500/40 shadow-lg shadow-indigo-500/20 transition-all font-mono">
+                        Open IAM Authentication Dashboard &rarr;
+                    </a>
+                </div>
+            </div>
+        </div>
+
+        <!-- Quick Access Control Bar -->
+        <div class="bg-gray-900/80 border border-gray-800 rounded-2xl p-6 flex flex-col md:flex-row items-center justify-between gap-4">
+            <div class="flex items-center space-x-3">
+                <svg class="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"></path></svg>
+                <div class="text-xs text-gray-300 font-mono">
+                    <span class="text-cyan-400 font-semibold">Security Domain Boundary:</span>
+                    Sessions are strictly isolated. An IAM session cannot authenticate Workspace applications, and Workspace credentials cannot authenticate the IAM console.
+                </div>
+            </div>
+            <div class="flex items-center space-x-3 font-mono text-xs">
+                <a href="{% url 'iam:sessions' %}" class="px-3 py-2 bg-gray-800 hover:bg-gray-700 text-gray-200 rounded-lg border border-gray-700 transition-colors">
+                    Active Sessions ({{ ws_metrics.active_in_progress }})
+                </a>
+                <a href="{% url 'iam:recovery_portal' %}" class="px-3 py-2 bg-gray-800 hover:bg-gray-700 text-gray-200 rounded-lg border border-gray-700 transition-colors">
+                    IAM Recovery Portal
+                </a>
+            </div>
+        </div>
+
+    </div>
+</div>
+{% endblock %}

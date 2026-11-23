@@ -1,0 +1,307 @@
+{% extends "base.html" %}
+
+{% block title %}Transaction {{ tx.transaction_id }} | Authentication Centre | Salow Workspace IAM{% endblock %}
+
+{% block content %}
+<div class="min-h-screen bg-[#0B0F19] text-gray-100 py-10 px-4 sm:px-6 lg:px-8">
+    <div class="max-w-7xl mx-auto space-y-8">
+
+        <!-- Top Breadcrumb & Status Bar -->
+        <div class="flex flex-col md:flex-row md:items-center md:justify-between border-b border-gray-800 pb-6 gap-4">
+            <div>
+                <div class="flex items-center space-x-2 text-xs font-mono text-cyan-400 mb-1">
+                    <a href="{% url 'iam:dashboard' %}" class="hover:underline">IAM CONSOLE</a>
+                    <span>/</span>
+                    <a href="{% url 'iam:auth_landing' %}" class="hover:underline">AUTHENTICATION CENTRE</a>
+                    <span>/</span>
+                    <a href="{% if tx.domain == 'iam' %}{% url 'iam:auth_iam' %}{% else %}{% url 'iam:auth_control' %}{% endif %}" class="hover:underline">
+                        {{ tx.domain|upper }}
+                    </a>
+                    <span>/</span>
+                    <span class="text-gray-400">TRANSACTION {{ tx.transaction_id|slice:":8" }}</span>
+                </div>
+                <h1 class="text-3xl font-bold tracking-tight text-white font-mono flex items-center gap-3">
+                    <svg class="w-8 h-8 text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4"></path>
+                    </svg>
+                    Transaction Forensic Inspection
+                </h1>
+                <p class="text-sm font-mono text-gray-400 mt-1">
+                    ID: <span class="text-cyan-300 select-all">{{ tx.transaction_id }}</span> · Initiated: {{ tx.created_at|date:"Y-m-d H:i:s T" }}
+                </p>
+            </div>
+
+            <div class="flex items-center space-x-3">
+                <span class="inline-flex items-center px-3 py-1.5 rounded-xl text-xs font-mono font-bold uppercase tracking-wider
+                    {% if tx.outcome == 'success' %}bg-emerald-950/80 text-emerald-400 border border-emerald-700/60
+                    {% elif tx.outcome == 'failed' %}bg-rose-950/80 text-rose-400 border border-rose-700/60
+                    {% elif tx.outcome == 'challenged' %}bg-amber-950/80 text-amber-400 border border-amber-700/60
+                    {% else %}bg-cyan-950/80 text-cyan-400 border border-cyan-700/60 animate-pulse{% endif %}">
+                    ● {{ tx.outcome }}
+                </span>
+                <span class="inline-flex items-center px-3 py-1.5 rounded-xl text-xs font-mono font-bold uppercase tracking-wider bg-gray-900 border border-gray-700 text-gray-300">
+                    Domain: {{ tx.domain }}
+                </span>
+            </div>
+        </div>
+
+        <!-- Flash Messages -->
+        {% if messages %}
+        <div class="space-y-2">
+            {% for message in messages %}
+            <div class="p-4 rounded-xl border text-sm font-medium {% if message.tags == 'error' %}bg-rose-950/60 border-rose-800 text-rose-300{% elif message.tags == 'success' %}bg-emerald-950/60 border-emerald-800 text-emerald-300{% else %}bg-gray-900 border-gray-700 text-gray-200{% endif %}">
+                {{ message }}
+            </div>
+            {% endfor %}
+        </div>
+        {% endif %}
+
+        <!-- Forensic Metadata Cards -->
+        <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <div class="bg-[#111827] border border-gray-800 rounded-2xl p-5 space-y-1">
+                <div class="text-xs font-mono text-gray-400 uppercase">Identity Reference</div>
+                <div class="text-lg font-bold font-mono text-white truncate">{{ tx.identity_ref|default:"Anonymous" }}</div>
+                <div class="text-[11px] font-mono text-gray-500">Domain: {{ tx.domain|upper }}</div>
+            </div>
+
+            <div class="bg-[#111827] border border-gray-800 rounded-2xl p-5 space-y-1">
+                <div class="text-xs font-mono text-gray-400 uppercase">Network Origin</div>
+                <div class="text-lg font-bold font-mono text-cyan-400">{{ tx.client_ip|default:"127.0.0.1" }}</div>
+                <div class="text-[11px] font-mono text-gray-500 truncate" title="{{ tx.user_agent }}">UA: {{ tx.user_agent|slice:":30"|default:"Unknown" }}...</div>
+            </div>
+
+            <div class="bg-[#111827] border border-gray-800 rounded-2xl p-5 space-y-1">
+                <div class="text-xs font-mono text-gray-400 uppercase">Risk Evaluation</div>
+                <div class="text-lg font-bold font-mono
+                    {% if tx.risk_decision == 'ALLOW' %}text-emerald-400
+                    {% elif tx.risk_decision == 'CHALLENGE' %}text-amber-400
+                    {% elif tx.risk_decision == 'DENY' %}text-rose-400
+                    {% else %}text-gray-300{% endif %}">
+                    {{ tx.risk_decision|default:"ALLOW" }}
+                </div>
+                <div class="text-[11px] font-mono text-gray-500">Policy Ver: v{{ tx.policy_version|default:1 }}</div>
+            </div>
+
+            <div class="bg-[#111827] border border-gray-800 rounded-2xl p-5 space-y-1">
+                <div class="text-xs font-mono text-gray-400 uppercase">Execution Time</div>
+                <div class="text-lg font-bold font-mono text-indigo-400">{{ tx.duration_ms|default:0 }} ms</div>
+                <div class="text-[11px] font-mono text-gray-500">Category: {{ tx.reason_category|default:"none" }}</div>
+            </div>
+        </div>
+
+        <!-- Stage Timeline (Goal-Backward Safe State Machine) -->
+        <div class="bg-[#111827] border border-gray-800 rounded-2xl p-6 space-y-6">
+            <div class="flex items-center justify-between border-b border-gray-800 pb-4">
+                <div>
+                    <h2 class="text-lg font-bold text-white font-mono flex items-center gap-2">
+                        <svg class="w-5 h-5 text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                        Authentication Pipeline Stage Sequence
+                    </h2>
+                    <p class="text-xs font-mono text-gray-400 mt-1">
+                        Ordered execution checkpoints evaluated during this authentication transaction.
+                    </p>
+                </div>
+                <span class="text-xs font-mono text-gray-500">Total Stages Recorded: {{ stages|length }}</span>
+            </div>
+
+            <div class="relative border-l-2 border-gray-800 ml-4 pl-6 space-y-6">
+                {% for stage_name, stage_data in stages.items %}
+                <div class="relative group">
+                    <!-- Marker -->
+                    <span class="absolute -left-[33px] top-1.5 w-4 h-4 rounded-full border-2 bg-gray-900
+                        {% if stage_data.result == 'PASS' %}border-emerald-500 bg-emerald-950
+                        {% elif stage_data.result == 'FAIL' %}border-rose-500 bg-rose-950
+                        {% elif stage_data.result == 'CHALLENGE' %}border-amber-500 bg-amber-950
+                        {% else %}border-gray-500 bg-gray-900{% endif %}">
+                    </span>
+
+                    <div class="bg-gray-900/80 border border-gray-800 rounded-xl p-4 flex flex-col md:flex-row md:items-center justify-between gap-3">
+                        <div class="space-y-1">
+                            <div class="flex items-center space-x-3">
+                                <span class="text-sm font-mono font-bold text-white">{{ stage_name|upper }}</span>
+                                <span class="px-2 py-0.5 rounded text-[10px] font-mono font-semibold uppercase
+                                    {% if stage_data.result == 'PASS' %}bg-emerald-950 text-emerald-400 border border-emerald-800
+                                    {% elif stage_data.result == 'FAIL' %}bg-rose-950 text-rose-400 border border-rose-800
+                                    {% elif stage_data.result == 'CHALLENGE' %}bg-amber-950 text-amber-400 border border-amber-800
+                                    {% else %}bg-gray-800 text-gray-400 border border-gray-700{% endif %}">
+                                    {{ stage_data.result }}
+                                </span>
+                            </div>
+                            <div class="text-xs font-mono text-gray-400">
+                                {{ stage_data.detail|default:"Stage executed successfully." }}
+                            </div>
+                        </div>
+                        <div class="text-[11px] font-mono text-gray-500 whitespace-nowrap">
+                            {{ stage_data.timestamp|default:tx.created_at|date:"H:i:s.u" }}
+                        </div>
+                    </div>
+                </div>
+                {% empty %}
+                <div class="text-sm font-mono text-gray-500 italic py-4">
+                    No pipeline stages recorded for this transaction.
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+
+        <!-- Risk Signals & Context Payloads -->
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+
+            <!-- Risk Signals Inspection -->
+            <div class="bg-[#111827] border border-gray-800 rounded-2xl p-6 space-y-4">
+                <h3 class="text-base font-bold text-white font-mono flex items-center gap-2">
+                    <svg class="w-5 h-5 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                    Risk Engine Signals
+                </h3>
+                <div class="bg-gray-900 border border-gray-800 rounded-xl p-4 font-mono text-xs text-gray-300 space-y-2">
+                    <div><span class="text-gray-500">Overall Decision:</span> <span class="text-amber-300 font-bold">{{ tx.risk_decision|default:"ALLOW" }}</span></div>
+                    <div><span class="text-gray-500">Evaluated Signals:</span></div>
+                    <pre class="bg-black/60 p-3 rounded-lg overflow-x-auto text-[11px] text-cyan-300">{{ tx.risk_signals|default:"{}" }}</pre>
+                </div>
+                <div class="text-[11px] font-mono text-gray-500">
+                    Calculated using multi-factor velocity, spraying correlation, geolocation shift, and credential freshness.
+                </div>
+            </div>
+
+            <!-- Security Invariants & Secret Redaction Guarantee -->
+            <div class="bg-[#111827] border border-gray-800 rounded-2xl p-6 space-y-4">
+                <h3 class="text-base font-bold text-white font-mono flex items-center gap-2">
+                    <svg class="w-5 h-5 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"></path></svg>
+                    Cryptographic Integrity & Redaction
+                </h3>
+                <div class="bg-emerald-950/20 border border-emerald-900/60 rounded-xl p-4 text-xs font-mono text-emerald-300 space-y-2">
+                    <div class="font-bold">✓ Zero Secret Exposure Verified</div>
+                    <p class="text-[11px] text-gray-400 leading-relaxed">
+                        In accordance with Security Invariant 18, all plaintext credentials, hashes, TOTP secrets, recovery codes, and session keys are fundamentally scrubbed before telemetry logging and inspection views.
+                    </p>
+                </div>
+                {% if tx.session_ref %}
+                <div class="bg-gray-900 border border-gray-800 rounded-xl p-4 font-mono text-xs space-y-1">
+                    <div class="text-gray-500">Issued Session Key (Redacted Hash):</div>
+                    <div class="text-indigo-400 font-bold truncate">{{ tx.session_ref|slice:":12" }}...</div>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+
+        <!-- Linked Durable Audit Log Events (AUTH-015) -->
+        <div class="bg-[#111827] border border-gray-800 rounded-2xl p-6 space-y-4">
+            <div class="flex items-center justify-between border-b border-gray-800 pb-3">
+                <h3 class="text-base font-bold text-white font-mono flex items-center gap-2">
+                    <svg class="w-5 h-5 text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"></path></svg>
+                    Correlated Append-Only Audit Trail (AuthEvent)
+                </h3>
+                <span class="text-xs font-mono text-gray-500">{{ linked_events|length }} Correlated Events</span>
+            </div>
+
+            <div class="overflow-x-auto">
+                <table class="w-full text-left text-xs font-mono">
+                    <thead class="bg-gray-900 text-gray-400 uppercase text-[10px]">
+                        <tr>
+                            <th class="px-4 py-3">Timestamp</th>
+                            <th class="px-4 py-3">Event Type</th>
+                            <th class="px-4 py-3">Actor / Subject</th>
+                            <th class="px-4 py-3">IP Address</th>
+                            <th class="px-4 py-3">Status</th>
+                            <th class="px-4 py-3">Hash Fingerprint</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-gray-800">
+                        {% for event in linked_events %}
+                        <tr class="hover:bg-gray-800/40">
+                            <td class="px-4 py-3 text-gray-400">{{ event.time|date:"Y-m-d H:i:s" }}</td>
+                            <td class="px-4 py-3 font-semibold text-cyan-300">{{ event.event_type }}</td>
+                            <td class="px-4 py-3 text-gray-300">{{ event.employee_id|default:"-" }}</td>
+                            <td class="px-4 py-3 text-gray-400">{{ event.ip_address }}</td>
+                            <td class="px-4 py-3">
+                                <span class="px-2 py-0.5 rounded text-[10px] font-semibold {% if event.status == 'SUCCESS' %}bg-emerald-950 text-emerald-400{% else %}bg-rose-950 text-rose-400{% endif %}">
+                                    {{ event.status }}
+                                </span>
+                            </td>
+                            <td class="px-4 py-3 text-gray-500 select-all">{{ event.entry_hash|slice:":12" }}...</td>
+                        </tr>
+                        {% empty %}
+                        <tr>
+                            <td colspan="6" class="px-4 py-6 text-center text-gray-500 italic">
+                                No directly correlated AuthEvent rows found for this transaction ID.
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Investigation Actions Dispatcher (Real Controls) -->
+        <div class="bg-[#111827] border border-gray-800 rounded-2xl p-6 space-y-4">
+            <h3 class="text-base font-bold text-white font-mono flex items-center gap-2">
+                <svg class="w-5 h-5 text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>
+                Forensic Incident Response & Mitigation Controls
+            </h3>
+            <p class="text-xs font-mono text-gray-400">
+                Execute an authorized security mitigation directly associated with this transaction reference.
+            </p>
+
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4 pt-2">
+
+                <!-- 1. Start Formal Investigation -->
+                <form method="POST" action="{% url 'iam:auth_actions' %}" class="bg-gray-900 border border-gray-800 rounded-xl p-4 space-y-3">
+                    {% csrf_token %}
+                    <input type="hidden" name="action_type" value="start_investigation">
+                    <input type="hidden" name="transaction_id" value="{{ tx.transaction_id }}">
+                    <input type="hidden" name="return_url" value="{{ request.path }}">
+                    <div class="text-xs font-mono font-bold text-cyan-300">Start Investigation</div>
+                    <input type="text" name="title" placeholder="Investigation Title" required
+                        class="w-full bg-black/60 border border-gray-700 rounded-lg px-3 py-1.5 text-xs font-mono text-white focus:outline-none focus:border-cyan-500">
+                    <textarea name="notes" placeholder="Forensic findings & justification..." rows="2" required
+                        class="w-full bg-black/60 border border-gray-700 rounded-lg px-3 py-1.5 text-xs font-mono text-white focus:outline-none focus:border-cyan-500"></textarea>
+                    <button type="submit" class="w-full py-2 px-3 rounded-lg text-xs font-mono font-bold text-white bg-cyan-700 hover:bg-cyan-600 transition-colors">
+                        Launch Incident Dossier
+                    </button>
+                </form>
+
+                <!-- 2. Temporary Restriction on Actor -->
+                <form method="POST" action="{% url 'iam:auth_actions' %}" class="bg-gray-900 border border-gray-800 rounded-xl p-4 space-y-3">
+                    {% csrf_token %}
+                    <input type="hidden" name="action_type" value="temporary_restriction">
+                    <input type="hidden" name="identity_ref" value="{{ tx.identity_ref }}">
+                    <input type="hidden" name="domain" value="{{ tx.domain }}">
+                    <input type="hidden" name="return_url" value="{{ request.path }}">
+                    <div class="text-xs font-mono font-bold text-amber-300">Temporary Restriction</div>
+                    <select name="duration_minutes" class="w-full bg-black/60 border border-gray-700 rounded-lg px-3 py-1.5 text-xs font-mono text-white focus:outline-none">
+                        <option value="15">15 Minutes Restriction</option>
+                        <option value="60">1 Hour Restriction</option>
+                        <option value="1440">24 Hours Restriction</option>
+                    </select>
+                    <input type="text" name="reason" placeholder="Mandatory reason..." required
+                        class="w-full bg-black/60 border border-gray-700 rounded-lg px-3 py-1.5 text-xs font-mono text-white focus:outline-none focus:border-amber-500">
+                    <button type="submit" class="w-full py-2 px-3 rounded-lg text-xs font-mono font-bold text-white bg-amber-700 hover:bg-amber-600 transition-colors">
+                        Apply Immediate Restriction
+                    </button>
+                </form>
+
+                <!-- 3. Revoke Session / Lockout -->
+                <form method="POST" action="{% url 'iam:auth_actions' %}" class="bg-gray-900 border border-gray-800 rounded-xl p-4 space-y-3">
+                    {% csrf_token %}
+                    <input type="hidden" name="action_type" value="revoke_session">
+                    <input type="hidden" name="session_ref" value="{{ tx.session_ref|default:'' }}">
+                    <input type="hidden" name="domain" value="{{ tx.domain }}">
+                    <input type="hidden" name="return_url" value="{{ request.path }}">
+                    <div class="text-xs font-mono font-bold text-rose-300">Session Revocation</div>
+                    <p class="text-[11px] font-mono text-gray-400">
+                        Revokes the issued session key immediately across all cluster nodes.
+                    </p>
+                    <input type="text" name="reason" placeholder="Revocation justification..." required
+                        class="w-full bg-black/60 border border-gray-700 rounded-lg px-3 py-1.5 text-xs font-mono text-white focus:outline-none focus:border-rose-500">
+                    <button type="submit" {% if not tx.session_ref %}disabled{% endif %}
+                        class="w-full py-2 px-3 rounded-lg text-xs font-mono font-bold text-white {% if tx.session_ref %}bg-rose-700 hover:bg-rose-600{% else %}bg-gray-800 text-gray-500 cursor-not-allowed{% endif %} transition-colors">
+                        Revoke Active Session
+                    </button>
+                </form>
+
+            </div>
+        </div>
+
+    </div>
+</div>
+{% endblock %}

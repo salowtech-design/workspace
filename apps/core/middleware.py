@@ -207,12 +207,14 @@ class RateLimitMiddleware:
             from datetime import timedelta
             from django.db import transaction
             from django.utils import timezone
-            from apps.core.models import RateLimitBucket
+            from apps.core.models import RateLimitBucket, RateLimitRecord
 
             now_dt = timezone.now()
+            now_ts = now_dt.timestamp()
             window_delta = timedelta(seconds=self.WINDOW_SECONDS)
 
             for k in keys_to_check:
+                RateLimitRecord.objects.create(key=k, timestamp=now_ts)
                 with transaction.atomic():
                     bucket = (
                         RateLimitBucket.objects.select_for_update()

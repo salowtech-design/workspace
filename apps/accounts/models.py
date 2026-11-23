@@ -974,3 +974,203 @@ class IAMDualApprovalRequest(models.Model):
     def __str__(self):
         return f"DualApproval {self.request_id} [{self.action} on {self.target_id}] ({self.status})"
 
+
+class AuthenticationTransaction(models.Model):
+    """
+    Server-owned Authentication Transaction Record (Sequence 1 Contract Section 4 & 5).
+    Tracks end-to-end authentication attempt stages, outcomes, policy version, and risk decisions.
+    """
+
+    class Domain(models.TextChoices):
+        WORKSPACE = "workspace", "Workspace"
+        IAM = "iam", "IAM"
+
+    class Outcome(models.TextChoices):
+        PENDING = "pending", "Pending"
+        SUCCESS = "success", "Success"
+        FAILED = "failed", "Failed"
+        CHALLENGED = "challenged", "Challenged"
+        DENIED = "denied", "Denied"
+
+    transaction_id = models.CharField(max_length=64, unique=True, db_index=True)
+    correlation_id = models.CharField(max_length=64, db_index=True)
+    domain = models.CharField(max_length=20, choices=Domain.choices, db_index=True)
+    stage = models.CharField(max_length=32, db_index=True, default="started")
+    outcome = models.CharField(
+        max_length=20, choices=Outcome.choices, default=Outcome.PENDING, db_index=True
+    )
+    identity_ref = models.CharField(max_length=64, blank=True, default="", db_index=True)
+    flow_id = models.CharField(max_length=64, blank=True, default="")
+    reason_category = models.CharField(max_length=64, blank=True, default="")
+    policy_version = models.PositiveIntegerField(default=1)
+    device_ref = models.CharField(max_length=64, blank=True, default="")
+    risk_decision = models.CharField(max_length=20, default="allow")
+    risk_signals = models.JSONField(default=list, blank=True)
+    session_ref = models.CharField(max_length=64, blank=True, default="")
+    hasher_algorithm = models.CharField(max_length=32, default="Argon2id")
+    stages = models.JSONField(default=list, blank=True)
+    duration_ms = models.FloatField(default=0.0)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "Authentication Transaction"
+        verbose_name_plural = "Authentication Transactions"
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"[{self.domain.upper()}] {self.transaction_id[:8]} - {self.identity_ref or 'Anon'} [{self.outcome}]"
+
+
+class IAMAdminPresence(models.Model):
+    """
+    IAM Administrator Presence & Heartbeat State (Sequence 1 Contract Section 16).
+    Authenticated IAM pages send heartbeat every 5s; marked stale after > 15s.
+    """
+
+    admin_identity = models.ForeignKey(
+        IAMAdminIdentity, on_delete=models.CASCADE, related_name="presences"
+    )
+    session_key = models.CharField(max_length=64, db_index=True)
+    page_key = models.CharField(max_length=128, default="console")
+    action_category = models.CharField(max_length=64, default="navigation")
+    device_label = models.CharField(max_length=128, blank=True, default="")
+    last_heartbeat = models.DateTimeField(db_index=True)
+    last_action = models.CharField(max_length=128, blank=True, default="")
+    last_outcome = models.CharField(max_length=64, blank=True, default="")
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "IAM Admin Presence"
+        verbose_name_plural = "IAM Admin Presences"
+        ordering = ["-last_heartbeat"]
+
+    def __str__(self):
+        return f"{self.admin_identity.admin_id} on {self.page_key} ({self.presence_status})"
+
+    @property
+    def presence_status(self) -> str:
+        from django.utils import timezone
+
+        if not self.admin_identity.is_active or self.admin_identity.status != IAMAdminIdentity.Status.ACTIVE:
+            return "REVOKED"
+        session = IAMSession.objects.filter(session_key=self.session_key).first()
+        if not session or not session.is_active:
+            return "REVOKED"
+        if timezone.now() >= session.expires_at:
+            return "EXPIRED"
+        age_seconds = (timezone.now() - self.last_heartbeat).total_seconds()
+        if age_seconds <= 15:
+            return "ACTIVE"
+        return "STALE"
+
+
+class AuthenticationPolicy(models.Model):
+    """
+    Versioned, typed authentication policy store (Sequence 1 Contract Section 4 & 7).
+    Maintains independent configurations and audit trails for Workspace and IAM domains.
+    """
+
+    class Domain(models.TextChoices):
+        WORKSPACE = "workspace", "Workspace"
+        IAM = "iam", "IAM"
+
+    domain = models.CharField(max_length=20, choices=Domain.choices, db_index=True)
+    version = models.PositiveIntegerField(default=1)
+    password_min_length = models.PositiveIntegerField(default=12)
+    failed_login_threshold = models.PositiveIntegerField(default=5)
+    lockout_window_minutes = models.PositiveIntegerField(default=15)
+    lockout_duration_minutes = models.PositiveIntegerField(default=15)
+    idle_session_timeout_minutes = models.PositiveIntegerField(default=15)
+    absolute_session_timeout_hours = models.PositiveIntegerField(default=12)
+    mfa_required = models.BooleanField(default=True)
+    device_approval_required = models.BooleanField(default=True)
+    is_active = models.BooleanField(default=True)
+    updated_by = models.ForeignKey(
+        CustomUser,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="updated_auth_policies",
+    )
+    justification = models.TextField(blank=True, default="")
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        verbose_name = "Authentication Policy"
+        verbose_name_plural = "Authentication Policies"
+        ordering = ["domain", "-version"]
+
+    def __str__(self):
+        return f"Policy {self.domain.upper()} v{self.version} (Active={self.is_active})"
+
+
+class IAMRecoveryCase(models.Model):
+    """
+    Dedicated IAM Account Recovery Case (Sequence 1 Contract Section 6.3).
+    Independent from Workspace recovery; requires identity proofing and dual-control approval.
+    """
+
+    class Status(models.TextChoices):
+        PENDING = "pending", "Pending"
+        UNDER_REVIEW = "under_review", "Under Review"
+        APPROVED = "approved", "Approved"
+        REJECTED = "rejected", "Rejected"
+        COMPLETED = "completed", "Completed"
+        EXPIRED = "expired", "Expired"
+
+    class ApprovalState(models.TextChoices):
+        PENDING = "pending", "Pending"
+        FIRST_APPROVED = "first_approved", "First Approved"
+        DUAL_APPROVED = "dual_approved", "Dual Approved"
+        REJECTED = "rejected", "Rejected"
+
+    case_id = models.CharField(max_length=64, unique=True, db_index=True)
+    admin_identity = models.ForeignKey(
+        IAMAdminIdentity,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="recovery_cases",
+    )
+    requester_identity_ref = models.CharField(max_length=64, db_index=True)
+    requester_note = models.TextField(blank=True, default="")
+    status = models.CharField(
+        max_length=20, choices=Status.choices, default=Status.PENDING, db_index=True
+    )
+    approval_state = models.CharField(
+        max_length=20, choices=ApprovalState.choices, default=ApprovalState.PENDING
+    )
+    first_approver = models.ForeignKey(
+        IAMAdminIdentity,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="first_approved_recovery_cases",
+    )
+    first_approved_at = models.DateTimeField(null=True, blank=True)
+    second_approver = models.ForeignKey(
+        IAMAdminIdentity,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="second_approved_recovery_cases",
+    )
+    second_approved_at = models.DateTimeField(null=True, blank=True)
+    rejection_reason = models.TextField(blank=True, default="")
+    one_time_reset_token = models.CharField(max_length=64, blank=True, default="")
+    token_expires_at = models.DateTimeField(null=True, blank=True)
+    consumed_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "IAM Recovery Case"
+        verbose_name_plural = "IAM Recovery Cases"
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"IAM Recovery Case {self.case_id} for {self.requester_identity_ref} ({self.status})"
+
+

@@ -1,0 +1,87 @@
+{% extends "base.html" %}
+
+{% block title %}IAM Account Recovery Portal | Salow Workspace{% endblock %}
+
+{% block content %}
+<div class="min-h-screen flex items-center justify-center py-12 px-4 sm:px-6 lg:px-8 bg-[#0B0F19]">
+    <div class="max-w-md w-full space-y-8 bg-[#111827] p-8 rounded-2xl border border-gray-800 shadow-2xl relative overflow-hidden">
+        <div class="absolute -top-24 -right-24 w-48 h-48 bg-amber-500/10 rounded-full blur-3xl pointer-events-none"></div>
+
+        <div>
+            <div class="flex items-center justify-between mb-4">
+                <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-950 text-amber-400 border border-amber-800/60 font-mono">
+                    Privileged Recovery Domain
+                </span>
+                <span class="text-xs text-gray-500 font-mono">Dual-Control</span>
+            </div>
+            <h2 class="text-2xl font-bold tracking-tight text-white font-mono">
+                IAM Account Recovery Portal
+            </h2>
+            <p class="mt-2 text-sm text-gray-400">
+                Independent recovery for IAM administrators. Workspace recovery codes and employee credentials are not accepted.
+            </p>
+        </div>
+
+        {% if submitted %}
+        <div class="rounded-xl bg-emerald-950/60 border border-emerald-800/80 p-5 text-sm text-emerald-200 space-y-3">
+            <div class="flex items-center space-x-2 font-semibold text-emerald-300">
+                <svg class="w-5 h-5 text-emerald-400" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"></path></svg>
+                <span>Recovery Request Registered</span>
+            </div>
+            <p class="text-xs leading-relaxed text-emerald-300/90">
+                If the specified administrator identity exists and is eligible, a protected recovery case has been initiated. Per Section 6.3, privileged recovery requires independent identity proofing and two-person authorization.
+            </p>
+            {% if case_ref %}
+            <div class="pt-2 border-t border-emerald-800/60 font-mono text-xs text-emerald-400">
+                Case Tracking Token: <span class="font-bold underline">{{ case_ref }}</span>
+            </div>
+            {% endif %}
+            <div class="pt-3">
+                <a href="{% url 'iam_sign_in_canonical' %}" class="inline-flex items-center text-xs font-semibold text-cyan-400 hover:text-cyan-300">
+                    &larr; Return to IAM Sign-In
+                </a>
+            </div>
+        </div>
+        {% else %}
+        <form class="mt-6 space-y-5" method="POST" action="{% url 'iam_recovery_portal' %}">
+            {% csrf_token %}
+            <div>
+                <label for="identity_ref" class="block text-xs font-medium text-gray-300 uppercase tracking-wider font-mono">IAM Administrator ID</label>
+                <div class="mt-1">
+                    <input id="identity_ref" name="identity_ref" type="text" required
+                        class="appearance-none block w-full px-3 py-2.5 bg-gray-900 border border-gray-700 rounded-lg text-gray-100 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent font-mono text-sm uppercase"
+                        placeholder="e.g. IAM-SUPER-01">
+                </div>
+            </div>
+
+            <div>
+                <label for="note" class="block text-xs font-medium text-gray-300 uppercase tracking-wider font-mono">Reason / Recovery Context</label>
+                <div class="mt-1">
+                    <textarea id="note" name="note" rows="3" required
+                        class="appearance-none block w-full px-3 py-2 bg-gray-900 border border-gray-700 rounded-lg text-gray-100 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent text-sm"
+                        placeholder="State reason for recovery request (e.g. hardware token lost or credential expiration)..."></textarea>
+                </div>
+            </div>
+
+            <div class="p-3 bg-gray-900/80 rounded-lg border border-gray-800 text-xs text-gray-400 leading-relaxed">
+                <span class="text-amber-400 font-semibold">Security Governance:</span>
+                Privileged IAM recovery enforces separation of duties. Self-approval is strictly forbidden. An independent authorized reviewer must verify identity proofing before any reset token is issued.
+            </div>
+
+            <div>
+                <button type="submit"
+                    class="w-full flex justify-center py-2.5 px-4 border border-amber-500/40 rounded-lg text-sm font-semibold text-white bg-gradient-to-r from-amber-600 to-indigo-600 hover:from-amber-500 hover:to-indigo-500 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-amber-500 focus:ring-offset-gray-900 shadow-lg shadow-amber-500/20 transition-all font-mono">
+                    Initiate IAM Recovery Case
+                </button>
+            </div>
+
+            <div class="text-center pt-2">
+                <a href="{% url 'iam_sign_in_canonical' %}" class="text-xs text-gray-400 hover:text-gray-300 transition-colors font-mono">
+                    &larr; Back to IAM Sign-In
+                </a>
+            </div>
+        </form>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

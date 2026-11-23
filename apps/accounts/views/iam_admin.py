@@ -51,10 +51,29 @@ def iam_login_view(request):
         totp_code = request.POST.get("totp_code", "").strip()
         client_ip = getattr(request, "client_ip", None) or request.META.get("REMOTE_ADDR", "127.0.0.1")
 
+        tx = None
+        if admin_id:
+            from apps.accounts.auth.authentication_centre import (
+                complete_auth_transaction,
+                record_transaction_stage,
+                start_auth_transaction,
+            )
+            tx = start_auth_transaction(
+                domain="iam",
+                identity_ref=admin_id,
+                client_ip=client_ip,
+            )
+
         if not admin_id or not password or not totp_code:
             error = "IAM Administrator ID, Password, and TOTP code are required."
+            if tx:
+                record_transaction_stage(tx.transaction_id, "password_check", "FAIL", "Missing fields")
+                complete_auth_transaction(tx.transaction_id, "failed", reason_category="missing_fields")
         elif len(password) < 16:
             error = "IAM Administrator password must meet the 16-character minimum requirement."
+            if tx:
+                record_transaction_stage(tx.transaction_id, "password_check", "FAIL", "Password length below 16 chars")
+                complete_auth_transaction(tx.transaction_id, "failed", reason_category="password_length_violation")
         else:
             try:
                 iam_admin = authenticate_iam_admin(
@@ -64,6 +83,12 @@ def iam_login_view(request):
                     client_ip=client_ip,
                 )
                 session = create_iam_session(iam_admin, request, assurance_level=1)
+                if tx:
+                    record_transaction_stage(tx.transaction_id, "password_check", "PASS", "Password verified")
+                    record_transaction_stage(tx.transaction_id, "mfa_verification", "PASS", "TOTP valid")
+                    record_transaction_stage(tx.transaction_id, "lifecycle", "PASS", f"Status: {iam_admin.status}")
+                    complete_auth_transaction(tx.transaction_id, "success", reason_category="credentials_and_mfa_valid", session_ref=session.session_key)
+
                 next_url = request.GET.get("next") or reverse("iam:dashboard")
 
                 response = redirect(next_url)
@@ -81,8 +106,14 @@ def iam_login_view(request):
                 return response
             except AuthException as exc:
                 error = exc.user_message
+                if tx:
+                    record_transaction_stage(tx.transaction_id, "password_check", "FAIL", str(exc))
+                    complete_auth_transaction(tx.transaction_id, "failed", reason_category="auth_exception")
             except Exception as exc:
                 error = f"Authentication failed: {exc}"
+                if tx:
+                    record_transaction_stage(tx.transaction_id, "password_check", "FAIL", str(exc))
+                    complete_auth_transaction(tx.transaction_id, "failed", reason_category="unexpected_error")
 
     return render(
         request,

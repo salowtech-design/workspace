@@ -10,6 +10,9 @@ from django.urls import include, path
 
 from apps.certificates.views import public_verify_view
 from apps.core.views import health_probe, home_view, readiness_probe, service_worker_view, styleguide_view
+from apps.accounts.views.activation import activate_code_view
+from apps.accounts.views.login import login_view
+from apps.accounts.views.recovery import forgot_password_view
 from apps.accounts.views.security_operations import (
     security_alerts_view,
     security_events_view,
@@ -23,6 +26,11 @@ def redirect_to_iam_host(request):
 
 
 urlpatterns = [
+    # Sequence 1 Canonical Workspace Routes (Section 3.1)
+    path("login/", activate_code_view, name="canonical_login_activate"),
+    path("sign-in/", login_view, name="canonical_signin"),
+    path("forgot-password/", forgot_password_view, name="canonical_forgot_password"),
+
     # Platform health probes
     path("health", health_probe, name="health_probe"),
     path("health/", health_probe, name="health_probe_slash"),

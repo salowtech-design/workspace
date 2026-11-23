@@ -1,0 +1,62 @@
+{% if transactions %}
+    {% for tx in transactions %}
+    <tr class="hover:bg-gray-800/40 border-b border-gray-800/60 transition-colors text-xs font-mono">
+        <td class="px-4 py-3 text-cyan-400">
+            <a href="{% url 'iam:auth_transaction_detail' tx.transaction_id %}" class="hover:underline flex items-center gap-1 font-semibold">
+                {{ tx.transaction_id|slice:":12" }}
+                <svg class="w-3 h-3 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"></path></svg>
+            </a>
+            <span class="text-[10px] text-gray-500 block">{{ tx.correlation_id|slice:":10" }}</span>
+        </td>
+        <td class="px-4 py-3">
+            <span class="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-semibold {% if tx.domain == 'iam' %}bg-indigo-950 text-indigo-400 border border-indigo-800/60{% else %}bg-cyan-950 text-cyan-400 border border-cyan-800/60{% endif %}">
+                {{ tx.domain|upper }}
+            </span>
+        </td>
+        <td class="px-4 py-3 text-gray-200 font-medium">
+            {{ tx.identity_ref|default:"[Unknown ID]" }}
+        </td>
+        <td class="px-4 py-3 text-gray-400">
+            <span class="px-2 py-0.5 bg-gray-900 rounded border border-gray-800 text-[11px]">{{ tx.stage }}</span>
+        </td>
+        <td class="px-4 py-3">
+            {% if tx.outcome == "success" %}
+                <span class="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-950 text-emerald-400 border border-emerald-800/80">
+                    <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 mr-1.5"></span>SUCCESS
+                </span>
+            {% elif tx.outcome == "failed" %}
+                <span class="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-rose-950 text-rose-400 border border-rose-800/80">
+                    <span class="w-1.5 h-1.5 rounded-full bg-rose-400 mr-1.5"></span>FAILED
+                </span>
+            {% elif tx.outcome == "challenged" %}
+                <span class="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-amber-950 text-amber-400 border border-amber-800/80">
+                    <span class="w-1.5 h-1.5 rounded-full bg-amber-400 mr-1.5"></span>CHALLENGED
+                </span>
+            {% elif tx.outcome == "denied" %}
+                <span class="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-purple-950 text-purple-400 border border-purple-800/80">
+                    <span class="w-1.5 h-1.5 rounded-full bg-purple-400 mr-1.5"></span>DENIED
+                </span>
+            {% else %}
+                <span class="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-gray-800 text-gray-300 border border-gray-700">
+                    <span class="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse mr-1.5"></span>PENDING
+                </span>
+            {% endif %}
+        </td>
+        <td class="px-4 py-3 text-gray-400 text-[11px]">
+            {{ tx.reason_category|default:"-" }}
+        </td>
+        <td class="px-4 py-3 text-gray-400 text-right">
+            {{ tx.duration_ms|default:0.0 }}ms
+        </td>
+        <td class="px-4 py-3 text-gray-500 text-right text-[11px]">
+            {{ tx.created_at|date:"H:i:s" }}
+        </td>
+    </tr>
+    {% endfor %}
+{% else %}
+    <tr>
+        <td colspan="8" class="px-4 py-8 text-center text-xs font-mono text-gray-500">
+            No active authentication transactions recorded in current buffer.
+        </td>
+    </tr>
+{% endif %}
