@@ -1051,14 +1051,16 @@ class IAMAdminPresence(models.Model):
 
     @property
     def presence_status(self) -> str:
+        from datetime import timedelta
         from django.utils import timezone
+        from apps.accounts.auth.iam_auth import IAM_SESSION_IDLE_TIMEOUT_MINUTES
 
-        if not self.admin_identity.is_active or self.admin_identity.status != IAMAdminIdentity.Status.ACTIVE:
+        if not self.admin_identity.user.is_active or self.admin_identity.status != IAMAdminIdentity.Status.ACTIVE:
             return "REVOKED"
         session = IAMSession.objects.filter(session_key=self.session_key).first()
         if not session or not session.is_active:
             return "REVOKED"
-        if timezone.now() >= session.expires_at:
+        if session.last_activity and (timezone.now() - session.last_activity > timedelta(minutes=IAM_SESSION_IDLE_TIMEOUT_MINUTES)):
             return "EXPIRED"
         age_seconds = (timezone.now() - self.last_heartbeat).total_seconds()
         if age_seconds <= 15:

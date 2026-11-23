@@ -481,10 +481,17 @@
                     <span>🚨 Break-Glass Emergency Elevation</span>
                     <span>→</span>
                 </a>
+                {% if not request.is_iam_host %}
                 <a href="{% url 'attendance:admin_panel' %}" class="btn btn-outline" style="width: 100%; display: flex; align-items: center; justify-content: space-between; font-size: 0.85rem; margin-top: 0.5rem;">
                     <span>📋 Open Workspace Admin Panel</span>
                     <span>→</span>
                 </a>
+                {% else %}
+                <a href="https://app.salowtech.com/attendance/admin/" class="btn btn-outline" style="width: 100%; display: flex; align-items: center; justify-content: space-between; font-size: 0.85rem; margin-top: 0.5rem;">
+                    <span>📋 Open Workspace Admin Panel</span>
+                    <span>→</span>
+                </a>
+                {% endif %}
             </div>
         </div>
     </div>
