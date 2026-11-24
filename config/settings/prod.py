@@ -19,6 +19,8 @@ if os.environ.get("DEV_VERIFIER", "false").lower() in ("true", "1", "yes"):
     raise ImproperlyConfigured("DEV_VERIFIER cannot be enabled in production environments.")
 
 SECRET_KEY = os.environ.get("DJANGO_SECRET_KEY")
+if SECRET_KEY and SECRET_KEY.startswith("change-me"):
+    raise ImproperlyConfigured("DJANGO_SECRET_KEY is the .env.example placeholder. Generate a new secret.")
 if not SECRET_KEY or len(SECRET_KEY) < 50:
     raise ImproperlyConfigured(
         "DJANGO_SECRET_KEY must be set in production and be at least 50 characters long."
@@ -29,6 +31,17 @@ raw_audit_key = os.environ.get("AUDIT_HMAC_KEY")
 if not raw_audit_key or len(raw_audit_key) < 32:
     raise ImproperlyConfigured(
         "AUDIT_HMAC_KEY must be independently configured in production and be at least 32 characters long."
+    )
+# Values published in the repository (.env.example, dev and test settings) are public,
+# so they can never be accepted as production keys.
+PUBLISHED_EXAMPLE_KEYS = {
+    "salow-audit-independent-signing-key-custody-2026-min32chars",
+    "dev-audit-hmac-key-salow-at-least-32-chars",
+    "independent-audit-signing-key-test-custody-32bytes-secret",
+}
+if raw_audit_key in PUBLISHED_EXAMPLE_KEYS:
+    raise ImproperlyConfigured(
+        "AUDIT_HMAC_KEY is a value published in the repository. Generate a new independent key."
     )
 if raw_audit_key == SECRET_KEY:
     raise ImproperlyConfigured(
