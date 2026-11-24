@@ -24,3 +24,31 @@ def test_compute_payload_digest_serialises_dicts_and_lists():
     assert a == b and len(a) == 64
     assert compute_payload_digest(["x"]) != compute_payload_digest(["y"])
     assert compute_payload_digest("plain") == compute_payload_digest("plain")
+
+
+def test_decrypt_offline_backup_wrong_key_raises_permission_denied(tmp_path):
+    """A wrong reconstructed key must raise PermissionDenied, not NameError."""
+    import base64
+    import hashlib
+    import hmac
+    import json
+    import os
+
+    import pytest
+    from django.core.exceptions import PermissionDenied
+
+    from apps.accounts.auth.offline_recovery import decrypt_offline_backup
+
+    key = os.urandom(32)
+    cipher = os.urandom(48)  # not valid AES-GCM output for this key
+    sig_key = hashlib.sha256(key + b"-signing-seal").digest()
+    manifest = {
+        "ciphertext_base64": base64.b64encode(cipher).decode(),
+        "nonce_base64": base64.b64encode(os.urandom(12)).decode(),
+        "checksum_sha256": "0" * 64,
+        "hmac_signature": hmac.new(sig_key, cipher, hashlib.sha256).hexdigest(),
+    }
+    path = tmp_path / "backup.json"
+    path.write_text(json.dumps(manifest))
+    with pytest.raises(PermissionDenied):
+        decrypt_offline_backup(path, key)

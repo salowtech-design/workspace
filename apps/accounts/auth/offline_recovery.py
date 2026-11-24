@@ -25,6 +25,7 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+from django.core.exceptions import PermissionDenied
 
 logger = logging.getLogger(__name__)
 
