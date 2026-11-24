@@ -16,6 +16,9 @@ dependencies = [
     "pyotp>=2.9.0",
     "qrcode>=7.4.2",
     "webauthn>=3.0.0",
+    "numpy>=2.0.0",
+    "opencv-python-headless>=4.10.0",
+    "onnxruntime>=1.18.0",
 ]
 
 [project.optional-dependencies]

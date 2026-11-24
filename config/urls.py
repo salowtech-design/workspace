@@ -34,6 +34,7 @@ urlpatterns = [
     path("attendance/", include("apps.attendance.urls", namespace="attendance")),
     path("posts/", include("apps.posts.urls", namespace="posts")),
     path("certificates/", include("apps.certificates.urls", namespace="certificates")),
+    path("api/face/", include("apps.face.urls", namespace="face")),
     # UI presentation roots
     path("", home_view, name="home"),
     path("styleguide/", styleguide_view, name="styleguide"),

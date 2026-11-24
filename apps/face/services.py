@@ -66,7 +66,7 @@ def enroll_face_template(
 
     has_consented = BiometricNoticeAcknowledgement.objects.filter(user=target_user).exists()
     if not has_consented:
-        raise ValidationError("Biometric notice must be acknowledged prior to enrollment.")
+        raise ValidationError("Biometric notice must be acknowledged prior to enrollment (consent required).")
 
     if len(embedding) != 128:
         raise ValidationError("Face embedding vector must be exactly 128 dimensions.")
@@ -87,6 +87,35 @@ def enroll_face_template(
             },
         )
         return template
+
+
+def enroll_face_from_camera_frame(
+    target_user: CustomUser,
+    frame_data: str | bytes,
+    enrolled_by: CustomUser,
+) -> tuple[FaceTemplate, dict]:
+    """
+    Admin-assisted face enrollment directly from live device camera frame.
+    1. Extracts real 128d feature embedding and quality metrics via YuNet and SFace.
+    2. Enforces prior digital consent notice.
+    3. Encrypts template via AES-256-GCM.
+    4. Persists encrypted template; never stores raw frame.
+    """
+    from apps.face.engine.pipeline import FaceInferencePipeline
+
+    pipeline = FaceInferencePipeline()
+    embedding, metrics, err = pipeline.extract_face_embedding(frame_data)
+    if err or embedding is None:
+        raise ValidationError(f"Face enrollment failed: {err}")
+
+    quality_score = float(metrics.get("sharpness", 0.0) / 100.0) if metrics else 0.95
+    template = enroll_face_template(
+        target_user=target_user,
+        embedding=embedding,
+        quality_score=quality_score,
+        enrolled_by=enrolled_by,
+    )
+    return template, metrics or {}
 
 
 def verify_face(
@@ -147,26 +176,45 @@ def verify_face(
                 ),
             )
 
-    # In development/test mode, use the verified StubVerifier
-    is_dev = getattr(settings, "DEV_VERIFIER", False)
-    if is_dev:
-        verifier = StubVerifier(allowed=is_dev)
-        result = verifier.verify(
-            user_id=user.employee_id,
-            challenge_nonce="test-nonce",
-            frames=[],
+    # Check for real camera frame data from client device
+    frame_bytes = None
+    challenge_obj = None
+    if frame_data:
+        frame_bytes = frame_data.get("frame") or frame_data.get("frames")
+        challenge_obj = frame_data.get("challenge")
+
+    if frame_bytes:
+        from apps.face.engine.pipeline import FaceInferencePipeline
+
+        pipeline = FaceInferencePipeline()
+        frames_list = frame_bytes if isinstance(frame_bytes, (list, tuple)) else [frame_bytes]
+        result = pipeline.verify_1_to_1(
+            target_user=user,
+            claimed_user_id=user.employee_id,
+            live_frames=frames_list,
+            challenge=challenge_obj,
         )
     else:
-        # Production engine verification
-        result = VerificationResult(
-            success=False,
-            confidence_score=0.0,
-            similarity_score=0.0,
-            liveness_score=0.0,
-            quality_passed=False,
-            method="face",
-            error_reason="Production camera stream not attached in terminal session.",
-        )
+        # In development/test mode without frames, use the verified StubVerifier
+        is_dev = getattr(settings, "DEV_VERIFIER", False)
+        if is_dev:
+            verifier = StubVerifier(allowed=is_dev)
+            result = verifier.verify(
+                user_id=user.employee_id,
+                challenge_nonce="test-nonce",
+                frames=[],
+            )
+        else:
+            # Production engine verification
+            result = VerificationResult(
+                success=False,
+                confidence_score=0.0,
+                similarity_score=0.0,
+                liveness_score=0.0,
+                quality_passed=False,
+                method="face",
+                error_reason="No camera stream provided for biometric verification.",
+            )
 
     duration_ms = (time.time() - start_time) * 1000.0
     decision = (

@@ -55,6 +55,7 @@ urlpatterns = [
     path("attendance/", include("apps.attendance.urls", namespace="attendance")),
     path("posts/", include("apps.posts.urls", namespace="posts")),
     path("certificates/", include("apps.certificates.urls", namespace="certificates")),
+    path("api/face/", include("apps.face.urls", namespace="face")),
 
     # Controlled redirect for IAM admin paths on Workspace host
     path("iam/", redirect_to_iam_host, name="iam_redirect"),
