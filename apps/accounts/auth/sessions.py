@@ -169,6 +169,15 @@ def end_session_by_key(user: CustomUser, session_key: str) -> bool:
     )
     if deleted > 0:
         Session.objects.filter(session_key__in=[session_key, digest]).delete()
+        # Every other session lifecycle change (create, bulk revoke, lifecycle revoke) is
+        # recorded; this one was the only silent exit. No session identifier is logged.
+        log_auth_event(
+            event="session_terminated",
+            code="INFO",
+            step="terminate_session",
+            employee_id=user.employee_id,
+            message="One active session was terminated from the security page",
+        )
         return True
     return False
 

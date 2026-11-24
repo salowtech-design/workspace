@@ -373,3 +373,32 @@ def test_security_page_marks_this_device_and_offers_revoke_only_for_others(db):
     assert html.count("This Device") == 1
     assert "/terminate/other-device-digest" in html or "other-device-digest" in html
     assert mine not in html
+
+
+def test_terminating_one_session_is_recorded_without_the_session_key(db):
+    from apps.accounts.auth.sessions import end_session_by_key
+    from apps.accounts.models import AuthEvent, UserSession
+
+    user = User.objects.create(
+        email="term.one@salowtech.com",
+        employee_id="EMP-TERM-01",
+        full_name="Terminate One",
+        password=make_password("OldPasswordForTests2026!#"),
+        role=CustomUser.Role.EMPLOYEE,
+        status=CustomUser.Status.ACTIVE,
+        is_active=True,
+    )
+    UserSession.objects.create(
+        session_key="secret-looking-digest-value",
+        session_digest="secret-looking-digest-value",
+        user=user,
+        ip_address="10.0.0.2",
+        mfa_verified=True,
+    )
+    assert end_session_by_key(user, "unknown-key") is False
+    assert not AuthEvent.objects.filter(event="session_terminated").exists()
+    assert end_session_by_key(user, "secret-looking-digest-value") is True
+    event = AuthEvent.objects.get(event="session_terminated")
+    assert event.employee_id == "EMP-TERM-01"
+    assert "secret-looking-digest-value" not in event.message
+    assert "secret-looking-digest-value" not in (event.reference_id or "")
