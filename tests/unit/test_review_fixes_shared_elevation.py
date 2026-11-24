@@ -65,10 +65,14 @@ def test_break_glass_grants_sudo_and_both_lapse_on_controlled_clock(admin):
     assert stepup.is_break_glass_active(admin) is True
     assert stepup.is_sudo_active(admin) is True
     # 14 minutes in: still inside the 15 minute ceiling
-    PrivilegeElevation.objects.filter(user_id_ref=admin.id).update(granted_at=models_now() - 14 * 60)
+    PrivilegeElevation.objects.filter(user_id_ref=admin.id).update(
+        granted_at=models_now() - 14 * 60
+    )
     assert stepup.is_break_glass_active(admin) is True
     # 16 minutes in: break-glass has lapsed
-    PrivilegeElevation.objects.filter(user_id_ref=admin.id).update(granted_at=models_now() - 16 * 60)
+    PrivilegeElevation.objects.filter(user_id_ref=admin.id).update(
+        granted_at=models_now() - 16 * 60
+    )
     assert stepup.is_break_glass_active(admin) is False
 
 
