@@ -231,6 +231,15 @@ def _l3_deciders(action_name: str, target_id: str) -> tuple:
     return roles
 
 
+def _decider_phrase(action_name: str, target_id: str) -> str:
+    """Who may approve, in words that match _l3_deciders."""
+    from apps.accounts.models import IAMAdminIdentity
+
+    if IAMAdminIdentity.Role.ADMIN in _l3_deciders(action_name, target_id):
+        return "a different Administrator or Super Administrator"
+    return "a different Super Administrator"
+
+
 def _level3_gate(request, session, action_name: str, payload: Any, bound: str):
     """Level 3: the requester holds a payload-bound Level 2; a DIFFERENT Super Admin must approve
     the identical request with their own fresh Level 2; the approval is consumed atomically
@@ -272,7 +281,7 @@ def _level3_gate(request, session, action_name: str, payload: Any, bound: str):
     if base.filter(status=IAMDualApprovalRequest.Status.PENDING).exists():
         messages.info(
             request,
-            "This change is already waiting for approval from a second Super Administrator.",
+            f"This change is already waiting for approval from {_decider_phrase(action_name, target_id)}.",
         )
         _clear_stepup(session)
         return redirect(request.get_full_path())
@@ -290,7 +299,8 @@ def _level3_gate(request, session, action_name: str, payload: Any, bound: str):
     _clear_stepup(session)
     messages.info(
         request,
-        "Level 3 approval requested. A different Super Administrator must approve it under "
+        f"Level 3 approval requested. {_decider_phrase(action_name, target_id).capitalize()} "
+        "must approve it under "
         "'15. Level 3 Approvals'. After approval, submit the same change again to execute it "
         "(valid 10 minutes).",
     )
@@ -883,7 +893,7 @@ def admin_iam_dashboard_view(request):  # noqa: C901
                         )
                         messages.success(
                             request,
-                            "Approved. The requesting Super Administrator can now submit the "
+                            "Approved. The administrator who requested it can now submit the "
                             "same change to execute it.",
                         )
                     except (AuthException, PermissionDenied) as exc:

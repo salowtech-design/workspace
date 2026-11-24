@@ -157,3 +157,14 @@ def test_other_level3_actions_still_need_a_super_admin_decider():
     assert IAMAdminIdentity.Role.ADMIN in _l3_deciders("issue_mfa_reset", adm_target.employee_id)
     emp = _mk("ST-MRL3-E1", CustomUser.Role.EMPLOYEE)
     assert _l3_deciders("issue_mfa_reset", emp.employee_id) == sup
+
+
+def test_level3_guidance_names_the_roles_that_may_decide():
+    from apps.accounts.views.admin_iam import _decider_phrase
+
+    adm = _mk("ST-MRL3-T4", CustomUser.Role.ADMIN)
+    sup = _mk("ST-MRL3-T5", CustomUser.Role.SUPER_ADMIN)
+    assert "Administrator or Super Administrator" in _decider_phrase(
+        "issue_mfa_reset", adm.employee_id
+    )
+    assert _decider_phrase("issue_mfa_reset", sup.employee_id) == "a different Super Administrator"

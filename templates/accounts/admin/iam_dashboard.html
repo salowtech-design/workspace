@@ -977,7 +977,7 @@
 {% if active_tab == 'l3_approvals' %}
 <div id="section-l3-approvals">
     <div class="card">
-        <h4>Level 3 approvals waiting for a second Super Administrator</h4>
+        <h4>Level 3 approvals waiting for your decision</h4>
         <p>Approve only a change you have checked. Your approval covers exactly the change shown, is single use, and needs your own fresh step-up. You cannot approve your own request.</p>
         {% for d in pending_dual_requests %}
         <form method="post" action="{{ admin_iam_url }}?tab=l3_approvals" class="space-y-3">
