@@ -369,6 +369,9 @@ class TestPlaywrightBrowserAcceptance:
         assert "/attendance" in page.url
 
         page.evaluate("() => sessionStorage.setItem('_salow_draft_/old/', 'legacy')")
+        page.reload()
+        page.wait_for_load_state("networkidle")
+        assert page.evaluate("() => sessionStorage.getItem('_salow_draft_/old/')") is None
         page.fill("textarea", "my free text work note")
         page.evaluate(
             """() => {
