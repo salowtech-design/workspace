@@ -24,6 +24,11 @@
         </button>
     </div>
 
+    {% if request.GET.reason == "idle" and not error %}
+    <div class="alert alert-info" id="login-idle-notice" style="margin-bottom: 1.25rem; text-align: left;">
+        You were signed out because of inactivity. Sign in again to continue.
+    </div>
+    {% endif %}
     {% if error %}
     <div class="alert alert-danger" id="login-error-alert" style="margin-bottom: 1.25rem; text-align: left;">
         {{ error }}

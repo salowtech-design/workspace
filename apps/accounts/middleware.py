@@ -1,9 +1,10 @@
 from django.conf import settings
 from django.contrib.auth import logout
-from django.http import HttpResponseNotFound
+from django.http import HttpResponse, HttpResponseNotFound
 from django.shortcuts import redirect
 from django.urls import reverse
 
+from apps.accounts.auth import workspace_idle
 from apps.accounts.auth.iam_auth import get_iam_session_from_request
 from apps.accounts.models import CustomUser, TOTPCredential
 
@@ -124,6 +125,34 @@ class AccountSecurityMiddleware:
     def __init__(self, get_response):
         self.get_response = get_response
 
+    def _idle_sign_out(self, request, user):
+        from urllib.parse import quote
+
+        from apps.accounts.auth.audit import log_auth_event
+        from apps.accounts.auth.sessions import end_session_by_key
+
+        key = request.session.session_key
+        try:
+            if key:
+                end_session_by_key(user, key)
+            log_auth_event(
+                event="workspace_idle_signout",
+                code="INFO",
+                step="idle_timeout",
+                employee_id=getattr(user, "employee_id", ""),
+                message="Workspace session ended after inactivity",
+            )
+        except Exception:
+            pass
+        logout(request)
+        request.session.flush()
+        login_url = reverse("accounts:login") + "?reason=idle&next=" + quote(request.get_full_path(), safe="/")
+        if request.headers.get("HX-Request") or request.headers.get("X-Requested-With") == "XMLHttpRequest":
+            response = HttpResponse(status=401)
+            response["HX-Redirect"] = login_url
+            return response
+        return redirect(login_url)
+
     def __call__(self, request):
         path = request.path_info
         if any(path.startswith(prefix) for prefix in self.EXEMPT_PREFIXES):
@@ -131,6 +160,12 @@ class AccountSecurityMiddleware:
 
         if request.user.is_authenticated:
             user: CustomUser = request.user
+
+            # 0. Idle timeout: sign out after inactivity (separate from the 12 hour absolute lifetime)
+            if workspace_idle.seconds_remaining(request) <= 0:
+                return self._idle_sign_out(request, user)
+            if not workspace_idle.is_passive(path):
+                workspace_idle.touch(request)
 
             # 1. State enforcement: Invited and activating accounts can never access workspace pages
             if user.status in (CustomUser.Status.INVITED, CustomUser.Status.ACTIVATING):

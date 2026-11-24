@@ -253,3 +253,28 @@ def sudo_elevation_view(request):
             "is_super_admin": request.user.role == CustomUser.Role.SUPER_ADMIN,
         },
     )
+
+
+@login_required
+def session_status_view(request):
+    """Passive status for the idle warning banner. Does not count as activity."""
+    from apps.accounts.auth import workspace_idle
+
+    limit = workspace_idle.idle_limit_seconds()
+    return JsonResponse(
+        {
+            "remaining_seconds": max(0, workspace_idle.seconds_remaining(request)),
+            "limit_seconds": limit,
+            "warning_seconds": workspace_idle.warning_seconds(limit),
+        }
+    )
+
+
+@login_required
+@require_POST
+def session_keepalive_view(request):
+    """Explicit 'stay signed in' or user input: resets the idle clock."""
+    from apps.accounts.auth import workspace_idle
+
+    workspace_idle.touch(request)
+    return JsonResponse({"remaining_seconds": workspace_idle.seconds_remaining(request)})

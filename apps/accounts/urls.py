@@ -56,6 +56,8 @@ from apps.accounts.views.security import (
     console_auth_events_view,
     get_draft_view,
     idle_lock_view,
+    session_keepalive_view,
+    session_status_view,
     idle_unlock_view,
     save_draft_view,
     security_dashboard_view,
@@ -155,6 +157,8 @@ urlpatterns = [
         name="terminate_all_other_sessions",
     ),
     # Idle Lock & Draft Persistence
+    path("session/status/", session_status_view, name="session_status"),
+    path("session/keepalive/", session_keepalive_view, name="session_keepalive"),
     path("security/idle-lock/", idle_lock_view, name="idle_lock"),
     path("security/idle-unlock/", idle_unlock_view, name="idle_unlock"),
     path("security/draft/save/", save_draft_view, name="save_draft"),
