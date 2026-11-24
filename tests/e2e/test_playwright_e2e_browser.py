@@ -353,7 +353,7 @@ class TestPlaywrightBrowserAcceptance:
         page.screenshot(path=str(SCREENSHOT_DIR / "13_idle_signed_out_notice.png"))
         context.close()
 
-    def test_draft_storage_excludes_sensitive_fields_and_is_purged_at_login(
+    def test_no_form_content_is_persisted_and_legacy_drafts_are_purged(
         self, browser, live_server, seeded_users
     ):
         """Only free-text areas are kept as drafts; codes, ids and selects never reach browser storage,
@@ -368,6 +368,7 @@ class TestPlaywrightBrowserAcceptance:
         page.wait_for_load_state("networkidle")
         assert "/attendance" in page.url
 
+        page.evaluate("() => sessionStorage.setItem('_salow_draft_/old/', 'legacy')")
         page.fill("textarea", "my free text work note")
         page.evaluate(
             """() => {
@@ -382,7 +383,7 @@ class TestPlaywrightBrowserAcceptance:
         stored = page.evaluate(
             "() => Object.keys(sessionStorage).filter(k => k.startsWith('_salow_draft_')).map(k => sessionStorage.getItem(k)).join('|')"
         )
-        assert "my free text work note" in stored
+        assert stored == ""  # nothing, not even free text, is persisted
         assert "SENSITIVE-" not in stored
 
         page.goto(f"{live_server.url}/auth/login/?flow=signin")
