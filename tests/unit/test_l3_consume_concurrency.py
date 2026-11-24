@@ -68,9 +68,7 @@ def _race(lock):
 
     patches = [mock.patch.object(IAMDualApprovalRequest, "save", slow_save)]
     if not lock:
-        patches.append(
-            mock.patch.object(QuerySet, "select_for_update", lambda self, *a, **k: self)
-        )
+        patches.append(mock.patch.object(QuerySet, "select_for_update", lambda self, *a, **k: self))
     for p in patches:
         p.start()
     try:
