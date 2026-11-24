@@ -346,6 +346,15 @@ def main():
         ".sidebar.s-ce369df9 .s-f8246472{color:#FFFFFF}",
         ".sidebar.s-ce369df9 .s-3564cde4{color:#CBBFB3}",
         ".main-content svg{max-width:100%}",
+        "/* Overflow containment: flex/grid children may shrink, wide tables scroll inside their card. */",
+        ".main-content,.main-content [class*=grid-cols] > *,.main-content .space-y-6 > *,.main-content [class*=max-w-] > *{min-width:0}",
+        ".main-content .overflow-x-auto{overflow-x:auto;max-width:100%}",
+        ".main-content table{max-width:100%}",
+        ".main-content .card,.main-content .table-container,.main-content [class^=s-]{min-width:0;max-width:100%}",
+        ".main-content .table-container{overflow-x:auto}",
+        ".main-content [role=tablist]{display:flex;overflow-x:auto;max-width:100%;-webkit-overflow-scrolling:touch}",
+        ".main-content pre,.main-content code{overflow-wrap:anywhere;white-space:pre-wrap}",
+        ".main-content .flex.overflow-x-auto{flex-wrap:nowrap}",
     ]
     out.append(",".join(solid) + "{color:#FFFFFF}")
     out.append(".bg-gradient-to-r{background-image:linear-gradient(to right,#7D3024,#5E2219)}")

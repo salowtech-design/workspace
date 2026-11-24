@@ -296,6 +296,15 @@ table{border-collapse:collapse}svg{max-width:100%}
 .sidebar.s-ce369df9 .s-f8246472{color:#FFFFFF}
 .sidebar.s-ce369df9 .s-3564cde4{color:#CBBFB3}
 .main-content svg{max-width:100%}
+/* Overflow containment: flex/grid children may shrink, wide tables scroll inside their card. */
+.main-content,.main-content [class*=grid-cols] > *,.main-content .space-y-6 > *,.main-content [class*=max-w-] > *{min-width:0}
+.main-content .overflow-x-auto{overflow-x:auto;max-width:100%}
+.main-content table{max-width:100%}
+.main-content .card,.main-content .table-container,.main-content [class^=s-]{min-width:0;max-width:100%}
+.main-content .table-container{overflow-x:auto}
+.main-content [role=tablist]{display:flex;overflow-x:auto;max-width:100%;-webkit-overflow-scrolling:touch}
+.main-content pre,.main-content code{overflow-wrap:anywhere;white-space:pre-wrap}
+.main-content .flex.overflow-x-auto{flex-wrap:nowrap}
 .bg-cyan-500.text-white,.hover\:bg-cyan-500.text-white:hover,.bg-cyan-600.text-white,.hover\:bg-cyan-600.text-white:hover,.bg-cyan-700.text-white,.hover\:bg-cyan-700.text-white:hover,.bg-indigo-500.text-white,.hover\:bg-indigo-500.text-white:hover,.bg-indigo-600.text-white,.hover\:bg-indigo-600.text-white:hover,.bg-indigo-700.text-white,.hover\:bg-indigo-700.text-white:hover,.bg-emerald-500.text-white,.hover\:bg-emerald-500.text-white:hover,.bg-emerald-600.text-white,.hover\:bg-emerald-600.text-white:hover,.bg-emerald-700.text-white,.hover\:bg-emerald-700.text-white:hover,.bg-amber-500.text-white,.hover\:bg-amber-500.text-white:hover,.bg-amber-600.text-white,.hover\:bg-amber-600.text-white:hover,.bg-amber-700.text-white,.hover\:bg-amber-700.text-white:hover,.bg-rose-500.text-white,.hover\:bg-rose-500.text-white:hover,.bg-rose-600.text-white,.hover\:bg-rose-600.text-white:hover,.bg-rose-700.text-white,.hover\:bg-rose-700.text-white:hover,.bg-purple-500.text-white,.hover\:bg-purple-500.text-white:hover,.bg-purple-600.text-white,.hover\:bg-purple-600.text-white:hover,.bg-purple-700.text-white,.hover\:bg-purple-700.text-white:hover,.bg-gradient-to-r.text-white{color:#FFFFFF}
 .bg-gradient-to-r{background-image:linear-gradient(to right,#7D3024,#5E2219)}
 @media (min-width:640px){.sm\:px-6{padding-left:1.5rem;padding-right:1.5rem}}
