@@ -450,6 +450,17 @@ def admin_iam_dashboard_view(request):  # noqa: C901
                     id=second_approver_id, is_active=True
                 ).first()
             base_url = request.build_absolute_uri("/")[:-1]
+            # The console's own Level 2 step-up (bound to this action) is the fresh
+            # re-authentication that the recovery service requires of the approver.
+            redirect_resp = enforce_mutation_assurance(
+                request,
+                "approve_recovery",
+                required_level=2,
+                payload={"request_id": str(request_id), "action": "approve_recovery"},
+            )
+            if redirect_resp:
+                return redirect_resp
+            grant_sudo(actor)
             try:
                 req, _ = approve_administrator_reset(
                     request_id=int(request_id),
@@ -468,6 +479,15 @@ def admin_iam_dashboard_view(request):  # noqa: C901
             active_tab = "recovery"
             request_id = request.POST.get("request_id")
             reason = request.POST.get("reason", "Verification requirements not met.")
+            redirect_resp = enforce_mutation_assurance(
+                request,
+                "reject_recovery",
+                required_level=2,
+                payload={"request_id": str(request_id), "action": "reject_recovery"},
+            )
+            if redirect_resp:
+                return redirect_resp
+            grant_sudo(actor)
             try:
                 req = reject_administrator_reset(
                     request_id=int(request_id),

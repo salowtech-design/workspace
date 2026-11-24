@@ -438,3 +438,56 @@ def test_self_service_reset_email_states_the_real_30_second_expiry(db):
     body = EmailOutbox.objects.filter(notification_type="email_reset_link").latest("id").body_text
     assert "expires in 30 seconds" in body
     assert "15 minutes" not in body
+
+
+class TestIamConsoleRecoveryApprovalUsesConsoleStepUp:
+    """Method 1 approval in the IAM console needs the console's own Level 2 step-up
+    and must then succeed (it used to demand a workspace-host sudo the IAM host cannot grant)."""
+
+    def _setup(self, iam_client):
+        from apps.accounts.auth.reset import request_administrator_reset
+        from apps.accounts.models import RecoveryRequest
+
+        client, admin = iam_client
+        emp = User.objects.create(
+            email="step0.emp@salowtech.com",
+            employee_id="EMP-STEP0-02",
+            full_name="Step Zero Employee",
+            password=make_password("SomePass2026!@#xyz"),
+            role=CustomUser.Role.EMPLOYEE,
+            status=CustomUser.Status.ACTIVE,
+            is_active=True,
+            email_verified=True,
+        )
+        request_administrator_reset("EMP-STEP0-02", "lost password")
+        return client, admin, emp, RecoveryRequest.objects.get(user=emp)
+
+    def _post(self, client, rid):
+        return client.post(
+            "/iam/dashboard/",
+            {"action": "approve_recovery", "request_id": rid},
+            HTTP_HOST=IAM_HOST,
+        )
+
+    def test_without_step_up_redirects_and_changes_nothing(self, iam_client):
+        client, _admin, _emp, req = self._setup(iam_client)
+        resp = self._post(client, req.id)
+        assert resp.status_code == 302 and "/iam/stepup/" in resp.url
+        req.refresh_from_db()
+        assert req.status == "pending"
+
+    def test_with_step_up_approves(self, iam_client):
+        from datetime import timedelta
+
+        from django.utils import timezone
+
+        client, admin, _emp, req = self._setup(iam_client)
+        sess = IAMSession.objects.filter(iam_admin=admin, is_active=True).first()
+        sess.assurance_level = 2
+        sess.stepup_action = "approve_recovery"
+        sess.stepup_expires_at = timezone.now() + timedelta(minutes=5)
+        sess.save()
+        resp = self._post(client, req.id)
+        assert resp.status_code == 302
+        req.refresh_from_db()
+        assert req.status == "approved"
