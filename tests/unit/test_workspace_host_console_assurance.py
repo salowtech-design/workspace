@@ -518,3 +518,73 @@ class TestProvisioningNeedsIamAuthorityAndValidRole:
         assert made.role == CustomUser.Role.SUPER_ADMIN
         req.refresh_from_db()
         assert req.status == IAMDualApprovalRequest.Status.CONSUMED
+
+    @pytest.mark.django_db(transaction=True)
+    def test_concurrent_execution_of_one_approved_super_admin_creation_makes_one_account(self):
+        import threading
+
+        from django.db import connection
+
+        from apps.accounts.models import ActivationCode, IAMDualApprovalRequest
+        from tests.unit.test_iam_platform_complete import _bind_stepup, _iam_console_client
+
+        if connection.vendor == "sqlite":
+            pytest.skip("row locks are only meaningful on the TiDB/MySQL backend")
+        u1, c1, s1 = self._sa()
+        from datetime import timedelta
+
+        from django.test import Client
+        from django.utils import timezone
+
+        from apps.accounts.auth.iam_auth import IAM_SESSION_COOKIE_NAME, create_iam_session
+
+        # a second, independent IAM session of the same administrator (two browser tabs)
+        c1b = Client()
+        fake = type("R", (), {"META": {"REMOTE_ADDR": "10.0.0.2"}, "headers": {}})()
+        s1b = create_iam_session(s1.iam_admin, fake)
+        c1b.cookies[IAM_SESSION_COOKIE_NAME] = fake.session_key_iam
+        s1b.assurance_level = 2
+        s1b.stepup_action = "create_employee"
+        s1b.stepup_expires_at = timezone.now() + timedelta(minutes=5)
+        s1b.save()
+        u2 = CustomUser.objects.create_user(
+            employee_id="ST-PRV-SA3",
+            full_name="Prov SA3",
+            email="st-prv-sa3@salowtech.com",
+            password="Xx-pass-2026!ab",
+            role=CustomUser.Role.SUPER_ADMIN,
+            status=CustomUser.Status.ACTIVE,
+            is_active=True,
+        )
+        c2, s2 = _iam_console_client(u2, "create_employee")
+        form = {
+            "action": "create_employee",
+            "employee_id": "PRVSA10",
+            "full_name": "Name PRVSA10",
+            "email": "prvsa10@salowtech.com",
+            "role": "super_admin",
+        }
+        _bind_stepup(c1, s1, form)
+        c1.post("/iam/dashboard/", form, HTTP_HOST="iam.salowtech.com")
+        req = IAMDualApprovalRequest.objects.get(target_id="PRVSA10")
+        data = {"action": "approve_dual_request", "request_id": str(req.request_id)}
+        _bind_stepup(c2, s2, data, action="create_employee")
+        c2.post("/iam/dashboard/", data, HTTP_HOST="iam.salowtech.com")
+        _bind_stepup(c1, s1, form)
+        _bind_stepup(c1b, s1b, form)
+        barrier = threading.Barrier(2)
+
+        def go(client):
+            try:
+                barrier.wait(5)
+                client.post("/iam/dashboard/", form, HTTP_HOST="iam.salowtech.com")
+            finally:
+                connection.close()
+
+        threads = [threading.Thread(target=go, args=(cl,)) for cl in (c1, c1b)]
+        [t.start() for t in threads]
+        [t.join(30) for t in threads]
+        assert CustomUser.objects.filter(employee_id="PRVSA10").count() == 1
+        assert ActivationCode.objects.filter(user__employee_id="PRVSA10").count() == 1
+        req.refresh_from_db()
+        assert req.status == IAMDualApprovalRequest.Status.CONSUMED
