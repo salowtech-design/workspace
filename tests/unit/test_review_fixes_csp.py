@@ -31,3 +31,10 @@ def test_csp_header_uses_fresh_nonce_without_unsafe_inline_scripts():
     assert "'unsafe-inline'" not in script and "nonce-" in script
     assert "script-src-attr 'none'" in h1
     assert h1 != h2
+
+
+@pytest.mark.django_db
+def test_script_src_has_no_third_party_hosts():
+    h = Client(HTTP_HOST="localhost").get("/auth/login/").headers["Content-Security-Policy"]
+    script = h.split("script-src ")[1].split(";")[0]
+    assert "http" not in script  # nothing in templates or static loads scripts from another host

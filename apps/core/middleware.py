@@ -29,7 +29,7 @@ class SecurityHeadersMiddleware:
         # Content-Security-Policy: restrict source origins for scripts, styles, frames
         csp_directives = [
             "default-src 'self'",
-            f"script-src 'self' 'nonce-{request.csp_nonce}' https://cdn.jsdelivr.net",
+            f"script-src 'self' 'nonce-{request.csp_nonce}'",
             "script-src-attr 'none'",
             "style-src 'self' 'unsafe-inline'",
             "img-src 'self' data:",
