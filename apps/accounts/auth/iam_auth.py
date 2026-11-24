@@ -366,6 +366,13 @@ def compute_payload_digest(payload: Any) -> str:
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
+def bound_stepup_digest(iam_session: IAMSession, action_name: str, payload: Any) -> str:
+    """Digest binding one step-up to the actor, the action and the exact payload."""
+    return compute_payload_digest(
+        {"actor": iam_session.iam_admin_id, "action": action_name, "payload": payload or {}}
+    )
+
+
 def stepup_iam_assurance(
     iam_session: IAMSession,
     password: str,
@@ -416,7 +423,22 @@ def stepup_iam_assurance(
         iam_session.assurance_level = 2
         iam_session.stepup_action = action_name
         iam_session.stepup_expires_at = timezone.now() + timedelta(minutes=5)
-        iam_session.save(update_fields=["assurance_level", "stepup_action", "stepup_expires_at"])
+        # Bind to the payload the console asked this step-up for (if it asked for this action).
+        iam_session.stepup_payload_digest = (
+            iam_session.pending_payload_digest if iam_session.pending_action == action_name else ""
+        )
+        iam_session.pending_action = ""
+        iam_session.pending_payload_digest = ""
+        iam_session.save(
+            update_fields=[
+                "assurance_level",
+                "stepup_action",
+                "stepup_expires_at",
+                "stepup_payload_digest",
+                "pending_action",
+                "pending_payload_digest",
+            ]
+        )
 
         log_auth_event(
             event="iam_assurance_elevated",

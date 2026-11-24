@@ -405,21 +405,44 @@ def _iam_console_client(user, *actions):
     return c, sess
 
 
+def _bind_stepup(client, sess, data):
+    """Do what the real step-up page does for this exact form: the console records the
+    requested (actor, action, payload) when it demands a step-up, and a successful
+    password+TOTP step-up promotes exactly that to the session (we skip only the factors)."""
+    from datetime import timedelta
+
+    from django.utils import timezone
+
+    resp = client.post("/iam/dashboard/", data, HTTP_HOST="iam.salowtech.com")
+    assert resp.status_code == 302 and "/iam/stepup/" in resp.url
+    sess.refresh_from_db()
+    assert sess.pending_action == data["action"] and sess.pending_payload_digest
+    sess.assurance_level = 2
+    sess.stepup_action = sess.pending_action
+    sess.stepup_payload_digest = sess.pending_payload_digest
+    sess.stepup_expires_at = timezone.now() + timedelta(minutes=5)
+    sess.pending_action = ""
+    sess.pending_payload_digest = ""
+    sess.save()
+
+
 @pytest.mark.django_db
 def test_admin_iam_service_identity_lifecycle_via_console(client, test_users):
     """Admin can provision and revoke M2M Service Identities via the IAM console."""
     client, sess = _iam_console_client(test_users["admin"], "create_service_identity")
 
     # Provision service identity
+    create_form = {
+        "action": "create_service_identity",
+        "name": "Background Task Runner",
+        "client_id": "svc_bg_runner_999",
+        "scopes": ["attendance:read", "audit:write"],
+        "expires_in_days": "90",
+    }
+    _bind_stepup(client, sess, create_form)
     resp = client.post(
         "/iam/dashboard/",
-        {
-            "action": "create_service_identity",
-            "name": "Background Task Runner",
-            "client_id": "svc_bg_runner_999",
-            "scopes": ["attendance:read", "audit:write"],
-            "expires_in_days": "90",
-        },
+        create_form,
         follow=True,
         HTTP_HOST="iam.salowtech.com",
     )
@@ -430,14 +453,11 @@ def test_admin_iam_service_identity_lifecycle_via_console(client, test_users):
     assert "attendance:read" in ident.scopes
 
     # Revoke service identity (a step-up is bound to one action, so renew it)
-    sess.stepup_action = "revoke_service_identity"
-    sess.save()
+    revoke_form = {"action": "revoke_service_identity", "client_id": "svc_bg_runner_999"}
+    _bind_stepup(client, sess, revoke_form)
     resp = client.post(
         "/iam/dashboard/",
-        {
-            "action": "revoke_service_identity",
-            "client_id": "svc_bg_runner_999",
-        },
+        revoke_form,
         follow=True,
         HTTP_HOST="iam.salowtech.com",
     )
@@ -485,12 +505,11 @@ def test_admin_iam_lifecycle_exit_account(client, test_users):
     emp = test_users["employee"]
     UserSession.objects.create(user=emp, session_key="emp_session_to_terminate_1")
 
+    exit_form = {"action": "exit_account", "target_employee_id": emp.employee_id}
+    _bind_stepup(client, _sess, exit_form)
     resp = client.post(
         "/iam/dashboard/",
-        {
-            "action": "exit_account",
-            "target_employee_id": emp.employee_id,
-        },
+        exit_form,
         follow=True,
         HTTP_HOST="iam.salowtech.com",
     )

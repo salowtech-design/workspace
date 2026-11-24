@@ -85,10 +85,8 @@ def test_last_active_super_admin_cannot_be_demoted_or_suspended(db):
     assert _would_remove_last_super_admin(only) is False
 
 
-class TestStepUpCoversExactlyOneMutation:
-    def test_step_up_for_one_suspend_cannot_be_replayed_on_another_target(self, db):
-        from django.urls import reverse
-
+class TestStepUpIsBoundToActorActionAndPayload:
+    def _world(self):
         from tests.unit.test_iam_platform_complete import _iam_console_client
 
         def mk(eid, role):
@@ -105,11 +103,41 @@ class TestStepUpCoversExactlyOneMutation:
         admin = mk("ST-RP-ADM", CustomUser.Role.ADMIN)
         t1 = mk("ST-RP-T1", CustomUser.Role.EMPLOYEE)
         t2 = mk("ST-RP-T2", CustomUser.Role.EMPLOYEE)
-        c, _ = _iam_console_client(admin, "suspend_account")
-        url = reverse("accounts:admin_iam")
-        c.post(url, {"action": "suspend_account", "target_employee_id": "ST-RP-T1"})
-        c.post(url, {"action": "suspend_account", "target_employee_id": "ST-RP-T2"})
-        t1.refresh_from_db()
+        c, sess = _iam_console_client(admin, "suspend_account")
+        return c, sess, t1, t2
+
+    def _form(self, eid):
+        return {"action": "suspend_account", "target_employee_id": eid}
+
+    def test_step_up_granted_for_target_a_is_refused_for_target_b_at_first_use(self, db):
+        from tests.unit.test_iam_platform_complete import _bind_stepup
+
+        c, sess, t1, t2 = self._world()
+        _bind_stepup(c, sess, self._form("ST-RP-T1"))
+        url = "/iam/dashboard/"
+        resp = c.post(url, self._form("ST-RP-T2"), HTTP_HOST="iam.salowtech.com")
+        assert "/iam/stepup/" in resp.url
         t2.refresh_from_db()
-        assert t1.status == CustomUser.Status.SUSPENDED
         assert t2.status == CustomUser.Status.ACTIVE
+
+    def test_step_up_for_target_a_works_for_a_once_and_cannot_be_replayed(self, db):
+        from tests.unit.test_iam_platform_complete import _bind_stepup
+
+        c, sess, t1, t2 = self._world()
+        _bind_stepup(c, sess, self._form("ST-RP-T1"))
+        url = "/iam/dashboard/"
+        c.post(url, self._form("ST-RP-T1"), HTTP_HOST="iam.salowtech.com")
+        t1.refresh_from_db()
+        assert t1.status == CustomUser.Status.SUSPENDED
+        c.post(url, self._form("ST-RP-T2"), HTTP_HOST="iam.salowtech.com")
+        t2.refresh_from_db()
+        assert t2.status == CustomUser.Status.ACTIVE
+
+    def test_step_up_without_a_recorded_request_binds_nothing(self, db):
+        """A step-up taken without the console asking for it (no pending request) carries no
+        payload binding, so it authorises no mutation."""
+        c, sess, t1, t2 = self._world()
+        resp = c.post("/iam/dashboard/", self._form("ST-RP-T1"), HTTP_HOST="iam.salowtech.com")
+        assert "/iam/stepup/" in resp.url
+        t1.refresh_from_db()
+        assert t1.status == CustomUser.Status.ACTIVE

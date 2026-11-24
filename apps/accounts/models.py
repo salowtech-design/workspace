@@ -679,6 +679,11 @@ class IAMSession(models.Model):
     assurance_level = models.PositiveSmallIntegerField(default=1)  # 1 = L1, 2 = L2, 3 = L3
     stepup_action = models.CharField(max_length=128, blank=True, default="")
     stepup_expires_at = models.DateTimeField(null=True, blank=True)
+    # Payload binding: the step-up proves one exact (actor, action, canonical payload).
+    stepup_payload_digest = models.CharField(max_length=64, blank=True, default="")
+    # Set when the console demands a step-up; only a real step-up promotes it.
+    pending_action = models.CharField(max_length=128, blank=True, default="")
+    pending_payload_digest = models.CharField(max_length=64, blank=True, default="")
     ip_address = models.GenericIPAddressField(null=True, blank=True)
     user_agent = models.CharField(max_length=255, blank=True, default="")
     created_at = models.DateTimeField(auto_now_add=True)

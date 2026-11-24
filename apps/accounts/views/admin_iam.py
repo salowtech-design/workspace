@@ -34,6 +34,7 @@ from apps.accounts.auth.audit import log_auth_event
 from apps.accounts.auth.config import is_allowed_company_email
 from apps.accounts.auth.errors import AuthException
 from apps.accounts.auth.iam_auth import (
+    bound_stepup_digest,
     check_iam_assurance,
     compute_payload_digest,
     get_iam_session_from_request,
@@ -183,6 +184,7 @@ def enforce_mutation_assurance(
     required_level: int,
     payload: Any = None,
     consume_stepup: bool = True,
+    bind_payload: bool = True,
 ) -> Optional[Any]:
     """
     Enforces required IAM assurance level (L1, L2, L3) with canonical payload binding.
@@ -200,10 +202,25 @@ def enforce_mutation_assurance(
         return redirect(request.get_full_path())
 
     digest = compute_payload_digest(payload) if payload else None
-    if not check_iam_assurance(
+    form_payload = payload
+    if form_payload is None:
+        form_payload = {
+            k: request.POST.getlist(k)
+            for k in sorted(request.POST.keys())
+            if k not in ("csrfmiddlewaretoken", "tab")
+        }
+    bound = bound_stepup_digest(session, action_name, form_payload)
+    satisfied = check_iam_assurance(
         request, required_level=required_level, action_name=action_name, payload_digest=digest
-    ):
+    )
+    if satisfied and required_level == 2 and bind_payload and request.method == "POST":
+        # The step-up must have been granted for exactly this actor, action and payload.
+        satisfied = bool(session.stepup_payload_digest) and (session.stepup_payload_digest == bound)
+    if not satisfied:
         if required_level == 2:
+            session.pending_action = action_name
+            session.pending_payload_digest = bound
+            session.save(update_fields=["pending_action", "pending_payload_digest"])
             stepup_url = "/iam/stepup/"
             return redirect(f"{stepup_url}?action={action_name}&next={request.get_full_path()}")
         elif required_level == 3:
@@ -217,8 +234,16 @@ def enforce_mutation_assurance(
         # cannot be replayed against a different target.
         session.stepup_action = ""
         session.stepup_expires_at = None
+        session.stepup_payload_digest = ""
         session.assurance_level = 1
-        session.save(update_fields=["assurance_level", "stepup_action", "stepup_expires_at"])
+        session.save(
+            update_fields=[
+                "assurance_level",
+                "stepup_action",
+                "stepup_expires_at",
+                "stepup_payload_digest",
+            ]
+        )
     return None
 
 
@@ -520,6 +545,7 @@ def admin_iam_dashboard_view(request):  # noqa: C901
                 "approve_recovery",
                 required_level=2,
                 consume_stepup=False,
+                bind_payload=False,
                 payload={"request_id": str(request_id), "action": "approve_recovery"},
             )
             if redirect_resp:
@@ -566,6 +592,7 @@ def admin_iam_dashboard_view(request):  # noqa: C901
                 "reject_recovery",
                 required_level=2,
                 consume_stepup=False,
+                bind_payload=False,
                 payload={"request_id": str(request_id), "action": "reject_recovery"},
             )
             if redirect_resp:
