@@ -72,6 +72,14 @@ class Certificate(models.Model):
         related_name="revoked_certificates",
     )
     revocation_reason = models.TextField(blank=True)
+    # Linked reissue: the replacement points at the revoked certificate it supersedes.
+    supersedes = models.OneToOneField(
+        "self",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="reissued_as",
+    )
 
     created_at = models.DateTimeField(auto_now_add=True, db_index=True)
     updated_at = models.DateTimeField(auto_now=True)

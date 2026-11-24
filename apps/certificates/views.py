@@ -57,11 +57,26 @@ def certificate_issue_view(request):
     if not has_permission(request.user, PERM_CERTIFICATE_ISSUE):
         raise PermissionDenied("You do not have permission to issue certificates.")
 
+    old_uuid = request.POST.get("supersedes") or request.GET.get("reissue") or ""
+    old = None
+    if old_uuid:
+        try:
+            old = Certificate.objects.filter(uuid=old_uuid, is_revoked=True).first()
+        except (ValidationError, ValueError):
+            old = None
+
+    if old_uuid and old is None:
+        messages.error(
+            request, "That certificate cannot be reissued: it was not found or is not revoked."
+        )
+        return redirect("certificates:list")
+
     if request.method == "POST":
         form = CertificateIssueForm(request.POST)
         if form.is_valid():
             try:
                 cert = issue_certificate(
+                    supersedes=old,
                     recipient=form.cleaned_data["recipient"],
                     title=form.cleaned_data["title"],
                     description=form.cleaned_data["description"],
@@ -79,9 +94,19 @@ def certificate_issue_view(request):
             except ValidationError as err:
                 messages.error(request, str(err))
     else:
-        form = CertificateIssueForm()
+        initial = {}
+        if old:
+            initial = {
+                "recipient": old.recipient_id,
+                "template": old.template_id,
+                "title": old.title,
+                "recipient_role": old.recipient_role,
+                "description": old.description,
+                "expiry_date": old.expiry_date,
+            }
+        form = CertificateIssueForm(initial=initial)
 
-    return render(request, "certificates/issue.html", {"form": form})
+    return render(request, "certificates/issue.html", {"form": form, "reissue_of": old})
 
 
 @login_required

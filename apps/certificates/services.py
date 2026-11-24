@@ -64,10 +64,23 @@ def issue_certificate(
     recipient_role: str = "",
     issue_date: Optional[date] = None,
     expiry_date: Optional[date] = None,
+    supersedes: Optional[Certificate] = None,
 ) -> Certificate:
-    """Issue official certificate with cryptographic verification hash."""
+    """Issue official certificate with cryptographic verification hash.
+
+    ``supersedes`` links a reissue to the revoked certificate it replaces. The old
+    certificate must already be revoked, belong to the same recipient and not have been
+    replaced before.
+    """
     if not has_permission(issued_by, PERM_CERTIFICATE_ISSUE):
         raise PermissionDenied("User does not have permission to issue certificates.")
+    if supersedes is not None:
+        if not supersedes.is_revoked:
+            raise ValidationError("Only a revoked certificate can be reissued. Revoke it first.")
+        if supersedes.recipient_id != recipient.id:
+            raise ValidationError("A reissue must go to the same recipient as the revoked one.")
+        if Certificate.objects.filter(supersedes=supersedes).exists():
+            raise ValidationError("This certificate has already been reissued.")
 
     if not title or not title.strip():
         raise ValidationError("Certificate title is required.")
@@ -111,6 +124,7 @@ def issue_certificate(
             issued_by=issued_by,
             verification_hash=v_hash,
             is_revoked=False,
+            supersedes=supersedes,
         )
 
         record_audit_event(
@@ -124,6 +138,7 @@ def issue_certificate(
                 "title": cert.title,
                 "serial_number": cert.serial_number,
                 "verification_hash": cert.verification_hash,
+                "supersedes_serial": supersedes.serial_number if supersedes else "",
             },
         )
 

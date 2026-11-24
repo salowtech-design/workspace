@@ -14,6 +14,10 @@
   <div class="card s-21ced7e8">
     <form method="post">
       {% csrf_token %}
+      {% if reissue_of %}
+      <input type="hidden" name="supersedes" value="{{ reissue_of.uuid }}">
+      <div class="alert alert-info">Reissuing {{ reissue_of.serial_number }} (revoked). The new certificate will be linked to it.</div>
+      {% endif %}
 
       <div class="form-group">
         <label class="form-label">Recipient Employee *</label>

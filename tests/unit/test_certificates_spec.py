@@ -500,3 +500,113 @@ class TestCertificateRevokeNeedsSudo:
         self._call(admin_user, cert, sudo=True)
         cert.refresh_from_db()
         assert cert.is_revoked is True and cert.revoked_by == admin_user
+
+
+@pytest.mark.django_db
+class TestCertificateLinkedReissue:
+    def _revoked(self, recipient_user, admin_user):
+        cert = issue_certificate(
+            recipient=recipient_user, title="Original", description="Citation", issued_by=admin_user
+        )
+        return revoke_certificate(certificate=cert, revoked_by=admin_user, reason="Wrong name")
+
+    def test_reissue_links_to_the_revoked_certificate_once(self, recipient_user, admin_user):
+        old = self._revoked(recipient_user, admin_user)
+        new = issue_certificate(
+            recipient=recipient_user,
+            title="Original",
+            description="Citation",
+            issued_by=admin_user,
+            supersedes=old,
+        )
+        assert new.supersedes_id == old.id and old.reissued_as.id == new.id
+        assert new.serial_number != old.serial_number and not new.is_revoked
+        with pytest.raises(ValidationError):
+            issue_certificate(
+                recipient=recipient_user,
+                title="Again",
+                description="Citation",
+                issued_by=admin_user,
+                supersedes=old,
+            )
+
+    def test_cannot_supersede_a_live_certificate_or_another_recipients(
+        self, recipient_user, admin_user
+    ):
+        live = issue_certificate(
+            recipient=recipient_user, title="Live", description="Citation", issued_by=admin_user
+        )
+        with pytest.raises(ValidationError):
+            issue_certificate(
+                recipient=recipient_user,
+                title="X",
+                description="Citation",
+                issued_by=admin_user,
+                supersedes=live,
+            )
+        old = self._revoked(recipient_user, admin_user)
+        other = CustomUser.objects.create_user(
+            employee_id="ST-INT-7002",
+            full_name="Other",
+            password="ValidPassword123!",
+            role=CustomUser.Role.INTERN,
+            status=CustomUser.Status.ACTIVE,
+        )
+        with pytest.raises(ValidationError):
+            issue_certificate(
+                recipient=other,
+                title="X",
+                description="Citation",
+                issued_by=admin_user,
+                supersedes=old,
+            )
+
+    def _rf(self, method, path, user, data=None):
+        from django.contrib.messages.storage.fallback import FallbackStorage
+
+        rf = getattr(RequestFactory(), method)(path, data or {})
+        rf.user = user
+        rf.session = {}
+        rf._messages = FallbackStorage(rf)
+        return rf
+
+    def test_issue_page_reissue_flow_links_and_view_shows_replacement(
+        self, recipient_user, admin_user
+    ):
+        from apps.certificates.models import Certificate
+        from apps.certificates.views import certificate_issue_view, certificate_view
+
+        old = self._revoked(recipient_user, admin_user)
+        page = certificate_issue_view(
+            self._rf("get", f"/certificates/issue/?reissue={old.uuid}", admin_user)
+        )
+        assert page.status_code == 200 and b'name="supersedes"' in page.content
+        resp = certificate_issue_view(
+            self._rf(
+                "post",
+                "/certificates/issue/",
+                admin_user,
+                {
+                    "supersedes": str(old.uuid),
+                    "recipient": recipient_user.id,
+                    "title": "Original",
+                    "recipient_role": "Intern",
+                    "description": "Citation",
+                    "issue_date": "2026-11-24",
+                },
+            )
+        )
+        assert resp.status_code == 302
+        new = Certificate.objects.get(supersedes=old)
+        old_page = certificate_view(self._rf("get", "/x/", admin_user), old.uuid)
+        assert new.serial_number.encode() in old_page.content
+        before = Certificate.objects.count()
+        bad = certificate_issue_view(
+            self._rf(
+                "post",
+                "/certificates/issue/",
+                admin_user,
+                {"supersedes": str(new.uuid), "recipient": recipient_user.id, "title": "T"},
+            )
+        )
+        assert bad.status_code == 302 and Certificate.objects.count() == before

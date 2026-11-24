@@ -59,7 +59,13 @@
   <strong>ATTENTION: THIS CERTIFICATE HAS BEEN REVOKED</strong><br>
   Revoked on {{ cert.revoked_at|date:"F d, Y H:i" }} by {{ cert.revoked_by.full_name|default:"Administrator" }}.<br>
   Reason: {{ cert.revocation_reason }}
+  {% if cert.reissued_as %}<br>Replaced by <a href="{% url 'certificates:view' cert.reissued_as.uuid %}">{{ cert.reissued_as.serial_number }}</a>.
+  {% elif can_manage %}<br><a href="{% url 'certificates:issue' %}?reissue={{ cert.uuid }}">Reissue this certificate</a>
+  {% endif %}
 </div>
+{% endif %}
+{% if cert.supersedes and not cert.is_revoked and can_manage %}
+<div class="alert alert-info">This certificate replaces {{ cert.supersedes.serial_number }} (revoked).</div>
 {% endif %}
 
 <!-- Certificate Canvas -->
