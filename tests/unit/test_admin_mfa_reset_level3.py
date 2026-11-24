@@ -98,3 +98,62 @@ def test_employee_target_still_single_step():
         == 1
     )
     assert not IAMDualApprovalRequest.objects.filter(target_id=emp.employee_id).exists()
+
+
+def _mk(eid, role):
+    return CustomUser.objects.create_user(
+        employee_id=eid,
+        full_name=eid,
+        email=f"{eid.lower()}@salowtech.com",
+        password="Xx-pass-2026!ab",
+        role=role,
+        status=CustomUser.Status.ACTIVE,
+        is_active=True,
+    )
+
+
+def test_admin_target_second_approver_may_be_an_admin_per_recovery_policy():
+    a1 = _mk("ST-MRL3-A1", CustomUser.Role.ADMIN)
+    a2 = _mk("ST-MRL3-A2", CustomUser.Role.ADMIN)
+    target = _mk("ST-MRL3-T1", CustomUser.Role.ADMIN)
+    c1, s1 = _iam_console_client(a1, "issue_mfa_reset")
+    c2, s2 = _iam_console_client(a2, "issue_mfa_reset")
+    _submit(c1, s1, target.employee_id)
+    req = IAMDualApprovalRequest.objects.get(target_id=target.employee_id)
+    data = {"action": "approve_dual_request", "request_id": str(req.request_id)}
+    _bind_stepup(c2, s2, data, action=req.action)
+    c2.post("/iam/dashboard/", data, HTTP_HOST=HOST)
+    req.refresh_from_db()
+    assert req.status == IAMDualApprovalRequest.Status.APPROVED
+    assert not ActivationCode.objects.filter(user=target).exists()
+    _submit(c1, s1, target.employee_id)
+    assert ActivationCode.objects.filter(user=target).count() == 1
+
+
+def test_super_admin_target_still_needs_a_super_admin_approver():
+    sa = _mk("ST-MRL3-S1", CustomUser.Role.SUPER_ADMIN)
+    _mk("ST-MRL3-S3", CustomUser.Role.SUPER_ADMIN)
+    adm = _mk("ST-MRL3-A3", CustomUser.Role.ADMIN)
+    target = _mk("ST-MRL3-T2", CustomUser.Role.SUPER_ADMIN)
+    c1, s1 = _iam_console_client(sa, "issue_mfa_reset")
+    c2, s2 = _iam_console_client(adm, "issue_mfa_reset")
+    _submit(c1, s1, target.employee_id)
+    req = IAMDualApprovalRequest.objects.get(target_id=target.employee_id)
+    data = {"action": "approve_dual_request", "request_id": str(req.request_id)}
+    # An Admin is refused before any step-up is offered for a Super Admin target
+    c2.post("/iam/dashboard/", data, HTTP_HOST=HOST)
+    req.refresh_from_db()
+    assert req.status == IAMDualApprovalRequest.Status.PENDING
+
+
+def test_other_level3_actions_still_need_a_super_admin_decider():
+    from apps.accounts.models import IAMAdminIdentity
+    from apps.accounts.views.admin_iam import _l3_deciders
+
+    adm_target = _mk("ST-MRL3-T3", CustomUser.Role.ADMIN)
+    sup = (IAMAdminIdentity.Role.SUPER_ADMIN,)
+    assert _l3_deciders("change_role", adm_target.employee_id) == sup
+    assert _l3_deciders("issue_mfa_reset", "ST-NOPE") == sup
+    assert IAMAdminIdentity.Role.ADMIN in _l3_deciders("issue_mfa_reset", adm_target.employee_id)
+    emp = _mk("ST-MRL3-E1", CustomUser.Role.EMPLOYEE)
+    assert _l3_deciders("issue_mfa_reset", emp.employee_id) == sup

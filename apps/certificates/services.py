@@ -324,7 +324,9 @@ def generate_certificate_svg(cert: Certificate, base_url: str = "") -> str:  # n
     import textwrap
 
     emblem = _emblem_data_uri()
-    verify_path = f"/verify/{cert.serial_number}"
+    from django.urls import reverse
+
+    verify_path = reverse("public_verify_id", args=[cert.serial_number])
     qr = _qr_data_uri((base_url.rstrip("/") + verify_path) if base_url else verify_path)
     revoked = ""
     if cert.is_revoked:

@@ -216,6 +216,21 @@ def _clear_stepup(session) -> None:
     )
 
 
+def _l3_deciders(action_name: str, target_id: str) -> tuple:
+    """Roles that may decide a Level 3 request. Super Administrators for every action, except an
+    MFA reset of an Admin account: recovery policy (check_recovery_authority and the recovery
+    portal) lets an Admin or a Super Admin be the second approver there. A Super Admin target
+    needs a Super Admin."""
+    from apps.accounts.models import IAMAdminIdentity
+
+    roles = (IAMAdminIdentity.Role.SUPER_ADMIN,)
+    if action_name == "issue_mfa_reset":
+        target = CustomUser.objects.filter(employee_id=target_id).first()
+        if target and target.role == CustomUser.Role.ADMIN:
+            roles = (IAMAdminIdentity.Role.SUPER_ADMIN, IAMAdminIdentity.Role.ADMIN)
+    return roles
+
+
 def _level3_gate(request, session, action_name: str, payload: Any, bound: str):
     """Level 3: the requester holds a payload-bound Level 2; a DIFFERENT Super Admin must approve
     the identical request with their own fresh Level 2; the approval is consumed atomically
@@ -243,7 +258,11 @@ def _level3_gate(request, session, action_name: str, payload: Any, bound: str):
     if approved:
         try:
             consume_dual_approval_request(
-                approved.request_id, action_name, target_id, expected_payload_digest=bound
+                approved.request_id,
+                action_name,
+                target_id,
+                expected_payload_digest=bound,
+                allowed_roles=_l3_deciders(action_name, target_id),
             )
         except (AuthException, PermissionDenied) as exc:
             messages.error(request, str(exc))
@@ -606,7 +625,8 @@ def admin_iam_dashboard_view(request):  # noqa: C901
             else:
                 try:
                     # An Admin or Super Admin target needs a second administrator: Level 3
-                    # (a different Super Administrator approves under "15. Level 3 Approvals",
+                    # (a different Super Administrator, or for an Admin target an Admin, approves under
+                    # "15. Level 3 Approvals",
                     # then the same request is submitted again to issue the code).
                     two_person = target_user.role in (
                         CustomUser.Role.ADMIN,
@@ -832,8 +852,12 @@ def admin_iam_dashboard_view(request):  # noqa: C901
                 ).first()
             except (ValueError, ValidationError):
                 dual = None
-            if actor.role != CustomUser.Role.SUPER_ADMIN or not iam_session:
-                messages.error(request, "Only Super Administrators can decide Level 3 approvals.")
+            deciders = _l3_deciders(dual.action, dual.target_id) if dual else ()
+            if not iam_session or not iam_admin or (dual and iam_admin.role not in deciders):
+                messages.error(
+                    request,
+                    "You are not permitted to decide this Level 3 approval.",
+                )
             elif not dual or dual.expires_at <= timezone.now():
                 messages.error(request, "That approval request is not pending or has expired.")
             elif iam_admin and dual.requester_id == iam_admin.id:
@@ -854,7 +878,9 @@ def admin_iam_dashboard_view(request):  # noqa: C901
                     messages.success(request, "Level 3 request rejected.")
                 else:
                     try:
-                        approve_dual_approval_request(iam_session, dual.request_id)
+                        approve_dual_approval_request(
+                            iam_session, dual.request_id, allowed_roles=deciders
+                        )
                         messages.success(
                             request,
                             "Approved. The requesting Super Administrator can now submit the "
@@ -1205,11 +1231,15 @@ def admin_iam_dashboard_view(request):  # noqa: C901
 
     pending_dual_requests = []
     if active_tab == "l3_approvals" and iam_admin:
-        pending_dual_requests = list(
-            _Dual.objects.filter(status=_Dual.Status.PENDING, expires_at__gt=timezone.now())
+        pending_dual_requests = [
+            d
+            for d in _Dual.objects.filter(
+                status=_Dual.Status.PENDING, expires_at__gt=timezone.now()
+            )
             .exclude(requester=iam_admin)
             .select_related("requester")[:50]
-        )
+            if iam_admin.role in _l3_deciders(d.action, d.target_id)
+        ]
 
     context = {
         "pending_dual_requests": pending_dual_requests,
