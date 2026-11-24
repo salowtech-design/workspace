@@ -8,7 +8,7 @@
   body {
     background-color: #FFFFFF !important;
   }
-  .sidebar, .topbar, .actions-bar, .revoke-section {
+  .sidebar, .topbar, .actions-bar, .revoke-section, .alert {
     display: none !important;
   }
   .main-content {
@@ -24,28 +24,91 @@
 }
 
 .certificate-frame {
-  background-color: #FFFBE9;
-  border: 4px solid #AD8B73;
-  border-radius: 8px;
   position: relative;
-  padding: 40px;
+  aspect-ratio: 297 / 210;
+  width: 100%;
+  max-width: 1123px;
+  margin: 0 auto var(--space-6);
+  background: #FFFFFF;
+  border: 3px solid #AD8B73;
+  border-radius: 22px;
   box-shadow: 0 4px 16px rgba(42, 36, 31, 0.08);
-  margin-bottom: var(--space-6);
+  color: #2A241F;
   text-align: center;
+  overflow: hidden;
+  container-type: inline-size;
 }
-
-.certificate-inner-border {
-  border: 1.5px dashed #D1C9B4;
-  padding: 30px;
-  border-radius: 4px;
+.certificate-frame::before {
+  content: "";
+  position: absolute;
+  inset: 2.2%;
+  border: 1px solid #C9A584;
+  border-radius: 14px;
+  background:
+    repeating-linear-gradient(90deg, #C9A584 0 6px, transparent 6px 12px) top / 100% 2px no-repeat,
+    repeating-linear-gradient(90deg, #C9A584 0 6px, transparent 6px 12px) bottom / 100% 2px no-repeat;
+  pointer-events: none;
+}
+.cert-watermark {
+  position: absolute;
+  left: 50%; top: 52%;
+  width: 46%;
+  transform: translate(-50%, -50%);
+  opacity: 0.07;
+  pointer-events: none;
+}
+.cert-body {
+  position: relative;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 4.2% 7% 4%;
+  box-sizing: border-box;
+}
+.cert-emblem { width: 9%; min-width: 44px; }
+.cert-revoked { position: absolute; top: 3.2%; right: 4.5%; border: 2px solid #A12828; color: #A12828; font-weight: 800; letter-spacing: 0.12em; padding: 3px 10px; font-size: clamp(8px, 1.4cqw, 16px); transform: rotate(4deg); }
+.cert-brand { font-weight: 800; letter-spacing: 0.14em; font-size: clamp(11px, 2.1cqw, 24px); margin-top: 0.6%; }
+.cert-sub { letter-spacing: 0.2em; font-size: clamp(7px, 1.1cqw, 13px); color: #7A6652; margin-top: 0.4%; }
+.cert-heading {
+  font-family: "Old English Text MT", "UnifrakturCook", "Palatino Linotype", Georgia, serif;
+  font-weight: 700;
+  color: #7A2E2E;
+  font-size: clamp(20px, 5cqw, 58px);
+  line-height: 1.1;
+  margin-top: 2.2%;
+}
+.cert-rule { width: 22%; height: 2px; margin: 1% auto; background: linear-gradient(90deg, transparent, #AD8B73, transparent); }
+.cert-lead { font-size: clamp(9px, 1.5cqw, 17px); color: #5B4F44; margin-top: 1.4%; }
+.cert-name { font-size: clamp(18px, 4.2cqw, 48px); font-weight: 700; margin-top: 0.8%; border-bottom: 1.5px solid #2A241F; padding: 0 3% 0.4%; max-width: 100%; overflow-wrap: anywhere; }
+.cert-role { font-size: clamp(8px, 1.3cqw, 15px); color: #5B4F44; margin-top: 0.8%; }
+.cert-title { font-size: clamp(11px, 2.2cqw, 25px); font-weight: 700; margin-top: 1.6%; overflow-wrap: anywhere; }
+.cert-desc { font-size: clamp(8px, 1.3cqw, 15px); color: #4A4038; margin: 0.8% 6% 0; line-height: 1.5; overflow-wrap: anywhere; }
+.cert-foot { margin-top: auto; width: 100%; display: grid; grid-template-columns: 1fr auto 1fr; align-items: end; gap: 3%; }
+.cert-sign { font-size: clamp(7px, 1.2cqw, 14px); }
+.cert-sign .line { border-top: 1.5px solid #2A241F; padding-top: 4px; margin: 0 8%; }
+.cert-sign strong { display: block; font-size: clamp(8px, 1.4cqw, 16px); }
+.cert-qr { width: clamp(52px, 10cqw, 112px); background: #FFFFFF; padding: 2px; }
+.cert-qr svg { width: 100%; height: auto; display: block; }
+.cert-meta { margin-top: 1.4%; font-size: clamp(6px, 0.95cqw, 11px); color: #7A6652; word-break: break-all; }
+@media print {
+  @page { size: A4 landscape; margin: 0; }
+  .certificate-frame { width: 297mm !important; height: 210mm !important; max-width: none !important; aspect-ratio: auto; margin: 0 !important; border-radius: 0 !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
 }
 @media screen and (max-width: 640px) {
-  .certificate-frame { padding: 14px; }
-  .certificate-inner-border { padding: 14px; }
-  .certificate-frame div, .certificate-frame p { min-width: 0; overflow-wrap: anywhere; }
-  .certificate-frame .s-56e3ed94 { font-size: 24px !important; min-width: 0 !important; max-width: 100%; }
-  .certificate-frame .s-88520d96 { padding: 0 !important; gap: 8px; }
-  .certificate-frame .s-d2da38db { flex-direction: column; gap: 6px; }
+  .certificate-frame { border-radius: 12px; aspect-ratio: auto; }
+  .cert-body { padding: 8% 6% 6%; }
+  .cert-heading { font-size: 28px; }
+  .cert-name { font-size: 24px; }
+  .cert-title { font-size: 16px; }
+  .cert-lead, .cert-role, .cert-desc, .cert-sign { font-size: 12px; }
+  .cert-sign strong { font-size: 13px; }
+  .cert-meta { font-size: 10px; }
+  .cert-brand { font-size: 14px; }
+  .cert-sub { font-size: 9px; }
+  .cert-foot { margin-top: 24px; grid-template-columns: 1fr; justify-items: center; gap: 14px; }
+  .cert-sign { width: 100%; }
+  .cert-qr { width: 96px; order: -1; }
 }
 </style>
 {% endblock %}
@@ -78,59 +141,31 @@
 
 <!-- Certificate Canvas -->
 <div class="certificate-frame">
-  <div class="certificate-inner-border">
-    <div class="s-d3aff36c">
-      SALOW TECHNOLOGIES
-    </div>
-    <div class="s-969761e4">
-      OFFICIAL RECOGNITION CREDENTIAL
-    </div>
-
-    <div class="s-a7d83672">
-      {{ cert.title }}
-    </div>
-
-    <div class="s-2b76f75b">
-      This certificate is proudly presented to
-    </div>
-
-    <div class="s-56e3ed94">
-      {{ cert.recipient_name }}
-    </div>
-
-    <div class="s-a6e6b71d">
-      {{ cert.recipient_role }} &bull; Employee ID: {{ cert.recipient.employee_id }}
-    </div>
-
-    <p class="s-5034cc4c">
-      {{ cert.description }}
-    </p>
-
-    <!-- Signatures and Details -->
-    <div class="s-88520d96">
-      <div class="s-26cef2c5">
-        <div class="s-d881b9cd">Date of Issuance:</div>
-        <div class="s-cd0757e8">{{ cert.issue_date|date:"F d, Y" }}</div>
+  <img class="cert-watermark" src="/static/img/salowtech-emblem.png" alt="">
+  <div class="cert-body">
+    <img class="cert-emblem" src="/static/img/salowtech-emblem.png" alt="Salowtech emblem">
+    {% if cert.is_revoked %}<div class="cert-revoked">REVOKED{% if cert.revoked_at %} on {{ cert.revoked_at|date:"F d, Y" }}{% endif %}</div>{% endif %}
+    <div class="cert-brand">SALOWTECH</div>
+    <div class="cert-sub">OFFICIAL RECOGNITION CREDENTIAL</div>
+    <div class="cert-heading">Certificate of Recognition</div>
+    <div class="cert-rule"></div>
+    <div class="cert-lead">This is to certify that</div>
+    <div class="cert-name">{{ cert.recipient_name }}</div>
+    <div class="cert-role">{{ cert.recipient_role }} &bull; Employee ID: {{ cert.recipient.employee_id }}</div>
+    <div class="cert-title">{{ cert.title }}</div>
+    <p class="cert-desc">{{ cert.description }}</p>
+    <div class="cert-foot">
+      <div class="cert-sign">
+        <strong>{{ cert.issue_date|date:"F d, Y" }}</strong>
+        <div class="line">Date of Issuance</div>
       </div>
-
-      <!-- Seal -->
-      <div class="s-5725d835">
-        <span class="s-8b8ea46d">SALOW</span>
-        <span class="s-96e84d8a">VERIFIED</span>
-      </div>
-
-      <div class="s-13cbe03b">
-        <div class="s-d881b9cd">Authorized Signatory:</div>
-        <div class="s-cd0757e8">{{ cert.issued_by.full_name|default:"Executive Authority" }}</div>
+      <div class="cert-qr" title="Scan to verify">{{ qr_svg|safe }}</div>
+      <div class="cert-sign">
+        <strong>{{ cert.issued_by.full_name|default:"Executive Authority" }}</strong>
+        <div class="line">Authorized Signatory</div>
       </div>
     </div>
-
-    <!-- Security Footer -->
-    <div class="s-d2da38db">
-      <div>Serial: <strong>{{ cert.serial_number }}</strong></div>
-      <div>Hash: {{ cert.verification_hash|slice:":24" }}...</div>
-      <div>Verify at: <a href="{% url 'public_verify_id' cert.serial_number %}" target="_blank">/verify/{{ cert.serial_number }}</a></div>
-    </div>
+    <div class="cert-meta">Serial {{ cert.serial_number }} &bull; Hash {{ cert.verification_hash|slice:":24" }}... &bull; To verify, scan the QR code or open <a href="{% url 'public_verify_id' cert.serial_number %}" target="_blank">/verify/{{ cert.serial_number }}</a></div>
   </div>
 </div>
 

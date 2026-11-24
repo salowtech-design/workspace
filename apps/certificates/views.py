@@ -138,6 +138,16 @@ def certificate_revoke_view(request, cert_uuid):
     return redirect("certificates:list")
 
 
+def _verify_qr_svg(request, cert) -> str:
+    """Inline SVG QR code pointing at the public verification page for this certificate."""
+    import qrcode
+    import qrcode.image.svg
+
+    url = request.build_absolute_uri(reverse("public_verify_id", args=[cert.serial_number]))
+    img = qrcode.make(url, image_factory=qrcode.image.svg.SvgPathImage, box_size=10, border=1)
+    return img.to_string(encoding="unicode")
+
+
 @login_required
 def certificate_view(request, cert_uuid):
     """Display printable A4 certificate presentation view."""
@@ -155,6 +165,7 @@ def certificate_view(request, cert_uuid):
         "cert": cert,
         "revoke_form": revoke_form,
         "can_manage": can_manage,
+        "qr_svg": _verify_qr_svg(request, cert),
     }
     return render(request, "certificates/view.html", context)
 
