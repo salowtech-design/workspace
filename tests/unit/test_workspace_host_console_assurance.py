@@ -466,3 +466,55 @@ class TestProvisioningNeedsIamAuthorityAndValidRole:
         r = self._post(c, "PRVSA2", "super_admin")
         assert not CustomUser.objects.filter(employee_id="PRVSA2").exists()
         assert r.status_code == 302 and "/iam/stepup/" in r.url
+
+    def test_super_admin_creation_full_two_person_flow_then_single_use(self):
+        from apps.accounts.models import IAMDualApprovalRequest
+        from tests.unit.test_iam_platform_complete import _bind_stepup, _iam_console_client
+
+        u1, c1, s1 = self._sa()
+        u2 = CustomUser.objects.create_user(
+            employee_id="ST-PRV-SA2",
+            full_name="Prov SA2",
+            email="st-prv-sa2@salowtech.com",
+            password="Xx-pass-2026!ab",
+            role=CustomUser.Role.SUPER_ADMIN,
+            status=CustomUser.Status.ACTIVE,
+            is_active=True,
+        )
+        c2, s2 = _iam_console_client(u2, "create_employee")
+
+        def form(eid):
+            return {
+                "action": "create_employee",
+                "employee_id": eid,
+                "full_name": "Name " + eid,
+                "email": eid.lower() + "@salowtech.com",
+                "role": "super_admin",
+            }
+
+        # 1. requester steps up and submits: a request is created, nothing is provisioned
+        _bind_stepup(c1, s1, form("PRVSA9"))
+        c1.post("/iam/dashboard/", form("PRVSA9"), HTTP_HOST="iam.salowtech.com")
+        req = IAMDualApprovalRequest.objects.get(target_id="PRVSA9")
+        assert req.status == IAMDualApprovalRequest.Status.PENDING
+        assert not CustomUser.objects.filter(employee_id="PRVSA9").exists()
+        # 2. a different Super Admin approves with their own step-up
+        data = {"action": "approve_dual_request", "request_id": str(req.request_id)}
+        _bind_stepup(c2, s2, data, action="create_employee")
+        c2.post("/iam/dashboard/", data, HTTP_HOST="iam.salowtech.com")
+        req.refresh_from_db()
+        assert req.status == IAMDualApprovalRequest.Status.APPROVED
+        assert not CustomUser.objects.filter(employee_id="PRVSA9").exists()
+        # 3. a changed form (other email) does not use the approval
+        changed = form("PRVSA9")
+        changed["email"] = "someone.else@salowtech.com"
+        _bind_stepup(c1, s1, changed)
+        c1.post("/iam/dashboard/", changed, HTTP_HOST="iam.salowtech.com")
+        assert not CustomUser.objects.filter(employee_id="PRVSA9").exists()
+        # 4. the identical form executes once and consumes the approval
+        _bind_stepup(c1, s1, form("PRVSA9"))
+        c1.post("/iam/dashboard/", form("PRVSA9"), HTTP_HOST="iam.salowtech.com")
+        made = CustomUser.objects.get(employee_id="PRVSA9")
+        assert made.role == CustomUser.Role.SUPER_ADMIN
+        req.refresh_from_db()
+        assert req.status == IAMDualApprovalRequest.Status.CONSUMED
