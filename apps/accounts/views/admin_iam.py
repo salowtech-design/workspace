@@ -914,6 +914,14 @@ def admin_iam_dashboard_view(request):  # noqa: C901
             else:
                 _, created = TeamMembership.objects.get_or_create(user=target_user, team=team)
                 if created:
+                    log_auth_event(
+                        event="team_membership_added",
+                        code="INFO",
+                        step="admin_add_team_membership",
+                        employee_id=target_user.employee_id,
+                        actor_employee_id=actor.employee_id,
+                        message=f"Added to team {team.code} by {actor.employee_id} ({actor.role})",
+                    )
                     messages.success(
                         request, f"Assigned {target_user.employee_id} to team '{team.name}'."
                     )
@@ -1030,6 +1038,15 @@ def admin_iam_dashboard_view(request):  # noqa: C901
                         email_item.status = EmailOutbox.Status.QUEUED
                         email_item.retry_count = 0
                         email_item.save(update_fields=["status", "retry_count", "updated_at"])
+                        log_auth_event(
+                            event="outbox_email_requeued",
+                            code="INFO",
+                            step="admin_retry_outbox_item",
+                            employee_id="",
+                            actor_employee_id=actor.employee_id,
+                            reference_id=str(email_item.id),
+                            message=f"Email outbox item {email_item.id} requeued by {actor.employee_id} ({actor.role})",
+                        )
                         messages.success(
                             request, f"Email notification to {email_item.recipient} requeued."
                         )
@@ -1041,6 +1058,15 @@ def admin_iam_dashboard_view(request):  # noqa: C901
                     evt.status = OutboxEvent.Status.PENDING
                     evt.retry_count = 0
                     evt.save(update_fields=["status", "retry_count"])
+                    log_auth_event(
+                        event="outbox_event_requeued",
+                        code="INFO",
+                        step="admin_retry_outbox_item",
+                        employee_id="",
+                        actor_employee_id=actor.employee_id,
+                        reference_id=str(evt.event_id)[:64],
+                        message=f"Outbox event {str(evt.event_id)[:8]} requeued by {actor.employee_id} ({actor.role})",
+                    )
                     messages.success(request, f"Outbox event {evt.event_id[:8]} requeued.")
             return redirect(f"{request.path}?tab=delivery_ops")
 

@@ -243,6 +243,8 @@ class AuthEvent(models.Model):
     code = models.CharField(max_length=32, db_index=True)  # e.g., AUTH-ACT-001
     step = models.CharField(max_length=64)
     employee_id = models.CharField(max_length=32, db_index=True, blank=True)
+    # Who performed the action (employee_id above is the subject/target). Blank on legacy rows.
+    actor_employee_id = models.CharField(max_length=32, db_index=True, blank=True, default="")
     reference_id = models.CharField(max_length=64, db_index=True)
     network_address = models.GenericIPAddressField(null=True, blank=True)
     exception_class = models.CharField(max_length=128, blank=True)

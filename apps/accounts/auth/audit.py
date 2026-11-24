@@ -117,6 +117,7 @@ def log_auth_event(
     exception_class: str = "",
     message: str = "",
     duration_ms: float = 0.0,
+    actor_employee_id: str = "",
 ) -> AuthEvent:
     """Persist structured audit record to AuthEvent table."""
     # Sanitization: Ensure no sensitive codes or passwords appear in message
@@ -127,6 +128,7 @@ def log_auth_event(
     step = (step or "")[:64]
     event = (event or "")[:64]
     employee_id = (employee_id or "")[:32]
+    actor_employee_id = (actor_employee_id or "")[:32]
     reference_id = (reference_id or "")[:64]
     exception_class = (exception_class or "")[:128]
 
@@ -135,6 +137,7 @@ def log_auth_event(
         code=code,
         step=step,
         employee_id=employee_id,
+        actor_employee_id=actor_employee_id,
         reference_id=reference_id,
         network_address=network_address,
         exception_class=exception_class,
