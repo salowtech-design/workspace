@@ -759,3 +759,25 @@ class TestPrivilegedRecoveryConcurrentCompletion(
         req.refresh_from_db()
         assert req.approved_by_id == a.id
         assert req.second_approved_by_id in (b.id, c.id)
+
+
+def test_revoke_session_flash_does_not_print_the_full_session_key(iam_client):
+    client, admin = iam_client
+    other_request = type("R", (), {"META": {"REMOTE_ADDR": "10.0.0.9"}, "headers": {}})()
+    victim = create_iam_session(admin, other_request)
+    result = client.post(
+        reverse("iam:auth_control_action"),
+        {
+            "action_type": "revoke_session",
+            "domain": "iam",
+            "session_ref": victim.session_key,
+            "reason": "flash check",
+            "return_url": "/iam/sessions/",
+        },
+        HTTP_HOST=IAM_HOST,
+        follow=True,
+    )
+    body = result.content.decode()
+    assert "revoked successfully" in body
+    assert victim.session_key not in body
+    assert victim.session_key[:12] in body

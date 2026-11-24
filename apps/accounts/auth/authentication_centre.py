@@ -615,7 +615,10 @@ def execute_revoke_session(
         reference_id=session_ref,
         message=f"Session {session_ref} revoked by {actor_admin.admin_id}: {reason}",
     )
-    return {"status": "success", "message": f"Session '{session_ref}' revoked successfully."}
+    return {
+        "status": "success",
+        "message": f"Session '{str(session_ref)[:12]}...' revoked successfully.",
+    }
 
 
 def execute_revoke_device(

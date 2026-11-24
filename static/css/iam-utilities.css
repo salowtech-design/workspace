@@ -316,3 +316,6 @@ table{border-collapse:collapse}svg{max-width:100%}
 @media (min-width:640px){.sm\:px-6{padding-left:1.5rem;padding-right:1.5rem}}
 @media (min-width:768px){.md\:flex-row{flex-direction:row}.md\:grid-cols-2{grid-template-columns:repeat(2,minmax(0,1fr))}.md\:grid-cols-3{grid-template-columns:repeat(3,minmax(0,1fr))}.md\:grid-cols-4{grid-template-columns:repeat(4,minmax(0,1fr))}.md\:grid-cols-5{grid-template-columns:repeat(5,minmax(0,1fr))}.md\:items-center{align-items:center}.md\:justify-between{justify-content:space-between}}
 @media (min-width:1024px){.lg\:px-8{padding-left:2rem;padding-right:2rem}}
+.main-content .sessions-table th:last-child,.main-content .sessions-table td:last-child{position:sticky;right:0;background:#fff;box-shadow:-8px 0 8px -8px rgba(43,35,26,.25);z-index:1}
+.main-content .sessions-table th,.main-content .sessions-table td{padding-left:.6rem;padding-right:.6rem}
+.main-content .sessions-table > table{display:table;overflow:visible}
