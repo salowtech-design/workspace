@@ -693,3 +693,69 @@ class TestPrivilegedRecoveryNeedsTwoIndependentAdministrators:
         self._step_up(sb)
         self._post(cb, req.id)
         assert self._effects(req)[0] == "approved"
+
+    def test_first_admins_level2_must_still_be_fresh_when_second_completes(self, world):
+        from datetime import timedelta
+
+        from django.utils import timezone
+
+        from apps.accounts.models import IAMDualApprovalRequest
+
+        self._step_up(world["sa"])
+        self._post(world["ca"], world["req"].id)
+        # pending approval itself is still unexpired, but the first L2 is 6 minutes old
+        IAMDualApprovalRequest.objects.update(
+            requester_stepup_verified_at=timezone.now() - timedelta(minutes=6)
+        )
+        self._step_up(world["sb"])
+        self._post(world["cb"], world["req"].id)
+        assert self._effects(world["req"]) == ("pending", 0, 0)
+        row = IAMDualApprovalRequest.objects.get(status="expired")
+        assert row.approver_id is None
+
+
+@pytest.mark.django_db(transaction=True)
+class TestPrivilegedRecoveryConcurrentCompletion(
+    TestPrivilegedRecoveryNeedsTwoIndependentAdministrators
+):
+    """Two different Super Admins complete the same pending approval at the same instant:
+    exactly one wins (one token, one email, one completion audit event)."""
+
+    def test_two_concurrent_second_approvals_yield_one_token_and_one_email(self):
+        import threading
+
+        from django.db import connection
+
+        from apps.accounts.auth.reset import request_administrator_reset
+        from apps.accounts.models import AuthEvent, RecoveryRequest
+
+        if connection.vendor == "sqlite":
+            pytest.skip("row locks are only meaningful on the TiDB/MySQL backend")
+        a, b, c, target = (self._admin(21), self._admin(22), self._admin(23), self._admin(24))
+        ca, sa = self._session_client(a, 21)
+        cb, sb = self._session_client(b, 22)
+        cc, sc = self._session_client(c, 23)
+        request_administrator_reset(target.employee_id, "lost")
+        req = RecoveryRequest.objects.get(user=target)
+        self._step_up(sa)
+        self._post(ca, req.id)
+        self._step_up(sb)
+        self._step_up(sc)
+        barrier = threading.Barrier(2)
+
+        def go(client):
+            try:
+                barrier.wait(5)
+                self._post(client, req.id)
+            finally:
+                connection.close()
+
+        threads = [threading.Thread(target=go, args=(cl,)) for cl in (cb, cc)]
+        [t.start() for t in threads]
+        [t.join(30) for t in threads]
+        status, tokens, mails = self._effects(req)
+        assert (status, tokens, mails) == ("approved", 1, 1)
+        assert AuthEvent.objects.filter(event="admin_recovery_dual_completed").count() == 1
+        req.refresh_from_db()
+        assert req.approved_by_id == a.id
+        assert req.second_approved_by_id in (b.id, c.id)

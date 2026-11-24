@@ -5,6 +5,7 @@ HR and Manager delegated recovery for employees and interns within scope,
 and self-service recovery with one-time recovery codes and passkeys.
 """
 
+from datetime import timedelta
 from typing import Optional
 
 from django.core.exceptions import PermissionDenied, ValidationError
@@ -320,6 +321,9 @@ def approve_administrator_reset(
 
 
 DUAL_RECOVERY_ACTION = "approve_recovery"
+# Lifetime of one IAM Level 2 step-up (matches stepup_iam_assurance); the first
+# approver's Level 2 must still be inside it when the second approver completes.
+IAM_LEVEL2_TTL = timedelta(minutes=5)
 _PRIVILEGED_RECOVERY_ROLES = (CustomUser.Role.SUPER_ADMIN, CustomUser.Role.ADMIN)
 
 
@@ -394,6 +398,15 @@ def approve_privileged_recovery(request_id: int, session, base_url: str = ""):
         _check_privileged_recovery_role(actor, target)
         digest = compute_payload_digest(recovery_dual_payload(req))
         first = pending_dual_recovery(req)
+        if first is not None and (
+            first.requester_stepup_verified_at + IAM_LEVEL2_TTL <= timezone.now()
+        ):
+            # The first approver's own Level 2 has lapsed: that approval is stale.
+            from apps.accounts.models import IAMDualApprovalRequest
+
+            first.status = IAMDualApprovalRequest.Status.EXPIRED
+            first.save(update_fields=["status"])
+            first = None
         if first is None:
             create_dual_approval_request(
                 session, DUAL_RECOVERY_ACTION, str(req.id), req.reason or "recovery", digest
