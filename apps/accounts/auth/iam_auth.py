@@ -41,7 +41,15 @@ from apps.accounts.models import (
 
 IAM_ADMIN_MIN_PASSWORD_LENGTH = 16
 IAM_SESSION_COOKIE_NAME = getattr(settings, "IAM_SESSION_COOKIE_NAME", "__Host-salow_iam_session")
-IAM_SESSION_IDLE_TIMEOUT_MINUTES = 10
+IAM_SESSION_IDLE_TIMEOUT_MINUTES = 5
+# Background polling (live feeds, presence heartbeat) must not count as admin activity,
+# otherwise a dashboard left open in a browser would never reach the idle timeout.
+IAM_PASSIVE_PATH_PREFIXES = (
+    "/console/heartbeat",
+    "/console/authentication/live-feed",
+    "/console/authentication/presence-feed",
+    "/security/events",
+)
 IAM_SESSION_ABSOLUTE_TIMEOUT_HOURS = 8
 
 
@@ -266,7 +274,8 @@ def create_iam_session(
 def get_iam_session_from_request(request) -> Optional[IAMSession]:
     """
     Resolves the authoritative IAMSession from the dedicated IAM cookie (__Host-salow_iam_session).
-    Enforces idle expiry (10 min) and absolute expiry (8 hours).
+    Enforces idle expiry (IAM_SESSION_IDLE_TIMEOUT_MINUTES, 5 min) and absolute expiry (8 hours).
+    Idle time is reset only by real requests, not by background polling paths.
     Resolves session via keyed HMAC-SHA256 digest lookup.
     """
     cookie_name = IAM_SESSION_COOKIE_NAME
@@ -289,13 +298,13 @@ def get_iam_session_from_request(request) -> Optional[IAMSession]:
         return None
 
     now = timezone.now()
-    # 1. Idle expiry check (30 minutes)
+    # 1. Idle expiry check (inactivity since the last real request)
     if session.last_activity and now - session.last_activity > timedelta(minutes=IAM_SESSION_IDLE_TIMEOUT_MINUTES):
         session.is_active = False
         session.save(update_fields=["is_active"])
         return None
 
-    # 2. Absolute expiry check (12 hours)
+    # 2. Absolute expiry check (hours since sign-in, independent of activity)
     if session.created_at and now - session.created_at > timedelta(hours=IAM_SESSION_ABSOLUTE_TIMEOUT_HOURS):
         session.is_active = False
         session.save(update_fields=["is_active"])
@@ -312,9 +321,10 @@ def get_iam_session_from_request(request) -> Optional[IAMSession]:
         return None
 
 
-    # Update last activity
-    session.last_activity = now
-    session.save(update_fields=["last_activity"])
+    # Update last activity, except for background polling requests
+    if not request.path.startswith(IAM_PASSIVE_PATH_PREFIXES):
+        session.last_activity = now
+        session.save(update_fields=["last_activity"])
     return session
 
 

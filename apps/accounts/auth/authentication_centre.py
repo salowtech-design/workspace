@@ -421,7 +421,7 @@ def get_active_policy(domain: str) -> AuthenticationPolicy:
                 failed_login_threshold=3,
                 lockout_window_minutes=15,
                 lockout_duration_minutes=15,
-                idle_session_timeout_minutes=10,
+                idle_session_timeout_minutes=5,
                 absolute_session_timeout_hours=8,
                 mfa_required=True,
                 device_approval_required=False,
