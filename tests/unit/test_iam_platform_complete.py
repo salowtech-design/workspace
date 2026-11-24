@@ -305,6 +305,9 @@ def test_workspace_admin_panel_review_fallback_action(client, test_users):
     """Ordinary Workspace Admin Panel can approve/reject attendance fallback requests."""
     client.force_login(test_users["manager"])
     emp = test_users["employee"]
+    from apps.directory.models import ReportingRelationship
+
+    ReportingRelationship.objects.create(manager=test_users["manager"], subordinate=emp)
     req = AttendanceFallbackRequest.objects.create(
         user=emp,
         request_type=AttendanceFallbackRequest.RequestType.CHECK_IN,
