@@ -370,3 +370,35 @@ class TestIamStepupRotatesSessionAndKeepsNextLocal:
         c, sess, secret, name = self._login()
         resp = self._step(c, secret, next="https://evil.example/steal")
         assert resp.status_code == 302 and "evil.example" not in resp.url
+
+    def test_iam_login_next_must_stay_on_the_iam_host(self):
+        from django.test import Client
+
+        from apps.accounts.auth.iam_auth import create_iam_admin_identity
+
+        u = CustomUser.objects.create_user(
+            employee_id="ST-ROT-SA2",
+            full_name="Rot2",
+            email="st-rot2@salowtech.com",
+            password="Xx-pass-2026!ab",
+            role=CustomUser.Role.SUPER_ADMIN,
+            status=CustomUser.Status.ACTIVE,
+            is_active=True,
+        )
+        _admin, secret = create_iam_admin_identity(
+            user=u, admin_id="IAM-ROT-0002", password=self.PASSWORD, role="super_admin"
+        )
+        import time
+
+        import pyotp
+
+        resp = Client().post(
+            "/iam/login/?next=https://evil.example/x",
+            {
+                "admin_id": "IAM-ROT-0002",
+                "password": self.PASSWORD,
+                "totp_code": pyotp.TOTP(secret).at(time.time()),
+            },
+            HTTP_HOST="iam.salowtech.com",
+        )
+        assert resp.status_code == 302 and "evil.example" not in resp.url

@@ -109,6 +109,10 @@ def iam_login_view(request):  # noqa: C901 (refactor deferred, behavior covered 
                     )
 
                 next_url = request.GET.get("next") or reverse("iam:dashboard")
+                if not url_has_allowed_host_and_scheme(
+                    next_url, allowed_hosts={request.get_host()}, require_https=request.is_secure()
+                ):
+                    next_url = reverse("iam:dashboard")
 
                 response = redirect(next_url)
                 # Set host-only IAM session cookie (__Host-salow_iam_session)

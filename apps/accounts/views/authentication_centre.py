@@ -22,6 +22,7 @@ from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils import timezone
+from django.utils.http import url_has_allowed_host_and_scheme
 from django.views.decorators.http import require_POST
 
 from apps.accounts.auth.authentication_centre import (
@@ -591,6 +592,10 @@ def iam_sign_in_canonical_view(request):
                 )
 
                 next_url = request.GET.get("next") or reverse("iam:auth_landing")
+                if not url_has_allowed_host_and_scheme(
+                    next_url, allowed_hosts={request.get_host()}, require_https=request.is_secure()
+                ):
+                    next_url = reverse("iam:auth_landing")
                 response = redirect(next_url)
 
                 cookie_name = IAM_SESSION_COOKIE_NAME
