@@ -885,6 +885,18 @@ def admin_iam_dashboard_view(request):  # noqa: C901
                 if action == "reject_dual_request":
                     dual.status = IAMDualApprovalRequest.Status.REJECTED
                     dual.save(update_fields=["status"])
+                    log_auth_event(
+                        event="iam_dual_approval_rejected",
+                        code="INFO",
+                        step="dual_approval",
+                        employee_id=actor.employee_id,
+                        actor_employee_id=actor.employee_id,
+                        reference_id=str(dual.request_id),
+                        message=(
+                            f"Level 3 request for [{dual.action}] on [{dual.target_id}] "
+                            f"rejected by {iam_admin.admin_id}{_via_iam_admin(request)}"
+                        ),
+                    )
                     messages.success(request, "Level 3 request rejected.")
                 else:
                     try:

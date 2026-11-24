@@ -28,3 +28,24 @@ def test_level3_request_and_approval_record_their_actors():
     granted = AuthEvent.objects.filter(event="iam_dual_approval_granted").first()
     assert requested and requested.actor_employee_id == a.employee_id
     assert granted and granted.actor_employee_id == b.employee_id
+
+
+def test_level3_rejection_is_audited_with_its_actor():
+    a = _mk("ST-ACT-J1", CustomUser.Role.SUPER_ADMIN)
+    b = _mk("ST-ACT-J2", CustomUser.Role.SUPER_ADMIN)
+    t = _mk("ST-ACT-JT", CustomUser.Role.ADMIN)
+    c1, s1 = _iam_console_client(a, "issue_mfa_reset")
+    c2, s2 = _iam_console_client(b, "issue_mfa_reset")
+    data = _form(t.employee_id)
+    _bind_stepup(c1, s1, data)
+    c1.post("/iam/dashboard/", data, HTTP_HOST=HOST)
+    from apps.accounts.models import IAMDualApprovalRequest
+
+    req = IAMDualApprovalRequest.objects.get(target_id=t.employee_id)
+    d2 = {"action": "reject_dual_request", "request_id": str(req.request_id)}
+    _bind_stepup(c2, s2, d2, action=req.action)
+    c2.post("/iam/dashboard/", d2, HTTP_HOST=HOST)
+    req.refresh_from_db()
+    assert req.status == IAMDualApprovalRequest.Status.REJECTED
+    ev = AuthEvent.objects.filter(event="iam_dual_approval_rejected").first()
+    assert ev and ev.actor_employee_id == b.employee_id and str(req.request_id) == ev.reference_id
