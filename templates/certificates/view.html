@@ -35,7 +35,6 @@
   box-shadow: 0 4px 16px rgba(42, 36, 31, 0.08);
   color: #2A241F;
   text-align: center;
-  overflow: hidden;
   container-type: inline-size;
 }
 .certificate-frame::before {
@@ -58,8 +57,9 @@
   pointer-events: none;
 }
 .cert-body {
+  line-height: 1.3;
   position: relative;
-  height: 100%;
+  min-height: 100%;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -80,7 +80,7 @@
 }
 .cert-rule { width: 22%; height: 2px; margin: 1% auto; background: linear-gradient(90deg, transparent, #AD8B73, transparent); }
 .cert-lead { font-size: clamp(9px, 1.5cqw, 17px); color: #5B4F44; margin-top: 1.4%; }
-.cert-name { font-size: clamp(18px, 4.2cqw, 48px); font-weight: 700; margin-top: 0.8%; border-bottom: 1.5px solid #2A241F; padding: 0 3% 0.4%; max-width: 100%; overflow-wrap: anywhere; }
+.cert-name { line-height: 1.2; font-size: clamp(16px, 3.6cqw, 42px); font-weight: 700; margin-top: 0.8%; border-bottom: 1.5px solid #2A241F; padding: 0 3% 0.4%; max-width: 100%; overflow-wrap: anywhere; }
 .cert-role { font-size: clamp(8px, 1.3cqw, 15px); color: #5B4F44; margin-top: 0.8%; }
 .cert-title { font-size: clamp(11px, 2.2cqw, 25px); font-weight: 700; margin-top: 1.6%; overflow-wrap: anywhere; }
 .cert-desc { font-size: clamp(8px, 1.3cqw, 15px); color: #4A4038; margin: 0.8% 6% 0; line-height: 1.5; overflow-wrap: anywhere; }
@@ -90,7 +90,9 @@
 .cert-sign strong { display: block; font-size: clamp(8px, 1.4cqw, 16px); }
 .cert-qr { width: clamp(52px, 10cqw, 112px); background: #FFFFFF; padding: 2px; }
 .cert-qr svg { width: 100%; height: auto; display: block; }
-.cert-meta { margin-top: 1.4%; font-size: clamp(6px, 0.95cqw, 11px); color: #7A6652; word-break: break-all; }
+.cert-meta { display: flex; flex-wrap: wrap; justify-content: center; gap: 0 14px; margin-top: 1.2%; line-height: 1.45; font-size: clamp(6px, 0.95cqw, 11px); color: #7A6652; word-break: break-all; }
+.actions-bar { flex-shrink: 0; white-space: nowrap; }
+.revoke-section textarea, .revoke-section .form-control { width: 100%; max-width: 100%; box-sizing: border-box; }
 @media print {
   @page { size: A4 landscape; margin: 0; }
   .certificate-frame { width: 297mm !important; height: 210mm !important; max-width: none !important; aspect-ratio: auto; margin: 0 !important; border-radius: 0 !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
@@ -99,7 +101,7 @@
   .certificate-frame { border-radius: 12px; aspect-ratio: auto; }
   .cert-body { padding: 8% 6% 6%; }
   .cert-heading { font-size: 28px; }
-  .cert-name { font-size: 24px; }
+  .cert-name { font-size: 22px; }
   .cert-title { font-size: 16px; }
   .cert-lead, .cert-role, .cert-desc, .cert-sign { font-size: 12px; }
   .cert-sign strong { font-size: 13px; }
@@ -165,7 +167,11 @@
         <div class="line">Authorized Signatory</div>
       </div>
     </div>
-    <div class="cert-meta">Serial {{ cert.serial_number }} &bull; Hash {{ cert.verification_hash|slice:":24" }}... &bull; To verify, scan the QR code or open <a href="{% url 'public_verify_id' cert.serial_number %}" target="_blank">/verify/{{ cert.serial_number }}</a></div>
+    <div class="cert-meta">
+      <div>Serial <strong>{{ cert.serial_number }}</strong></div>
+      <div>Hash {{ cert.verification_hash|slice:":24" }}...</div>
+      <div>To verify, scan the QR code or open <a href="{% url 'public_verify_id' cert.serial_number %}" target="_blank">/verify/{{ cert.serial_number }}</a></div>
+    </div>
   </div>
 </div>
 
