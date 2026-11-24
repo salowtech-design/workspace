@@ -16,7 +16,7 @@ from apps.accounts.auth.iam_auth import (
     create_iam_session,
     get_iam_session_from_request,
 )
-from apps.accounts.models import CustomUser, IAMAdminIdentity, IAMSession
+from apps.accounts.models import AuthEvent, CustomUser, IAMAdminIdentity, IAMSession
 
 
 @pytest.fixture
@@ -365,7 +365,15 @@ def test_every_event_name_the_code_emits_has_a_domain():
         if "tests" in f.parts or "migrations" in f.parts:
             continue
         names.update(re.findall(r'event="([a-zA-Z0-9_.]+)"', f.read_text()))
-    missing = sorted(n for n in names if domain_of(n) == "unclassified")
+    from apps.accounts.auth.live_events import is_transaction_event
+
+    # Transaction events (auth.requested, auth.terminal.*) take their domain from the
+    # transaction row, so give them one here; every other name must classify by itself.
+    missing = sorted(
+        n
+        for n in names
+        if domain_of(n, "iam" if is_transaction_event(n) else None) == "unclassified"
+    )
     assert not missing, f"unclassified event names: {missing}"
 
 
@@ -444,3 +452,39 @@ def test_break_glass_reason_and_ticket_text_is_never_forwarded(session_and_token
     rows = ic.get("/iam/live-events/?limit=100").json()["events"]
     row = next(r for r in rows if r["event"] == "break_glass_activated")
     assert row["message"] == "" and "hunter2" not in str(rows)
+
+
+def test_transaction_events_take_the_transaction_domain(db):
+    from apps.accounts.auth.live_events import read_events, reset_snapshot
+    from apps.accounts.models import AuthenticationTransaction as T
+
+    for tid, dom in (("TX-IAM-1", "iam"), ("TX-WS-1", "workspace")):
+        T.objects.create(
+            transaction_id=tid,
+            correlation_id=tid + "-c",
+            domain=dom,
+            stage="started",
+            outcome="pending",
+            flow_id="f",
+            reason_category="r",
+            policy_version=1,
+            hasher_algorithm="argon2",
+            stages=[],
+        )
+        AuthEvent.objects.create(
+            event="auth.terminal.success", code="INFO", step="f", reference_id=tid, employee_id="X"
+        )
+    AuthEvent.objects.create(
+        event="auth.terminal.success",
+        code="INFO",
+        step="f",
+        reference_id="TX-GONE",
+        employee_id="X",
+    )
+    reset_snapshot()
+    by_ref = {e["reference"]: e["domain"] for e in read_events(None, "all", 50)["events"]}
+    assert by_ref["TX-IAM-1"] == "iam"
+    assert by_ref["TX-WS-1"] == "workspace"
+    assert by_ref["TX-GONE"] == "unclassified"  # unknown transaction is never called workspace
+    only_iam = read_events(None, "iam", 50)["events"]
+    assert [e["reference"] for e in only_iam] == ["TX-IAM-1"]

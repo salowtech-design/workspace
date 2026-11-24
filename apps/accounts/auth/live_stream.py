@@ -26,7 +26,7 @@ from datetime import timedelta
 from asgiref.sync import sync_to_async
 from django.utils import timezone
 
-from apps.accounts.auth.live_events import domain_of, public_payload, read_events
+from apps.accounts.auth.live_events import public_payload, read_events, transaction_domains
 from apps.accounts.models import AuthEvent
 
 BROADCAST_INTERVAL = 0.25
@@ -47,21 +47,18 @@ _state = {
 }
 _subscribers = set()
 _per_session = {}
+_roles = {}  # session_id -> role at connect
+_problems = {}  # session_id -> reason, refreshed every broadcast tick
 
 
-def session_problem(session_id: int, role: str):
-    """Return why the stream must stop, or None. Reads the database every call (no cache)."""
+def _problem_of(s, role: str):
+    """Why a loaded IAMSession row must stop streaming, or None."""
     from apps.accounts.auth.iam_auth import (
         IAM_SESSION_ABSOLUTE_TIMEOUT_HOURS,
         effective_iam_idle_timeout_minutes,
     )
-    from apps.accounts.models import CustomUser, IAMAdminIdentity, IAMSession
+    from apps.accounts.models import CustomUser, IAMAdminIdentity
 
-    s = (
-        IAMSession.objects.select_related("iam_admin", "iam_admin__user")
-        .filter(pk=session_id)
-        .first()
-    )
     if s is None or not s.is_active:
         return "session_ended"
     now = timezone.now()
@@ -83,6 +80,24 @@ def session_problem(session_id: int, role: str):
     return None
 
 
+def _load_sessions(ids):
+    from apps.accounts.models import IAMSession
+
+    qs = IAMSession.objects.select_related("iam_admin", "iam_admin__user").filter(pk__in=ids)
+    return {s.pk: s for s in qs}
+
+
+def session_problem(session_id: int, role: str):
+    """Return why the stream must stop, or None. Reads the database every call (no cache)."""
+    return _problem_of(_load_sessions([session_id]).get(session_id), role)
+
+
+def _check_all(roles: dict) -> dict:
+    """One query for every open stream in this process: {session_id: reason or None}."""
+    loaded = _load_sessions(list(roles))
+    return {sid: _problem_of(loaded.get(sid), role) for sid, role in roles.items()}
+
+
 def _fetch_after(last_id: int):
     rows = AuthEvent.objects.filter(id__gt=max(0, last_id - OVERLAP)).order_by("id")[:500]
     return list(rows)
@@ -97,14 +112,20 @@ async def _broadcast_loop():
         seen = deque(maxlen=2000)
         while _subscribers:
             rows = await sync_to_async(_fetch_after)(_state["last_id"])
+            tx = await sync_to_async(transaction_domains)(rows)
             for r in rows:
                 if r.id in seen:
                     continue
                 seen.append(r.id)
-                payload = public_payload(r)
+                payload = public_payload(r, tx.get(r.reference_id))
                 payload["_t"] = time.time()
                 _state["buffer"].append(payload)
                 _state["last_id"] = max(_state["last_id"], r.id)
+            # Authorization for every open stream is re-read on each tick, BEFORE waking the
+            # connections, so a revoked or demoted session is stopped before this tick's events.
+            if _roles:
+                _problems.clear()
+                _problems.update(await sync_to_async(_check_all)(dict(_roles)))
             for q in list(_subscribers):
                 q.set()
             await asyncio.sleep(BROADCAST_INTERVAL)
@@ -150,6 +171,8 @@ def _release(wake, session_id: int) -> None:
     n = _per_session.get(session_id, 1) - 1
     if n <= 0:
         _per_session.pop(session_id, None)
+        _roles.pop(session_id, None)
+        _problems.pop(session_id, None)
     else:
         _per_session[session_id] = n
 
@@ -175,7 +198,7 @@ def _new_frames(floor: int, sent: set, domain: str) -> list:
     batch = [p for p in list(_state["buffer"]) if p["id"] > floor and p["id"] not in sent]
     for p in sorted(batch, key=lambda x: x["id"]):
         sent.add(p["id"])
-        if domain in ("iam", "workspace", "unclassified") and domain_of(p["event"]) != domain:
+        if domain in ("iam", "workspace", "unclassified") and p["domain"] != domain:
             continue
         frames.append(sse_frame(p))
     if len(sent) > 4000:
@@ -194,6 +217,7 @@ async def stream(session_id: int, role: str, domain: str, after_id):
     wake = asyncio.Event()
     _subscribers.add(wake)
     _per_session[session_id] = _per_session.get(session_id, 0) + 1
+    _roles[session_id] = role
     started = last_check = last_send = time.monotonic()
     try:
         _ensure_broadcaster()
@@ -210,7 +234,9 @@ async def stream(session_id: int, role: str, domain: str, after_id):
             await _wait(wake)
             now = time.monotonic()
             reason = None
-            if now - started >= MAX_LIFETIME:
+            if _problems.get(session_id):
+                reason = _problems[session_id]
+            elif now - started >= MAX_LIFETIME:
                 reason = "reconnect"
             elif now - last_check >= RECHECK_INTERVAL:
                 last_check = now

@@ -105,8 +105,27 @@ _WORKSPACE_PREFIXES = (
 )
 
 
-def domain_of(event: str) -> str:
-    """iam, workspace, or unclassified. A new event name is never silently called workspace."""
+_NOT_TRANSACTION = (
+    "auth.policy",
+    "auth.session.revoked",
+    "auth.lock",
+    "auth.identity",
+    "auth.device.revoked",
+)
+
+
+def is_transaction_event(event: str) -> bool:
+    """auth.requested, auth.terminal.*, auth.<stage>.<result>: written by the authentication
+    transaction recorder with reference_id = the transaction id. Their domain is the
+    transaction's own domain (IAM or workspace), not a guess from the event name."""
+    return event.startswith("auth.") and not event.startswith(_NOT_TRANSACTION)
+
+
+def domain_of(event: str, tx_domain=None) -> str:
+    """iam, workspace, or unclassified. A new event name is never silently called workspace.
+    Transaction events take the domain recorded on their authentication transaction."""
+    if is_transaction_event(event):
+        return tx_domain if tx_domain in ("iam", "workspace") else "unclassified"
     if event in _IAM_EVENTS or event.startswith(_IAM_PREFIXES):
         return "iam"
     if event.startswith(_WORKSPACE_PREFIXES):
@@ -138,9 +157,22 @@ def _safe_message(evt: AuthEvent) -> str:
     return " ".join((evt.message or "").split())[:200]
 
 
-def public_payload(evt: AuthEvent) -> dict:
+def transaction_domains(events) -> dict:
+    """{transaction id: 'iam'|'workspace'} for the transaction events in `events` (one query)."""
+    from apps.accounts.models import AuthenticationTransaction
+
+    ids = {e.reference_id for e in events if is_transaction_event(e.event) and e.reference_id}
+    if not ids:
+        return {}
+    rows = AuthenticationTransaction.objects.filter(transaction_id__in=ids).values_list(
+        "transaction_id", "domain"
+    )
+    return dict(rows)
+
+
+def public_payload(evt: AuthEvent, tx_domain=None) -> dict:
     """Only these fields leave the server. No network address, no exception text."""
-    domain = domain_of(evt.event)
+    domain = domain_of(evt.event, tx_domain)
     # Sign-in style events have no separate actor: the employee is the actor.
     actor = evt.actor_employee_id or (evt.employee_id if domain == "workspace" else "")
     return {
@@ -163,11 +195,19 @@ def read_events(after_id, domain: str = "all", limit: int = 50) -> dict:
     if after_id is not None and events and after_id < events[0].id - 1:
         # The cursor is older than the snapshot window: read the gap from the database.
         events = list(AuthEvent.objects.filter(id__gt=after_id).order_by("id")[:limit])
+    tx = transaction_domains(events)
+
+    def dom(e):
+        return domain_of(e.event, tx.get(e.reference_id))
+
     if domain in ("iam", "workspace", "unclassified"):
-        events = [e for e in events if domain_of(e.event) == domain]
+        events = [e for e in events if dom(e) == domain]
     if after_id is None:
         picked = events[-limit:]
     else:
         picked = [e for e in events if e.id > after_id][:limit]
     cursor = picked[-1].id if picked else (after_id or 0)
-    return {"events": [public_payload(e) for e in picked], "cursor": cursor}
+    return {
+        "events": [public_payload(e, tx.get(e.reference_id)) for e in picked],
+        "cursor": cursor,
+    }

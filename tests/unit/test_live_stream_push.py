@@ -45,10 +45,12 @@ def admin_session(db):
 @pytest.fixture(autouse=True)
 def fast_stream(monkeypatch):
     monkeypatch.setattr(live_stream, "BROADCAST_INTERVAL", 0.05)
-    monkeypatch.setattr(live_stream, "RECHECK_INTERVAL", 0.2)
+    monkeypatch.setattr(live_stream, "RECHECK_INTERVAL", 30.0)
     live_stream._state.update({"loop": None, "task": None, "last_id": 0, "ready": False})
     live_stream._state["buffer"].clear()
     live_stream._subscribers.clear()
+    live_stream._roles.clear()
+    live_stream._problems.clear()
     live_stream._per_session.clear()
 
 
@@ -126,9 +128,9 @@ def test_revocation_closes_an_active_stream_within_window(admin_session):
             await sync_to_async(
                 lambda: IAMSession.objects.filter(pk=session.pk).update(is_active=False)
             )()
-            # The documented window: an event inside it may still be delivered. One written
-            # after the window must never be.
-            await asyncio.sleep(0.8)
+            # The window is one tick. Even with the 5 s recheck disabled (30 s here), an event
+            # written right after revocation, once a tick has passed, must not be delivered.
+            await asyncio.sleep(0.4)
             await sync_to_async(_mk)("team_membership_added", "after revoke")
 
         t = asyncio.create_task(revoke_then_write())
@@ -140,7 +142,7 @@ def test_revocation_closes_an_active_stream_within_window(admin_session):
     text, took = asyncio.run(scenario())
     assert "event: end" in text and "session_ended" in text
     assert "after revoke" not in text
-    # Window: RECHECK_INTERVAL (0.2 here, 5 s in production) plus a database round trip.
+    # Window: one broadcast tick (0.05 s here, 0.25 s in production) plus a database round trip.
     assert took < 2.0
 
 
