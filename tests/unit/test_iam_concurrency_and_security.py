@@ -8,6 +8,7 @@ Comprehensive Concurrency, Replay Defense, and Abuse Protection Tests:
 """
 
 import concurrent.futures
+import time
 
 import pyotp
 import pytest
@@ -191,12 +192,22 @@ class TestConcurrentReplayProtections:
         def attempt_consume(worker_id):
             connection.close()
             try:
-                consumed_code, consumed_user = verify_and_consume_code(
-                    employee_id=target_employee.employee_id,
-                    raw_code=raw_code,
-                    purpose=ActivationCode.Purpose.ACTIVATION,
-                )
-                return bool(consumed_user), worker_id
+                # SQLite raises "database is locked" for a writer that loses a lock race. That is a
+                # transient lock error, not a redemption outcome, so retry it. A real double
+                # redemption would still show as more than one success below.
+                from django.db import OperationalError
+
+                for _ in range(40):
+                    try:
+                        consumed_code, consumed_user = verify_and_consume_code(
+                            employee_id=target_employee.employee_id,
+                            raw_code=raw_code,
+                            purpose=ActivationCode.Purpose.ACTIVATION,
+                        )
+                        return bool(consumed_user), worker_id
+                    except OperationalError:
+                        time.sleep(0.05)
+                return False, worker_id
             except Exception:
                 return False, worker_id
             finally:
