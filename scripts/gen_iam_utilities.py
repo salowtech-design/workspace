@@ -349,15 +349,25 @@ def main():
         "/* Overflow containment: flex/grid children may shrink, wide tables scroll inside their card. */",
         ".main-content,.main-content [class*=grid-cols] > *,.main-content .space-y-6 > *,.main-content [class*=max-w-] > *{min-width:0}",
         ".main-content .overflow-x-auto{overflow-x:auto;max-width:100%}",
-        ".main-content table{max-width:100%}",
+        ".main-content .overflow-x-auto > table,.main-content .table-container > table{max-width:none;min-width:100%;width:max-content}",
         ".main-content .card,.main-content .table-container,.main-content [class^=s-]{min-width:0;max-width:100%}",
         ".main-content .table-container{overflow-x:auto}",
+        ".main-content .flex.justify-between{flex-wrap:wrap;gap:.5rem 1rem}",
+        ".main-content .flex.justify-between > div:first-child{flex:1 1 14rem;min-width:0}",
+        ".main-content .flex.justify-between > .rounded-full,.main-content .flex.justify-between > span{white-space:nowrap;flex:0 0 auto}",
+        "/* scroll affordance: edge shadows appear only where content is clipped */",
+        ".main-content .overflow-x-auto,.main-content .table-container{background:linear-gradient(to right,#fff 30%,rgba(255,255,255,0)),linear-gradient(to right,rgba(255,255,255,0),#fff 70%) 100% 0,radial-gradient(farthest-side at 0 50%,rgba(43,35,26,.25),rgba(43,35,26,0)),radial-gradient(farthest-side at 100% 50%,rgba(43,35,26,.25),rgba(43,35,26,0)) 100% 0;background-repeat:no-repeat;background-color:#fff;background-size:40px 100%,40px 100%,14px 100%,14px 100%;background-attachment:local,local,scroll,scroll}",
         ".main-content [role=tablist]{display:flex;overflow-x:auto;max-width:100%;-webkit-overflow-scrolling:touch}",
         ".main-content pre,.main-content code{overflow-wrap:anywhere;white-space:pre-wrap}",
         ".main-content .flex.overflow-x-auto{flex-wrap:nowrap}",
     ]
     out.append(",".join(solid) + "{color:#FFFFFF}")
     out.append(".bg-gradient-to-r{background-image:linear-gradient(to right,#7D3024,#5E2219)}")
+    out.append(
+        "@media (max-width:640px){.main-content .overflow-x-auto::before,.main-content .table-container::before"
+        '{content:"Scroll sideways for more columns \\2192";display:block;position:sticky;left:0;'
+        "font-size:11px;color:#5F5246;padding:2px 0 6px}}"
+    )
     for bp in sorted(medias):
         out.append(f"@media (min-width:{bp}px){{" + "".join(medias[bp]) + "}")
     OUT.write_text("\n".join(out) + "\n", encoding="utf-8")
