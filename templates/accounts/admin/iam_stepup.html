@@ -13,9 +13,22 @@
             Sensitive Administrative Action
         </div>
         <p class="s-3dee2687">
-            Action: <code>{{ action }}</code>. Re-enter your IAM password and fresh TOTP to elevate assurance for 5 minutes.
+            Action: <code>{{ action }}</code>. Re-enter your IAM password and a fresh TOTP.
+            This approval covers <strong>only the one change shown below</strong>, can be used <strong>once</strong>,
+            and expires after 5 minutes. A different target or different values needs a new approval.
         </p>
     </div>
+
+    {% if pending_summary %}
+    <div class="alert alert-warning" role="note" id="stepup-change-summary">
+        <strong>You are approving:</strong> <code>{{ pending_summary }}</code>
+    </div>
+    {% else %}
+    <div class="alert alert-warning" role="note">
+        No specific change is waiting for approval. Submit the change in the console first;
+        this step-up will then be tied to exactly that change.
+    </div>
+    {% endif %}
 
     {% if error %}
     <div class="alert alert-danger s-f0b24eea" role="alert">

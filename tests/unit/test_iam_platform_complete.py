@@ -405,7 +405,7 @@ def _iam_console_client(user, *actions):
     return c, sess
 
 
-def _bind_stepup(client, sess, data):
+def _bind_stepup(client, sess, data, action=None):
     """Do what the real step-up page does for this exact form: the console records the
     requested (actor, action, payload) when it demands a step-up, and a successful
     password+TOTP step-up promotes exactly that to the session (we skip only the factors)."""
@@ -416,7 +416,7 @@ def _bind_stepup(client, sess, data):
     resp = client.post("/iam/dashboard/", data, HTTP_HOST="iam.salowtech.com")
     assert resp.status_code == 302 and "/iam/stepup/" in resp.url
     sess.refresh_from_db()
-    assert sess.pending_action == data["action"] and sess.pending_payload_digest
+    assert sess.pending_action == (action or data["action"]) and sess.pending_payload_digest
     sess.assurance_level = 2
     sess.stepup_action = sess.pending_action
     sess.stepup_payload_digest = sess.pending_payload_digest

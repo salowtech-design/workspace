@@ -79,6 +79,12 @@ def failed_verification():
     )
 
 
+def _report_to(employee, manager):
+    from apps.directory.models import ReportingRelationship
+
+    ReportingRelationship.objects.create(manager=manager, subordinate=employee)
+
+
 @pytest.mark.django_db
 class TestClockInOutWorkflow:
     def test_check_in_creates_open_session_with_kolkata_date(self, employee, success_verification):
@@ -158,6 +164,7 @@ class TestManualFallbackWorkflow:
 
     def test_manager_approves_fallback_check_in(self, employee, manager):
         """Manager approves fallback check-in request; opens work session with MANUAL_APPROVED."""
+        _report_to(employee, manager)
         now = timezone.now()
         work_date = now.astimezone(KOLKATA_TZ).date()
         req = create_fallback_request(
@@ -196,6 +203,7 @@ class TestManualFallbackWorkflow:
 
     def test_manager_rejects_fallback_request(self, employee, manager):
         """Manager rejects fallback request; no session created."""
+        _report_to(employee, manager)
         req = create_fallback_request(
             user=employee,
             request_type=AttendanceFallbackRequest.RequestType.CHECK_IN,
@@ -208,6 +216,33 @@ class TestManualFallbackWorkflow:
         )
         assert reviewed.status == AttendanceFallbackRequest.Status.REJECTED
         assert get_open_session(employee) is None
+
+    def test_manager_cannot_review_a_non_report(self, employee, manager):
+        """A Manager may review only their direct reports' requests."""
+        req = create_fallback_request(
+            user=employee,
+            request_type=AttendanceFallbackRequest.RequestType.CHECK_IN,
+            work_date=timezone.now().date(),
+            requested_time=timezone.now(),
+            reason="Not my report",
+        )
+        with pytest.raises(PermissionDenied):
+            review_fallback_request(request_id=req.id, reviewer=manager, approved=True)
+        req.refresh_from_db()
+        assert req.status == AttendanceFallbackRequest.Status.PENDING
+        assert get_open_session(employee) is None
+
+    def test_manager_cannot_approve_own_request(self, manager):
+        req = create_fallback_request(
+            user=manager,
+            request_type=AttendanceFallbackRequest.RequestType.CHECK_IN,
+            work_date=timezone.now().date(),
+            requested_time=timezone.now(),
+            reason="Self approval attempt",
+        )
+        with pytest.raises(PermissionDenied):
+            review_fallback_request(request_id=req.id, reviewer=manager, approved=True)
+        assert get_open_session(manager) is None
 
 
 @pytest.mark.django_db

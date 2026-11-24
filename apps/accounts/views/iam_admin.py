@@ -19,7 +19,6 @@ from apps.accounts.auth.errors import AuthException
 from apps.accounts.auth.iam_auth import (
     IAM_SESSION_COOKIE_NAME,
     authenticate_iam_admin,
-    check_iam_assurance,
     create_iam_session,
     get_iam_session_from_request,
     stepup_iam_assurance,
@@ -192,6 +191,9 @@ def iam_stepup_view(request):
             "action": action,
             "next_url": next_url,
             "iam_admin": session.iam_admin,
+            "pending_summary": (
+                session.pending_summary if session.pending_action == action else ""
+            ),
             "error": error,
         },
     )
@@ -219,13 +221,13 @@ def iam_dashboard_view(request):
     # Section 11: Dedicated Workspace Security Administration Tab inside IAM
     if active_tab == "workspace_security" and request.method == "POST":
         # Check Assurance Level 2 for policy changes
-        if not check_iam_assurance(
-            request, required_level=2, action_name="update_workspace_security_policy"
-        ):
-            stepup_url = reverse("iam:stepup")
-            return redirect(
-                f"{stepup_url}?action=update_workspace_security_policy&next={request.get_full_path()}"
-            )
+        from apps.accounts.views.admin_iam import enforce_mutation_assurance
+
+        redirect_resp = enforce_mutation_assurance(
+            request, "update_workspace_security_policy", required_level=2
+        )
+        if redirect_resp:
+            return redirect_resp
 
         policy_key = request.POST.get("policy_key", "").strip()
         policy_val_str = request.POST.get("policy_value", "{}").strip()

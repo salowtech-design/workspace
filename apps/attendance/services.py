@@ -218,6 +218,19 @@ def create_fallback_request(
         return req
 
 
+def _assert_may_review(reviewer: CustomUser, req: AttendanceFallbackRequest) -> None:
+    """No self-review; a Manager may review only their direct reports."""
+    if reviewer.id == req.user_id:
+        raise PermissionDenied("You cannot review your own attendance request.")
+    if reviewer.role == CustomUser.Role.MANAGER:
+        from apps.accounts.permissions import can_approve_attendance
+
+        if not can_approve_attendance(reviewer, req.user):
+            raise PermissionDenied(
+                "Managers can review attendance requests only for their direct reports."
+            )
+
+
 def review_fallback_request(
     request_id: int,
     reviewer: CustomUser,
@@ -241,6 +254,7 @@ def review_fallback_request(
             raise ValidationError("Attendance fallback request not found.")
         if req.status != AttendanceFallbackRequest.Status.PENDING:
             raise ValidationError(f"Request has already been reviewed ({req.status}).")
+        _assert_may_review(reviewer, req)
 
         req.reviewed_by = reviewer
         req.reviewed_at = timezone.now()

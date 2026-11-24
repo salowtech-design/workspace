@@ -684,6 +684,8 @@ class IAMSession(models.Model):
     # Set when the console demands a step-up; only a real step-up promotes it.
     pending_action = models.CharField(max_length=128, blank=True, default="")
     pending_payload_digest = models.CharField(max_length=64, blank=True, default="")
+    # Human-readable description of what the pending step-up will authorise (no secrets).
+    pending_summary = models.CharField(max_length=500, blank=True, default="")
     ip_address = models.GenericIPAddressField(null=True, blank=True)
     user_agent = models.CharField(max_length=255, blank=True, default="")
     created_at = models.DateTimeField(auto_now_add=True)

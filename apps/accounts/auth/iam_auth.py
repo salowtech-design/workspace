@@ -429,6 +429,7 @@ def stepup_iam_assurance(
         )
         iam_session.pending_action = ""
         iam_session.pending_payload_digest = ""
+        iam_session.pending_summary = ""
         iam_session.save(
             update_fields=[
                 "assurance_level",
@@ -437,6 +438,7 @@ def stepup_iam_assurance(
                 "stepup_payload_digest",
                 "pending_action",
                 "pending_payload_digest",
+                "pending_summary",
             ]
         )
 

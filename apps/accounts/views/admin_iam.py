@@ -20,6 +20,7 @@ import logging
 import time
 from datetime import timedelta
 from typing import Any, Optional
+from urllib.parse import urlencode
 
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
@@ -178,6 +179,23 @@ def _would_remove_last_super_admin(target: CustomUser) -> bool:
     )
 
 
+_SECRET_KEY_HINTS = ("password", "secret", "token", "totp", "otp", "api_key", "private_key")
+
+
+def _describe_pending_change(action_name: str, payload: Any) -> str:
+    """One line naming the exact change a step-up will authorise (secrets left out)."""
+    parts = []
+    items = payload.items() if isinstance(payload, dict) else []
+    for key, val in items:
+        if any(h in str(key).lower() for h in _SECRET_KEY_HINTS):
+            continue
+        if key == "action":
+            continue
+        shown = ", ".join(map(str, val)) if isinstance(val, (list, tuple)) else str(val)
+        parts.append(f"{key} = {shown[:80]}")
+    return (f"{action_name}: " + "; ".join(parts))[:500]
+
+
 def enforce_mutation_assurance(
     request,
     action_name: str,
@@ -220,9 +238,13 @@ def enforce_mutation_assurance(
         if required_level == 2:
             session.pending_action = action_name
             session.pending_payload_digest = bound
-            session.save(update_fields=["pending_action", "pending_payload_digest"])
+            session.pending_summary = _describe_pending_change(action_name, form_payload)
+            session.save(
+                update_fields=["pending_action", "pending_payload_digest", "pending_summary"]
+            )
             stepup_url = "/iam/stepup/"
-            return redirect(f"{stepup_url}?action={action_name}&next={request.get_full_path()}")
+            query = urlencode({"action": action_name, "next": request.get_full_path()})
+            return redirect(f"{stepup_url}?{query}")
         elif required_level == 3:
             messages.error(
                 request,

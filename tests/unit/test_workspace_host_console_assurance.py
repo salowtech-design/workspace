@@ -141,3 +141,47 @@ class TestStepUpIsBoundToActorActionAndPayload:
         assert "/iam/stepup/" in resp.url
         t1.refresh_from_db()
         assert t1.status == CustomUser.Status.ACTIVE
+
+
+class TestWorkspacePolicyAndStepUpPage:
+    def _client(self):
+        from tests.unit.test_iam_platform_complete import _iam_console_client
+
+        sa = CustomUser.objects.create_user(
+            employee_id="ST-RP-SA",
+            full_name="SA",
+            email="st-rp-sa@salowtech.com",
+            password="Xx-pass-2026!ab",
+            role=CustomUser.Role.SUPER_ADMIN,
+            status=CustomUser.Status.ACTIVE,
+            is_active=True,
+        )
+        return _iam_console_client(sa, "update_workspace_security_policy")
+
+    def _form(self, key):
+        return {
+            "tab": "workspace_security",
+            "policy_key": key,
+            "policy_value": "on",
+            "justification": "regression",
+        }
+
+    def test_policy_step_up_is_bound_to_the_exact_policy_change(self, db):
+        from apps.accounts.models import WorkspaceSecurityPolicy
+        from tests.unit.test_iam_platform_complete import _bind_stepup
+
+        c, sess = self._client()
+        _bind_stepup(c, sess, self._form("policy_a"), action="update_workspace_security_policy")
+        c.post("/iam/dashboard/", self._form("policy_b"), HTTP_HOST="iam.salowtech.com")
+        assert not WorkspaceSecurityPolicy.objects.filter(policy_key="policy_b").exists()
+        c.post("/iam/dashboard/", self._form("policy_a"), HTTP_HOST="iam.salowtech.com")
+        assert WorkspaceSecurityPolicy.objects.filter(policy_key="policy_a").exists()
+
+    def test_step_up_page_names_the_change_and_says_single_use(self, db):
+        c, sess = self._client()
+        c.post("/iam/dashboard/", self._form("policy_a"), HTTP_HOST="iam.salowtech.com")
+        page = c.get(
+            "/iam/stepup/?action=update_workspace_security_policy", HTTP_HOST="iam.salowtech.com"
+        ).content.decode()
+        assert "You are approving" in page and "policy_key = policy_a" in page
+        assert "once" in page and "elevate assurance for 5 minutes" not in page

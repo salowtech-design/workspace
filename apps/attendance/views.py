@@ -210,6 +210,8 @@ def attendance_admin_panel_view(request):
     pending_fallbacks = AttendanceFallbackRequest.objects.filter(
         status=AttendanceFallbackRequest.Status.PENDING
     ).select_related("user")
+    if actor.role == CustomUser.Role.MANAGER:
+        pending_fallbacks = pending_fallbacks.filter(user__manager_relationship__manager=actor)
     corrections = AttendanceCorrection.objects.select_related(
         "session__user", "corrected_by"
     ).order_by("-created_at")[:10]
