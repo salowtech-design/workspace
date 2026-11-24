@@ -357,7 +357,10 @@ def get_iam_session_from_request(request) -> Optional[IAMSession]:
         return None
 
     # Update last activity, except for background polling requests
-    if not request.path.startswith(IAM_PASSIVE_PATH_PREFIXES):
+    # A page region refresh triggered by a live event is a background read: it must not keep
+    # the session alive. A client that sets this header only avoids extending its own idle time.
+    background_read = request.method == "GET" and request.headers.get("X-Live-Refresh") == "1"
+    if not background_read and not request.path.startswith(IAM_PASSIVE_PATH_PREFIXES):
         session.last_activity = now
         session.save(update_fields=["last_activity"])
     return session

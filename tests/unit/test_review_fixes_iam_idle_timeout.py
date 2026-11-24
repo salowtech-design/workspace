@@ -488,3 +488,32 @@ def test_transaction_events_take_the_transaction_domain(db):
     assert by_ref["TX-GONE"] == "unclassified"  # unknown transaction is never called workspace
     only_iam = read_events(None, "iam", 50)["events"]
     assert [e["reference"] for e in only_iam] == ["TX-IAM-1"]
+
+
+def test_live_refresh_background_read_does_not_extend_idle(session_and_token):
+    """A page-region refresh sent with X-Live-Refresh is a background read, so it never keeps
+    an IAM session alive; a normal request still does."""
+    session, token = session_and_token
+    old = timezone.now() - timedelta(minutes=3)
+    IAMSession.objects.filter(pk=session.pk).update(last_activity=old)
+
+    request = _request(token, "/iam/dashboard/")
+    request.META["HTTP_X_LIVE_REFRESH"] = "1"
+    assert get_iam_session_from_request(request) is not None
+    session.refresh_from_db()
+    assert abs((session.last_activity - old).total_seconds()) < 1  # unchanged
+
+    assert get_iam_session_from_request(_request(token, "/iam/dashboard/")) is not None
+    session.refresh_from_db()
+    assert (timezone.now() - session.last_activity).total_seconds() < 5  # normal request extends
+
+
+def test_live_refresh_header_does_not_help_a_post(session_and_token):
+    session, token = session_and_token
+    old = timezone.now() - timedelta(minutes=3)
+    IAMSession.objects.filter(pk=session.pk).update(last_activity=old)
+    request = RequestFactory().post("/iam/dashboard/", HTTP_X_LIVE_REFRESH="1")
+    request.COOKIES[IAM_SESSION_COOKIE_NAME] = token
+    assert get_iam_session_from_request(request) is not None
+    session.refresh_from_db()
+    assert (timezone.now() - session.last_activity).total_seconds() < 5
