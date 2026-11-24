@@ -17,17 +17,53 @@ SNAPSHOT_TTL = 0.5
 SNAPSHOT_SIZE = 300
 MAX_LIMIT = 100
 
-# Events produced by IAM-console administration. Everything else is workspace activity.
-_IAM_PREFIXES = ("iam_", "break_glass", "service_identity", "mfa_reset", "recovery_")
+# IAM-console administration, privileged access, recovery and security operations.
+# Everything else (sign-ins, password and TOTP checks, device approvals by users) is workspace activity.
+_IAM_PREFIXES = (
+    "iam_",
+    "iam.",
+    "break_glass",
+    "emergency_access",
+    "service_identity",
+    "mfa_reset",
+    "mfa_replacement_token",
+    "admin_recovery",
+    "recovery_code_issued",
+    "security_incident",
+    "security_alert",
+    "access_review",
+    "backup_",
+    "bootstrap_admin",
+    "auth.policy",
+    "auth.session.revoked",
+    "auth.lock",
+    "auth.identity",
+    "auth.device.revoked",
+    "employee_",
+    "account_",
+    "audit.records",
+)
 _IAM_EVENTS = {
-    "employee_created_by_admin",
     "role_updated_by_admin",
-    "account_suspended_by_admin",
-    "account_exited_by_admin",
-    "account_reactivated_by_admin",
     "team_membership_added",
     "outbox_email_requeued",
     "outbox_event_requeued",
+    "sessions_revoked",
+    "device_approved_by_admin",
+}
+# Only these events show their free-text message. Their messages are written by the
+# application from ids and role names. Every other event shows its name only: truncation
+# is not redaction, so unknown free text is not forwarded.
+_MESSAGE_SAFE = {
+    "team_membership_added",
+    "outbox_email_requeued",
+    "outbox_event_requeued",
+    "role_updated_by_admin",
+    "employee_created_by_admin",
+    "account_suspended_by_admin",
+    "account_exited_by_admin",
+    "account_reactivated_by_admin",
+    "break_glass_deactivated",
     "sessions_revoked",
 }
 
@@ -35,10 +71,47 @@ _lock = threading.Lock()
 _snapshot = {"at": 0.0, "events": []}
 
 
+_WORKSPACE_PREFIXES = (
+    "totp_",
+    "password_",
+    "login_",
+    "session_",
+    "second_device",
+    "sudo_",
+    "workspace_",
+    "activation_",
+    "passkey_",
+    "device_",
+    "email_",
+    "mfa_replacement",
+    "account_locked",
+    "elevated_risk",
+    "risk_policy",
+    "role_marker",
+    "service_auth",
+    "code_",
+    "recovery_code",
+    "auth.requested",
+    "auth.terminal",
+    "auth.risk",
+    "auth.session_decision",
+    "auth.mfa",
+    "auth.device",
+    "backup_",
+    "security.",
+    "alert.",
+    "biometric_",
+    "passkey",
+)
+
+
 def domain_of(event: str) -> str:
+    """iam, workspace, or unclassified. A new event name is never silently called workspace."""
     if event in _IAM_EVENTS or event.startswith(_IAM_PREFIXES):
         return "iam"
-    return "workspace"
+    if event.startswith(_WORKSPACE_PREFIXES):
+        return "workspace"
+    return "unclassified"
 
 
 def _refresh(now: float) -> list:
@@ -56,18 +129,30 @@ def reset_snapshot() -> None:
         _snapshot["events"] = []
 
 
+def _safe_message(evt: AuthEvent) -> str:
+    """Free text is shown only for allow-listed events whose message is built from ids and
+    role names. Events that put request-derived text (break-glass reason and ticket) in the
+    message are not on the list. Whitespace is collapsed so the text is one line."""
+    if evt.event not in _MESSAGE_SAFE:
+        return ""
+    return " ".join((evt.message or "").split())[:200]
+
+
 def public_payload(evt: AuthEvent) -> dict:
     """Only these fields leave the server. No network address, no exception text."""
+    domain = domain_of(evt.event)
+    # Sign-in style events have no separate actor: the employee is the actor.
+    actor = evt.actor_employee_id or (evt.employee_id if domain == "workspace" else "")
     return {
         "id": evt.id,
         "time": evt.time.isoformat(),
-        "domain": domain_of(evt.event),
+        "domain": domain,
         "event": evt.event,
         "code": evt.code,
-        "actor": evt.actor_employee_id or "",
+        "actor": actor or "",
         "subject": evt.employee_id or "",
-        "reference": evt.reference_id or "",
-        "message": (evt.message or "")[:200],
+        "reference": (evt.reference_id or "")[:64],
+        "message": _safe_message(evt),
     }
 
 
@@ -78,7 +163,7 @@ def read_events(after_id, domain: str = "all", limit: int = 50) -> dict:
     if after_id is not None and events and after_id < events[0].id - 1:
         # The cursor is older than the snapshot window: read the gap from the database.
         events = list(AuthEvent.objects.filter(id__gt=after_id).order_by("id")[:limit])
-    if domain in ("iam", "workspace"):
+    if domain in ("iam", "workspace", "unclassified"):
         events = [e for e in events if domain_of(e.event) == domain]
     if after_id is None:
         picked = events[-limit:]

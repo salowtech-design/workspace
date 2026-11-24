@@ -741,7 +741,7 @@ def iam_live_events_view(request):
     after = request.GET.get("after") or request.headers.get("Last-Event-ID")
     after_id = int(after) if after and after.isdigit() else None
     domain = request.GET.get("domain", "all").lower().strip()
-    if domain not in ("all", "iam", "workspace"):
+    if domain not in ("all", "iam", "workspace", "unclassified"):
         domain = "all"
     try:
         limit = int(request.GET.get("limit", "50"))

@@ -321,3 +321,126 @@ def test_live_events_cursor_dedup_actor_domain_and_no_leaks(session_and_token):
     reset_snapshot()
     hdr = ic.get("/iam/live-events/", HTTP_LAST_EVENT_ID=str(first["cursor"])).json()
     assert [e["id"] for e in hdr["events"]] == [e3.id]
+
+
+def test_live_events_message_is_allow_listed_not_truncated(session_and_token):
+    from apps.accounts.auth.live_events import reset_snapshot
+
+    _, token = session_and_token
+    ic = _iam_client(token)
+    _emit("password_verified", subject="ST-X", message="reset link http://x/abc123 token=SECRET")
+    _emit("team_membership_added", actor="ST-A", subject="ST-X", message="Added to team T1 by ST-A")
+    reset_snapshot()
+    rows = ic.get("/iam/live-events/?limit=100").json()["events"]
+    by = {r["event"]: r for r in rows}
+    assert by["password_verified"]["message"] == ""
+    assert "SECRET" not in str(rows)
+    assert by["team_membership_added"]["message"].startswith("Added to team")
+    # A sign-in style event names its employee as the actor.
+    assert by["password_verified"]["actor"] == "ST-X"
+
+
+def test_unknown_event_names_are_unclassified_not_workspace(session_and_token):
+    from apps.accounts.auth.live_events import domain_of, reset_snapshot
+
+    _, token = session_and_token
+    ic = _iam_client(token)
+    assert domain_of("brand_new_event_name") == "unclassified"
+    e = _emit("brand_new_event_name", subject="ST-Y")
+    reset_snapshot()
+    un = ic.get("/iam/live-events/?domain=unclassified&limit=100").json()["events"]
+    assert e.id in [r["id"] for r in un]
+    ws = ic.get("/iam/live-events/?domain=workspace&limit=100").json()["events"]
+    assert e.id not in [r["id"] for r in ws]
+
+
+def test_every_event_name_the_code_emits_has_a_domain():
+    import pathlib
+    import re
+
+    from apps.accounts.auth.live_events import domain_of
+
+    names = set()
+    for f in pathlib.Path("apps").rglob("*.py"):
+        if "tests" in f.parts or "migrations" in f.parts:
+            continue
+        names.update(re.findall(r'event="([a-zA-Z0-9_.]+)"', f.read_text()))
+    missing = sorted(n for n in names if domain_of(n) == "unclassified")
+    assert not missing, f"unclassified event names: {missing}"
+
+
+def test_cursor_older_than_snapshot_window_reads_the_gap(session_and_token, monkeypatch):
+    from apps.accounts.auth import live_events as le
+
+    _, token = session_and_token
+    ic = _iam_client(token)
+    monkeypatch.setattr(le, "SNAPSHOT_SIZE", 3)
+    first = _emit("team_membership_added", actor="ST-A", subject="ST-1")
+    made = [_emit("team_membership_added", actor="ST-A", subject=f"ST-{i}") for i in range(2, 8)]
+    le.reset_snapshot()
+    got = ic.get(f"/iam/live-events/?after={first.id}&limit=100").json()
+    assert [e["id"] for e in got["events"]] == [m.id for m in made]
+    assert got["cursor"] == made[-1].id
+
+
+def test_suspended_admin_stops_receiving_events_mid_session(session_and_token):
+    from apps.accounts.auth.live_events import reset_snapshot
+
+    session, token = session_and_token
+    ic = _iam_client(token)
+    reset_snapshot()
+    assert ic.get("/iam/live-events/").status_code == 200
+    user = session.iam_admin.user
+    user.status = CustomUser.Status.SUSPENDED
+    user.save(update_fields=["status"])
+    resp = ic.get("/iam/live-events/")
+    assert resp.status_code in (401, 302) and b"events" not in resp.content
+    assert IAMSession.objects.get(pk=session.pk).is_active is False
+
+
+def test_event_written_by_another_process_appears_within_the_snapshot_ttl(
+    session_and_token, monkeypatch
+):
+    from apps.accounts.auth import live_events as le
+    from apps.accounts.models import AuthEvent
+
+    _, token = session_and_token
+    ic = _iam_client(token)
+    le.reset_snapshot()
+    monkeypatch.setattr(le, "SNAPSHOT_TTL", 60.0)
+    cursor = ic.get("/iam/live-events/").json()["cursor"]
+    # Another worker writes straight to the database; this process has not refreshed yet.
+    ev = AuthEvent.objects.create(
+        event="team_membership_added",
+        code="INFO",
+        step="x",
+        reference_id="r",
+        actor_employee_id="ST-Z",
+    )
+    assert ic.get(f"/iam/live-events/?after={cursor}").json()["events"] == []  # bounded staleness
+    monkeypatch.setattr(le, "SNAPSHOT_TTL", 0.0)
+    seen = ic.get(f"/iam/live-events/?after={cursor}").json()["events"]
+    assert [e["id"] for e in seen] == [ev.id]
+
+
+def test_live_events_response_is_not_cacheable(session_and_token):
+    _, token = session_and_token
+    resp = _iam_client(token).get("/iam/live-events/")
+    assert resp["Cache-Control"] == "no-store"
+
+
+def test_break_glass_reason_and_ticket_text_is_never_forwarded(session_and_token):
+    from apps.accounts.auth.live_events import reset_snapshot
+
+    _, token = session_and_token
+    ic = _iam_client(token)
+    _emit(
+        "break_glass_activated",
+        actor="ST-A",
+        subject="ST-A",
+        message="Reason: db password is hunter2 [Ticket: X]",
+    )
+    reset_snapshot()
+    rows = ic.get("/iam/live-events/?limit=100").json()["events"]
+    row = next(r for r in rows if r["event"] == "break_glass_activated")
+    assert row["message"] == "" and "hunter2" not in str(rows)

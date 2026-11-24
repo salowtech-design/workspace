@@ -278,6 +278,13 @@ def _level3_gate(request, session, action_name: str, payload: Any, bound: str):
     return redirect(request.get_full_path())
 
 
+def _via_iam_admin(request) -> str:
+    """Suffix naming the IAM admin identity when the action came through an IAM session."""
+    iam_admin = getattr(request, "iam_admin", None)
+    admin_id = getattr(iam_admin, "admin_id", "") if iam_admin else ""
+    return f" via IAM admin {admin_id}" if admin_id else ""
+
+
 def enforce_mutation_assurance(
     request,
     action_name: str,
@@ -920,7 +927,7 @@ def admin_iam_dashboard_view(request):  # noqa: C901
                         step="admin_add_team_membership",
                         employee_id=target_user.employee_id,
                         actor_employee_id=actor.employee_id,
-                        message=f"Added to team {team.code} by {actor.employee_id} ({actor.role})",
+                        message=f"Added to team {team.code} by {actor.employee_id} ({actor.role}){_via_iam_admin(request)}",
                     )
                     messages.success(
                         request, f"Assigned {target_user.employee_id} to team '{team.name}'."
@@ -1045,7 +1052,7 @@ def admin_iam_dashboard_view(request):  # noqa: C901
                             employee_id="",
                             actor_employee_id=actor.employee_id,
                             reference_id=str(email_item.id),
-                            message=f"Email outbox item {email_item.id} requeued by {actor.employee_id} ({actor.role})",
+                            message=f"Email outbox item {email_item.id} requeued by {actor.employee_id} ({actor.role}){_via_iam_admin(request)}",
                         )
                         messages.success(
                             request, f"Email notification to {email_item.recipient} requeued."
@@ -1065,7 +1072,7 @@ def admin_iam_dashboard_view(request):  # noqa: C901
                         employee_id="",
                         actor_employee_id=actor.employee_id,
                         reference_id=str(evt.event_id)[:64],
-                        message=f"Outbox event {str(evt.event_id)[:8]} requeued by {actor.employee_id} ({actor.role})",
+                        message=f"Outbox event {str(evt.event_id)[:8]} requeued by {actor.employee_id} ({actor.role}){_via_iam_admin(request)}",
                     )
                     messages.success(request, f"Outbox event {evt.event_id[:8]} requeued.")
             return redirect(f"{request.path}?tab=delivery_ops")
