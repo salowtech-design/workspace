@@ -12,6 +12,7 @@ Provides:
 import json
 
 from django.contrib import messages
+from django.contrib.auth import update_session_auth_hash
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import ValidationError
 from django.http import JsonResponse
@@ -98,6 +99,9 @@ def change_password_view(request):
                     new_password=new_password,
                     keep_session_key=request.session.session_key,
                 )
+                # The hash changed: re-bind this session to it, otherwise Django ends the very
+                # session the user is working in while the page promises to keep it.
+                update_session_auth_hash(request, request.user)
                 messages.success(
                     request,
                     "Your password was changed successfully. All other active sessions have been revoked.",

@@ -287,3 +287,53 @@ def test_iam_views_are_not_served_on_the_workspace_host(db, path):
     client = Client()
     assert client.get(path, HTTP_HOST="app.salowtech.com").status_code == 404
     assert client.post(path, {}, HTTP_HOST="app.salowtech.com").status_code == 404
+
+
+def test_password_change_keeps_current_session_and_revokes_the_others(db):
+    """Found live: after a valid change the user's own browser was signed out too."""
+    from apps.accounts.auth.sessions import hash_session_bearer
+
+    user = User.objects.create(
+        email="pw.change@salowtech.com",
+        employee_id="EMP-PWCHG-01",
+        full_name="Password Changer",
+        password=make_password("OldPasswordForTests2026!#"),
+        role=CustomUser.Role.EMPLOYEE,
+        status=CustomUser.Status.ACTIVE,
+        is_active=True,
+    )
+    client = Client()
+    client.force_login(user)
+    session = client.session
+    session["_salow_mfa_verified"] = True
+    session.save()
+    mine = hash_session_bearer(session.session_key)
+    from apps.accounts.models import UserSession
+
+    UserSession.objects.create(
+        session_key=mine, session_digest=mine, user=user, ip_address="10.0.0.1", mfa_verified=True
+    )
+    UserSession.objects.create(
+        session_key="other-device-digest",
+        session_digest="other-device-digest",
+        user=user,
+        ip_address="10.0.0.2",
+        mfa_verified=True,
+    )
+    new_password = "BrandNewPassw0rd2026!#Xyz"
+    response = client.post(
+        "/auth/security/password/change/",
+        {
+            "current_password": "OldPasswordForTests2026!#",
+            "new_password": new_password,
+            "confirm_password": new_password,
+        },
+    )
+    assert response.status_code == 302
+    assert response.url == "/auth/security/"
+    user.refresh_from_db()
+    assert user.check_password(new_password)
+    assert client.get("/auth/security/").status_code == 200  # still signed in
+    remaining = set(UserSession.objects.filter(user=user).values_list("session_key", flat=True))
+    assert "other-device-digest" not in remaining
+    assert mine in remaining
