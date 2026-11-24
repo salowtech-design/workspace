@@ -149,3 +149,44 @@ def test_search_filters_device_risk_and_date():
     today = datetime.date.today()
     assert ids(date_from=today, date_to=today) == ["tx-f-1", "tx-f-2"]
     assert ids(date_from=today + datetime.timedelta(days=2)) == []
+
+
+@pytest.mark.django_db
+def test_temporary_restriction_blocks_the_real_sign_in_lockout_check():
+    from apps.accounts.auth.authentication_centre import execute_temporary_restriction
+    from apps.accounts.auth.errors import AuthException
+    from apps.accounts.auth.lockout import check_lockout
+    from apps.accounts.models import CustomUser, IAMAdminIdentity
+
+    user = CustomUser.objects.create_user(
+        employee_id="IAM-RSTR-1",
+        full_name="R",
+        password="ValidPass2026!@#",
+        role=CustomUser.Role.SUPER_ADMIN,
+        status=CustomUser.Status.ACTIVE,
+    )
+    actor = IAMAdminIdentity(admin_id="IAM-ACT-9", user=user)
+    execute_temporary_restriction("st-emp-77", "workspace", actor, 15, "drill")
+    with pytest.raises(AuthException):
+        check_lockout("emp:ST-EMP-77")
+    execute_temporary_restriction("iam-x2", "iam", actor, 15, "drill")
+    with pytest.raises(AuthException):
+        check_lockout("iam_login:IAM-X2")
+    check_lockout("emp:ST-OTHER")  # other identities are unaffected
+
+
+def test_admin_pages_do_not_print_flash_messages_twice():
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[2] / "templates/accounts/admin"
+    for name in (
+        "auth_transaction_detail",
+        "auth_centre_landing",
+        "auth_dashboard_iam",
+        "auth_dashboard_workspace",
+        "sessions_investigation",
+    ):
+        text = (root / f"{name}.html").read_text()
+        assert text.startswith('{% extends "base.html" %}')
+        assert "for message in messages" not in text, name
+    assert "🔐" not in (root / "iam_login.html").read_text()

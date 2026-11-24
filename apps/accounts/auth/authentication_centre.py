@@ -670,7 +670,12 @@ def execute_temporary_restriction(
     Control 3: Applies a bounded temporary sign-in restriction to an account.
     """
     clean_id = identity_ref.strip().upper()
-    lock_key = f"acc:{clean_id}:sensitive"
+    # The key must be the one the sign-in path actually checks (check_lockout), per domain:
+    # workspace sign-in uses emp:<ID>, IAM administrator sign-in uses iam_login:<ID>.
+    if (domain or "").strip().lower() == "iam":
+        lock_key = f"iam_login:{clean_id}"
+    else:
+        lock_key = f"emp:{clean_id}"
     locked_until = timezone.now() + timedelta(minutes=duration_minutes)
 
     LoginAttempt.objects.update_or_create(
@@ -691,7 +696,7 @@ def execute_temporary_restriction(
     )
     return {
         "status": "success",
-        "message": f"Account '{clean_id}' restricted until {locked_until.strftime('%H:%M:%S')} UTC.",
+        "message": f"Account '{clean_id}' restricted until {timezone.localtime(locked_until).strftime('%H:%M:%S %Z')}.",
     }
 
 

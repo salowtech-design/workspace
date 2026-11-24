@@ -35,15 +35,6 @@
         </div>
 
         <!-- Flash Messages -->
-        {% if messages %}
-        <div class="space-y-2">
-            {% for message in messages %}
-            <div class="p-3.5 rounded-xl border text-xs font-mono font-medium {% if message.tags == 'error' %}bg-rose-950/70 border-rose-800 text-rose-300{% elif message.tags == 'success' %}bg-emerald-950/70 border-emerald-800 text-emerald-300{% else %}bg-gray-900 border-gray-700 text-gray-200{% endif %}">
-                {{ message }}
-            </div>
-            {% endfor %}
-        </div>
-        {% endif %}
 
         <!-- Tab Navigation Bar (8 Standard Tabs) -->
         <div class="border-b border-gray-800 flex overflow-x-auto gap-2 font-mono text-xs">

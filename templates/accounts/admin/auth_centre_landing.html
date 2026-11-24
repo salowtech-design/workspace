@@ -38,15 +38,6 @@
         </div>
 
         <!-- Flash Messages -->
-        {% if messages %}
-        <div class="space-y-2">
-            {% for message in messages %}
-            <div class="p-4 rounded-xl border text-sm font-medium {% if message.tags == 'error' %}bg-rose-950/60 border-rose-800 text-rose-300{% elif message.tags == 'success' %}bg-emerald-950/60 border-emerald-800 text-emerald-300{% else %}bg-gray-900 border-gray-700 text-gray-200{% endif %}">
-                {{ message }}
-            </div>
-            {% endfor %}
-        </div>
-        {% endif %}
 
         <!-- THE TWO MANDATORY SUB-OPTIONS (Contract Section 3) -->
         <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
