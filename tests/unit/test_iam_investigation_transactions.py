@@ -111,3 +111,41 @@ def test_transaction_detail_and_investigation_denied_without_iam_session(client,
     r4 = client.get(reverse("iam:dashboard") + "?tab=investigation", HTTP_HOST=host)
     assert r4.status_code in (302, 403)
     assert b"tx-deny-1" not in r3.content and b"tx-deny-1" not in r4.content
+
+
+@pytest.mark.django_db
+def test_search_filters_device_risk_and_date():
+    import datetime
+
+    from apps.accounts.auth.authentication_centre import search_auth_records
+
+    AuthenticationTransaction.objects.create(
+        transaction_id="tx-f-1",
+        correlation_id="c-f1",
+        domain="iam",
+        identity_ref="IAM-A",
+        device_ref="dev-abc",
+        risk_decision="challenge",
+        stage="mfa",
+        outcome="challenged",
+    )
+    AuthenticationTransaction.objects.create(
+        transaction_id="tx-f-2",
+        correlation_id="c-f2",
+        domain="iam",
+        identity_ref="IAM-B",
+        device_ref="dev-xyz",
+        risk_decision="allow",
+        stage="completed",
+        outcome="success",
+    )
+
+    def ids(**kw):
+        found = search_auth_records(domain="iam", time_window_hours=0, **kw)
+        return sorted(t.transaction_id for t in found)
+
+    assert ids(device="abc") == ["tx-f-1"]
+    assert ids(risk="allow") == ["tx-f-2"]
+    today = datetime.date.today()
+    assert ids(date_from=today, date_to=today) == ["tx-f-1", "tx-f-2"]
+    assert ids(date_from=today + datetime.timedelta(days=2)) == []

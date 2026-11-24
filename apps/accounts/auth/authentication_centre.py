@@ -329,6 +329,10 @@ def search_auth_records(
     stage: str = "",
     time_window_hours: int = 48,
     limit: int = 50,
+    device: str = "",
+    risk: str = "",
+    date_from=None,
+    date_to=None,
 ) -> List[AuthenticationTransaction]:
     """
     Server-side search and filtering for Authentication Centre records tab.
@@ -356,6 +360,18 @@ def search_auth_records(
 
     if stage:
         qs = qs.filter(stage=stage.lower().strip())
+
+    if device:
+        qs = qs.filter(device_ref__icontains=device.strip())
+
+    if risk:
+        qs = qs.filter(risk_decision=risk.lower().strip())
+
+    if date_from:
+        qs = qs.filter(created_at__date__gte=date_from)
+
+    if date_to:
+        qs = qs.filter(created_at__date__lte=date_to)
 
     return list(qs.order_by("-created_at")[:limit])
 

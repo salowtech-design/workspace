@@ -1229,6 +1229,12 @@ def admin_iam_dashboard_view(request):  # noqa: C901
     # stage-by-stage transaction detail page.
     q_outcome = request.GET.get("outcome", "").strip().lower()
     q_stage = request.GET.get("stage", "").strip().lower()
+    from django.utils.dateparse import parse_date
+
+    q_device = request.GET.get("device", "").strip()
+    q_risk = request.GET.get("risk", "").strip().lower()
+    q_from = request.GET.get("date_from", "").strip()
+    q_to = request.GET.get("date_to", "").strip()
     investigation_transactions = search_auth_records(
         domain=AuthenticationPolicy.Domain.IAM,
         query=q_flow,
@@ -1236,6 +1242,10 @@ def admin_iam_dashboard_view(request):  # noqa: C901
         stage=q_stage,
         time_window_hours=0,
         limit=40,
+        device=q_device,
+        risk=q_risk,
+        date_from=parse_date(q_from) if q_from else None,
+        date_to=parse_date(q_to) if q_to else None,
     )
 
     # Section 10 Privileged Access
@@ -1307,6 +1317,10 @@ def admin_iam_dashboard_view(request):  # noqa: C901
         "q_flow": q_flow,
         "q_outcome": q_outcome,
         "q_stage": q_stage,
+        "q_device": q_device,
+        "q_risk": q_risk,
+        "q_from": q_from,
+        "q_to": q_to,
         "investigation_transactions": investigation_transactions,
         "break_glass_active": break_glass_active,
         "sudo_active": sudo_active,

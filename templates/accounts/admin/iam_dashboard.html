@@ -1362,11 +1362,22 @@
                 <option value="success" {% if q_outcome == 'success' %}selected{% endif %}>Success</option>
                 <option value="failed" {% if q_outcome == 'failed' %}selected{% endif %}>Failed</option>
                 <option value="denied" {% if q_outcome == 'denied' %}selected{% endif %}>Denied</option>
+                <option value="challenged" {% if q_outcome == 'challenged' %}selected{% endif %}>Challenged</option>
                 <option value="pending" {% if q_outcome == 'pending' %}selected{% endif %}>Pending</option>
             </select>
             <input type="text" name="stage" value="{{ q_stage }}" placeholder="Stage" aria-label="Stage" class="form-input">
+            <input type="text" name="device" value="{{ q_device }}" placeholder="Device ref" aria-label="Device" class="form-input">
+            <select name="risk" class="form-input" aria-label="Risk decision">
+                <option value="">Any risk</option>
+                <option value="allow" {% if q_risk == 'allow' %}selected{% endif %}>Allow</option>
+                <option value="challenge" {% if q_risk == 'challenge' %}selected{% endif %}>Challenge</option>
+                <option value="deny" {% if q_risk == 'deny' %}selected{% endif %}>Deny</option>
+                <option value="contain" {% if q_risk == 'contain' %}selected{% endif %}>Contain</option>
+            </select>
+            <input type="date" name="date_from" value="{{ q_from }}" aria-label="From date" class="form-input">
+            <input type="date" name="date_to" value="{{ q_to }}" aria-label="To date" class="form-input">
             <button type="submit" class="btn btn-primary">Inspect Flow</button>
-            {% if q_flow or q_outcome or q_stage %}
+            {% if q_flow or q_outcome or q_stage or q_device or q_risk or q_from or q_to %}
             <a href="?tab=investigation" class="btn btn-outline">Clear</a>
             {% endif %}
         </form>
