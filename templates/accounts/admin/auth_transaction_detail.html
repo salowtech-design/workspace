@@ -105,12 +105,12 @@
             </div>
 
             <div class="relative border-l-2 border-gray-800 ml-4 pl-6 space-y-6">
-                {% for stage_name, stage_data in stages.items %}
+                {% for stage_data in stages %}
                 <div class="relative group">
                     <!-- Marker -->
                     <span class="absolute -left-[33px] top-1.5 w-4 h-4 rounded-full border-2 bg-gray-900
-                        {% if stage_data.result == 'PASS' %}border-emerald-500 bg-emerald-950
-                        {% elif stage_data.result == 'FAIL' %}border-rose-500 bg-rose-950
+                        {% if stage_data.result == 'PASS' or stage_data.result == 'SUCCESS' %}border-emerald-500 bg-emerald-950
+                        {% elif stage_data.result == 'FAIL' or stage_data.result == 'FAILED' %}border-rose-500 bg-rose-950
                         {% elif stage_data.result == 'CHALLENGE' %}border-amber-500 bg-amber-950
                         {% else %}border-gray-500 bg-gray-900{% endif %}">
                     </span>
@@ -118,17 +118,17 @@
                     <div class="bg-gray-900/80 border border-gray-800 rounded-xl p-4 flex flex-col md:flex-row md:items-center justify-between gap-3">
                         <div class="space-y-1">
                             <div class="flex items-center space-x-3">
-                                <span class="text-sm font-mono font-bold text-white">{{ stage_name|upper }}</span>
+                                <span class="text-sm font-mono font-bold text-white">{{ stage_data.name|upper }}</span>
                                 <span class="px-2 py-0.5 rounded text-[10px] font-mono font-semibold uppercase
-                                    {% if stage_data.result == 'PASS' %}bg-emerald-950 text-emerald-400 border border-emerald-800
-                                    {% elif stage_data.result == 'FAIL' %}bg-rose-950 text-rose-400 border border-rose-800
+                                    {% if stage_data.result == 'PASS' or stage_data.result == 'SUCCESS' %}bg-emerald-950 text-emerald-400 border border-emerald-800
+                                    {% elif stage_data.result == 'FAIL' or stage_data.result == 'FAILED' %}bg-rose-950 text-rose-400 border border-rose-800
                                     {% elif stage_data.result == 'CHALLENGE' %}bg-amber-950 text-amber-400 border border-amber-800
                                     {% else %}bg-gray-800 text-gray-400 border border-gray-700{% endif %}">
                                     {{ stage_data.result }}
                                 </span>
                             </div>
                             <div class="text-xs font-mono text-gray-400">
-                                {{ stage_data.detail|default:"Stage executed successfully." }}
+                                {{ stage_data.detail|default:"No reason recorded." }}
                             </div>
                         </div>
                         <div class="text-[11px] font-mono text-gray-500 whitespace-nowrap">

@@ -371,6 +371,31 @@ def iam_heartbeat_view(request):
 # ==============================================================================
 
 
+def _stage_rows(raw_stages) -> list:
+    """Safe, ordered stage rows for the detail timeline.
+
+    Stages are stored as a list of {stage, result, reason, timestamp, duration_ms, metadata}.
+    Only the stage name, result, reason category, time and duration are shown; metadata is not.
+    """
+    from django.utils.dateparse import parse_datetime
+
+    rows = []
+    for entry in raw_stages or []:
+        if not isinstance(entry, dict):
+            continue
+        ts = parse_datetime(str(entry.get("timestamp") or ""))
+        rows.append(
+            {
+                "name": str(entry.get("stage") or "stage"),
+                "result": str(entry.get("result") or "").upper(),
+                "detail": str(entry.get("reason") or ""),
+                "timestamp": ts,
+                "duration_ms": entry.get("duration_ms"),
+            }
+        )
+    return rows
+
+
 def auth_transaction_detail_view(request, transaction_id: str):
     """
     Detailed Transaction Investigation View.
@@ -384,10 +409,11 @@ def auth_transaction_detail_view(request, transaction_id: str):
     tx = get_object_or_404(AuthenticationTransaction, transaction_id=transaction_id)
     linked_events = AuthEvent.objects.filter(reference_id=tx.transaction_id).order_by("time")
 
+    stage_rows = _stage_rows(tx.stages)
     context = {
         "iam_admin": session.iam_admin,
         "tx": tx,
-        "stages": tx.stages,
+        "stages": stage_rows,
         "linked_events": linked_events,
         "now": timezone.now(),
     }

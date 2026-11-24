@@ -32,6 +32,7 @@ from django.utils import timezone
 
 from apps.accounts.auth.activation import issue_activation_code
 from apps.accounts.auth.audit import log_auth_event
+from apps.accounts.auth.authentication_centre import search_auth_records
 from apps.accounts.auth.config import is_allowed_company_email
 from apps.accounts.auth.errors import AuthException
 from apps.accounts.auth.iam_auth import (
@@ -69,6 +70,7 @@ from apps.accounts.auth.stepup import (
 )
 from apps.accounts.models import (
     ActivationCode,
+    AuthenticationPolicy,
     AuthEvent,
     CustomUser,
     DeviceApprovalRequest,
@@ -1222,6 +1224,19 @@ def admin_iam_dashboard_view(request):  # noqa: C901
             models.Q(reference_id__icontains=q_flow) | models.Q(employee_id__icontains=q_flow)
         )
     investigation_events = investigation_events[:60]
+    # Sign-in transactions (the real investigation records): search by transaction / correlation /
+    # identity reference / reason category, with outcome and stage filters. Each row links to the
+    # stage-by-stage transaction detail page.
+    q_outcome = request.GET.get("outcome", "").strip().lower()
+    q_stage = request.GET.get("stage", "").strip().lower()
+    investigation_transactions = search_auth_records(
+        domain=AuthenticationPolicy.Domain.IAM,
+        query=q_flow,
+        outcome=q_outcome,
+        stage=q_stage,
+        time_window_hours=0,
+        limit=40,
+    )
 
     # Section 10 Privileged Access
     break_glass_active = is_break_glass_active(request)
@@ -1290,6 +1305,9 @@ def admin_iam_dashboard_view(request):  # noqa: C901
         "memberships": memberships,
         "investigation_events": investigation_events,
         "q_flow": q_flow,
+        "q_outcome": q_outcome,
+        "q_stage": q_stage,
+        "investigation_transactions": investigation_transactions,
         "break_glass_active": break_glass_active,
         "sudo_active": sudo_active,
         "break_glass_history": break_glass_history,

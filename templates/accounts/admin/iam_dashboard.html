@@ -1357,8 +1357,16 @@
         <form method="get" class="s-19da9de9">
             <input type="hidden" name="tab" value="investigation">
             <input type="text" name="q_flow" value="{{ q_flow }}" placeholder="Search by Flow ID, Correlation ID, or Employee ID..." class="form-input s-ee3d55bf">
+            <select name="outcome" class="form-input" aria-label="Outcome">
+                <option value="">All outcomes</option>
+                <option value="success" {% if q_outcome == 'success' %}selected{% endif %}>Success</option>
+                <option value="failed" {% if q_outcome == 'failed' %}selected{% endif %}>Failed</option>
+                <option value="denied" {% if q_outcome == 'denied' %}selected{% endif %}>Denied</option>
+                <option value="pending" {% if q_outcome == 'pending' %}selected{% endif %}>Pending</option>
+            </select>
+            <input type="text" name="stage" value="{{ q_stage }}" placeholder="Stage" aria-label="Stage" class="form-input">
             <button type="submit" class="btn btn-primary">Inspect Flow</button>
-            {% if q_flow %}
+            {% if q_flow or q_outcome or q_stage %}
             <a href="?tab=investigation" class="btn btn-outline">Clear</a>
             {% endif %}
         </form>
@@ -1459,6 +1467,41 @@
                 <div class="s-e1df75c2">Stage 5: Session Grant</div>
                 <div class="s-9c51c2fc">Opaque server-side session created with clean audit log.</div>
             </div>
+        </div>
+    </div>
+
+    <!-- Sign-in transactions: searchable records with stage-by-stage detail -->
+    <div class="card" id="investigation-transactions">
+        <h4 class="s-9819eba6">Sign-in Transactions ({{ investigation_transactions|length }})</h4>
+        <div class="table-container s-42d4450c">
+            <table class="table s-f5d23cb6 inv-tx-table">
+                <thead>
+                    <tr>
+                        <th>Transaction</th>
+                        <th>Correlation ID</th>
+                        <th>Identity</th>
+                        <th>Stage / outcome</th>
+                        <th>Reason</th>
+                        <th>Time</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for tx in investigation_transactions %}
+                    <tr>
+                        <td><a href="{% url 'iam:auth_transaction_detail' tx.transaction_id %}" title="Inspect stage-by-stage detail"><code>{{ tx.transaction_id|slice:":12" }}</code></a></td>
+                        <td><code>{{ tx.correlation_id|slice:":13" }}</code></td>
+                        <td>{{ tx.identity_ref|default:"-" }}</td>
+                        <td><code>{{ tx.stage }}</code> / {{ tx.outcome }}</td>
+                        <td><code class="inv-tx-reason">{{ tx.reason_category|default:"-" }}</code></td>
+                        <td class="s-dd2bcc1c">{{ tx.created_at|date:"m-d H:i:s" }}</td>
+                    </tr>
+                    {% empty %}
+                    <tr>
+                        <td colspan="6" class="s-8321ebd2">No sign-in transactions match the filter.</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
         </div>
     </div>
 

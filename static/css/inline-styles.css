@@ -739,3 +739,6 @@
   .s-bef28989 { flex-wrap: nowrap; overflow-x: auto !important; }
   .s-bef28989 .tab-dyn.tab-on { order: -1; }
 }
+
+.inv-tx-table { font-size: 12px; width: 100%; }
+.inv-tx-reason { word-break: break-word; }
