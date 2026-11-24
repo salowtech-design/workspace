@@ -246,6 +246,7 @@ def approve_administrator_reset(
     actor: CustomUser,
     second_approver: Optional[CustomUser] = None,
     base_url: str = "",
+    assurance_verified: bool = False,
 ) -> tuple[RecoveryRequest, str]:
     """
     Approves an administrator password reset request.
@@ -254,7 +255,9 @@ def approve_administrator_reset(
     """
     from apps.accounts.auth.stepup import is_sudo_active
 
-    if not is_sudo_active(actor):
+    # assurance_verified is set only by the dual-control path, which has already
+    # validated both approvers' own fresh Level 2 step-up against the same request.
+    if not assurance_verified and not is_sudo_active(actor):
         raise PermissionDenied("Recent sudo re-authentication required for recovery approval.")
 
     with transaction.atomic():
@@ -316,6 +319,131 @@ def approve_administrator_reset(
     return req, raw_token
 
 
+DUAL_RECOVERY_ACTION = "approve_recovery"
+_PRIVILEGED_RECOVERY_ROLES = (CustomUser.Role.SUPER_ADMIN, CustomUser.Role.ADMIN)
+
+
+def recovery_needs_dual_control(target_user: CustomUser) -> bool:
+    """Privileged accounts (Super Admin, Admin) need two different approvers."""
+    return target_user.role in _PRIVILEGED_RECOVERY_ROLES
+
+
+def _check_privileged_recovery_role(actor: CustomUser, target_user: CustomUser) -> None:
+    if not actor.is_active or actor.id == target_user.id:
+        raise PermissionDenied("This account cannot act on its own recovery request.")
+    if target_user.role == CustomUser.Role.SUPER_ADMIN:
+        if actor.role != CustomUser.Role.SUPER_ADMIN:
+            raise PermissionDenied("Only a Super Admin may act on a Super Admin recovery request.")
+        if CustomUser.objects.filter(role=CustomUser.Role.SUPER_ADMIN, is_active=True).count() < 2:
+            raise ValidationError("Super Admin recovery needs at least two active Super Admins.")
+    elif actor.role not in _PRIVILEGED_RECOVERY_ROLES:
+        raise PermissionDenied("Only an administrator may act on an Admin recovery request.")
+
+
+def recovery_dual_payload(req: RecoveryRequest) -> dict:
+    return {
+        "action": DUAL_RECOVERY_ACTION,
+        "request_id": req.id,
+        "target_employee_id": req.user.employee_id,
+        "reason": req.reason,
+    }
+
+
+def pending_dual_recovery(req: RecoveryRequest):
+    """The live first-approval record for this recovery request, if any."""
+    from apps.accounts.models import IAMDualApprovalRequest
+
+    return (
+        IAMDualApprovalRequest.objects.filter(
+            action=DUAL_RECOVERY_ACTION,
+            target_id=str(req.id),
+            status=IAMDualApprovalRequest.Status.PENDING,
+            expires_at__gt=timezone.now(),
+        )
+        .select_related("requester")
+        .first()
+    )
+
+
+def approve_privileged_recovery(request_id: int, session, base_url: str = ""):
+    """Two-person approval for a privileged target.
+
+    The first administrator's call (fresh Level 2 in their own IAM session) records a
+    pending approval and nothing else: no token, no email. A different Super Admin,
+    signed in separately with their own fresh Level 2 for the same action, completes it.
+    Naming a person never counts as their approval. Returns ("pending"|"approved", req).
+    """
+    from apps.accounts.auth.iam_auth import (
+        approve_dual_approval_request,
+        compute_payload_digest,
+        consume_dual_approval_request,
+        create_dual_approval_request,
+    )
+
+    actor = session.iam_admin.user
+    with transaction.atomic():
+        req = (
+            RecoveryRequest.objects.select_for_update()
+            .filter(id=request_id, status=RecoveryRequest.Status.PENDING)
+            .select_related("user")
+            .first()
+        )
+        if not req:
+            raise ValidationError("Recovery request not found or not in pending state.")
+        target = req.user
+        _check_privileged_recovery_role(actor, target)
+        digest = compute_payload_digest(recovery_dual_payload(req))
+        first = pending_dual_recovery(req)
+        if first is None:
+            create_dual_approval_request(
+                session, DUAL_RECOVERY_ACTION, str(req.id), req.reason or "recovery", digest
+            )
+            log_auth_event(
+                event="admin_recovery_first_approval",
+                code="INFO",
+                step="approve_admin_reset",
+                employee_id=target.employee_id,
+                reference_id=f"REQ-{req.id}",
+                message=f"First approval by {actor.employee_id}; awaiting a different Super Admin",
+            )
+            return "pending", req
+        if first.requester_id == session.iam_admin.id:
+            raise PermissionDenied(
+                "You already gave the first approval. A different Super Admin must approve."
+            )
+        if first.payload_digest != digest:
+            raise ValidationError("The request changed after the first approval. Start again.")
+        # Same authorized-approver set as check_recovery_authority: a Super Admin
+        # target needs a Super Admin; an Admin target accepts an Admin or Super Admin.
+        from apps.accounts.models import IAMAdminIdentity
+
+        roles = (IAMAdminIdentity.Role.SUPER_ADMIN,)
+        if target.role == CustomUser.Role.ADMIN:
+            roles = (IAMAdminIdentity.Role.SUPER_ADMIN, IAMAdminIdentity.Role.ADMIN)
+        approver_row = approve_dual_approval_request(session, first.request_id, allowed_roles=roles)
+        consume_dual_approval_request(first.request_id, DUAL_RECOVERY_ACTION, str(req.id), digest)
+        requester_user = approver_row.requester.user
+        _check_privileged_recovery_role(requester_user, target)
+        if approver_row.approver.user_id == target.id:
+            raise PermissionDenied("The account being recovered cannot approve its own recovery.")
+        req, raw = approve_administrator_reset(
+            request_id=req.id,
+            actor=requester_user,
+            second_approver=actor,
+            base_url=base_url,
+            assurance_verified=True,
+        )
+        log_auth_event(
+            event="admin_recovery_dual_completed",
+            code="INFO",
+            step="approve_admin_reset",
+            employee_id=target.employee_id,
+            reference_id=f"REQ-{req.id}",
+            message=f"Approved by {requester_user.employee_id} and {actor.employee_id}",
+        )
+        return "approved", req
+
+
 def reject_administrator_reset(
     request_id: int,
     actor: CustomUser,
@@ -338,7 +466,18 @@ def reject_administrator_reset(
             raise ValidationError("Recovery request not found or not in pending state.")
 
         target_user = req.user
-        check_recovery_authority(actor, target_user)
+        if recovery_needs_dual_control(target_user):
+            _check_privileged_recovery_role(actor, target_user)
+        else:
+            check_recovery_authority(actor, target_user)
+
+        from apps.accounts.models import IAMDualApprovalRequest
+
+        IAMDualApprovalRequest.objects.filter(
+            action=DUAL_RECOVERY_ACTION,
+            target_id=str(req.id),
+            status=IAMDualApprovalRequest.Status.PENDING,
+        ).update(status=IAMDualApprovalRequest.Status.REJECTED)
 
         req.status = RecoveryRequest.Status.REJECTED
         req.rejection_reason = reason or "Request rejected by administrator."

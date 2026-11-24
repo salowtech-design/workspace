@@ -41,8 +41,11 @@ from apps.accounts.auth.iam_auth import (
 from apps.accounts.auth.mfa_totp import verify_totp_code
 from apps.accounts.auth.reset import (
     approve_administrator_reset,
+    approve_privileged_recovery,
     check_recovery_authority,
     issue_mfa_reset_code,
+    pending_dual_recovery,
+    recovery_needs_dual_control,
     reject_administrator_reset,
 )
 from apps.accounts.auth.service_identities import (
@@ -443,12 +446,6 @@ def admin_iam_dashboard_view(request):  # noqa: C901
         elif action == "approve_recovery":
             active_tab = "recovery"
             request_id = request.POST.get("request_id")
-            second_approver_id = request.POST.get("second_approver_id")
-            second_approver = None
-            if second_approver_id:
-                second_approver = CustomUser.objects.filter(
-                    id=second_approver_id, is_active=True
-                ).first()
             base_url = request.build_absolute_uri("/")[:-1]
             # The console's own Level 2 step-up (bound to this action) is the fresh
             # re-authentication that the recovery service requires of the approver.
@@ -460,17 +457,35 @@ def admin_iam_dashboard_view(request):  # noqa: C901
             )
             if redirect_resp:
                 return redirect_resp
-            grant_sudo(actor)
+            target_req = (
+                RecoveryRequest.objects.filter(id=request_id).select_related("user").first()
+            )
             try:
-                req, _ = approve_administrator_reset(
-                    request_id=int(request_id),
-                    actor=actor,
-                    second_approver=second_approver,
-                    base_url=base_url,
-                )
-                messages.success(
-                    request, f"Recovery request for {req.user.employee_id} approved. Link sent."
-                )
+                if target_req and recovery_needs_dual_control(target_req.user):
+                    state, req = approve_privileged_recovery(
+                        int(request_id), request.iam_session, base_url=base_url
+                    )
+                    if state == "pending":
+                        messages.info(
+                            request,
+                            f"First approval recorded for {req.user.employee_id}. "
+                            "A different Super Admin must sign in and approve before any link is sent.",
+                        )
+                    else:
+                        messages.success(
+                            request,
+                            f"Recovery request for {req.user.employee_id} approved by two administrators. Link sent.",
+                        )
+                else:
+                    grant_sudo(actor)
+                    req, _ = approve_administrator_reset(
+                        request_id=int(request_id),
+                        actor=actor,
+                        base_url=base_url,
+                    )
+                    messages.success(
+                        request, f"Recovery request for {req.user.employee_id} approved. Link sent."
+                    )
             except Exception as exc:
                 messages.error(request, str(exc))
             return redirect(f"{request.path}?tab=recovery")
@@ -788,9 +803,12 @@ def admin_iam_dashboard_view(request):  # noqa: C901
     active_sessions = UserSession.objects.select_related("user").order_by("-last_activity")[:50]
 
     # Section 5 Recovery
-    pending_recovery_requests = RecoveryRequest.objects.filter(
-        status=RecoveryRequest.Status.PENDING
-    ).select_related("user")
+    pending_recovery_requests = list(
+        RecoveryRequest.objects.filter(status=RecoveryRequest.Status.PENDING).select_related("user")
+    )
+    for _r in pending_recovery_requests:
+        _r.needs_dual = recovery_needs_dual_control(_r.user)
+        _r.first_approval = pending_dual_recovery(_r) if _r.needs_dual else None
     super_admins = CustomUser.objects.filter(
         role=CustomUser.Role.SUPER_ADMIN, is_active=True
     ).exclude(id=actor.id)

@@ -973,7 +973,7 @@
     <!-- Pending Recovery Requests -->
     <div class="card s-f0b24eea">
         <h3 class="s-b0463522">
-            Pending Recovery Requests ({{ pending_recovery_requests.count }})
+            Pending Recovery Requests ({{ pending_recovery_requests|length }})
         </h3>
         <p class="s-5a94ae78">
             Super Admin accounts strictly require dual approval from two distinct Super Administrators.
@@ -1003,15 +1003,8 @@
                                 {% csrf_token %}
                                 <input type="hidden" name="action" value="approve_recovery">
                                 <input type="hidden" name="request_id" value="{{ req.id }}">
-                                {% if req.user.role == 'super_admin' and super_admins %}
-                                <select name="second_approver_id" class="form-input s-02d8f4e4" required>
-                                    <option value="">Second Approver...</option>
-                                    {% for sa in super_admins %}
-                                    <option value="{{ sa.id }}">{{ sa.full_name }} ({{ sa.employee_id }})</option>
-                                    {% endfor %}
-                                </select>
-                                {% endif %}
-                                <button type="submit" class="btn btn-sm btn-primary">Approve</button>
+                                {% if req.first_approval %}<span class="badge badge-warning">First approval by {{ req.first_approval.requester.admin_id }}. Needs a different Super Admin.</span>{% endif %}
+                                <button type="submit" class="btn btn-sm btn-primary">{% if req.needs_dual %}{% if req.first_approval %}Give second approval{% else %}Give first approval{% endif %}{% else %}Approve{% endif %}</button>
                             </form>
                             <form method="post" action="{{ admin_iam_url }}" class="s-f792600a">
                                 {% csrf_token %}

@@ -481,6 +481,7 @@ def create_dual_approval_request(
 def approve_dual_approval_request(
     approver_session: IAMSession,
     request_id: uuid.UUID,
+    allowed_roles: Optional[tuple] = None,
 ) -> IAMDualApprovalRequest:
     """
     Executes independent second administrator approval for Level 3 action (Section 9).
@@ -513,8 +514,9 @@ def approve_dual_approval_request(
             raise PermissionDenied("Self-approval is strictly prohibited for Level 3 operations.")
 
         # Approver must be an active Super Admin
+        permitted = allowed_roles or (IAMAdminIdentity.Role.SUPER_ADMIN,)
         if (
-            approver_session.iam_admin.role != IAMAdminIdentity.Role.SUPER_ADMIN
+            approver_session.iam_admin.role not in permitted
             or approver_session.iam_admin.status != IAMAdminIdentity.Status.ACTIVE
         ):
             raise PermissionDenied(

@@ -491,3 +491,205 @@ class TestIamConsoleRecoveryApprovalUsesConsoleStepUp:
         assert resp.status_code == 302
         req.refresh_from_db()
         assert req.status == "approved"
+
+
+class TestPrivilegedRecoveryNeedsTwoIndependentAdministrators:
+    """Super Admin recovery: the first admin's click only records a pending approval.
+    A different Super Admin, in their own session with their own fresh Level 2, completes it."""
+
+    def _admin(self, n, role=CustomUser.Role.SUPER_ADMIN):
+        user = User.objects.create(
+            email=f"dual{n}@salowtech.com",
+            employee_id=f"EMP-DUAL-{n}",
+            full_name=f"Dual {n}",
+            password=make_password("SuperSecureIamPass2026!"),
+            role=role,
+            status=CustomUser.Status.ACTIVE,
+            is_active=True,
+            email_verified=True,
+        )
+        return user
+
+    def _session_client(self, user, n):
+        admin, _ = create_iam_admin_identity(
+            user=user,
+            admin_id=f"IAM-DUAL-{n}",
+            password="IamMasterSecretPassword2026!#",
+            role="super_admin",
+        )
+        client = Client()
+        fake = type("R", (), {"META": {"REMOTE_ADDR": "10.0.0.1"}, "headers": {}})()
+        sess = create_iam_session(admin, fake)
+        client.cookies[IAM_SESSION_COOKIE_NAME] = fake.session_key_iam
+        return client, sess
+
+    def _step_up(self, sess):
+        from datetime import timedelta
+
+        from django.utils import timezone
+
+        sess.assurance_level = 2
+        sess.stepup_action = "approve_recovery"
+        sess.stepup_expires_at = timezone.now() + timedelta(minutes=5)
+        sess.save()
+
+    def _post(self, client, rid, **extra):
+        return client.post(
+            "/iam/dashboard/",
+            {"action": "approve_recovery", "request_id": rid, **extra},
+            HTTP_HOST=IAM_HOST,
+        )
+
+    @pytest.fixture
+    def world(self, db):
+        from apps.accounts.auth.reset import request_administrator_reset
+        from apps.accounts.models import RecoveryRequest
+
+        a, b, target = self._admin(1), self._admin(2), self._admin(3)
+        ca, sa = self._session_client(a, 1)
+        cb, sb = self._session_client(b, 2)
+        ct, st = self._session_client(target, 3)
+        request_administrator_reset(target.employee_id, "lost device")
+        req = RecoveryRequest.objects.get(user=target)
+        return {
+            "a": a,
+            "b": b,
+            "target": target,
+            "ca": ca,
+            "cb": cb,
+            "ct": ct,
+            "sa": sa,
+            "sb": sb,
+            "st": st,
+            "req": req,
+        }
+
+    def _effects(self, req):
+        from apps.accounts.models import ActivationCode
+        from apps.core.models import EmailOutbox
+
+        req.refresh_from_db()
+        return (
+            req.status,
+            ActivationCode.objects.filter(user=req.user).count(),
+            EmailOutbox.objects.filter(
+                recipient=req.user.email, notification_type__icontains="approved"
+            ).count(),
+        )
+
+    def test_first_approval_issues_nothing(self, world):
+        self._step_up(world["sa"])
+        self._post(world["ca"], world["req"].id)
+        assert self._effects(world["req"]) == ("pending", 0, 0)
+
+    def test_naming_another_admin_is_not_their_approval(self, world):
+        self._step_up(world["sa"])
+        self._post(world["ca"], world["req"].id, second_approver_id=world["b"].id)
+        assert self._effects(world["req"]) == ("pending", 0, 0)
+
+    def test_same_admin_cannot_give_both_approvals(self, world):
+        self._step_up(world["sa"])
+        self._post(world["ca"], world["req"].id)
+        self._post(world["ca"], world["req"].id)
+        assert self._effects(world["req"]) == ("pending", 0, 0)
+
+    def test_second_admin_without_own_step_up_is_refused(self, world):
+        self._step_up(world["sa"])
+        self._post(world["ca"], world["req"].id)
+        resp = self._post(world["cb"], world["req"].id)
+        assert "/iam/stepup/" in resp.url
+        assert self._effects(world["req"]) == ("pending", 0, 0)
+
+    def test_target_cannot_approve_own_recovery(self, world):
+        self._step_up(world["sa"])
+        self._post(world["ca"], world["req"].id)
+        self._step_up(world["st"])
+        self._post(world["ct"], world["req"].id)
+        assert self._effects(world["req"]) == ("pending", 0, 0)
+
+    def test_distinct_second_admin_with_own_step_up_completes(self, world):
+        from apps.accounts.models import IAMDualApprovalRequest
+
+        self._step_up(world["sa"])
+        self._post(world["ca"], world["req"].id)
+        self._step_up(world["sb"])
+        self._post(world["cb"], world["req"].id)
+        assert self._effects(world["req"]) == ("approved", 1, 1)
+        req = world["req"]
+        assert req.approved_by_id == world["a"].id
+        assert req.second_approved_by_id == world["b"].id
+        assert IAMDualApprovalRequest.objects.get().status == "consumed"
+        # replay of the second approval changes nothing further
+        self._post(world["cb"], req.id)
+        assert self._effects(req) == ("approved", 1, 1)
+
+    def test_reject_clears_pending_first_approval(self, world):
+        from apps.accounts.models import IAMDualApprovalRequest
+
+        self._step_up(world["sa"])
+        self._post(world["ca"], world["req"].id)
+        sb = world["sb"]
+        sb.assurance_level = 2
+        sb.stepup_action = "reject_recovery"
+        from datetime import timedelta
+
+        from django.utils import timezone
+
+        sb.stepup_expires_at = timezone.now() + timedelta(minutes=5)
+        sb.save()
+        world["cb"].post(
+            "/iam/dashboard/",
+            {"action": "reject_recovery", "request_id": world["req"].id, "reason": "no"},
+            HTTP_HOST=IAM_HOST,
+        )
+        assert self._effects(world["req"])[0] == "rejected"
+        assert IAMDualApprovalRequest.objects.get().status == "rejected"
+        self._step_up(world["sb"])
+        self._post(world["cb"], world["req"].id)
+        assert self._effects(world["req"]) == ("rejected", 0, 0)
+
+    def test_expired_first_approval_cannot_be_completed(self, world):
+        from datetime import timedelta
+
+        from django.utils import timezone
+
+        from apps.accounts.models import IAMDualApprovalRequest
+
+        self._step_up(world["sa"])
+        self._post(world["ca"], world["req"].id)
+        IAMDualApprovalRequest.objects.update(expires_at=timezone.now() - timedelta(seconds=1))
+        self._step_up(world["sb"])
+        self._post(world["cb"], world["req"].id)
+        assert self._effects(world["req"]) == ("pending", 0, 0)
+
+    def test_first_admin_session_revoked_before_second_approval_blocks_it(self, world):
+        self._step_up(world["sa"])
+        self._post(world["ca"], world["req"].id)
+        world["sa"].is_active = False
+        world["sa"].save()
+        self._step_up(world["sb"])
+        self._post(world["cb"], world["req"].id)
+        assert self._effects(world["req"]) == ("pending", 0, 0)
+
+    def test_admin_target_accepts_a_second_administrator_role(self, db):
+        from apps.accounts.auth.reset import request_administrator_reset
+        from apps.accounts.models import RecoveryRequest
+
+        a = self._admin(11)
+        b = self._admin(12, CustomUser.Role.ADMIN)
+        t = self._admin(13, CustomUser.Role.ADMIN)
+        ca, sa = self._session_client(a, 11)
+        admin_b, _ = create_iam_admin_identity(
+            user=b, admin_id="IAM-DUAL-12", password="IamMasterSecretPassword2026!#", role="admin"
+        )
+        cb = Client()
+        fake = type("R", (), {"META": {"REMOTE_ADDR": "10.0.0.2"}, "headers": {}})()
+        sb = create_iam_session(admin_b, fake)
+        cb.cookies[IAM_SESSION_COOKIE_NAME] = fake.session_key_iam
+        request_administrator_reset(t.employee_id, "lost")
+        req = RecoveryRequest.objects.get(user=t)
+        self._step_up(sa)
+        self._post(ca, req.id)
+        self._step_up(sb)
+        self._post(cb, req.id)
+        assert self._effects(req)[0] == "approved"
