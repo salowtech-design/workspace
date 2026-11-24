@@ -1,0 +1,8 @@
+#iam-live-events{background:#111827;border:1px solid #1f2937;border-radius:12px;overflow:hidden;margin:12px 0;color:#e5e7eb}
+#iam-live-events .lv-head{padding:10px 16px;border-bottom:1px solid #1f2937;display:flex;justify-content:space-between;align-items:center}
+#iam-live-events .lv-title{font-size:14px;font-weight:600}
+#iam-live-events #iam-live-events-status{font:12px monospace;color:#9ca3af}
+#iam-live-events table{width:100%;border-collapse:collapse;text-align:left}
+#iam-live-events th{font-size:11px;text-transform:uppercase;color:#9ca3af;padding:6px 16px}
+#iam-live-events td{padding:6px 16px;font:12px monospace;border-bottom:1px solid #1f2937;vertical-align:top}
+#iam-live-events .lv-wrap{max-height:260px;overflow-y:auto}

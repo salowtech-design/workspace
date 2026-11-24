@@ -20,7 +20,7 @@
     if (seen[e.id]) return;
     seen[e.id] = true;
     var tr = document.createElement("tr");
-    tr.className = "border-b border-gray-800/60 text-xs font-mono";
+    tr.className = "iam-live-row";
     tr.appendChild(cell(new Date(e.time).toLocaleTimeString()));
     tr.appendChild(cell(e.domain.toUpperCase()));
     tr.appendChild(cell(e.actor || "-"));

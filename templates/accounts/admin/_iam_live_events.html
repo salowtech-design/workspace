@@ -1,0 +1,17 @@
+{% load static %}
+<!-- Live administrative action feed. Push (SSE) on an ASGI server, else a 1 s cursor poll.
+     See static/iam-live-events.js. Shown on every IAM page that includes this partial. -->
+<link rel="stylesheet" href="{% static 'iam-live-events.css' %}">
+<div id="iam-live-events" data-url="{% url 'iam:live_events' %}" data-stream-url="{% url 'iam:live_stream' %}">
+    <div class="lv-head">
+        <span class="lv-title">Live Actions (who, when, what)</span>
+        <span id="iam-live-events-status">Connecting...</span>
+    </div>
+    <div class="lv-wrap">
+    <table>
+        <thead><tr><th>Time</th><th>Domain</th><th>Actor</th><th>Action</th><th>Subject</th><th>Detail</th></tr></thead>
+        <tbody id="iam-live-events-body"></tbody>
+    </table>
+    </div>
+</div>
+<script src="{% static 'iam-live-events.js' %}"></script>
