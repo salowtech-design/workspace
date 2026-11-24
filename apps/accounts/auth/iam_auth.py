@@ -582,6 +582,7 @@ def consume_dual_approval_request(  # noqa: C901 (refactor deferred, behavior co
     expected_action: str,
     expected_target_id: str,
     expected_payload_digest: Optional[str] = None,
+    allowed_roles: Optional[tuple] = None,
 ) -> IAMDualApprovalRequest:
     """
     Atomically validates and marks a Level 3 dual approval as consumed to prevent replay attacks.
@@ -667,9 +668,10 @@ def consume_dual_approval_request(  # noqa: C901 (refactor deferred, behavior co
             )
 
         # Both actors must still hold the Super Administrator role at the mutation boundary
+        permitted_roles = allowed_roles or (IAMAdminIdentity.Role.SUPER_ADMIN,)
         if (
-            requester.role != IAMAdminIdentity.Role.SUPER_ADMIN
-            or approver.role != IAMAdminIdentity.Role.SUPER_ADMIN
+            requester.role not in (IAMAdminIdentity.Role.SUPER_ADMIN, *permitted_roles)
+            or approver.role not in permitted_roles
         ):
             raise PermissionDenied(
                 "Both the requester and the approver must still be active Super Administrators."

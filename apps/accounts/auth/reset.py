@@ -434,7 +434,9 @@ def approve_privileged_recovery(request_id: int, session, base_url: str = ""):
         if target.role == CustomUser.Role.ADMIN:
             roles = (IAMAdminIdentity.Role.SUPER_ADMIN, IAMAdminIdentity.Role.ADMIN)
         approver_row = approve_dual_approval_request(session, first.request_id, allowed_roles=roles)
-        consume_dual_approval_request(first.request_id, DUAL_RECOVERY_ACTION, str(req.id), digest)
+        consume_dual_approval_request(
+            first.request_id, DUAL_RECOVERY_ACTION, str(req.id), digest, allowed_roles=roles
+        )
         requester_user = approver_row.requester.user
         _check_privileged_recovery_role(requester_user, target)
         if approver_row.approver.user_id == target.id:
