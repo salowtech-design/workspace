@@ -52,6 +52,9 @@ def _dispatch_security_alert_for_event(
         return
 
     category, severity, title = _resolve_alert_details(event, code, employee_id, message)
+    title = title[:200]
+    employee_id = (employee_id or "")[:32]
+    reference_id = (reference_id or "")[:64]
     if category:
         try:
             SecurityAlert.objects.create(
@@ -82,6 +85,14 @@ def log_auth_event(
     """Persist structured audit record to AuthEvent table."""
     # Sanitization: Ensure no sensitive codes or passwords appear in message
     safe_msg = message[:500] if message else ""
+    # Attacker-controlled identifiers must fit the columns; strict MySQL/TiDB raises
+    # DataError (a 500) on overflow where SQLite silently accepts it.
+    code = (code or "")[:32]
+    step = (step or "")[:64]
+    event = (event or "")[:64]
+    employee_id = (employee_id or "")[:32]
+    reference_id = (reference_id or "")[:64]
+    exception_class = (exception_class or "")[:128]
 
     record = AuthEvent.objects.create(
         event=event,
