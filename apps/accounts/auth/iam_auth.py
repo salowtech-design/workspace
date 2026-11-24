@@ -264,6 +264,7 @@ def authenticate_iam_admin(  # noqa: C901 (refactor deferred, behavior covered b
             code="INFO",
             step="iam_login",
             employee_id=iam_admin.user.employee_id,
+            actor_employee_id=iam_admin.user.employee_id,
             network_address=client_ip,
             reference_id=iam_admin.admin_id,
             message=f"Dedicated IAM Admin [{iam_admin.admin_id}] authenticated (Assurance Level 1)",
@@ -465,6 +466,7 @@ def stepup_iam_assurance(
             code="INFO",
             step="stepup",
             employee_id=iam_admin.user.employee_id,
+            actor_employee_id=iam_admin.user.employee_id,
             reference_id=iam_admin.admin_id,
             message=f"IAM session elevated to Level 2 for action '{action_name}' (expires in 5m)",
         )
@@ -514,6 +516,7 @@ def create_dual_approval_request(
         code="INFO",
         step="dual_approval",
         employee_id=requester_session.iam_admin.user.employee_id,
+        actor_employee_id=requester_session.iam_admin.user.employee_id,
         reference_id=str(req.request_id),
         message=f"Level 3 dual approval requested for action [{action}] on target [{target_id}]",
     )
@@ -589,6 +592,7 @@ def approve_dual_approval_request(
             code="INFO",
             step="dual_approval",
             employee_id=approver_session.iam_admin.user.employee_id,
+            actor_employee_id=approver_session.iam_admin.user.employee_id,
             reference_id=str(req.request_id),
             message=f"Level 3 dual approval granted by {approver_session.iam_admin.admin_id} for action [{req.action}]",
         )
@@ -724,6 +728,7 @@ def consume_dual_approval_request(  # noqa: C901 (refactor deferred, behavior co
             code="INFO",
             step="dual_approval",
             employee_id=req.requester.user.employee_id,
+            actor_employee_id=req.requester.user.employee_id,
             reference_id=str(req.request_id),
             message=f"Level 3 dual approval [{req.request_id}] consumed transactionally by {req.requester.admin_id} (Approved by {req.approver.admin_id}).",
         )
