@@ -28,6 +28,12 @@ dev = [
     "pip-audit>=2.7.0",
 ]
 
+asgi = [
+    # Only needed to run the optional SSE push (config.asgi). The default gunicorn sync deployment
+    # does not use it and the live feed falls back to polling.
+    "uvicorn>=0.30.0",
+]
+
 [tool.uv]
 package = false
 

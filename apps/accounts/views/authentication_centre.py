@@ -752,3 +752,33 @@ def iam_live_events_view(request):
     response = JsonResponse(data)
     response["Cache-Control"] = "no-store"
     return response
+
+
+async def iam_live_stream_view(request):
+    """SSE push of the IAM action feed. ASGI only: under WSGI this answers 404 and the page
+    keeps polling iam_live_events_view. Same authorization as the poll, rechecked every 5 s."""
+    from asgiref.sync import sync_to_async
+    from django.http import Http404, StreamingHttpResponse
+
+    from apps.accounts.auth import live_stream
+
+    if not hasattr(request, "scope"):
+        raise Http404("Streaming needs an ASGI server")
+    session = await sync_to_async(get_iam_session_from_request)(request)
+    if not session or not session.is_active:
+        return JsonResponse({"error": "Unauthorized"}, status=401)
+    if not live_stream.admit(session.pk):
+        return JsonResponse({"error": "Too many streams, use polling"}, status=503)
+    after = request.GET.get("after") or request.headers.get("Last-Event-ID")
+    after_id = int(after) if after and after.isdigit() else None
+    domain = request.GET.get("domain", "all").lower().strip()
+    if domain not in ("all", "iam", "workspace", "unclassified"):
+        domain = "all"
+    role = await sync_to_async(lambda: session.iam_admin.role)()
+    response = StreamingHttpResponse(
+        live_stream.stream(session.pk, role, domain, after_id),
+        content_type="text/event-stream",
+    )
+    response["Cache-Control"] = "no-store"
+    response["X-Accel-Buffering"] = "no"
+    return response
