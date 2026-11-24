@@ -381,7 +381,7 @@ def run_tidb_concurrency_audit():
     test_event_id = f"evt_tidb_{int(time.time() * 1000)}"
     test_event_type = f"audit.concurrency.test.{int(time.time())}"
     with transaction.atomic():
-        event = OutboxEvent.objects.create(
+        OutboxEvent.objects.create(
             event_id=test_event_id,
             event_type=test_event_type,
             payload={"msg": "concurrency test on TiDB"},

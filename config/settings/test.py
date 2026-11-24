@@ -2,7 +2,11 @@
 Test settings for Salow Workspace.
 """
 
+import logging
 import os
+
+from django.db.backends.signals import connection_created
+from django.dispatch import receiver
 
 from .base import *  # noqa: F403
 from .base import BASE_DIR
@@ -48,9 +52,6 @@ DATABASES = {
     }
 }
 
-from django.db.backends.signals import connection_created
-from django.dispatch import receiver
-
 
 @receiver(connection_created)
 def _configure_sqlite_wal(sender, connection, **kwargs):
@@ -60,4 +61,6 @@ def _configure_sqlite_wal(sender, connection, **kwargs):
                 cursor.execute("PRAGMA journal_mode=WAL;")
                 cursor.execute("PRAGMA busy_timeout=30000;")
         except Exception:
-            pass
+            logging.getLogger(__name__).debug(
+                "best-effort step failed and was ignored", exc_info=True
+            )

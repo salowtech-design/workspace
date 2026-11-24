@@ -19,6 +19,7 @@ import decimal
 import hashlib
 import hmac
 import json
+import logging
 import os
 import sys
 import time
@@ -305,7 +306,7 @@ def run_real_backup_and_restore_drill() -> int:
 
                 for r in rows:
                     unserialized_r = []
-                    for c_name, val in zip(cols, r):
+                    for c_name, val in zip(cols, r, strict=False):
                         if isinstance(val, dict) and val.get("__type__") == "decimal":
                             val = decimal.Decimal(val["value"])
                         elif c_name in (
@@ -320,7 +321,9 @@ def run_real_backup_and_restore_drill() -> int:
                                 try:
                                     val = base64.b64decode(val)
                                 except Exception:
-                                    pass
+                                    logging.getLogger(__name__).debug(
+                                        "best-effort step failed and was ignored", exc_info=True
+                                    )
                         unserialized_r.append(val)
                     cursor.execute(insert_sql, tuple(unserialized_r))
                 conn.commit()

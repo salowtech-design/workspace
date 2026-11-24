@@ -44,7 +44,7 @@ def get_biometric_key_ring_dict() -> dict[str, bytes]:
             raw_dict = json.loads(ring_json)
             return {k: bytes.fromhex(v) for k, v in raw_dict.items()}
         except Exception as e:
-            raise ImproperlyConfigured(f"Invalid BIOMETRIC_KEY_RING_JSON: {e}")
+            raise ImproperlyConfigured(f"Invalid BIOMETRIC_KEY_RING_JSON: {e}") from e
 
     primary_key_hex = os.getenv("BIOMETRIC_PRIMARY_KEY_HEX") or getattr(
         settings, "BIOMETRIC_PRIMARY_KEY_HEX", None
@@ -75,7 +75,7 @@ def get_email_key_ring_dict() -> dict[str, bytes]:
             raw_dict = json.loads(ring_json)
             return {k: bytes.fromhex(v) for k, v in raw_dict.items()}
         except Exception as e:
-            raise ImproperlyConfigured(f"Invalid EMAIL_KEY_RING_JSON: {e}")
+            raise ImproperlyConfigured(f"Invalid EMAIL_KEY_RING_JSON: {e}") from e
 
     primary_key_hex = os.getenv("EMAIL_PAYLOAD_KEY_HEX") or getattr(
         settings, "EMAIL_PAYLOAD_KEY_HEX", None

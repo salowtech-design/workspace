@@ -159,18 +159,18 @@ def test_iam_policy_cannot_be_saved_above_five(db, session_and_token):
 
     from apps.accounts.auth.authentication_centre import save_policy_version
 
-    kwargs = dict(
-        domain="iam",
-        password_min_length=16,
-        failed_login_threshold=3,
-        lockout_window_minutes=15,
-        lockout_duration_minutes=15,
-        absolute_session_timeout_hours=8,
-        mfa_required=True,
-        device_approval_required=False,
-        editor_user=None,
-        justification="why",
-    )
+    kwargs = {
+        "domain": "iam",
+        "password_min_length": 16,
+        "failed_login_threshold": 3,
+        "lockout_window_minutes": 15,
+        "lockout_duration_minutes": 15,
+        "absolute_session_timeout_hours": 8,
+        "mfa_required": True,
+        "device_approval_required": False,
+        "editor_user": None,
+        "justification": "why",
+    }
     with pytest.raises(ValidationError):
         save_policy_version(idle_session_timeout_minutes=6, **kwargs)
     assert (

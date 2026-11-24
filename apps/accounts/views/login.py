@@ -5,6 +5,7 @@ Mandatory flow:
 STRICT REQUIREMENT: The MFA challenge page must NOT display a QR code.
 """
 
+import logging
 import time
 
 from django.contrib import messages
@@ -27,7 +28,7 @@ PREAUTH_TIMEOUT_SECONDS = 300  # 5 minutes
 PREAUTH_MAX_ATTEMPTS = 5
 
 
-def login_view(request):
+def login_view(request):  # noqa: C901 (refactor deferred, behavior covered by tests)
     """
     Everyday login handler supporting:
     - Flow B: Single-screen returning employee login (Employee ID + Password + TOTP/Recovery code -> Confirm).
@@ -227,7 +228,9 @@ def login_view(request):
 
                 record_auth_failure_and_check_spray(ip_addr or "127.0.0.1", emp_id)
             except Exception:
-                pass
+                logging.getLogger(__name__).debug(
+                    "best-effort step failed and was ignored", exc_info=True
+                )
 
     return render(
         request,

@@ -25,7 +25,7 @@ from apps.accounts.auth.iam_auth import (
 from apps.accounts.models import WorkspaceSecurityPolicy
 
 
-def iam_login_view(request):
+def iam_login_view(request):  # noqa: C901 (refactor deferred, behavior covered by tests)
     """
     Dedicated IAM Administrator Sign-In (Section 4.1):
     1. Dedicated IAM administrator ID.

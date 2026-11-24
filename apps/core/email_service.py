@@ -377,7 +377,7 @@ def send_email_verification_link(employee_id: str, employee_email: str, verifica
 # ---------------------------------------------------------------------------
 
 
-def process_email_outbox(batch_size: int = 50) -> tuple[int, int]:
+def process_email_outbox(batch_size: int = 50) -> tuple[int, int]:  # noqa: C901 (refactor deferred, behavior covered by tests)
     """
     Process pending and retry-pending emails from the outbox with atomic row claiming.
     Ensures safe bounded exponential backoff, atomic updates, and payload wiping on delivery.

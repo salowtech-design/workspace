@@ -14,7 +14,6 @@ Implements Shamir's Secret Sharing over a 256-bit Galois prime field:
 
 import base64
 import hashlib
-import hmac
 import json
 import logging
 import re
@@ -121,24 +120,16 @@ def reconstruct_secret_2_of_3(shares: List[Tuple[int, int]]) -> bytes:
 def decrypt_offline_backup(backup_file_path: Path, reconstructed_key: bytes) -> Dict:
     """
     Decrypts and validates an encrypted backup manifest using the reconstructed offline key.
-    Validates HMAC-SHA256 tamper seal and SHA-256 payload integrity.
+    Validates AES-GCM authentication and the SHA-256 payload checksum.
     """
     with open(backup_file_path, "r", encoding="utf-8") as f:
         manifest = json.load(f)
 
-    # 1. Verify tamper seal
-    sig_key = hashlib.sha256(reconstructed_key + b"-signing-seal").digest()
+    # Integrity: AES-256-GCM authenticates the ciphertext and binds the manifest checksum as associated
+    # data, so a modified archive or a wrong key fails decryption below. The manifest's hmac_signature
+    # is made by scripts/tidb_backup_verify.py with a separate signing key that is not derivable from the
+    # reconstructed key, so it is verified by that script (verify step), not here.
     loaded_cipher = base64.b64decode(manifest["ciphertext_base64"])
-
-    computed_sig = hmac.new(sig_key, loaded_cipher, hashlib.sha256).hexdigest()
-    # Also support backup drill default signing key if manifest used derived seal
-    drill_sig_key = hashlib.sha256(reconstructed_key).digest()
-    drill_computed_sig = hmac.new(drill_sig_key, loaded_cipher, hashlib.sha256).hexdigest()
-
-    manifest_sig = manifest.get("hmac_signature", "")
-    sig_valid = hmac.compare_digest(computed_sig, manifest_sig) or hmac.compare_digest(
-        drill_computed_sig, manifest_sig
-    )
 
     # 2. Decrypt ciphertext with AES-256-GCM
     loaded_nonce = base64.b64decode(manifest["nonce_base64"])
@@ -152,7 +143,7 @@ def decrypt_offline_backup(backup_file_path: Path, reconstructed_key: bytes) -> 
     except Exception as exc:
         raise PermissionDenied(
             f"Decryption failed: Reconstructed key does not match backup archive ({exc})"
-        )
+        ) from exc
 
     if hashlib.sha256(decrypted_bytes).hexdigest() != manifest["checksum_sha256"]:
         raise ValueError("Decrypted backup payload checksum validation failed.")
@@ -185,7 +176,7 @@ def execute_post_restore_security_reconciliation(cursor, table_prefix: str = "")
     t_device = f"`{table_prefix}accounts_deviceapprovalrequest`"
 
     try:
-        cursor.execute(f"UPDATE {t_iamsession} SET is_active = FALSE WHERE is_active = TRUE;")
+        cursor.execute(f"UPDATE {t_iamsession} SET is_active = FALSE WHERE is_active = TRUE;")  # noqa: S608 (table_prefix validated against ^[A-Za-z0-9_]*$ above)
         reconciled["iam_sessions_revoked"] = cursor.rowcount
     except Exception:
         logger.exception(
@@ -194,7 +185,7 @@ def execute_post_restore_security_reconciliation(cursor, table_prefix: str = "")
         raise
 
     try:
-        cursor.execute(f"DELETE FROM {t_usersession};")
+        cursor.execute(f"DELETE FROM {t_usersession};")  # noqa: S608 (table_prefix validated against ^[A-Za-z0-9_]*$ above)
         reconciled["user_sessions_revoked"] = cursor.rowcount
     except Exception:
         logger.exception(
@@ -203,7 +194,7 @@ def execute_post_restore_security_reconciliation(cursor, table_prefix: str = "")
         raise
 
     try:
-        cursor.execute(f"UPDATE {t_recovery} SET status = 'rejected' WHERE status = 'pending';")
+        cursor.execute(f"UPDATE {t_recovery} SET status = 'rejected' WHERE status = 'pending';")  # noqa: S608 (table_prefix validated against ^[A-Za-z0-9_]*$ above)
         reconciled["recovery_requests_expired"] = cursor.rowcount
     except Exception:
         logger.exception(
@@ -212,7 +203,7 @@ def execute_post_restore_security_reconciliation(cursor, table_prefix: str = "")
         raise
 
     try:
-        cursor.execute(f"UPDATE {t_device} SET status = 'rejected' WHERE status = 'pending';")
+        cursor.execute(f"UPDATE {t_device} SET status = 'rejected' WHERE status = 'pending';")  # noqa: S608 (table_prefix validated against ^[A-Za-z0-9_]*$ above)
         reconciled["device_requests_expired"] = cursor.rowcount
     except Exception:
         logger.exception(

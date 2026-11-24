@@ -3,6 +3,7 @@ Server-Side Session Management & Revocation Engine.
 Tracks active device sessions, rotates session keys, and handles revocation on security events.
 """
 
+import logging
 from datetime import timedelta
 
 from django.contrib.auth import login
@@ -129,7 +130,7 @@ def synchronize_employee_lifecycle_revocation(user: CustomUser) -> dict:
                 iam_admin.status = IAMAdminIdentity.Status.SUSPENDED
                 iam_admin.save(update_fields=["status"])
     except Exception:
-        pass
+        logging.getLogger(__name__).debug("best-effort step failed and was ignored", exc_info=True)
 
     # 3. Reject pending DeviceApprovalRequests
     revoked_stats["device_requests"] = DeviceApprovalRequest.objects.filter(

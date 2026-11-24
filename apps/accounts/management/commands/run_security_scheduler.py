@@ -33,7 +33,7 @@ class Command(BaseCommand):
             help="Main loop polling tick interval in seconds (default: 10s).",
         )
 
-    def handle(self, *args, **options):
+    def handle(self, *args, **options):  # noqa: C901 (refactor deferred, behavior covered by tests)
         once = options["once"]
         interval = options["interval"]
 

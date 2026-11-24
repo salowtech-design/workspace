@@ -5,6 +5,7 @@ Implements:
 2. Threshold-based alert generation when system clock drift exceeds 2.0 seconds.
 """
 
+import logging
 import socket
 import struct
 import time
@@ -40,7 +41,9 @@ def get_ntp_time(host: str, timeout: float = 2.0) -> Optional[float]:
         try:
             client.close()
         except Exception:
-            pass
+            logging.getLogger(__name__).debug(
+                "best-effort step failed and was ignored", exc_info=True
+            )
     return None
 
 

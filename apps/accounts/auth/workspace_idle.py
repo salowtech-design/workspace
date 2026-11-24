@@ -6,6 +6,7 @@ activity, otherwise an open tab would never time out. The absolute session lifet
 (SESSION_COOKIE_AGE, 12 hours) is separate and unchanged.
 """
 
+import logging
 import time
 
 from django.conf import settings
@@ -37,7 +38,7 @@ def idle_limit_seconds() -> int:
         if policy is not None:
             minutes = policy.idle_session_timeout_minutes
     except Exception:
-        pass
+        logging.getLogger(__name__).debug("best-effort step failed and was ignored", exc_info=True)
     return max(60, int(minutes) * 60)
 
 

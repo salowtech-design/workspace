@@ -17,7 +17,7 @@ def test_no_style_attributes_in_templates():
 
 def test_no_style_attributes_in_static_js_or_python_html():
     paths = (
-        [p for p in (ROOT / "static").glob("*.js")]
+        list((ROOT / "static").glob("*.js"))
         + list((ROOT / "apps").rglob("views/*.py"))
         + [ROOT / "apps/certificates/services.py"]
     )

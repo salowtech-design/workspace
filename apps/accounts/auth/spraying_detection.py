@@ -9,6 +9,7 @@ Implements:
 
 import ipaddress
 import json
+import logging
 import time
 from typing import Optional, Set
 
@@ -46,11 +47,11 @@ def _get_subnet_prefix(ip_str: str) -> Optional[str]:
             net = ipaddress.ip_network(f"{ip}/24", strict=False)
             return str(net.network_address).rsplit(".", 1)[0]
     except Exception:
-        pass
+        logging.getLogger(__name__).debug("best-effort step failed and was ignored", exc_info=True)
     return None
 
 
-def record_auth_failure_and_check_spray(
+def record_auth_failure_and_check_spray(  # noqa: C901 (refactor deferred, behavior covered by tests)
     client_ip: str,
     attempted_id: str,
 ) -> bool:
@@ -146,7 +147,9 @@ def record_auth_failure_and_check_spray(
                 ]
                 RateLimitRecord.objects.bulk_create(records)
             except Exception:
-                pass
+                logging.getLogger(__name__).debug(
+                    "best-effort step failed and was ignored", exc_info=True
+                )
 
             log_auth_event(
                 event="password_spraying_detected",

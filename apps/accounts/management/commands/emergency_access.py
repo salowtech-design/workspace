@@ -94,4 +94,4 @@ class Command(BaseCommand):
             )
             self.stdout.write("=" * 65)
         except Exception as e:
-            raise CommandError(f"Emergency access failed: {e}")
+            raise CommandError(f"Emergency access failed: {e}") from e

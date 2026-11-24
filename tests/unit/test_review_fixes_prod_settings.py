@@ -19,7 +19,7 @@ def _env(**overrides):
         ACTIVATION_HMAC_KEY=secrets.token_urlsafe(40),
         EMAIL_PAYLOAD_KEY_HEX=secrets.token_hex(32),
         SESSION_HMAC_KEY=secrets.token_urlsafe(40),
-        AUDIT_CHECKPOINT_DIR="/tmp/salow-test-checkpoints",
+        AUDIT_CHECKPOINT_DIR="/tmp/salow-test-checkpoints",  # noqa: S108 (fixture path, never written)
         ALLOWED_HOSTS="example.com",
         TIDB_USER="u",
         TIDB_PASSWORD="p",

@@ -743,12 +743,12 @@ def test_auth_030_all_controls_map_to_real_backend_handlers(iam_admin_pair, work
     (admin, _), _ = iam_admin_pair
 
     # 1. execute_revoke_session
-    sess = UserSession.objects.create(user=workspace_user, session_key="ws-test-revoke-key")
+    UserSession.objects.create(user=workspace_user, session_key="ws-test-revoke-key")
     r1 = execute_revoke_session("ws-test-revoke-key", "workspace", admin, "Routine test revocation")
     assert r1["status"] == "success"
 
     # 2. execute_revoke_device
-    dev = ApprovedDevice.objects.create(
+    ApprovedDevice.objects.create(
         user=workspace_user, device_id="fp-test-01", display_name="Laptop"
     )
     r2 = execute_revoke_device("fp-test-01", admin, "Stolen device report")

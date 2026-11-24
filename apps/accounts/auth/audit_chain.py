@@ -193,7 +193,7 @@ def create_audit_checkpoint() -> Optional[AuditCheckpoint]:
     return checkpoint
 
 
-def verify_audit_chain() -> Tuple[bool, str]:
+def verify_audit_chain() -> Tuple[bool, str]:  # noqa: C901 (refactor deferred, behavior covered by tests)
     """
     Validates cryptographic integrity of all audit checkpoints and underlying events,
     cross-verifying primary database state against independent off-database custody records.

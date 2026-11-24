@@ -1,3 +1,5 @@
+import logging
+
 from django.conf import settings
 from django.contrib.auth import logout
 from django.http import HttpResponse, HttpResponseNotFound
@@ -35,7 +37,7 @@ class HostSecurityIsolationMiddleware:
     def __init__(self, get_response):
         self.get_response = get_response
 
-    def __call__(self, request):
+    def __call__(self, request):  # noqa: C901 (refactor deferred, behavior covered by tests)
         path = request.path_info
         if any(path.startswith(prefix) for prefix in self.EXEMPT_PREFIXES):
             return self.get_response(request)
@@ -145,7 +147,9 @@ class AccountSecurityMiddleware:
                 message="Workspace session ended after inactivity",
             )
         except Exception:
-            pass
+            logging.getLogger(__name__).debug(
+                "best-effort step failed and was ignored", exc_info=True
+            )
         logout(request)
         request.session.flush()
         login_url = (

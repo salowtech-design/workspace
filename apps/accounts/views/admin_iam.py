@@ -887,7 +887,6 @@ def admin_iam_live_stream_view(request):
         rows = []
         for evt in events:
             is_info = evt.code == "INFO"
-            badge_color = "#059669" if is_info else "#dc2626"
             t_str = evt.time.strftime("%H:%M:%S") if evt.time else ""
             row_html = (
                 f'<div class="evt-row {"evt-ok" if is_info else "evt-bad"}">'

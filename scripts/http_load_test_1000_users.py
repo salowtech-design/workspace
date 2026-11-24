@@ -157,7 +157,7 @@ def run_benchmark(target_url: str, vus: int, workers: int, iterations: int):
 
     read_stats = format_stats(reads)
     write_stats = format_stats(writes)
-    login_stats = format_stats(logins)
+    format_stats(logins)
 
     print("=" * 72)
     print("REAL HTTP BENCHMARK RESULTS SUMMARY:")

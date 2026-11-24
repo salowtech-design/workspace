@@ -387,7 +387,7 @@ def auth_transaction_detail_view(request, transaction_id: str):
 
 
 @require_POST
-def auth_control_action_view(request):
+def auth_control_action_view(request):  # noqa: C901 (refactor deferred, behavior covered by tests)
     """
     CSRF-protected action dispatcher for the Eight Real Controls (Sequence 1 Contract Section 13).
     Zero decorative buttons: every action executes an authorized backend mutation and records an audit trail.

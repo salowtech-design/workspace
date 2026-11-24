@@ -5,6 +5,7 @@ Strict fail-closed security configuration.
 
 import json
 import os
+from pathlib import Path
 
 import certifi
 from django.core.exceptions import ImproperlyConfigured
@@ -60,7 +61,7 @@ if raw_historical:
         hist_dict = json.loads(raw_historical)
         AUDIT_SIGNING_KEYS.update(hist_dict)
     except Exception as e:
-        raise ImproperlyConfigured(f"Invalid AUDIT_HISTORICAL_KEYS_JSON: {e}")
+        raise ImproperlyConfigured(f"Invalid AUDIT_HISTORICAL_KEYS_JSON: {e}") from e
 
 # Cryptographic Key Separation and Validation (Workstream C)
 raw_biometric_key = os.environ.get("BIOMETRIC_PRIMARY_KEY_HEX")

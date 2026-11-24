@@ -195,12 +195,12 @@ def approve_device_by_existing_session(
                         step="device_approval",
                         message_override="Challenge number mismatch. Verification number does not match requesting device.",
                     )
-            except (ValueError, TypeError):
+            except (ValueError, TypeError) as exc:
                 raise AuthException(
                     "AUTH-DEV-012",
                     step="device_approval",
                     message_override="Invalid challenge number format.",
-                )
+                ) from exc
 
         # Generate 6-digit email OTP
         raw_otp = f"{secrets.randbelow(900000) + 100000}"

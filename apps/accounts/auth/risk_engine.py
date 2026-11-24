@@ -7,6 +7,7 @@ Implements auditable risk scoring:
 4. Privileged administrative operations.
 """
 
+import logging
 from datetime import timedelta
 from enum import Enum
 from typing import List, Tuple
@@ -116,7 +117,7 @@ def decide_login_risk(
             score += 10
             signals.append("after_hours_login")
     except Exception:
-        pass
+        logging.getLogger(__name__).debug("best-effort step failed and was ignored", exc_info=True)
 
     total_score = min(score, 100)
 

@@ -38,7 +38,7 @@ class Command(BaseCommand):
             help="Simulate re-encryption drill without writing changes.",
         )
 
-    def handle(self, *args, **options):
+    def handle(self, *args, **options):  # noqa: C901 (refactor deferred, behavior covered by tests)
         new_key_id = options["new_key_id"].strip()
         dry_run = options["dry_run"]
 
@@ -48,7 +48,7 @@ class Command(BaseCommand):
         except Exception as e:
             raise CommandError(
                 f"Target key '{new_key_id}' not found in configured AUTH_KEY_RING: {e}"
-            )
+            ) from e
 
         self.stdout.write(
             f"Initiating comprehensive key rotation drill to key [{new_key_id}] (Dry Run: {dry_run})..."

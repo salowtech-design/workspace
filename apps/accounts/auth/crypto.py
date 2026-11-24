@@ -58,9 +58,9 @@ def decrypt_totp_secret(
     try:
         raw = aesgcm.decrypt(nonce, encrypted_secret, associated_data=key_id.encode("utf-8"))
         return raw.decode("utf-8")
-    except InvalidTag:
+    except InvalidTag as exc:
         raise AuthException(
             "AUTH-MFA-001",
             step="decrypt_secret",
             message_override="Failed to decrypt secret. Key ring mismatch or corrupted record.",
-        )
+        ) from exc
