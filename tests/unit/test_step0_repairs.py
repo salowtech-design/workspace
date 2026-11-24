@@ -402,3 +402,39 @@ def test_terminating_one_session_is_recorded_without_the_session_key(db):
     assert event.employee_id == "EMP-TERM-01"
     assert "secret-looking-digest-value" not in event.message
     assert "secret-looking-digest-value" not in (event.reference_id or "")
+
+
+def test_self_service_reset_email_states_the_real_30_second_expiry(db):
+    """The self-service link lives 30 seconds; the mail used to say 15 minutes."""
+    import pyotp
+    from django.utils import timezone
+
+    from apps.accounts.auth.mfa_totp import encrypt_secret, get_auth_key_ring
+    from apps.accounts.auth.reset import request_self_service_password_reset
+    from apps.accounts.models import TOTPCredential
+    from apps.core.models import EmailOutbox
+
+    user = User.objects.create(
+        email="mail.ttl@salowtech.com",
+        employee_id="EMP-MAILTTL-1",
+        full_name="Mail Ttl",
+        password=make_password("OldPasswordForTests2026!#"),
+        role=CustomUser.Role.EMPLOYEE,
+        status=CustomUser.Status.ACTIVE,
+        is_active=True,
+        email_verified=True,
+    )
+    secret = pyotp.random_base32(length=32)
+    ct, nonce, key_id = encrypt_secret(secret, get_auth_key_ring())
+    TOTPCredential.objects.create(
+        user=user, encrypted_secret=ct, nonce=nonce, key_id=key_id, confirmed_at=timezone.now()
+    )
+    request_self_service_password_reset(
+        employee_id="EMP-MAILTTL-1",
+        email="mail.ttl@salowtech.com",
+        totp_code=pyotp.TOTP(secret).now(),
+        base_url="http://testserver",
+    )
+    body = EmailOutbox.objects.filter(notification_type="email_reset_link").latest("id").body_text
+    assert "expires in 30 seconds" in body
+    assert "15 minutes" not in body

@@ -550,6 +550,7 @@ def request_self_service_password_reset(
         employee_id=user.employee_id,
         employee_email=user.email,
         reset_url=reset_url,
+        expires_in="30 seconds",
     )
 
     log_auth_event(

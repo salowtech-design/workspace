@@ -220,14 +220,16 @@ def notify_password_changed(employee_id: str, employee_email: str, method: str):
     )
 
 
-def notify_email_reset_link_requested(employee_id: str, employee_email: str, reset_url: str):
+def notify_email_reset_link_requested(
+    employee_id: str, employee_email: str, reset_url: str, expires_in: str = "15 minutes"
+):
     """Event: Email password-reset link requested (Method 2 Route C)."""
     subject = "[Salow Tech IAM] Password Reset Link"
     template = (
         f"Hello,\n\nA request was received to reset your Salow Workspace password for {employee_id}.\n"
         f"Click the link below to safely continue your password reset:\n\n"
         f"{reset_url}\n\n"
-        f"This link is single-use, account-bound, and expires in 15 minutes.\n"
+        f"This link is single-use, account-bound, and expires in {expires_in}.\n"
         f"If you did not request this, please disregard this email.\n"
         f"Salow Tech Security Team"
     )
@@ -235,7 +237,7 @@ def notify_email_reset_link_requested(employee_id: str, employee_email: str, res
         f"Hello,\n\nA request was received to reset your Salow Workspace password for {employee_id}.\n"
         f"Click the link below to safely continue your password reset:\n\n"
         f"[CONFIDENTIAL LINK ENCRYPTED IN SECURE PAYLOAD]\n\n"
-        f"This link is single-use, account-bound, and expires in 15 minutes.\n"
+        f"This link is single-use, account-bound, and expires in {expires_in}.\n"
         f"If you did not request this, please disregard this email.\n"
         f"Salow Tech Security Team"
     )
