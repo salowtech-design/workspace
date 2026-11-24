@@ -374,14 +374,45 @@ def test_admin_iam_renders_all_twelve_console_areas(client, test_users):
     assert "12. Delivery & Operations" in html
 
 
+def _iam_console_client(user, *actions):
+    """A client holding a real IAM session with fresh Level 2 step-up for the given actions
+    (the console no longer runs assurance-gated mutations without an IAM session)."""
+    from datetime import timedelta
+
+    from django.test import Client
+    from django.utils import timezone
+
+    from apps.accounts.auth.iam_auth import (
+        IAM_SESSION_COOKIE_NAME,
+        create_iam_admin_identity,
+        create_iam_session,
+    )
+
+    admin, _ = create_iam_admin_identity(
+        user=user,
+        admin_id="IAM-" + user.employee_id[-8:],
+        password="IamMasterSecretPassword2026!#",
+        role="super_admin" if user.role == CustomUser.Role.SUPER_ADMIN else "admin",
+    )
+    c = Client()
+    fake = type("R", (), {"META": {"REMOTE_ADDR": "10.0.0.1"}, "headers": {}})()
+    sess = create_iam_session(admin, fake)
+    c.cookies[IAM_SESSION_COOKIE_NAME] = fake.session_key_iam
+    sess.assurance_level = 2
+    sess.stepup_action = actions[0]
+    sess.stepup_expires_at = timezone.now() + timedelta(minutes=5)
+    sess.save()
+    return c, sess
+
+
 @pytest.mark.django_db
 def test_admin_iam_service_identity_lifecycle_via_console(client, test_users):
     """Admin can provision and revoke M2M Service Identities via the IAM console."""
-    client.force_login(test_users["admin"])
+    client, sess = _iam_console_client(test_users["admin"], "create_service_identity")
 
     # Provision service identity
     resp = client.post(
-        reverse("accounts:admin_iam"),
+        "/iam/dashboard/",
         {
             "action": "create_service_identity",
             "name": "Background Task Runner",
@@ -390,6 +421,7 @@ def test_admin_iam_service_identity_lifecycle_via_console(client, test_users):
             "expires_in_days": "90",
         },
         follow=True,
+        HTTP_HOST="iam.salowtech.com",
     )
     assert resp.status_code == 200
     ident = ServiceIdentity.objects.filter(client_id="svc_bg_runner_999").first()
@@ -397,14 +429,17 @@ def test_admin_iam_service_identity_lifecycle_via_console(client, test_users):
     assert ident.is_active is True
     assert "attendance:read" in ident.scopes
 
-    # Revoke service identity
+    # Revoke service identity (a step-up is bound to one action, so renew it)
+    sess.stepup_action = "revoke_service_identity"
+    sess.save()
     resp = client.post(
-        reverse("accounts:admin_iam"),
+        "/iam/dashboard/",
         {
             "action": "revoke_service_identity",
             "client_id": "svc_bg_runner_999",
         },
         follow=True,
+        HTTP_HOST="iam.salowtech.com",
     )
     assert resp.status_code == 200
     ident.refresh_from_db()
@@ -446,17 +481,18 @@ def test_admin_iam_break_glass_lifecycle_via_console(client, test_users):
 @pytest.mark.django_db
 def test_admin_iam_lifecycle_exit_account(client, test_users):
     """Marking employee as EXITED terminates all sessions and sets end_date."""
-    client.force_login(test_users["admin"])
+    client, _sess = _iam_console_client(test_users["admin"], "exit_account")
     emp = test_users["employee"]
     UserSession.objects.create(user=emp, session_key="emp_session_to_terminate_1")
 
     resp = client.post(
-        reverse("accounts:admin_iam"),
+        "/iam/dashboard/",
         {
             "action": "exit_account",
             "target_employee_id": emp.employee_id,
         },
         follow=True,
+        HTTP_HOST="iam.salowtech.com",
     )
     assert resp.status_code == 200
     emp.refresh_from_db()

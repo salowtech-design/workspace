@@ -149,6 +149,34 @@ ROLE_PERMISSIONS_MATRIX = [
 ]
 
 
+_LIFECYCLE_ADMIN_ROLES = (CustomUser.Role.SUPER_ADMIN, CustomUser.Role.ADMIN)
+
+
+def _lifecycle_actor_denial(actor: CustomUser, target: CustomUser) -> Optional[str]:
+    """Who may suspend, reactivate, exit or revoke sessions for whom (None means allowed)."""
+    if actor.role in _LIFECYCLE_ADMIN_ROLES:
+        if target.role == CustomUser.Role.SUPER_ADMIN and actor.role != CustomUser.Role.SUPER_ADMIN:
+            return "Only Super Admins can act on a Super Admin account."
+        return None
+    if actor.role == CustomUser.Role.HR and target.role in (
+        CustomUser.Role.EMPLOYEE,
+        CustomUser.Role.INTERN,
+    ):
+        return None
+    return "You do not have permission to act on this account."
+
+
+def _would_remove_last_super_admin(target: CustomUser) -> bool:
+    """True when changing this account would leave no other active Super Admin."""
+    if target.role != CustomUser.Role.SUPER_ADMIN or not target.is_active:
+        return False
+    return (
+        not CustomUser.objects.filter(role=CustomUser.Role.SUPER_ADMIN, is_active=True)
+        .exclude(id=target.id)
+        .exists()
+    )
+
+
 def enforce_mutation_assurance(
     request, action_name: str, required_level: int, payload: Any = None
 ) -> Optional[Any]:
@@ -158,7 +186,14 @@ def enforce_mutation_assurance(
     """
     session = getattr(request, "iam_session", None) or get_iam_session_from_request(request)
     if not session:
-        return None
+        # No dedicated IAM session (for example the console reached on the workspace
+        # host): privileged mutations never run without step-up. Fail closed.
+        messages.error(
+            request,
+            "This action needs a dedicated IAM administrator session with step-up. "
+            "Sign in at the IAM console to continue.",
+        )
+        return redirect(request.get_full_path())
 
     digest = compute_payload_digest(payload) if payload else None
     if not check_iam_assurance(
@@ -327,6 +362,14 @@ def admin_iam_dashboard_view(request):  # noqa: C901
             target_user = CustomUser.objects.filter(employee_id=target_emp_id).first()
             if not target_user:
                 messages.error(request, f"User {target_emp_id} not found.")
+            elif new_role not in CustomUser.Role.values:
+                messages.error(request, "Unknown role.")
+            elif (
+                target_user.role == CustomUser.Role.SUPER_ADMIN
+                and new_role != CustomUser.Role.SUPER_ADMIN
+                and _would_remove_last_super_admin(target_user)
+            ):
+                messages.error(request, "The last active Super Admin cannot be demoted.")
             elif actor.role != CustomUser.Role.SUPER_ADMIN and (
                 new_role == CustomUser.Role.SUPER_ADMIN
                 or target_user.role == CustomUser.Role.SUPER_ADMIN
@@ -412,7 +455,17 @@ def admin_iam_dashboard_view(request):  # noqa: C901
             sess = (
                 UserSession.objects.filter(session_key=session_key).select_related("user").first()
             )
-            if sess:
+            if sess and _lifecycle_actor_denial(actor, sess.user):
+                messages.error(request, _lifecycle_actor_denial(actor, sess.user))
+            elif sess:
+                redirect_resp = enforce_mutation_assurance(
+                    request,
+                    "revoke_session",
+                    required_level=2,
+                    payload={"session_key": session_key, "action": "revoke_session"},
+                )
+                if redirect_resp:
+                    return redirect_resp
                 end_session_by_key(sess.user, session_key)
                 messages.success(request, f"Session {session_key[:8]}... terminated.")
             else:
@@ -423,7 +476,9 @@ def admin_iam_dashboard_view(request):  # noqa: C901
             active_tab = "sessions"
             target_emp_id = request.POST.get("target_employee_id", "").strip().upper()
             target_user = CustomUser.objects.filter(employee_id=target_emp_id).first()
-            if target_user:
+            if target_user and _lifecycle_actor_denial(actor, target_user):
+                messages.error(request, _lifecycle_actor_denial(actor, target_user))
+            elif target_user:
                 payload = {
                     "target_employee_id": target_emp_id,
                     "action": "revoke_user_all_sessions",
@@ -530,6 +585,10 @@ def admin_iam_dashboard_view(request):  # noqa: C901
                 messages.error(request, "Only Super Admins can suspend a Super Admin account.")
             elif target_user.id == actor.id:
                 messages.error(request, "You cannot suspend your own account.")
+            elif _lifecycle_actor_denial(actor, target_user):
+                messages.error(request, _lifecycle_actor_denial(actor, target_user))
+            elif _would_remove_last_super_admin(target_user):
+                messages.error(request, "The last active Super Admin cannot be suspended.")
             else:
                 payload = {"target_employee_id": target_emp_id, "action": "suspend_account"}
                 req_level = 3 if target_user.role == CustomUser.Role.SUPER_ADMIN else 2
@@ -562,6 +621,8 @@ def admin_iam_dashboard_view(request):  # noqa: C901
             target_user = CustomUser.objects.filter(employee_id=target_emp_id).first()
             if not target_user:
                 messages.error(request, f"User {target_emp_id} not found.")
+            elif _lifecycle_actor_denial(actor, target_user):
+                messages.error(request, _lifecycle_actor_denial(actor, target_user))
             else:
                 payload = {"target_employee_id": target_emp_id, "action": "reactivate_account"}
                 redirect_resp = enforce_mutation_assurance(
@@ -599,6 +660,10 @@ def admin_iam_dashboard_view(request):  # noqa: C901
                 messages.error(request, "Only Super Admins can transition a Super Admin account.")
             elif target_user.id == actor.id:
                 messages.error(request, "You cannot mark your own account as exited.")
+            elif _lifecycle_actor_denial(actor, target_user):
+                messages.error(request, _lifecycle_actor_denial(actor, target_user))
+            elif _would_remove_last_super_admin(target_user):
+                messages.error(request, "The last active Super Admin cannot be marked exited.")
             else:
                 payload = {"target_employee_id": target_emp_id, "action": "exit_account"}
                 req_level = 3 if target_user.role == CustomUser.Role.SUPER_ADMIN else 2
