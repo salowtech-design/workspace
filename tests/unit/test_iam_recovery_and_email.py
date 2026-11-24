@@ -817,3 +817,13 @@ class TestAuthenticatorReplacementKeepsOldFactorUntilAcknowledged:
             RecoveryCode.objects.filter(user=standard_employee).values_list("keyed_hash", flat=True)
         )
         assert len(new_hashes) == 10 and not (new_hashes & old_hashes)
+
+    def test_codes_page_states_the_real_activation_timing(self, client, standard_employee):
+        new_secret = self._to_setup(client, standard_employee)
+        resp = client.post(
+            reverse("accounts:mfa_replacement_setup"), {"code": pyotp.TOTP(new_secret).now()}
+        )
+        page = client.get(resp.url).content.decode()
+        assert "have been invalidated" not in page
+        assert "not active yet" in page
+        assert "stay valid" in page
