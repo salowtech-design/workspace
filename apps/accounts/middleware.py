@@ -87,6 +87,11 @@ class HostSecurityIsolationMiddleware:
             request.urlconf = "config.urls_workspace"
             request.is_iam_host = False
 
+            # IAM views are mounted under /iam-internal/ only so templates and tests can reverse the
+            # "iam" namespace. They must never be served on the workspace host.
+            if path.startswith("/iam-internal"):
+                return HttpResponseNotFound("Not found.")
+
             # On Workspace host, direct access to root IAM is segregated
             if path.startswith("/iam/"):
                 return redirect(f"https://{self.IAM_HOST}{path}")

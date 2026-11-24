@@ -25,3 +25,19 @@ def test_local_review_settings_allow_both_dedicated_hosts_and_stay_http():
         local_review.ALLOWED_HOSTS
     )
     assert local_review.SESSION_COOKIE_SECURE is False
+
+
+def test_local_review_settings_force_local_sqlite_and_plain_cookie_names(monkeypatch):
+    import importlib
+
+    monkeypatch.setenv("TIDB_PASSWORD", "x")
+    monkeypatch.setenv("USE_TIDB", "true")
+    monkeypatch.setenv("SESSION_COOKIE_SECURE", "true")
+    from config.settings import local_review
+
+    importlib.reload(local_review)
+    db = local_review.DATABASES["default"]
+    assert db["ENGINE"] == "django.db.backends.sqlite3"
+    assert str(db["NAME"]).endswith("local_review.sqlite3")
+    assert not local_review.SESSION_COOKIE_NAME.startswith("__Host-")
+    assert not local_review.IAM_SESSION_COOKIE_NAME.startswith("__Host-")

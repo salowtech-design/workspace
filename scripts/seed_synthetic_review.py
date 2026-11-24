@@ -5,6 +5,7 @@ Prints the synthetic logins and the base32 TOTP secrets to add to an authenticat
 """
 
 import os
+import secrets
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -28,11 +29,11 @@ db = settings.DATABASES["default"]
 if db["ENGINE"] != "django.db.backends.sqlite3":
     sys.exit("Refusing to seed: the database is not local SQLite. Unset TIDB_* / USE_TIDB first.")
 
-EMP_PASSWORD = "ReviewEmployeePass2026!@#"
-ADM_PASSWORD = "ReviewIamAdminPass2026!#"
+EMP_PASSWORD = "Rv!" + secrets.token_urlsafe(18)
+ADM_PASSWORD = "Rv!" + secrets.token_urlsafe(24)
 if CustomUser.objects.filter(employee_id="REVIEW-EMP-1").exists():
     sys.exit(
-        "Synthetic review users already exist. Delete test_db.sqlite3 and migrate to start clean."
+        "Synthetic review users already exist. Delete local_review.sqlite3 and migrate to start clean."
     )
 
 emp = CustomUser.objects.create(
@@ -57,7 +58,7 @@ adm_user = CustomUser.objects.create(
     full_name="Review IAM Admin",
     email="review.admin@salowtech.com",
     email_verified=True,
-    password=make_password("ReviewAdminUserPass2026!"),
+    password=make_password("Rv!" + secrets.token_urlsafe(24)),
     role=CustomUser.Role.SUPER_ADMIN,
     status=CustomUser.Status.ACTIVE,
     is_active=True,

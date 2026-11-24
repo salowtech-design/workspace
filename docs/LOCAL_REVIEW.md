@@ -13,7 +13,7 @@ uv sync --extra dev
 ```
 
 ## 2. Use local SQLite only
-Make sure no TiDB variables are set in this PowerShell window (`TIDB_PASSWORD`, `USE_TIDB`, `TIDB_HOST`).
+Clearing TiDB variables is still good practice (they are ignored by these settings).
 ```powershell
 Remove-Item Env:TIDB_PASSWORD, Env:USE_TIDB, Env:TIDB_HOST -ErrorAction SilentlyContinue
 $env:DJANGO_SETTINGS_MODULE = "config.settings.local_review"
@@ -30,11 +30,11 @@ routing is not exercised (path-based fallback only).
 
 ## 4. Database and synthetic users
 ```powershell
-Remove-Item test_db.sqlite3 -ErrorAction SilentlyContinue
+Remove-Item local_review.sqlite3 -ErrorAction SilentlyContinue
 uv run python manage.py migrate
 uv run python scripts/seed_synthetic_review.py
 ```
-The script refuses to run unless the database is local SQLite. It prints the synthetic logins, TOTP secrets
+These settings force a local SQLite file (local_review.sqlite3) whatever TiDB variables are set, and the seeder refuses anything else. It generates random passwords on each run and prints the synthetic logins, TOTP secrets
 and recovery codes. Add each TOTP secret to an authenticator app, or print a code with
 `uv run python -c "import pyotp;print(pyotp.TOTP('SECRET').now())"`.
 
@@ -45,7 +45,7 @@ uv run python manage.py runserver 127.0.0.1:8000
 - IAM console: http://iam.salowtech.com:8000/iam/login/  (IAM-REVIEW-01)
 - Workspace: http://app.salowtech.com:8000/auth/login/?flow=signin  (REVIEW-EMP-1)
 
-Settings are plain HTTP (cookies not Secure). Production settings force HTTPS and `__Host-` cookies.
+Settings are plain HTTP: cookies are not Secure and use plain names (browsers drop `__Host-` cookies over HTTP). Production settings are unchanged and force HTTPS and `__Host-` cookies.
 
 ## 6. What to check
 Dashboard, Sessions (Revoke), Authentication Centre, Workspace Control, IAM Administrator Auth, Recovery, at

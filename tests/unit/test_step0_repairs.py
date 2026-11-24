@@ -269,3 +269,21 @@ def test_iam_dashboard_post_target_is_guarded_by_iam_session_and_csrf(iam_client
     # Workspace admin routes are still not reachable on the IAM host.
     for path in ("/auth/admin/iam/", "/auth/admin/shield/", "/auth/admin/backups/"):
         assert client.get(path, HTTP_HOST=IAM_HOST).status_code in (302, 404)
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "/iam-internal/",
+        "/iam-internal/login/",
+        "/iam-internal/dashboard/",
+        "/iam-internal/sessions/",
+        "/iam-internal/recovery/",
+        "/iam-internal/authentication/",
+    ],
+)
+def test_iam_views_are_not_served_on_the_workspace_host(db, path):
+    """The IAM namespace is mounted at /iam-internal/ for reversing only; the workspace host must 404."""
+    client = Client()
+    assert client.get(path, HTTP_HOST="app.salowtech.com").status_code == 404
+    assert client.post(path, {}, HTTP_HOST="app.salowtech.com").status_code == 404
