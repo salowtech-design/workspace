@@ -137,8 +137,8 @@ def test_landing_page_renders_two_buttons_initially_without_inputs(client):
     assert "Sign In" in html
 
     # Initial state hides input containers
-    assert 'id="login-flow-container" style="display: none;' in html
-    assert 'id="signin-flow-container" style="display: none;' in html
+    assert _container_hidden(html, "login-flow-container")
+    assert _container_hidden(html, "signin-flow-container")
 
 
 @pytest.mark.django_db
@@ -147,7 +147,7 @@ def test_landing_page_progressive_disclosure_query_params(client):
     resp_signin = client.get(reverse("accounts:login") + "?flow=signin")
     assert resp_signin.status_code == 200
     html_signin = resp_signin.content.decode()
-    assert 'id="signin-flow-container" style="display: block;' in html_signin
+    assert not _container_hidden(html_signin, "signin-flow-container")
     assert 'id="toggle-password-btn"' in html_signin
     assert 'id="confirm-btn"' in html_signin
     assert 'id="forgot-password-link"' in html_signin
@@ -155,7 +155,7 @@ def test_landing_page_progressive_disclosure_query_params(client):
     resp_login = client.get(reverse("accounts:login") + "?flow=login")
     assert resp_login.status_code == 200
     html_login = resp_login.content.decode()
-    assert 'id="login-flow-container" style="display: block;' in html_login
+    assert not _container_hidden(html_login, "login-flow-container")
     assert 'name="password"' in html_login
 
 
@@ -591,3 +591,12 @@ def test_dedicated_synthetic_staging_admin_automation(client):
     resp_panel = client.get(reverse("attendance:panel"))
     assert resp_panel.status_code == 200
     assert "Synthetic Staging Admin" in resp_panel.content.decode()
+
+
+def _container_hidden(html, container_id):
+    """A flow container is hidden when its class list has d-none (style attributes are blocked by the CSP)."""
+    import re
+
+    m = re.search(r'<div id="%s" class="([^"]*)"' % container_id, html)
+    assert m, container_id
+    return "d-none" in m.group(1).split()

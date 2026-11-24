@@ -7,7 +7,6 @@ import os
 from pathlib import Path
 
 import pyotp
-import pytest
 
 from tests.e2e.test_playwright_e2e_browser import browser, playwright_instance, reset_rate_limiter, seeded_users  # noqa: F401
 

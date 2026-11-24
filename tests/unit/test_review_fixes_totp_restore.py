@@ -1,6 +1,5 @@
 """Approved policy changes: TOTP window +-1 with a clock hint, and restore failures are loud."""
 import logging
-import time
 from unittest import mock
 
 import pyotp
