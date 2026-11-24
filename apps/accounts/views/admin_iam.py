@@ -434,6 +434,8 @@ def admin_iam_dashboard_view(request):  # noqa: C901
                 messages.error(request, "HR personnel can only create Employee or Intern accounts.")
             elif actor.role == CustomUser.Role.ADMIN and role == CustomUser.Role.SUPER_ADMIN:
                 messages.error(request, "Administrators cannot provision Super Admin accounts.")
+            elif role not in CustomUser.Role.values:
+                messages.error(request, "Choose one of the listed roles.")
             elif not emp_id or not full_name or not email:
                 messages.error(request, "Employee ID, full name, and email are required.")
             elif not is_allowed_company_email(email):
@@ -443,6 +445,23 @@ def admin_iam_dashboard_view(request):  # noqa: C901
             elif CustomUser.objects.filter(email=email).exists():
                 messages.error(request, f"Email {email} is already registered.")
             else:
+                # Provisioning is an IAM-console action: it needs a dedicated IAM session (a
+                # workspace session alone cannot authenticate IAM authority), and granting the
+                # Super Admin role is Level 3 (two-person) like any other Super Admin change.
+                redirect_resp = enforce_mutation_assurance(
+                    request,
+                    "create_employee",
+                    required_level=3 if role == CustomUser.Role.SUPER_ADMIN else 1,
+                    payload={
+                        "action": "create_employee",
+                        "target_employee_id": emp_id,
+                        "full_name": full_name,
+                        "email": email,
+                        "role": role,
+                    },
+                )
+                if redirect_resp:
+                    return redirect_resp
                 try:
                     with transaction.atomic():
                         new_user = CustomUser(

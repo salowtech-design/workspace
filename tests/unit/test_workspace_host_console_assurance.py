@@ -402,3 +402,67 @@ class TestIamStepupRotatesSessionAndKeepsNextLocal:
             HTTP_HOST="iam.salowtech.com",
         )
         assert resp.status_code == 302 and "evil.example" not in resp.url
+
+
+@pytest.mark.django_db
+class TestProvisioningNeedsIamAuthorityAndValidRole:
+    def _post(self, client, eid, role, host="iam.salowtech.com", url="/iam/dashboard/"):
+        return client.post(
+            url,
+            {
+                "action": "create_employee",
+                "employee_id": eid,
+                "full_name": "Name " + eid,
+                "email": eid.lower() + "@salowtech.com",
+                "role": role,
+            },
+            HTTP_HOST=host,
+        )
+
+    def _sa(self):
+        from tests.unit.test_iam_platform_complete import _iam_console_client
+
+        u = CustomUser.objects.create_user(
+            employee_id="ST-PRV-SA1",
+            full_name="Prov SA",
+            email="st-prv-sa1@salowtech.com",
+            password="Xx-pass-2026!ab",
+            role=CustomUser.Role.SUPER_ADMIN,
+            status=CustomUser.Status.ACTIVE,
+            is_active=True,
+        )
+        return u, *_iam_console_client(u, "create_employee")
+
+    def test_workspace_session_alone_cannot_provision_any_role(self):
+        from django.test import Client
+
+        u = CustomUser.objects.create_user(
+            employee_id="ST-PRV-WS1",
+            full_name="WS SA",
+            email="st-prv-ws1@salowtech.com",
+            password="Xx-pass-2026!ab",
+            role=CustomUser.Role.SUPER_ADMIN,
+            status=CustomUser.Status.ACTIVE,
+            is_active=True,
+        )
+        c = Client()
+        c.force_login(u)
+        for n, role in enumerate(["employee", "admin", "super_admin", "bogus"]):
+            self._post(c, f"PRVWS{n}", role, host="app.salowtech.com", url="/auth/admin/iam/")
+            assert not CustomUser.objects.filter(employee_id=f"PRVWS{n}").exists()
+
+    def test_invalid_or_blank_role_is_refused_with_an_iam_session(self):
+        _u, c, _s = self._sa()
+        for n, role in enumerate(["bogus", ""]):
+            self._post(c, f"PRVBAD{n}", role)
+            assert not CustomUser.objects.filter(employee_id=f"PRVBAD{n}").exists()
+        self._post(c, "PRVOK1", "employee")
+        assert CustomUser.objects.get(employee_id="PRVOK1").role == CustomUser.Role.EMPLOYEE
+
+    def test_granting_super_admin_at_provisioning_is_level_3(self):
+
+        u, c, s = self._sa()
+        # IAM L1/L2 holder cannot create a Super Admin in one step
+        r = self._post(c, "PRVSA2", "super_admin")
+        assert not CustomUser.objects.filter(employee_id="PRVSA2").exists()
+        assert r.status_code == 302 and "/iam/stepup/" in r.url

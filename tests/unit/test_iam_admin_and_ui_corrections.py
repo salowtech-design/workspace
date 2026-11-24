@@ -421,9 +421,11 @@ def test_admin_iam_renders_seven_operational_tabs(client, test_users):
 @pytest.mark.django_db
 def test_admin_provision_employee_issues_activation_code(client, test_users):
     """Admin provisioning employee creates user with unusable password and issues activation code."""
-    client.force_login(test_users["admin"])
+    from tests.unit.test_iam_platform_complete import _iam_console_client
+
+    client, _sess = _iam_console_client(test_users["admin"], "create_employee")
     resp = client.post(
-        reverse("accounts:admin_iam"),
+        "/iam/dashboard/",
         {
             "action": "create_employee",
             "employee_id": "ST-EMP-9999",
@@ -431,6 +433,7 @@ def test_admin_provision_employee_issues_activation_code(client, test_users):
             "email": "alex.new@salowtech.com",
             "role": "employee",
         },
+        HTTP_HOST="iam.salowtech.com",
         follow=True,
     )
     assert resp.status_code == 200
