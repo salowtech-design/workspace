@@ -135,3 +135,10 @@ def test_banner_and_script_are_on_authenticated_workspace_pages(client):
 def test_login_page_explains_idle_signout(db):
     html = Client().get("/auth/login/?reason=idle").content.decode()
     assert "signed out because of inactivity" in html
+
+
+def test_idle_script_never_writes_to_browser_storage():
+    from pathlib import Path
+
+    src = Path("static/session-idle.js").read_text()
+    assert "sessionStorage" not in src and "localStorage" not in src

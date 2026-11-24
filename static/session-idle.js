@@ -19,17 +19,7 @@
     var i = document.querySelector('input[name="csrfmiddlewaretoken"]');
     return i ? i.value : '';
   }
-  function snapshotDrafts() {
-    try {
-      var data = {};
-      document.querySelectorAll('form input:not([type="password"]):not([type="hidden"]), form textarea, form select').forEach(function (el) {
-        if (el.name && el.value) data[el.name] = el.value;
-      });
-      if (Object.keys(data).length) sessionStorage.setItem('_salow_draft_' + location.pathname, JSON.stringify(data));
-    } catch (e) {}
-  }
   function signOut() {
-    snapshotDrafts();
     location.href = loginUrl + '?reason=idle&next=' + encodeURIComponent(location.pathname + location.search);
   }
   function show(secs) {

@@ -352,3 +352,40 @@ class TestPlaywrightBrowserAcceptance:
         assert "/auth/login" in page.url and "reason=idle" in page.url
         page.screenshot(path=str(SCREENSHOT_DIR / "13_idle_signed_out_notice.png"))
         context.close()
+
+    def test_draft_storage_excludes_sensitive_fields_and_is_purged_at_login(
+        self, browser, live_server, seeded_users
+    ):
+        """Only free-text areas are kept as drafts; codes, ids and selects never reach browser storage,
+        and the sign-in page wipes saved drafts so a shared browser cannot show them to another user."""
+        context = browser.new_context(viewport={"width": 1280, "height": 800})
+        page = context.new_page()
+        page.goto(f"{live_server.url}/auth/login/?flow=signin")
+        page.fill("#employee_id", seeded_users["emp"].employee_id)
+        page.fill("#password", "ValidPass2026!@#")
+        page.fill("#totp_code", pyotp.TOTP(seeded_users["emp_totp"]).now())
+        page.click("#confirm-btn")
+        page.wait_for_load_state("networkidle")
+        assert "/attendance" in page.url
+
+        page.fill("textarea", "my free text work note")
+        page.evaluate(
+            """() => {
+              const f = document.querySelector('textarea').form;
+              for (const [n, t] of [['recovery_code', 'text'], ['totp_code', 'text'], ['employee_id', 'text'], ['api_token', 'text']]) {
+                const i = document.createElement('input'); i.type = t; i.name = n; i.value = 'SENSITIVE-' + n; f.appendChild(i);
+              }
+              Object.defineProperty(document, 'visibilityState', { get: () => 'hidden', configurable: true });
+              document.dispatchEvent(new Event('visibilitychange'));
+            }"""
+        )
+        stored = page.evaluate(
+            "() => Object.keys(sessionStorage).filter(k => k.startsWith('_salow_draft_')).map(k => sessionStorage.getItem(k)).join('|')"
+        )
+        assert "my free text work note" in stored
+        assert "SENSITIVE-" not in stored
+
+        page.goto(f"{live_server.url}/auth/login/?flow=signin")
+        left = page.evaluate("() => Object.keys(sessionStorage).filter(k => k.startsWith('_salow_draft_')).length")
+        assert left == 0
+        context.close()

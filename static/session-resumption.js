@@ -5,14 +5,17 @@
   'use strict';
 
   var DRAFT_PREFIX = '_salow_draft_';
+  var SENSITIVE = /pass|pwd|pin|code|token|otp|secret|recovery|csrf|biometric|face|key|totp|card|ssn/i;
 
   function snapshotFormData() {
     var data = {};
     var forms = document.querySelectorAll('form');
     forms.forEach(function(form, fIdx) {
-      var elements = form.querySelectorAll('input:not([type="password"]):not([type="hidden"]), textarea, select');
+      // Only free-text areas are kept. Inputs (employee id, one-time codes, recovery codes, tokens),
+      // selects and anything that looks sensitive are never written to browser storage.
+      var elements = form.querySelectorAll('textarea');
       elements.forEach(function(el) {
-        if (el.name && el.value) {
+        if (el.name && el.value && !SENSITIVE.test(el.name) && el.autocomplete !== 'one-time-code') {
           data[el.name] = el.value;
         }
       });
