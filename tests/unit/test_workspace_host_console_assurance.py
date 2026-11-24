@@ -83,3 +83,33 @@ def test_last_active_super_admin_cannot_be_demoted_or_suspended(db):
     assert _would_remove_last_super_admin(only) is True
     _user("EMP-WH-SA2B", CustomUser.Role.SUPER_ADMIN)
     assert _would_remove_last_super_admin(only) is False
+
+
+class TestStepUpCoversExactlyOneMutation:
+    def test_step_up_for_one_suspend_cannot_be_replayed_on_another_target(self, db):
+        from django.urls import reverse
+
+        from tests.unit.test_iam_platform_complete import _iam_console_client
+
+        def mk(eid, role):
+            return CustomUser.objects.create_user(
+                employee_id=eid,
+                full_name=eid,
+                email=f"{eid.lower()}@salowtech.com",
+                password="Xx-pass-2026!ab",
+                role=role,
+                status=CustomUser.Status.ACTIVE,
+                is_active=True,
+            )
+
+        admin = mk("ST-RP-ADM", CustomUser.Role.ADMIN)
+        t1 = mk("ST-RP-T1", CustomUser.Role.EMPLOYEE)
+        t2 = mk("ST-RP-T2", CustomUser.Role.EMPLOYEE)
+        c, _ = _iam_console_client(admin, "suspend_account")
+        url = reverse("accounts:admin_iam")
+        c.post(url, {"action": "suspend_account", "target_employee_id": "ST-RP-T1"})
+        c.post(url, {"action": "suspend_account", "target_employee_id": "ST-RP-T2"})
+        t1.refresh_from_db()
+        t2.refresh_from_db()
+        assert t1.status == CustomUser.Status.SUSPENDED
+        assert t2.status == CustomUser.Status.ACTIVE

@@ -3,8 +3,10 @@ from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.http import HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
+from django.urls import reverse
 from django.views.decorators.http import require_POST
 
+from apps.accounts.auth.stepup import is_sudo_active
 from apps.accounts.permissions import (
     PERM_CERTIFICATE_ISSUE,
     PERM_CERTIFICATE_REVOKE,
@@ -90,6 +92,10 @@ def certificate_revoke_view(request, cert_uuid):
         raise PermissionDenied("You do not have permission to revoke certificates.")
 
     cert = get_object_or_404(Certificate, uuid=cert_uuid)
+    if not is_sudo_active(request):
+        # Revocation is irreversible: it needs a fresh password re-entry (sudo).
+        messages.error(request, "Re-enter your password to revoke a certificate.")
+        return redirect(f"{reverse('accounts:sudo')}?next={reverse('certificates:list')}")
     form = CertificateRevokeForm(request.POST)
     if form.is_valid():
         try:

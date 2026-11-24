@@ -178,7 +178,11 @@ def _would_remove_last_super_admin(target: CustomUser) -> bool:
 
 
 def enforce_mutation_assurance(
-    request, action_name: str, required_level: int, payload: Any = None
+    request,
+    action_name: str,
+    required_level: int,
+    payload: Any = None,
+    consume_stepup: bool = True,
 ) -> Optional[Any]:
     """
     Enforces required IAM assurance level (L1, L2, L3) with canonical payload binding.
@@ -208,6 +212,13 @@ def enforce_mutation_assurance(
                 f"Operation '{action_name}' requires independent Level 3 Dual Approval from a second Super Administrator.",
             )
             return redirect(request.get_full_path())
+    if required_level == 2 and consume_stepup and request.method == "POST":
+        # A Level 2 step-up covers exactly one mutation: consume it so the same proof
+        # cannot be replayed against a different target.
+        session.stepup_action = ""
+        session.stepup_expires_at = None
+        session.assurance_level = 1
+        session.save(update_fields=["assurance_level", "stepup_action", "stepup_expires_at"])
     return None
 
 
@@ -508,6 +519,7 @@ def admin_iam_dashboard_view(request):  # noqa: C901
                 request,
                 "approve_recovery",
                 required_level=2,
+                consume_stepup=False,
                 payload={"request_id": str(request_id), "action": "approve_recovery"},
             )
             if redirect_resp:
@@ -553,6 +565,7 @@ def admin_iam_dashboard_view(request):  # noqa: C901
                 request,
                 "reject_recovery",
                 required_level=2,
+                consume_stepup=False,
                 payload={"request_id": str(request_id), "action": "reject_recovery"},
             )
             if redirect_resp:

@@ -460,3 +460,43 @@ class TestCertificateSVGViewPermissions:
         assert resp.status_code == 200
         assert resp.headers.get("Content-Type") == "image/svg+xml"
         assert f'filename="{cert.serial_number}.svg"' in resp.headers.get("Content-Disposition")
+
+
+class TestCertificateRevokeNeedsSudo:
+    def _call(self, admin_user, cert, sudo):
+        from django.contrib.messages.storage.fallback import FallbackStorage
+
+        from apps.accounts.auth import stepup
+        from apps.certificates.views import certificate_revoke_view
+
+        rf = RequestFactory().post("/x/", {"reason": "Issued in error."})
+        rf.user = admin_user
+        rf.session = {}
+        rf._messages = FallbackStorage(rf)
+        if sudo:
+            rf.session[stepup.SUDO_GRANTED_TIMESTAMP_KEY] = __import__("time").time()
+        stepup._USER_SUDO_CACHE.pop(admin_user.id, None)
+        return certificate_revoke_view(rf, cert.uuid)
+
+    def _cert(self, recipient_user, admin_user):
+        return issue_certificate(
+            recipient=recipient_user,
+            title="Sudo Cert",
+            description="Revoke needs a fresh password re-entry.",
+            issued_by=admin_user,
+        )
+
+    def test_revoke_without_sudo_is_redirected_and_changes_nothing(
+        self, recipient_user, admin_user
+    ):
+        cert = self._cert(recipient_user, admin_user)
+        resp = self._call(admin_user, cert, sudo=False)
+        assert resp.status_code == 302 and "/security/sudo/" in resp.url
+        cert.refresh_from_db()
+        assert cert.is_revoked is False
+
+    def test_revoke_with_sudo_and_reason_revokes(self, recipient_user, admin_user):
+        cert = self._cert(recipient_user, admin_user)
+        self._call(admin_user, cert, sudo=True)
+        cert.refresh_from_db()
+        assert cert.is_revoked is True and cert.revoked_by == admin_user
