@@ -69,7 +69,6 @@
           <li class="nav-item"><a href="/console/authentication/control/">Workspace Control</a></li>
           <li class="nav-item"><a href="/console/authentication/iam/">IAM Administrator Auth</a></li>
           <li class="nav-item"><a href="/iam/">IAM Directory & Audit</a></li>
-          <li class="nav-item"><a href="/iam/security/shield/">Security Shield</a></li>
         </ul>
       </nav>
       <div class="s-c65c53ff">
@@ -78,9 +77,6 @@
             <div class="s-f8246472">{{ request.user.full_name }}</div>
             <div class="s-3564cde4">{{ request.user.employee_id }} (IAM Admin)</div>
           </div>
-          <a href="/iam/security/shield/" title="Administrator Security Shield" id="admin-security-shield-btn" class="s-855d4ac4" aria-label="Administrator Security Shield">
-            🛡️
-          </a>
         </div>
         <form method="post" action="/iam/logout/" class="s-d4f8cd0e">
           {% csrf_token %}

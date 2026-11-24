@@ -225,3 +225,47 @@ def test_workspace_session_rows_show_active_and_a_revoke_button(iam_client):
     row = row[: row.index("</tr>")]
     assert "ACTIVE" in row and "TERMINATED" not in row
     assert 'value="revoke_session"' in row and 'value="workspace"' in row
+
+
+DASHBOARD_TABS = ["identity", "sessions", "threats", "investigation", "workspace_security"]
+
+
+@pytest.mark.parametrize("tab", DASHBOARD_TABS + [""])
+def test_iam_dashboard_renders_on_iam_host_and_every_link_stays_on_iam_urlconf(iam_client, tab):
+    """/iam/dashboard/ used to 500 on the IAM host: the template reversed workspace-only names."""
+    from django.urls import Resolver404, resolve
+
+    client, _admin = iam_client
+    url = "/iam/dashboard/" + (f"?tab={tab}" if tab else "")
+    page = client.get(url, HTTP_HOST=IAM_HOST)
+    assert page.status_code == 200
+    html = page.content.decode()
+    targets = re.findall(r'(?:href|action)="(/[^"#]*)"', html)
+    assert targets
+    for target in targets:
+        if target.startswith("/static/"):
+            continue
+        path = target.split("?")[0]
+        try:
+            resolve(path, urlconf="config.urls_iam")
+        except Resolver404:
+            pytest.fail(f"dashboard link {target} does not exist on the IAM host")
+        assert not path.startswith(("/auth/", "/attendance", "/posts")), target
+    # Workspace-only actions are shown as unavailable, never as broken or broad routes.
+    assert "/auth/admin/" not in html
+
+
+def test_iam_dashboard_post_target_is_guarded_by_iam_session_and_csrf(iam_client):
+    from django.test import Client
+
+    client, _admin = iam_client
+    html = client.get("/iam/dashboard/", HTTP_HOST=IAM_HOST).content.decode()
+    assert f'action="{reverse("iam:dashboard", urlconf="config.urls_iam")}"' in html
+    anon = Client(enforce_csrf_checks=True)
+    denied = anon.post("/iam/dashboard/", {"tab": "identity"}, HTTP_HOST=IAM_HOST)
+    assert denied.status_code in (302, 403)
+    if denied.status_code == 302:
+        assert "/iam/login" in denied.url
+    # Workspace admin routes are still not reachable on the IAM host.
+    for path in ("/auth/admin/iam/", "/auth/admin/shield/", "/auth/admin/backups/"):
+        assert client.get(path, HTTP_HOST=IAM_HOST).status_code in (302, 404)

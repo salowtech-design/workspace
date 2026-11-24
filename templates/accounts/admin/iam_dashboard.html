@@ -3,6 +3,7 @@
 {% block title %}IAM & Access Management — Salow Workspace{% endblock %}
 
 {% block content %}
+{% if request.is_iam_host %}{% url 'iam:dashboard' as admin_iam_url %}{% url 'iam:recovery_portal' as forgot_url %}{% else %}{% url 'accounts:admin_iam' as admin_iam_url %}{% url 'accounts:forgot_password' as forgot_url %}{% url 'accounts:admin_shield' as shield_url %}{% url 'accounts:login' as public_login_url %}{% url 'security_events_root' as events_url %}{% url 'security_alerts_root' as alerts_url %}{% endif %}
 <div class="content-header s-18ed5710">
     <div>
         <h1 class="s-1c7a449a">
@@ -19,9 +20,9 @@
         </span>
         {% endif %}
         {% if actor.role in 'super_admin,admin' %}
-        <a href="{% url 'accounts:admin_shield' %}" class="btn btn-primary s-b734fb24">
+        {% if shield_url %}<a href="{{ shield_url }}" class="btn btn-primary s-b734fb24">
             <span>🛡️</span> Security Shield
-        </a>
+        </a>{% else %}<span class="btn btn-secondary btn-sm" aria-disabled="true">Security Shield: not available on the IAM host</span>{% endif %}
         {% endif %}
     </div>
 </div>
@@ -293,7 +294,7 @@
             </a>
 
             <!-- Tile 7: Forgot Password -->
-            <a href="{% url 'accounts:forgot_password' %}" class="card iam-tile s-d315d386">
+            <a href="{{ forgot_url }}" class="card iam-tile s-d315d386">
                 <div>
                     <div class="s-cc698347">
                         <span class="s-b4ce168d">🔑</span>
@@ -584,10 +585,10 @@
                 Subsystem Controls
             </h3>
             <div class="space-y-2">
-                <a href="{% url 'accounts:login' %}" target="_blank" class="btn btn-secondary s-8150e30a">
+                {% if public_login_url %}<a href="{{ public_login_url }}" target="_blank" class="btn btn-secondary s-8150e30a">
                     <span>🔐 Open Public Login Portal</span>
                     <span>↗</span>
-                </a>
+                </a>{% endif %}
                 <a href="?tab=threats" class="btn btn-secondary s-8150e30a">
                     <span>🛑 Rate Limit &amp; Abuse Ledger</span>
                     <span>→</span>
@@ -665,7 +666,7 @@
             <p class="s-5a94ae78">
                 Creates an account with an unusable password and generates a single-use Crockford Base32 activation code.
             </p>
-            <form method="post" action="{% url 'accounts:admin_iam' %}" class="space-y-3">
+            <form method="post" action="{{ admin_iam_url }}" class="space-y-3">
                 {% csrf_token %}
                 <input type="hidden" name="action" value="create_employee">
                 <div class="form-group">
@@ -757,7 +758,7 @@
             <p class="s-5a94ae78">
                 Reassigning a role immediately terminates all active device sessions for security.
             </p>
-            <form method="post" action="{% url 'accounts:admin_iam' %}" class="space-y-3">
+            <form method="post" action="{{ admin_iam_url }}" class="space-y-3">
                 {% csrf_token %}
                 <input type="hidden" name="action" value="update_role">
                 <div class="form-group">
@@ -822,7 +823,7 @@
             <p class="s-5a94ae78">
                 Delegated authority check: Generates a single-use Crockford code allowing employee to replace their authenticator.
             </p>
-            <form method="post" action="{% url 'accounts:admin_iam' %}" class="space-y-3">
+            <form method="post" action="{{ admin_iam_url }}" class="space-y-3">
                 {% csrf_token %}
                 <input type="hidden" name="action" value="issue_mfa_reset">
                 <div class="form-group">
@@ -874,7 +875,7 @@
                         <td>{{ req.created_at|date:"H:i:s" }}</td>
                         <td><span class="badge badge-warning">{{ req.expires_at|date:"H:i:s" }}</span></td>
                         <td>
-                            <form method="post" action="{% url 'accounts:device_admin_approve' req.request_id %}" class="s-434fc32e">
+{% if request.is_iam_host %}<span class="badge badge-warning">Device fallback approval: not available on the IAM host yet</span>{% else %}{% url 'accounts:device_admin_approve' req.request_id as act_url %}                            <form method="post" action="{{ act_url }}" class="s-434fc32e">
                                 {% csrf_token %}
                                 {% if req.user.role == 'super_admin' %}
                                 <select name="second_admin_id" required class="s-9df65f2f">
@@ -885,7 +886,7 @@
                                 </select>
                                 {% endif %}
                                 <button type="submit" class="btn btn-sm btn-primary">Approve Fallback</button>
-                            </form>
+                            </form>{% endif %}
                         </td>
                     </tr>
                     {% empty %}
@@ -934,7 +935,7 @@
                         </td>
                         <td>{{ s.last_activity|date:"M d, H:i:s" }}</td>
                         <td>
-                            <form method="post" action="{% url 'accounts:admin_iam' %}" class="s-ad886f73">
+                            <form method="post" action="{{ admin_iam_url }}" class="s-ad886f73">
                                 {% csrf_token %}
                                 <input type="hidden" name="action" value="revoke_session">
                                 <input type="hidden" name="session_key" value="{{ s.session_key }}">
@@ -942,7 +943,7 @@
                                     Revoke
                                 </button>
                             </form>
-                            <form method="post" action="{% url 'accounts:admin_iam' %}" class="s-f792600a">
+                            <form method="post" action="{{ admin_iam_url }}" class="s-f792600a">
                                 {% csrf_token %}
                                 <input type="hidden" name="action" value="revoke_user_all_sessions">
                                 <input type="hidden" name="target_employee_id" value="{{ s.user.employee_id }}">
@@ -998,7 +999,7 @@
                         <td>{{ req.reason|default:"No explanation provided" }}</td>
                         <td><span class="badge badge-warning">{{ req.get_status_display }}</span></td>
                         <td>
-                            <form method="post" action="{% url 'accounts:admin_iam' %}" class="s-ad886f73">
+                            <form method="post" action="{{ admin_iam_url }}" class="s-ad886f73">
                                 {% csrf_token %}
                                 <input type="hidden" name="action" value="approve_recovery">
                                 <input type="hidden" name="request_id" value="{{ req.id }}">
@@ -1012,7 +1013,7 @@
                                 {% endif %}
                                 <button type="submit" class="btn btn-sm btn-primary">Approve</button>
                             </form>
-                            <form method="post" action="{% url 'accounts:admin_iam' %}" class="s-f792600a">
+                            <form method="post" action="{{ admin_iam_url }}" class="s-f792600a">
                                 {% csrf_token %}
                                 <input type="hidden" name="action" value="reject_recovery">
                                 <input type="hidden" name="request_id" value="{{ req.id }}">
@@ -1083,7 +1084,7 @@
             <p class="s-5a94ae78">
                 Immediately revokes all active device sessions and disables future authentication attempts.
             </p>
-            <form method="post" action="{% url 'accounts:admin_iam' %}" class="space-y-3">
+            <form method="post" action="{{ admin_iam_url }}" class="space-y-3">
                 {% csrf_token %}
                 <input type="hidden" name="action" value="suspend_account">
                 <div class="form-group">
@@ -1102,7 +1103,7 @@
             <p class="s-5a94ae78">
                 Restores a suspended or inactive account to active status with existing authenticators.
             </p>
-            <form method="post" action="{% url 'accounts:admin_iam' %}" class="space-y-3">
+            <form method="post" action="{{ admin_iam_url }}" class="space-y-3">
                 {% csrf_token %}
                 <input type="hidden" name="action" value="reactivate_account">
                 <div class="form-group">
@@ -1121,7 +1122,7 @@
             <p class="s-5a94ae78">
                 Permanently terminates staff employment lifecycle, sets end date to today, and purges all active sessions.
             </p>
-            <form method="post" action="{% url 'accounts:admin_iam' %}" class="space-y-3">
+            <form method="post" action="{{ admin_iam_url }}" class="space-y-3">
                 {% csrf_token %}
                 <input type="hidden" name="action" value="exit_account">
                 <div class="form-group">
@@ -1268,7 +1269,7 @@
             <p class="s-5a94ae78">
                 Enforces single lead per team and organizational reporting integrity.
             </p>
-            <form method="post" action="{% url 'accounts:admin_iam' %}" class="space-y-3">
+            <form method="post" action="{{ admin_iam_url }}" class="space-y-3">
                 {% csrf_token %}
                 <input type="hidden" name="action" value="add_team_membership">
                 <div class="form-group">
@@ -1310,12 +1311,12 @@
                 </p>
             </div>
             <div class="s-0522ff3e">
-                <a href="{% url 'security_events_root' %}" target="_blank" class="btn btn-secondary btn-sm s-320269e4">
+                {% if events_url %}<a href="{{ events_url }}" target="_blank" class="btn btn-secondary btn-sm s-320269e4">
                     Open SecOps Feed (/security/events) ↗
-                </a>
-                <a href="{% url 'security_alerts_root' %}" class="btn btn-secondary btn-sm s-fc89864f">
+                </a>{% else %}<span class="badge badge-warning">SecOps event feed: not available on the IAM host yet (its view has no IAM-session guard)</span>{% endif %}
+                {% if alerts_url %}<a href="{{ alerts_url }}" class="btn btn-secondary btn-sm s-fc89864f">
                     SecOps Alert Triage Console ↗
-                </a>
+                </a>{% endif %}
             </div>
         </div>
         <!-- HTMX Polling Stream Event Feed Box -->
@@ -1324,7 +1325,7 @@
                 <span class="s-e4f239b5">● SecOps Polling Feed (Active — hx-trigger="every 15s")</span>
                 <span class="s-243052a6">Stable cursor /security/events?after=&lt;id&gt;</span>
             </div>
-            <div id="secops-stream-feed" hx-get="{% url 'security_events_root' %}" hx-trigger="load, every 15s" hx-swap="innerHTML" class="s-1788f7d9">
+            <div id="secops-stream-feed" {% if events_url %}hx-get="{{ events_url }}"{% endif %} hx-trigger="load, every 15s" hx-swap="innerHTML" class="s-1788f7d9">
                 <div class="stream-placeholder s-15258d2c">
                     Loading recent security events...
                 </div>
@@ -1356,8 +1357,8 @@
                 </p>
             </div>
             <div class="s-0522ff3e">
-                <a href="{% url 'security_alerts_root' %}" class="btn btn-sm btn-outline">Full Alerts Console →</a>
-                <a href="{% url 'security_events_root' %}" class="btn btn-sm btn-secondary">Direct SecOps Feed (/security/events)</a>
+                {% if alerts_url %}<a href="{{ alerts_url }}" class="btn btn-sm btn-outline">Full Alerts Console →</a>{% endif %}
+                {% if events_url %}<a href="{{ events_url }}" class="btn btn-sm btn-secondary">Direct SecOps Feed (/security/events)</a>{% endif %}
             </div>
         </div>
 
@@ -1391,11 +1392,11 @@
                         </td>
                         <td>
                             {% if alt.status == 'open' %}
-                            <form method="post" action="{% url 'accounts:security_alert_acknowledge' alt.id %}" class="s-30ff6139">
+{% if request.is_iam_host %}<span class="badge badge-warning">Alert acknowledgement: not available on the IAM host yet</span>{% else %}{% url 'accounts:security_alert_acknowledge' alt.id as act_url %}                            <form method="post" action="{{ act_url }}" class="s-30ff6139">
                                 {% csrf_token %}
                                 <input type="text" name="reason" placeholder="Reason..." required class="s-e3fea62e">
                                 <button type="submit" class="btn btn-sm btn-secondary">Ack</button>
-                            </form>
+                            </form>{% endif %}
                             {% else %}
                             <span class="s-9c51c2fc">By {{ alt.acknowledged_by.employee_id }}</span>
                             {% endif %}
@@ -1505,9 +1506,9 @@
                         </p>
                     </div>
                     {% if actor.role in 'super_admin,admin' %}
-                    <a href="{% url 'accounts:admin_shield' %}" class="btn btn-primary btn-sm">
+                    {% if shield_url %}<a href="{{ shield_url }}" class="btn btn-primary btn-sm">
                         Verify Shield 🛡️
-                    </a>
+                    </a>{% else %}<span class="btn btn-secondary btn-sm" aria-disabled="true">Security Shield: not available on the IAM host</span>{% endif %}
                     {% endif %}
                 </div>
             </div>
@@ -1605,7 +1606,7 @@
                 Activates emergency elevated authorization for urgent production recovery. Strict 15-minute time ceiling and immutable audit logging enforced.
             </p>
             {% if break_glass_active %}
-            <form method="post" action="{% url 'accounts:admin_iam' %}" class="space-y-3">
+            <form method="post" action="{{ admin_iam_url }}" class="space-y-3">
                 {% csrf_token %}
                 <input type="hidden" name="action" value="revoke_break_glass">
                 <button type="submit" class="btn btn-outline s-48be770c">
@@ -1613,7 +1614,7 @@
                 </button>
             </form>
             {% else %}
-            <form method="post" action="{% url 'accounts:admin_iam' %}" class="space-y-3">
+            <form method="post" action="{{ admin_iam_url }}" class="space-y-3">
                 {% csrf_token %}
                 <input type="hidden" name="action" value="activate_break_glass">
                 <div class="form-group">
@@ -1673,7 +1674,7 @@
                             <td>{{ s.last_used_at|date:"M d, H:i"|default:"Never" }}</td>
                             <td>
                                 {% if s.is_active %}
-                                <form method="post" action="{% url 'accounts:admin_iam' %}">
+                                <form method="post" action="{{ admin_iam_url }}">
                                     {% csrf_token %}
                                     <input type="hidden" name="action" value="revoke_service_identity">
                                     <input type="hidden" name="client_id" value="{{ s.client_id }}">
@@ -1702,7 +1703,7 @@
             <p class="s-5a94ae78">
                 Issues a scoped Machine-to-Machine API token for background workers or daemons.
             </p>
-            <form method="post" action="{% url 'accounts:admin_iam' %}" class="space-y-3">
+            <form method="post" action="{{ admin_iam_url }}" class="space-y-3">
                 {% csrf_token %}
                 <input type="hidden" name="action" value="create_service_identity">
                 <div class="form-group">
@@ -1793,7 +1794,7 @@
                         <td>{{ em.retry_count }} / {{ em.max_retries }}</td>
                         <td>
                             {% if em.status == 'failed' or em.status == 'dead_letter' %}
-                            <form method="post" action="{% url 'accounts:admin_iam' %}">
+                            <form method="post" action="{{ admin_iam_url }}">
                                 {% csrf_token %}
                                 <input type="hidden" name="action" value="retry_outbox_item">
                                 <input type="hidden" name="item_type" value="email">
