@@ -1,4 +1,5 @@
 from django.core.management.base import BaseCommand
+
 from apps.accounts.auth.alert_escalation import escalate_unacknowledged_alerts
 
 

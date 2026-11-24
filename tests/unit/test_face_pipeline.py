@@ -1,4 +1,5 @@
 import pytest
+
 from apps.accounts.models import CustomUser
 from apps.face.engine.embedder import generate_synthetic_embedding
 from apps.face.engine.pipeline import (

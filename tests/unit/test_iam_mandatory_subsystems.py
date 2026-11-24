@@ -12,6 +12,7 @@ Validates:
 """
 
 from datetime import timedelta
+
 import pytest
 from django.utils import timezone
 
@@ -121,6 +122,7 @@ class TestAuditTamperEvidenceSubsystem1:
     def test_audit_signing_key_fails_closed_on_secret_key_collision(self, settings):
         """Fails closed if audit signing key falls back or matches Django SECRET_KEY."""
         from django.core.exceptions import ImproperlyConfigured
+
         from apps.accounts.auth.audit_chain import get_audit_signing_key
 
         settings.AUDIT_HMAC_KEY = settings.SECRET_KEY

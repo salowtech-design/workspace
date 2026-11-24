@@ -1,4 +1,5 @@
 from django.core.management.base import BaseCommand
+
 from apps.accounts.auth.access_reviews import generate_quarterly_campaign
 
 

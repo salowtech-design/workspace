@@ -32,6 +32,11 @@ from apps.accounts.auth.activation import issue_activation_code
 from apps.accounts.auth.audit import log_auth_event
 from apps.accounts.auth.config import is_allowed_company_email
 from apps.accounts.auth.errors import AuthException
+from apps.accounts.auth.iam_auth import (
+    check_iam_assurance,
+    compute_payload_digest,
+    get_iam_session_from_request,
+)
 from apps.accounts.auth.mfa_totp import verify_totp_code
 from apps.accounts.auth.reset import (
     approve_administrator_reset,
@@ -43,11 +48,6 @@ from apps.accounts.auth.service_identities import (
     VALID_SCOPES,
     issue_service_identity,
     revoke_service_identity,
-)
-from apps.accounts.auth.iam_auth import (
-    check_iam_assurance,
-    compute_payload_digest,
-    get_iam_session_from_request,
 )
 from apps.accounts.auth.sessions import (
     end_session_by_key,

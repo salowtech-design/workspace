@@ -28,7 +28,6 @@ from apps.accounts.auth.crypto import decrypt_totp_secret
 from apps.accounts.auth.errors import AuthException
 from apps.accounts.models import IAMAdminIdentity, IAMSession, SecurityAlert
 
-
 MAX_EMERGENCY_WINDOW_MINUTES = 15
 
 

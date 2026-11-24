@@ -26,6 +26,7 @@ from django.core.management import call_command
 call_command("migrate", verbosity=0)
 
 from django.test import Client
+
 from apps.accounts.models import CustomUser
 
 

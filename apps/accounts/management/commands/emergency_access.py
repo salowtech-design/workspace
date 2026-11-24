@@ -11,6 +11,7 @@ Usage:
 """
 
 from django.core.management.base import BaseCommand, CommandError
+
 from apps.accounts.auth.emergency_access import (
     activate_independent_emergency_access,
     revoke_emergency_access,

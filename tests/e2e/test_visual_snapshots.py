@@ -9,13 +9,6 @@ from pathlib import Path
 
 import pyotp
 
-from tests.e2e.test_playwright_e2e_browser import (
-    browser,
-    playwright_instance,
-    reset_rate_limiter,
-    seeded_users,
-)  # noqa: F401
-
 PAGES = ["/attendance/", "/auth/security/", "/directory/", "/posts/", "/certificates/"]
 
 
@@ -70,9 +63,10 @@ def test_snapshots(browser, live_server, seeded_users, tmp_path):  # noqa: F811
         )
     ctx.close()
 
+    from django.utils import timezone
+
     from apps.accounts.auth.mfa_totp import encrypt_secret, get_auth_key_ring
     from apps.accounts.models import TOTPCredential
-    from django.utils import timezone
 
     kr = get_auth_key_ring()
     secrets = {}

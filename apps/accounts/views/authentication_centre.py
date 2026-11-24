@@ -56,9 +56,9 @@ from apps.accounts.auth.iam_auth import (
 )
 from apps.accounts.models import (
     ApprovedDevice,
-    AuthEvent,
     AuthenticationPolicy,
     AuthenticationTransaction,
+    AuthEvent,
     IAMRecoveryCase,
     IAMSession,
     SecurityAlert,

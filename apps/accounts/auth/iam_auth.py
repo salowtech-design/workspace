@@ -12,8 +12,8 @@ Implements Non-Negotiable Architecture (Section 3 & 4.1):
 """
 
 import hashlib
-import json
 import hmac
+import json
 import secrets
 import uuid
 from datetime import timedelta

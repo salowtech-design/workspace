@@ -21,11 +21,6 @@ from apps.accounts.views.device_approval import (
     device_email_otp_view,
     device_face_verify_view,
 )
-from apps.accounts.views.security_operations import (
-    security_alert_acknowledge_view,
-    security_alerts_view,
-    security_events_view,
-)
 from apps.accounts.views.login import (
     login_view,
     logout_view,
@@ -56,14 +51,19 @@ from apps.accounts.views.security import (
     console_auth_events_view,
     get_draft_view,
     idle_lock_view,
-    session_keepalive_view,
-    session_status_view,
     idle_unlock_view,
     save_draft_view,
     security_dashboard_view,
+    session_keepalive_view,
+    session_status_view,
     sudo_elevation_view,
     terminate_all_other_sessions_view,
     terminate_session_view,
+)
+from apps.accounts.views.security_operations import (
+    security_alert_acknowledge_view,
+    security_alerts_view,
+    security_events_view,
 )
 
 app_name = "accounts"

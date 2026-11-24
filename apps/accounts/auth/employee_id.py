@@ -199,6 +199,7 @@ def reissue_employee_id(
     Requires actor to be SUPER_ADMIN or ADMIN.
     """
     from django.core.exceptions import PermissionDenied, ValidationError
+
     from apps.accounts.auth.audit import log_auth_event
 
     if actor.role not in (CustomUser.Role.SUPER_ADMIN, CustomUser.Role.ADMIN):

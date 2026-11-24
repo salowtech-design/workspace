@@ -1,4 +1,5 @@
 from django.core.management.base import BaseCommand, CommandError
+
 from apps.accounts.auth.audit_chain import verify_audit_chain
 
 

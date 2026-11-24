@@ -8,7 +8,8 @@ Implements:
 import socket
 import struct
 import time
-from datetime import datetime, timezone as dt_tz
+from datetime import datetime
+from datetime import timezone as dt_tz
 from typing import Optional
 
 from django.core.management.base import BaseCommand

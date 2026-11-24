@@ -49,6 +49,7 @@ def service_worker_view(request):
     Allows sw.js to control scope '/' while being safely cached.
     """
     import os
+
     from django.conf import settings
     from django.http import HttpResponse
 

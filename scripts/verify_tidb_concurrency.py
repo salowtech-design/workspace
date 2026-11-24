@@ -9,10 +9,10 @@ Verifies:
 4. Pessimistic transaction serialization on TiKV.
 """
 
+import concurrent.futures
 import os
 import sys
 import time
-import concurrent.futures
 from pathlib import Path
 
 # Setup environment & Django settings
@@ -37,15 +37,15 @@ import django
 
 django.setup()
 
+import pyotp
 from django.db import connection, transaction
 from django.utils import timezone
-import pyotp
 
-from apps.accounts.models import CustomUser, TOTPCredential, RecoveryCode, ActivationCode
-from apps.accounts.auth.mfa_totp import encrypt_secret, get_auth_key_ring, verify_totp_code
-from apps.accounts.auth.recovery_codes import generate_ten_recovery_codes, redeem_recovery_code
 from apps.accounts.auth.activation import issue_activation_code, verify_and_consume_code
 from apps.accounts.auth.errors import AuthException
+from apps.accounts.auth.mfa_totp import encrypt_secret, get_auth_key_ring, verify_totp_code
+from apps.accounts.auth.recovery_codes import generate_ten_recovery_codes, redeem_recovery_code
+from apps.accounts.models import ActivationCode, CustomUser, RecoveryCode, TOTPCredential
 
 
 def run_tidb_concurrency_audit():
@@ -246,7 +246,7 @@ def run_tidb_concurrency_audit():
             RateLimitRecord.objects.create(key=test_rate_key, timestamp=now_ts)
             elapsed = time.perf_counter() - t0
             return (True, worker_id, elapsed)
-        except Exception as ex:
+        except Exception:
             elapsed = time.perf_counter() - t0
             return (False, worker_id, elapsed)
         finally:
@@ -275,8 +275,8 @@ def run_tidb_concurrency_audit():
     # TEST 5: Concurrent Session Revocation on TiDB
     # -------------------------------------------------------------
     print("\n--- [TEST 5] Concurrent Session Revocation & Verification (5 Threads) ---")
-    from apps.accounts.models import UserSession
     from apps.accounts.auth.sessions import revoke_user_sessions
+    from apps.accounts.models import UserSession
 
     # Seed 5 user sessions
     with transaction.atomic():

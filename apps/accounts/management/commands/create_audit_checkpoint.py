@@ -1,4 +1,5 @@
 from django.core.management.base import BaseCommand
+
 from apps.accounts.auth.audit_chain import create_audit_checkpoint
 
 

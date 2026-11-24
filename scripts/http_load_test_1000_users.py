@@ -74,7 +74,7 @@ def simulate_virtual_user(
             lat_login = (time.perf_counter() - t0) * 1000.0
             is_success = r_login.status_code in (200, 302)
             metrics.append(RequestMetric("login", r_login.status_code, lat_login, is_success))
-        except Exception as exc:
+        except Exception:
             metrics.append(RequestMetric("login", 0, (time.perf_counter() - t0) * 1000.0, False))
 
         # 2. Authenticated Dashboard Navigation (Read)
@@ -84,7 +84,7 @@ def simulate_virtual_user(
             lat_nav = (time.perf_counter() - t1) * 1000.0
             is_nav_ok = r_nav.status_code == 200
             metrics.append(RequestMetric("read_dashboard", r_nav.status_code, lat_nav, is_nav_ok))
-        except Exception as exc:
+        except Exception:
             metrics.append(
                 RequestMetric("read_dashboard", 0, (time.perf_counter() - t1) * 1000.0, False)
             )
@@ -105,7 +105,7 @@ def simulate_virtual_user(
             metrics.append(
                 RequestMetric("write_draft", r_write.status_code, lat_write, is_write_ok)
             )
-        except Exception as exc:
+        except Exception:
             metrics.append(
                 RequestMetric("write_draft", 0, (time.perf_counter() - t2) * 1000.0, False)
             )

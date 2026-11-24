@@ -1,4 +1,5 @@
 import uuid
+
 from django.contrib.auth.models import (
     AbstractBaseUser,
     BaseUserManager,
@@ -1060,7 +1061,9 @@ class IAMAdminPresence(models.Model):
     @property
     def presence_status(self) -> str:
         from datetime import timedelta
+
         from django.utils import timezone
+
         from apps.accounts.auth.iam_auth import effective_iam_idle_timeout_minutes
 
         if (

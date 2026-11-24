@@ -309,9 +309,9 @@ class TestPlaywrightBrowserAcceptance:
     ):
         """Real browser: warning banner near the limit, 'Stay signed in' extends, expiry signs out."""
         import time
+        from importlib import import_module
 
         from django.conf import settings
-        from importlib import import_module
 
         SessionStore = import_module(settings.SESSION_ENGINE).SessionStore
 

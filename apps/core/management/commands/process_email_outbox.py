@@ -4,6 +4,7 @@ Usage: python manage.py process_email_outbox [--batch-size 50]
 """
 
 import time
+
 from django.core.management.base import BaseCommand
 
 from apps.core.email_service import process_email_outbox

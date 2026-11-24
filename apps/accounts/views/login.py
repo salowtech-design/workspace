@@ -72,7 +72,7 @@ def login_view(request):
                 tx.transaction_id, "lifecycle", "PASS", f"User status: {user.status}"
             )
 
-            from apps.accounts.auth.risk_engine import decide_login_risk, RiskDecision
+            from apps.accounts.auth.risk_engine import RiskDecision, decide_login_risk
 
             risk_decision, risk_score, risk_signals = decide_login_risk(
                 user, ip_addr or "127.0.0.1", request.META.get("HTTP_USER_AGENT", "")
@@ -142,10 +142,10 @@ def login_view(request):
                     create_device_approval_request,
                     is_second_device_request,
                 )
+                from apps.accounts.auth.lockout import clear_failed_attempts
                 from apps.accounts.auth.mfa_totp import verify_totp_code
                 from apps.accounts.auth.recovery_codes import redeem_recovery_code
                 from apps.accounts.auth.sessions import create_verified_session
-                from apps.accounts.auth.lockout import clear_failed_attempts
 
                 if is_recovery:
                     redeem_recovery_code(user, clean_code)
@@ -294,10 +294,10 @@ def mfa_challenge_view(request):  # noqa: C901
                 create_device_approval_request,
                 is_second_device_request,
             )
+            from apps.accounts.auth.lockout import clear_failed_attempts
             from apps.accounts.auth.mfa_totp import verify_totp_code
             from apps.accounts.auth.recovery_codes import redeem_recovery_code
             from apps.accounts.auth.sessions import create_verified_session
-            from apps.accounts.auth.lockout import clear_failed_attempts
 
             if recovery_code:
                 redeem_recovery_code(user, recovery_code.strip())

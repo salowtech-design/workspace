@@ -1,4 +1,5 @@
 from django.urls import path
+
 from apps.accounts.views.authentication_centre import (
     auth_centre_landing_view,
     auth_control_action_view,

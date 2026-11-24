@@ -4,6 +4,10 @@ Root URL Configuration for Salow Workspace.
 
 from django.urls import include, path
 
+from apps.accounts.views.security_operations import (
+    security_alerts_view,
+    security_events_view,
+)
 from apps.certificates.views import public_verify_view
 from apps.core.views import (
     health_probe,
@@ -11,10 +15,6 @@ from apps.core.views import (
     readiness_probe,
     service_worker_view,
     styleguide_view,
-)
-from apps.accounts.views.security_operations import (
-    security_alerts_view,
-    security_events_view,
 )
 
 urlpatterns = [

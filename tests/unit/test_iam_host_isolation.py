@@ -14,8 +14,9 @@ Validates:
 """
 
 from datetime import timedelta
-import pytest
+
 import pyotp
+import pytest
 from django.contrib.auth.hashers import check_password
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.test import Client
@@ -23,8 +24,8 @@ from django.utils import timezone
 
 from apps.accounts.auth.errors import AuthException
 from apps.accounts.auth.iam_auth import (
-    authenticate_iam_admin,
     approve_dual_approval_request,
+    authenticate_iam_admin,
     check_iam_assurance,
     consume_dual_approval_request,
     create_dual_approval_request,

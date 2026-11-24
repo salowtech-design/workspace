@@ -5,6 +5,7 @@ Includes envelope encryption for sensitive payload data (tokens/links),
 delivery status tracking, idempotent processing, and exponential backoff retry.
 """
 
+import hashlib
 import json
 import logging
 import os
@@ -13,13 +14,12 @@ from typing import Optional
 
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from django.conf import settings
+from django.core.exceptions import ImproperlyConfigured
 from django.core.mail import EmailMultiAlternatives
 from django.db import connection, transaction
 from django.utils import timezone
 
 from apps.accounts.auth.audit import log_auth_event
-import hashlib
-from django.core.exceptions import ImproperlyConfigured
 from apps.accounts.auth.config import get_email_key_ring_dict
 from apps.core.models import EmailOutbox
 

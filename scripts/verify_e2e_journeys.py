@@ -28,23 +28,23 @@ import django
 
 django.setup()
 
-from django.test import Client
-from django.core.management import call_command
-from django.utils import timezone
 import pyotp
+from django.core.management import call_command
+from django.test import Client
+from django.utils import timezone
 
-from apps.accounts.models import (
-    CustomUser,
-    ActivationCode,
-    TOTPCredential,
-    RecoveryCode,
-    UserSession,
-    RecoveryRequest,
-)
 from apps.accounts.auth.activation import issue_activation_code
-from apps.accounts.auth.mfa_totp import get_auth_key_ring, decrypt_secret
+from apps.accounts.auth.mfa_totp import decrypt_secret, get_auth_key_ring
 from apps.accounts.auth.recovery_codes import generate_ten_recovery_codes
 from apps.accounts.auth.stepup import grant_sudo
+from apps.accounts.models import (
+    ActivationCode,
+    CustomUser,
+    RecoveryCode,
+    RecoveryRequest,
+    TOTPCredential,
+    UserSession,
+)
 from apps.attendance.models import WorkSession
 from apps.core.middleware import RateLimitMiddleware
 
