@@ -72,17 +72,21 @@ def _get_backup_encryption_key() -> bytes:
         or os.getenv("SESSION_HMAC_KEY")
     )
     if not raw:
-        raw = "salow-independent-backup-encryption-key-32bytes-custody!"
+        raise RuntimeError(
+            "No backup encryption key configured: set BACKUP_ENCRYPTION_KEY (or AUDIT_HMAC_KEY). "
+            "Refusing to use a built-in default key."
+        )
     return hashlib.sha256(raw.encode("utf-8") if isinstance(raw, str) else raw).digest()
 
 
 def _get_backup_signing_key() -> bytes:
     """Derives independent HMAC signing key for backup integrity seal."""
-    raw = (
-        os.getenv("BACKUP_SIGNING_KEY")
-        or os.getenv("AUDIT_HMAC_KEY")
-        or "salow-independent-backup-signing-key-custody-2026!"
-    )
+    raw = os.getenv("BACKUP_SIGNING_KEY") or os.getenv("AUDIT_HMAC_KEY")
+    if not raw:
+        raise RuntimeError(
+            "No backup signing key configured: set BACKUP_SIGNING_KEY (or AUDIT_HMAC_KEY). "
+            "Refusing to use a built-in default key."
+        )
     return hashlib.sha256(raw.encode("utf-8") if isinstance(raw, str) else raw).digest()
 
 
@@ -107,6 +111,13 @@ def run_real_backup_and_restore_drill() -> int:
     if not host or not user or not password:
         print("[SKIP] TiDB credentials not configured. Skipping live backup drill.")
         return 0
+
+    try:  # fail before touching the database if keys are missing
+        _get_backup_encryption_key()
+        _get_backup_signing_key()
+    except RuntimeError as exc:
+        print(f"[FAIL] {exc}")
+        return 1
 
     try:
         conn = MySQLdb.connect(
