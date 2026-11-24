@@ -9,6 +9,13 @@ from pathlib import Path
 
 import pyotp
 
+from tests.e2e.test_playwright_e2e_browser import (  # noqa: F401  (pytest fixtures)
+    browser,
+    playwright_instance,
+    reset_rate_limiter,
+    seeded_users,
+)
+
 PAGES = ["/attendance/", "/auth/security/", "/directory/", "/posts/", "/certificates/"]
 
 
