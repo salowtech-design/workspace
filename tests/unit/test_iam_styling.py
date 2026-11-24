@@ -16,3 +16,12 @@ def test_base_template_links_local_css_only_on_iam_host():
     assert "/static/css/iam-utilities.css" in base
     assert "request.is_iam_host" in base
     assert "cdn" not in base.lower()
+
+
+def test_local_review_settings_allow_both_dedicated_hosts_and_stay_http():
+    from config.settings import local_review
+
+    assert {"iam.salowtech.com", "app.salowtech.com", "localhost"} <= set(
+        local_review.ALLOWED_HOSTS
+    )
+    assert local_review.SESSION_COOKIE_SECURE is False
