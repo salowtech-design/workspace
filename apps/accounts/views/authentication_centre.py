@@ -257,6 +257,15 @@ def auth_iam_view(request):
 # 4. HTMX LIVE ACTIVITY & PRESENCE FEEDS
 # ==============================================================================
 
+def _parse_feed_limit(raw, default: int = 20, maximum: int = 100) -> int:
+    """Return a safe row limit: non-numbers fall back to the default, values are clamped to 1..maximum."""
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        return default
+    return max(1, min(value, maximum))
+
+
 def auth_live_activity_feed_view(request):
     """
     HTMX partial view returning live transactions table rows.
@@ -264,7 +273,7 @@ def auth_live_activity_feed_view(request):
     Pure read-only endpoint: zero database row creation per poll.
     """
     domain = request.GET.get("domain", "workspace").lower().strip()
-    limit = int(request.GET.get("limit", 20))
+    limit = _parse_feed_limit(request.GET.get("limit"))
     transactions = get_live_activity_feed(domain, limit=limit)
     return render(
         request,
