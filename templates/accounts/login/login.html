@@ -124,7 +124,7 @@
 </div>
 
 <script src="/static/draft-purge.js"></script>
-<script>
+<script nonce="{{ csp_nonce }}">
 document.addEventListener('DOMContentLoaded', function() {
     const btnLogin = document.getElementById('btn-login');
     const btnSignIn = document.getElementById('btn-signin');

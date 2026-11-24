@@ -393,3 +393,66 @@ class TestPlaywrightBrowserAcceptance:
         left = page.evaluate("() => Object.keys(sessionStorage).filter(k => k.startsWith('_salow_draft_')).length")
         assert left == 0
         context.close()
+
+    def test_csp_blocks_inline_script_and_pages_have_no_violations(
+        self, browser, live_server, seeded_users
+    ):
+        """script-src uses a per-request nonce (no unsafe-inline): pages work, injected inline script and
+        inline handlers are blocked, and confirm/copy/print actions still work from the external script."""
+        context = browser.new_context(viewport={"width": 1280, "height": 800})
+        page = context.new_page()
+        violations = []
+        page.on("console", lambda m: violations.append(m.text) if "Content Security Policy" in m.text else None)
+
+        resp = page.goto(f"{live_server.url}/auth/login/?flow=signin")
+        csp = resp.headers["content-security-policy"]
+        assert "'unsafe-inline'" not in csp.split("script-src")[1].split(";")[0]
+        assert "nonce-" in csp and "script-src-attr 'none'" in csp
+        n1 = csp.split("nonce-")[1].split("'")[0]
+        resp2 = page.goto(f"{live_server.url}/auth/login/?flow=signin")
+        assert resp2.headers["content-security-policy"].split("nonce-")[1].split("'")[0] != n1
+
+        # The login page's own inline script (nonce) still runs: the flow switcher is interactive.
+        page.fill("#employee_id", seeded_users["emp"].employee_id)
+        page.fill("#password", "ValidPass2026!@#")
+        page.fill("#totp_code", pyotp.TOTP(seeded_users["emp_totp"]).now())
+        page.click("#confirm-btn")
+        page.wait_for_load_state("networkidle")
+        assert "/attendance" in page.url
+
+        # Pages with former inline handlers/scripts render without CSP violations.
+        for path in ("/attendance/", "/auth/security/", "/directory/", "/certificates/", "/posts/"):
+            page.goto(f"{live_server.url}{path}")
+            page.wait_for_load_state("networkidle")
+        assert violations == [], violations
+
+        # An injected inline script and an injected inline handler must not run (and are reported).
+        page.evaluate(
+            """() => {
+              window.__pwned = 0;
+              const s = document.createElement('script'); s.textContent = 'window.__pwned = 1'; document.body.appendChild(s);
+              const b = document.createElement('button'); b.id = 'xb'; b.setAttribute('onclick', 'window.__pwned = 2'); b.textContent = 'x';
+              document.body.appendChild(b);
+            }"""
+        )
+        page.click("#xb")
+        assert page.evaluate("() => window.__pwned") == 0
+        assert any("Content Security Policy" in v for v in violations)
+
+        # data-confirm replaces inline confirm(): dismissing blocks the click, accepting lets it through.
+        page.evaluate(
+            """() => {
+              window.__hits = 0;
+              const b = document.createElement('button'); b.id = 'cb'; b.type = 'button';
+              b.setAttribute('data-confirm', 'Sure?'); b.textContent = 'c';
+              b.addEventListener('click', () => { window.__hits++; });
+              document.body.appendChild(b);
+            }"""
+        )
+        page.once("dialog", lambda d: d.dismiss())
+        page.click("#cb")
+        assert page.evaluate("() => window.__hits") == 0
+        page.once("dialog", lambda d: d.accept())
+        page.click("#cb")
+        assert page.evaluate("() => window.__hits") == 1
+        context.close()

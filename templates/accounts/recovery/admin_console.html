@@ -118,7 +118,7 @@
             type="submit"
             class="btn btn-primary"
             style="padding: 0.45rem 1rem; font-size: 0.875rem; background: #16a34a; border-color: #16a34a;"
-            onclick="return confirm('Approve recovery for {{ req.user.employee_id }}? A reset link will be sent to their email.');"
+            data-confirm="Approve recovery for {{ req.user.employee_id }}? A reset link will be sent to their email."
           >
             Approve & Issue Link
           </button>
@@ -138,7 +138,7 @@
             type="submit"
             class="btn btn-outline"
             style="padding: 0.45rem 1rem; font-size: 0.875rem; color: #dc2626; border-color: #fca5a5;"
-            onclick="return confirm('Reject recovery request for {{ req.user.employee_id }}?');"
+            data-confirm="Reject recovery request for {{ req.user.employee_id }}?"
           >
             Reject
           </button>

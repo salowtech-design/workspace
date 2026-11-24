@@ -111,7 +111,7 @@
                                     <input type="hidden" name="session_ref" value="{{ sess.session_key }}">
                                     <input type="hidden" name="reason" value="Immediate administrative revocation via console">
                                     <input type="hidden" name="return_url" value="{{ request.get_full_path }}">
-                                    <button type="submit" onclick="return confirm('Revoke this IAM admin session immediately?');"
+                                    <button type="submit" data-confirm="Revoke this IAM admin session immediately?"
                                         class="px-2.5 py-1 rounded bg-rose-950/60 hover:bg-rose-900 border border-rose-800 text-rose-300 text-[10px] font-bold transition-colors">
                                         Revoke
                                     </button>
@@ -195,7 +195,7 @@
                                     <input type="hidden" name="session_ref" value="{{ sess.session_key }}">
                                     <input type="hidden" name="reason" value="Immediate administrative revocation via console">
                                     <input type="hidden" name="return_url" value="{{ request.get_full_path }}">
-                                    <button type="submit" onclick="return confirm('Revoke this Workspace session immediately?');"
+                                    <button type="submit" data-confirm="Revoke this Workspace session immediately?"
                                         class="px-2.5 py-1 rounded bg-rose-950/60 hover:bg-rose-900 border border-rose-800 text-rose-300 text-[10px] font-bold transition-colors">
                                         Revoke
                                     </button>

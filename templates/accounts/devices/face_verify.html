@@ -44,7 +44,7 @@
     </form>
 </div>
 
-<script>
+<script nonce="{{ csp_nonce }}">
 document.addEventListener("DOMContentLoaded", function() {
     const video = document.getElementById("camera-stream");
     const placeholder = document.getElementById("camera-placeholder");

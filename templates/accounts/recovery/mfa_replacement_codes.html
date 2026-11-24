@@ -39,7 +39,7 @@
         type="button"
         class="btn btn-secondary"
         id="copy-btn"
-        onclick="navigator.clipboard.writeText('{{ formatted_codes_text|escapejs }}'); document.getElementById('copy-btn').textContent = 'Copied to Clipboard!';"
+        data-copy="{{ formatted_codes_text }}" data-copied-label="Copied to Clipboard!"
         style="padding: 0.5rem 1rem; font-size: 0.85rem;"
       >
         Copy All Codes

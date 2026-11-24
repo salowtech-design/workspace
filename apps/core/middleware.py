@@ -1,4 +1,5 @@
 import logging
+import secrets
 from typing import Dict, List
 
 from django.conf import settings
@@ -21,12 +22,15 @@ class SecurityHeadersMiddleware:
         self.get_response = get_response
 
     def __call__(self, request):  # noqa: C901
+        # Per-request nonce: only <script nonce=...> tags and same-origin files run. No inline handlers.
+        request.csp_nonce = secrets.token_urlsafe(18)
         response = self.get_response(request)
 
         # Content-Security-Policy: restrict source origins for scripts, styles, frames
         csp_directives = [
             "default-src 'self'",
-            "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net",
+            f"script-src 'self' 'nonce-{request.csp_nonce}' https://cdn.jsdelivr.net",
+            "script-src-attr 'none'",
             "style-src 'self' 'unsafe-inline'",
             "img-src 'self' data:",
             "font-src 'self'",

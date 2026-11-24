@@ -59,7 +59,7 @@
                         <td style="font-size: 0.85rem; color: var(--color-text-muted);">{{ pk.last_used_at|date:"d M Y H:i"|default:"Never" }}</td>
                         <td><span class="badge badge-success">Operational</span></td>
                         <td>
-                            <form method="post" action="{% url 'accounts:passkey_delete' pk.id %}" onsubmit="return confirm('Revoke this passkey credential?');">
+                            <form method="post" action="{% url 'accounts:passkey_delete' pk.id %}" data-confirm="Revoke this passkey credential?">
                                 {% csrf_token %}
                                 <button type="submit" class="btn btn-sm btn-outline" style="color: var(--color-danger-text);">Revoke</button>
                             </form>
@@ -173,7 +173,7 @@
     </div>
 </div>
 
-<script>
+<script nonce="{{ csp_nonce }}">
 document.getElementById('enroll-passkey-btn')?.addEventListener('click', async () => {
     const statusBox = document.getElementById('passkey-reg-status');
     const name = prompt('Enter a label for this passkey (e.g. Work MacBook, Windows Hello):', 'My Passkey');

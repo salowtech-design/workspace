@@ -43,7 +43,7 @@
     </div>
 </div>
 
-<script>
+<script nonce="{{ csp_nonce }}">
 (function() {
     let timeLeft = parseInt("{{ retry_after|default:60 }}", 10) || 60;
     const initialTime = timeLeft;

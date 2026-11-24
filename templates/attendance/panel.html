@@ -185,7 +185,7 @@
   {% endif %}
 </div>
 
-<script>
+<script nonce="{{ csp_nonce }}">
 document.addEventListener("DOMContentLoaded", function() {
     const toggleBtn = document.getElementById("toggle-camera-btn");
     const cameraBox = document.getElementById("attendance-camera-box");
