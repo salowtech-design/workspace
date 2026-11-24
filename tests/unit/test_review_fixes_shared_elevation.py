@@ -55,3 +55,35 @@ def test_regrant_updates_single_row(admin):
     stepup.grant_sudo(admin)
     stepup.grant_sudo(admin)
     assert PrivilegeElevation.objects.filter(user_id_ref=admin.id, kind="sudo").count() == 1
+
+
+@pytest.mark.django_db
+def test_break_glass_grants_sudo_and_both_lapse_on_controlled_clock(admin):
+    """Controlled clock (grant rows moved back), not a wall-clock wait."""
+    assert stepup.is_sudo_active(admin) is False
+    stepup.activate_break_glass(admin, reason="database outage during payroll")
+    assert stepup.is_break_glass_active(admin) is True
+    assert stepup.is_sudo_active(admin) is True
+    # 14 minutes in: still inside the 15 minute ceiling
+    PrivilegeElevation.objects.filter(user_id_ref=admin.id).update(granted_at=models_now() - 14 * 60)
+    assert stepup.is_break_glass_active(admin) is True
+    # 16 minutes in: break-glass has lapsed
+    PrivilegeElevation.objects.filter(user_id_ref=admin.id).update(granted_at=models_now() - 16 * 60)
+    assert stepup.is_break_glass_active(admin) is False
+
+
+@pytest.mark.django_db
+def test_break_glass_denied_for_non_admin_roles(admin):
+    from django.core.exceptions import PermissionDenied
+
+    admin.role = CustomUser.Role.EMPLOYEE
+    admin.save()
+    with pytest.raises(PermissionDenied):
+        stepup.activate_break_glass(admin, reason="database outage during payroll")
+    assert stepup.is_break_glass_active(admin) is False
+
+
+def models_now():
+    from django.utils import timezone
+
+    return timezone.now().timestamp()
