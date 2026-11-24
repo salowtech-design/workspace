@@ -14,6 +14,7 @@ Provides:
 """
 
 import json
+import logging
 from datetime import timedelta
 from typing import Any, Dict, Optional
 
@@ -73,6 +74,8 @@ from apps.accounts.models import (
     UserSession,
 )
 from apps.core.models import AuditLog
+
+logger = logging.getLogger(__name__)
 
 
 def _require_iam_admin_session(request):
