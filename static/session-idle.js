@@ -44,7 +44,7 @@
   }
   function sync() {
     fetch(statusUrl, { credentials: 'same-origin', headers: { 'X-Requested-With': 'XMLHttpRequest' } })
-      .then(function (r) { if (r.status === 401 || r.redirected) { signOut(); return null; } return r.json(); })
+      .then(function (r) { if (r.status === 401) { signOut(); return null; } if (r.redirected || !r.ok) { return null; } return r.json(); })
       .then(function (d) { if (!d) return; remaining = d.remaining_seconds; warnAt = d.warning_seconds; lastSync = Date.now(); render(); })
       .catch(function () {});
   }

@@ -302,3 +302,53 @@ class TestPlaywrightBrowserAcceptance:
 
         context.close()
 
+
+    def test_workspace_idle_warning_stay_signed_in_and_signout(
+        self, browser, live_server, seeded_users
+    ):
+        """Real browser: warning banner near the limit, 'Stay signed in' extends, expiry signs out."""
+        import time
+
+        from django.conf import settings
+        from importlib import import_module
+
+        SessionStore = import_module(settings.SESSION_ENGINE).SessionStore
+
+        from apps.accounts.auth.workspace_idle import SESSION_KEY as LAST_ACTIVITY_KEY
+
+        context = browser.new_context(viewport={"width": 1280, "height": 800})
+        page = context.new_page()
+        page.goto(f"{live_server.url}/auth/login/?flow=signin")
+        page.fill("#employee_id", seeded_users["emp"].employee_id)
+        page.fill("#password", "ValidPass2026!@#")
+        page.fill("#totp_code", pyotp.TOTP(seeded_users["emp_totp"]).now())
+        page.click("#confirm-btn")
+        page.wait_for_load_state("networkidle")
+        assert "/attendance" in page.url
+
+        def session_key():
+            return next(c["value"] for c in context.cookies() if c["name"] == settings.SESSION_COOKIE_NAME)
+
+        def age(seconds_ago):
+            s = SessionStore(session_key=session_key())
+            s[LAST_ACTIVITY_KEY] = time.time() - seconds_ago
+            s.save()
+
+        banner = page.locator("#idle-timeout-banner")
+        # Active session: no banner.
+        assert not banner.is_visible()
+        # 100 s left of 900 s: banner appears after reload.
+        age(800)  # page loads count as activity, so age the marker after the load
+        page.evaluate("document.dispatchEvent(new Event('visibilitychange'))")
+        banner.wait_for(state="visible", timeout=5000)
+        page.screenshot(path=str(SCREENSHOT_DIR / "12_idle_warning_banner.png"))
+        # Stay signed in: banner goes away and the marker moves forward.
+        page.click("#idle-timeout-stay")
+        banner.wait_for(state="hidden", timeout=5000)
+        assert time.time() - SessionStore(session_key=session_key())[LAST_ACTIVITY_KEY] < 60
+        # Past the limit: next navigation signs out with the inactivity notice.
+        age(901)
+        page.goto(f"{live_server.url}/attendance/")
+        assert "/auth/login" in page.url and "reason=idle" in page.url
+        page.screenshot(path=str(SCREENSHOT_DIR / "13_idle_signed_out_notice.png"))
+        context.close()
