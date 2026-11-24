@@ -109,8 +109,11 @@ def main():
             print("[+] Dry run complete. Database was not modified.")
             return 0
     except Exception as exc:
-        print(f"[INFO] Archive uses standard backup encryption key: {exc}")
-        print("[+] Reconstructed key verified mathematically.")
+        # Fail closed: a wrong key, a tampered archive or an unreadable file must not look like success.
+        print(
+            f"[FAIL] Archive could not be decrypted and verified with the reconstructed key: {exc}"
+        )
+        return 1
 
     return 0
 

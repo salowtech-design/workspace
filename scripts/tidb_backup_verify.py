@@ -19,7 +19,6 @@ import decimal
 import hashlib
 import hmac
 import json
-import logging
 import os
 import sys
 import time
@@ -60,8 +59,29 @@ def _json_serial(obj):
     if isinstance(obj, decimal.Decimal):
         return {"__type__": "decimal", "value": str(obj)}
     if isinstance(obj, (bytes, bytearray)):
-        return base64.b64encode(obj).decode("ascii")
+        return {"__type__": "bytes", "value": base64.b64encode(bytes(obj)).decode("ascii")}
     raise TypeError(f"Type {type(obj)} not serializable")
+
+
+def serialize_backup_value(val):
+    """JSON-safe form of one database value. Bytes are tagged so restore never guesses by column name."""
+    if isinstance(val, (datetime, date)):
+        return val.isoformat()
+    if isinstance(val, decimal.Decimal):
+        return {"__type__": "decimal", "value": str(val)}
+    if isinstance(val, (bytes, bytearray)):
+        return {"__type__": "bytes", "value": base64.b64encode(bytes(val)).decode("ascii")}
+    return val
+
+
+def deserialize_backup_value(val):
+    """Inverse of serialize_backup_value for decimals and bytes."""
+    if isinstance(val, dict):
+        if val.get("__type__") == "decimal":
+            return decimal.Decimal(val["value"])
+        if val.get("__type__") == "bytes":
+            return base64.b64decode(val["value"])
+    return val
 
 
 def _get_backup_encryption_key() -> bytes:
@@ -176,16 +196,7 @@ def run_real_backup_and_restore_drill() -> int:
             # Convert row values safely for JSON serialization (preserving Decimal precision)
             serialized_rows = []
             for r in raw_rows:
-                converted_r = []
-                for val in r:
-                    if isinstance(val, (datetime, date)):
-                        converted_r.append(val.isoformat())
-                    elif isinstance(val, decimal.Decimal):
-                        converted_r.append({"__type__": "decimal", "value": str(val)})
-                    elif isinstance(val, (bytes, bytearray)):
-                        converted_r.append(base64.b64encode(val).decode("ascii"))
-                    else:
-                        converted_r.append(val)
+                converted_r = [serialize_backup_value(val) for val in r]
                 serialized_rows.append(converted_r)
 
             backup_data["tables"][table] = {
@@ -316,26 +327,7 @@ def run_real_backup_and_restore_drill() -> int:
                 insert_sql = f"INSERT INTO {target_table} ({col_names}) VALUES ({placeholders});"
 
                 for r in rows:
-                    unserialized_r = []
-                    for c_name, val in zip(cols, r, strict=False):
-                        if isinstance(val, dict) and val.get("__type__") == "decimal":
-                            val = decimal.Decimal(val["value"])
-                        elif c_name in (
-                            "encrypted_template",
-                            "encrypted_secret",
-                            "encrypted_payload",
-                            "nonce",
-                            "totp_nonce",
-                            "payload_nonce",
-                        ):
-                            if isinstance(val, str):
-                                try:
-                                    val = base64.b64decode(val)
-                                except Exception:
-                                    logging.getLogger(__name__).debug(
-                                        "best-effort step failed and was ignored", exc_info=True
-                                    )
-                        unserialized_r.append(val)
+                    unserialized_r = [deserialize_backup_value(val) for val in r]
                     cursor.execute(insert_sql, tuple(unserialized_r))
                 conn.commit()
 
