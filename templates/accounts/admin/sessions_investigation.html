@@ -180,14 +180,10 @@
                             <td class="px-4 py-3 text-gray-400">{{ sess.created_at|date:"Y-m-d H:i" }}</td>
                             <td class="px-4 py-3 text-gray-400">{{ sess.last_activity|date:"Y-m-d H:i:s" }}</td>
                             <td class="px-4 py-3">
-                                {% if sess.is_active %}
+                                {# Workspace session rows are deleted on revoke or expiry, so every listed row is active. #}
                                 <span class="px-2 py-0.5 rounded text-[10px] bg-emerald-950 text-emerald-400 border border-emerald-800">ACTIVE</span>
-                                {% else %}
-                                <span class="px-2 py-0.5 rounded text-[10px] bg-gray-800 text-gray-400">TERMINATED</span>
-                                {% endif %}
                             </td>
                             <td class="px-4 py-3 text-right">
-                                {% if sess.is_active %}
                                 <form method="POST" action="{% url 'iam:auth_control_action' %}" class="inline-block">
                                     {% csrf_token %}
                                     <input type="hidden" name="action_type" value="revoke_session">
@@ -200,9 +196,6 @@
                                         Revoke
                                     </button>
                                 </form>
-                                {% else %}
-                                <span class="text-gray-600">-</span>
-                                {% endif %}
                             </td>
                         </tr>
                         {% empty %}

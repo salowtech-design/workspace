@@ -202,3 +202,26 @@ def test_iam_login_cookie_is_accepted_on_the_next_request(db, login_path):
     assert IAM_SESSION_COOKIE_NAME in client.cookies
     page = client.get("/iam/sessions/", HTTP_HOST=IAM_HOST)
     assert page.status_code == 200, page.headers.get("Location")
+
+
+def test_workspace_session_rows_show_active_and_a_revoke_button(iam_client):
+    """UserSession has no is_active field, so the template must not depend on one."""
+    from apps.accounts.models import UserSession
+
+    client, _ = iam_client
+    employee = User.objects.create(
+        email="step0.ws@salowtech.com",
+        employee_id="EMP-STEP0-WS",
+        full_name="Workspace Employee",
+        password=make_password("SalowStrongPassword2026!"),
+        role=CustomUser.Role.EMPLOYEE,
+        status=CustomUser.Status.ACTIVE,
+        is_active=True,
+    )
+    UserSession.objects.create(session_key="ws-step0-session-key", user=employee)
+    page = client.get("/iam/sessions/", HTTP_HOST=IAM_HOST)
+    html = page.content.decode()
+    row = html[html.index("EMP-STEP0-WS") :]
+    row = row[: row.index("</tr>")]
+    assert "ACTIVE" in row and "TERMINATED" not in row
+    assert 'value="revoke_session"' in row and 'value="workspace"' in row
