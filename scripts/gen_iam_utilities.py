@@ -213,8 +213,8 @@ def base_rule(c):
     if m and m.group(1) in MAXW:
         return f"max-width:{MAXW[m.group(1)]}"
     if c in SIZES:
-        s, l = SIZES[c].split("/")
-        return f"font-size:{s};line-height:{l}"
+        s, lh = SIZES[c].split("/")
+        return f"font-size:{s};line-height:{lh}"
     m = re.match(r"^text-\[(\d+)px\]$", c)
     if m:
         return f"font-size:{m.group(1)}px;line-height:1.3"
@@ -325,7 +325,7 @@ def main():
         (medias.setdefault(media, []) if media else base).append(rule)
     # solid-coloured controls keep white text
     solid = []
-    for h, (_, _, t600, _) in HUES.items():
+    for h, (_, _, _t600, _) in HUES.items():
         for n in (500, 600, 700):
             solid.append(f".bg-{h}-{n}.text-white,.hover\\:bg-{h}-{n}.text-white:hover")
     solid.append(".bg-gradient-to-r.text-white")
@@ -335,7 +335,7 @@ def main():
         "*,*::before,*::after{box-sizing:border-box}",
         "input,select,textarea{font:inherit;color:inherit}",
         f"input::placeholder,textarea::placeholder{{color:{FAINT}}}",
-        f"table{{border-collapse:collapse}}svg{{max-width:100%}}",
+        "table{border-collapse:collapse}svg{max-width:100%}",
     ]
     out += base
     out += [
@@ -348,7 +348,7 @@ def main():
         ".main-content svg{max-width:100%}",
     ]
     out.append(",".join(solid) + "{color:#FFFFFF}")
-    out.append(f".bg-gradient-to-r{{background-image:linear-gradient(to right,#7D3024,#5E2219)}}")
+    out.append(".bg-gradient-to-r{background-image:linear-gradient(to right,#7D3024,#5E2219)}")
     for bp in sorted(medias):
         out.append(f"@media (min-width:{bp}px){{" + "".join(medias[bp]) + "}")
     OUT.write_text("\n".join(out) + "\n", encoding="utf-8")
