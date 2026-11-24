@@ -95,7 +95,7 @@
 .revoke-section textarea, .revoke-section .form-control { width: 100%; max-width: 100%; box-sizing: border-box; }
 @media print {
   @page { size: A4 landscape; margin: 0; }
-  .certificate-frame { width: 297mm !important; height: 210mm !important; max-width: none !important; aspect-ratio: auto; margin: 0 !important; border-radius: 0 !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .certificate-frame { width: 297mm !important; height: 209mm !important; overflow: hidden !important; page-break-after: avoid; break-after: avoid; max-width: none !important; aspect-ratio: auto; margin: 0 !important; border-radius: 0 !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
 }
 @media screen and (max-width: 640px) {
   .certificate-frame { border-radius: 12px; aspect-ratio: auto; }
