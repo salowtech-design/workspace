@@ -44,7 +44,9 @@ def authenticate_password(
     # 2. Timing-safe password check
     if not user:
         check_password(password, DUMMY_PASSWORD_HASH)
-        record_failed_attempt(lockout_key, employee_id=normalized_id, threshold=RETURNING_SIGNIN_LOCKOUT_THRESHOLD)
+        record_failed_attempt(
+            lockout_key, employee_id=normalized_id, threshold=RETURNING_SIGNIN_LOCKOUT_THRESHOLD
+        )
         log_auth_event(
             event="login_failed_user_not_found",
             code="AUTH-LOG-001",
@@ -58,7 +60,9 @@ def authenticate_password(
     # 3. Employee ID role marker consistency check (Section 6)
     is_role_ok, role_err = validate_employee_id_role_consistency(user.employee_id, user.role)
     if not is_role_ok:
-        record_failed_attempt(lockout_key, employee_id=normalized_id, threshold=RETURNING_SIGNIN_LOCKOUT_THRESHOLD)
+        record_failed_attempt(
+            lockout_key, employee_id=normalized_id, threshold=RETURNING_SIGNIN_LOCKOUT_THRESHOLD
+        )
         log_auth_event(
             event="role_marker_mismatch",
             code="AUTH-SEC-001",
@@ -102,7 +106,9 @@ def authenticate_password(
 
     # 5. Check password
     if not user.check_password(password):
-        record_failed_attempt(lockout_key, employee_id=normalized_id, threshold=RETURNING_SIGNIN_LOCKOUT_THRESHOLD)
+        record_failed_attempt(
+            lockout_key, employee_id=normalized_id, threshold=RETURNING_SIGNIN_LOCKOUT_THRESHOLD
+        )
         log_auth_event(
             event="login_failed_wrong_password",
             code="AUTH-LOG-001",

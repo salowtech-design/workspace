@@ -1,4 +1,5 @@
 """Approved policy changes: TOTP window +-1 with a clock hint, and restore failures are loud."""
+
 import logging
 from unittest import mock
 
@@ -20,12 +21,17 @@ from apps.accounts.models import CustomUser, TOTPCredential
 @pytest.fixture
 def user_with_totp(db):
     user = CustomUser.objects.create_user(
-        employee_id="ST-TOTP-W1", full_name="W", password="ValidPass2026!@#",
-        role=CustomUser.Role.EMPLOYEE, status=CustomUser.Status.ACTIVE,
+        employee_id="ST-TOTP-W1",
+        full_name="W",
+        password="ValidPass2026!@#",
+        role=CustomUser.Role.EMPLOYEE,
+        status=CustomUser.Status.ACTIVE,
     )
     secret = pyotp.random_base32()
     c, n, k = encrypt_secret(secret, get_auth_key_ring())
-    TOTPCredential.objects.create(user=user, encrypted_secret=c, nonce=n, key_id=k, confirmed_at=timezone.now())
+    TOTPCredential.objects.create(
+        user=user, encrypted_secret=c, nonce=n, key_id=k, confirmed_at=timezone.now()
+    )
     return user, pyotp.TOTP(secret)
 
 
@@ -38,7 +44,9 @@ def test_window_constant_is_one():
 
 
 @pytest.mark.django_db
-@pytest.mark.parametrize("offset,ok", [(-30, True), (30, True), (-60, False), (60, False), (-120, False), (120, False)])
+@pytest.mark.parametrize(
+    "offset,ok", [(-30, True), (30, True), (-60, False), (60, False), (-120, False), (120, False)]
+)
 def test_totp_accepts_one_step_only(user_with_totp, offset, ok):
     user, totp = user_with_totp
     now = 1_800_000_015.0  # mid-step so +-30 s is exactly one step

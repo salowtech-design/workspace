@@ -1,4 +1,5 @@
 """Regression tests for dependency declaration and undefined-name fixes."""
+
 import tomllib
 from pathlib import Path
 
@@ -71,9 +72,13 @@ def test_control_action_view_logs_unexpected_error_instead_of_nameerror(caplog):
     request.session = {}
     request._messages = FallbackStorage(request)
     fake_session = SimpleNamespace(iam_admin=object())
-    with mock.patch.object(view_mod, "_require_iam_admin_session", return_value=(fake_session, None)), \
-            mock.patch.object(view_mod, "execute_revoke_session", side_effect=RuntimeError("boom")), \
-            caplog.at_level(logging.ERROR):
+    with (
+        mock.patch.object(
+            view_mod, "_require_iam_admin_session", return_value=(fake_session, None)
+        ),
+        mock.patch.object(view_mod, "execute_revoke_session", side_effect=RuntimeError("boom")),
+        caplog.at_level(logging.ERROR),
+    ):
         response = view_mod.auth_control_action_view(request)
     assert response.status_code == 302
     assert any("revoke_session" in r.getMessage() for r in caplog.records)

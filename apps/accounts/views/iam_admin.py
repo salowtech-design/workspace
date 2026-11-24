@@ -44,7 +44,9 @@ def iam_login_view(request):
         admin_id = request.POST.get("admin_id", "").strip().upper()
         password = request.POST.get("password", "")
         totp_code = request.POST.get("totp_code", "").strip()
-        client_ip = getattr(request, "client_ip", None) or request.META.get("REMOTE_ADDR", "127.0.0.1")
+        client_ip = getattr(request, "client_ip", None) or request.META.get(
+            "REMOTE_ADDR", "127.0.0.1"
+        )
 
         tx = None
         if admin_id:
@@ -53,6 +55,7 @@ def iam_login_view(request):
                 record_transaction_stage,
                 start_auth_transaction,
             )
+
             tx = start_auth_transaction(
                 domain="iam",
                 identity_ref=admin_id,
@@ -62,13 +65,21 @@ def iam_login_view(request):
         if not admin_id or not password or not totp_code:
             error = "IAM Administrator ID, Password, and TOTP code are required."
             if tx:
-                record_transaction_stage(tx.transaction_id, "password_check", "FAIL", "Missing fields")
-                complete_auth_transaction(tx.transaction_id, "failed", reason_category="missing_fields")
+                record_transaction_stage(
+                    tx.transaction_id, "password_check", "FAIL", "Missing fields"
+                )
+                complete_auth_transaction(
+                    tx.transaction_id, "failed", reason_category="missing_fields"
+                )
         elif len(password) < 16:
             error = "IAM Administrator password must meet the 16-character minimum requirement."
             if tx:
-                record_transaction_stage(tx.transaction_id, "password_check", "FAIL", "Password length below 16 chars")
-                complete_auth_transaction(tx.transaction_id, "failed", reason_category="password_length_violation")
+                record_transaction_stage(
+                    tx.transaction_id, "password_check", "FAIL", "Password length below 16 chars"
+                )
+                complete_auth_transaction(
+                    tx.transaction_id, "failed", reason_category="password_length_violation"
+                )
         else:
             try:
                 iam_admin = authenticate_iam_admin(
@@ -79,10 +90,21 @@ def iam_login_view(request):
                 )
                 session = create_iam_session(iam_admin, request, assurance_level=1)
                 if tx:
-                    record_transaction_stage(tx.transaction_id, "password_check", "PASS", "Password verified")
-                    record_transaction_stage(tx.transaction_id, "mfa_verification", "PASS", "TOTP valid")
-                    record_transaction_stage(tx.transaction_id, "lifecycle", "PASS", f"Status: {iam_admin.status}")
-                    complete_auth_transaction(tx.transaction_id, "success", reason_category="credentials_and_mfa_valid", session_ref=session.session_key)
+                    record_transaction_stage(
+                        tx.transaction_id, "password_check", "PASS", "Password verified"
+                    )
+                    record_transaction_stage(
+                        tx.transaction_id, "mfa_verification", "PASS", "TOTP valid"
+                    )
+                    record_transaction_stage(
+                        tx.transaction_id, "lifecycle", "PASS", f"Status: {iam_admin.status}"
+                    )
+                    complete_auth_transaction(
+                        tx.transaction_id,
+                        "success",
+                        reason_category="credentials_and_mfa_valid",
+                        session_ref=session.session_key,
+                    )
 
                 next_url = request.GET.get("next") or reverse("iam:dashboard")
 
@@ -103,12 +125,16 @@ def iam_login_view(request):
                 error = exc.user_message
                 if tx:
                     record_transaction_stage(tx.transaction_id, "password_check", "FAIL", str(exc))
-                    complete_auth_transaction(tx.transaction_id, "failed", reason_category="auth_exception")
+                    complete_auth_transaction(
+                        tx.transaction_id, "failed", reason_category="auth_exception"
+                    )
             except Exception as exc:
                 error = f"Authentication failed: {exc}"
                 if tx:
                     record_transaction_stage(tx.transaction_id, "password_check", "FAIL", str(exc))
-                    complete_auth_transaction(tx.transaction_id, "failed", reason_category="unexpected_error")
+                    complete_auth_transaction(
+                        tx.transaction_id, "failed", reason_category="unexpected_error"
+                    )
 
     return render(
         request,
@@ -147,7 +173,10 @@ def iam_stepup_view(request):
         totp_code = request.POST.get("totp_code", "").strip()
 
         if stepup_iam_assurance(session, password, totp_code, action_name=action):
-            messages.success(request, f"Step-up authentication verified for '{action}' (Assurance Level 2 granted).")
+            messages.success(
+                request,
+                f"Step-up authentication verified for '{action}' (Assurance Level 2 granted).",
+            )
             return redirect(next_url)
         else:
             error = "Invalid password or TOTP code. Step-up authentication failed."
@@ -186,9 +215,13 @@ def iam_dashboard_view(request):
     # Section 11: Dedicated Workspace Security Administration Tab inside IAM
     if active_tab == "workspace_security" and request.method == "POST":
         # Check Assurance Level 2 for policy changes
-        if not check_iam_assurance(request, required_level=2, action_name="update_workspace_security_policy"):
+        if not check_iam_assurance(
+            request, required_level=2, action_name="update_workspace_security_policy"
+        ):
             stepup_url = reverse("iam:stepup")
-            return redirect(f"{stepup_url}?action=update_workspace_security_policy&next={request.get_full_path()}")
+            return redirect(
+                f"{stepup_url}?action=update_workspace_security_policy&next={request.get_full_path()}"
+            )
 
         policy_key = request.POST.get("policy_key", "").strip()
         policy_val_str = request.POST.get("policy_value", "{}").strip()
@@ -196,8 +229,13 @@ def iam_dashboard_view(request):
 
         if policy_key and justification:
             import json
+
             try:
-                val = json.loads(policy_val_str) if policy_val_str.startswith("{") else {"value": policy_val_str}
+                val = (
+                    json.loads(policy_val_str)
+                    if policy_val_str.startswith("{")
+                    else {"value": policy_val_str}
+                )
                 WorkspaceSecurityPolicy.objects.update_or_create(
                     policy_key=policy_key,
                     defaults={
@@ -206,7 +244,9 @@ def iam_dashboard_view(request):
                         "updated_by": session.iam_admin.user,
                     },
                 )
-                messages.success(request, f"Workspace security policy '{policy_key}' updated successfully.")
+                messages.success(
+                    request, f"Workspace security policy '{policy_key}' updated successfully."
+                )
             except Exception as e:
                 messages.error(request, f"Failed to update policy: {e}")
         else:
@@ -216,4 +256,5 @@ def iam_dashboard_view(request):
 
     # Delegate to the comprehensive 13-tile dashboard implementation
     from apps.accounts.views.admin_iam import admin_iam_dashboard_view
+
     return admin_iam_dashboard_view(request)

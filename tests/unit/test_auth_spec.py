@@ -343,7 +343,9 @@ class TestLockoutAndLoginFlow:
         assert is_ok is True
 
         # Role mismatch: identifier claims ADMIN but account is EMPLOYEE
-        is_bad, reason = validate_employee_id_role_consistency("ALICE-ADMIN-01", CustomUser.Role.EMPLOYEE)
+        is_bad, reason = validate_employee_id_role_consistency(
+            "ALICE-ADMIN-01", CustomUser.Role.EMPLOYEE
+        )
         assert is_bad is False
         assert "does not match assigned role" in reason
 

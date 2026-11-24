@@ -48,6 +48,7 @@ logger = logging.getLogger(__name__)
 # 1. AUTHENTICATION TRANSACTION STATE MACHINE
 # ==============================================================================
 
+
 def start_auth_transaction(
     domain: str,
     identity_ref: str = "",
@@ -61,7 +62,10 @@ def start_auth_transaction(
     Every attempt receives an opaque transaction ID and correlation ID.
     """
     clean_domain = domain.lower().strip()
-    if clean_domain not in (AuthenticationTransaction.Domain.WORKSPACE, AuthenticationTransaction.Domain.IAM):
+    if clean_domain not in (
+        AuthenticationTransaction.Domain.WORKSPACE,
+        AuthenticationTransaction.Domain.IAM,
+    ):
         clean_domain = AuthenticationTransaction.Domain.WORKSPACE
 
     tx_id = f"tx_{uuid.uuid4().hex}"
@@ -160,7 +164,17 @@ def record_transaction_stage(
     if risk_signals:
         tx.risk_signals = risk_signals
 
-    tx.save(update_fields=["stages", "stage", "duration_ms", "device_ref", "risk_decision", "risk_signals", "updated_at"])
+    tx.save(
+        update_fields=[
+            "stages",
+            "stage",
+            "duration_ms",
+            "device_ref",
+            "risk_decision",
+            "risk_signals",
+            "updated_at",
+        ]
+    )
 
     event_type = f"auth.{stage}.{result.lower()}"
     log_auth_event(
@@ -211,14 +225,16 @@ def complete_auth_transaction(
 
     # Record completion in stage timeline
     current_stages = list(tx.stages or [])
-    current_stages.append({
-        "stage": "completed",
-        "result": clean_outcome,
-        "reason": reason_category,
-        "timestamp": timezone.now().isoformat(),
-        "duration_ms": 0.0,
-        "metadata": {"session_issued": bool(session_ref)},
-    })
+    current_stages.append(
+        {
+            "stage": "completed",
+            "result": clean_outcome,
+            "reason": reason_category,
+            "timestamp": timezone.now().isoformat(),
+            "duration_ms": 0.0,
+            "metadata": {"session_issued": bool(session_ref)},
+        }
+    )
     tx.stages = current_stages
     tx.save()
 
@@ -257,6 +273,7 @@ def complete_auth_transaction(
 # ==============================================================================
 # 2. OVERVIEW METRICS & LIVE ACTIVITY (1s HTMX POLLING)
 # ==============================================================================
+
 
 def get_auth_overview_metrics(domain: str, time_window_hours: int = 24) -> Dict[str, Any]:
     """
@@ -298,8 +315,9 @@ def get_live_activity_feed(domain: str, limit: int = 20) -> List[AuthenticationT
     """
     clean_domain = domain.lower().strip()
     return list(
-        AuthenticationTransaction.objects.filter(domain=clean_domain)
-        .order_by("-created_at")[:limit]
+        AuthenticationTransaction.objects.filter(domain=clean_domain).order_by("-created_at")[
+            :limit
+        ]
     )
 
 
@@ -345,6 +363,7 @@ def search_auth_records(
 # 3. IAM ADMIN PRESENCE & HEARTBEAT (5s INTERVAL, 15s STALE THRESHOLD)
 # ==============================================================================
 
+
 def record_admin_heartbeat(
     session: IAMSession,
     page_key: str = "console",
@@ -379,27 +398,32 @@ def get_all_admin_presences(limit: int = 20) -> List[Dict[str, Any]]:
     ACTIVE (heartbeat <= 15s), STALE (heartbeat > 15s), REVOKED, EXPIRED.
     """
     cutoff = timezone.now() - timedelta(hours=12)
-    presences = IAMAdminPresence.objects.filter(last_heartbeat__gte=cutoff).select_related("admin_identity")[:limit]
+    presences = IAMAdminPresence.objects.filter(last_heartbeat__gte=cutoff).select_related(
+        "admin_identity"
+    )[:limit]
 
     results = []
     for p in presences:
-        results.append({
-            "admin_id": p.admin_identity.admin_id,
-            "role": p.admin_identity.role,
-            "page_key": p.page_key,
-            "action_category": p.action_category,
-            "device_label": p.device_label or "Standard Desktop/Browser",
-            "last_heartbeat": p.last_heartbeat,
-            "status": p.presence_status,
-            "last_action": p.last_action or "Viewing console",
-            "last_outcome": p.last_outcome or "success",
-        })
+        results.append(
+            {
+                "admin_id": p.admin_identity.admin_id,
+                "role": p.admin_identity.role,
+                "page_key": p.page_key,
+                "action_category": p.action_category,
+                "device_label": p.device_label or "Standard Desktop/Browser",
+                "last_heartbeat": p.last_heartbeat,
+                "status": p.presence_status,
+                "last_action": p.last_action or "Viewing console",
+                "last_outcome": p.last_outcome or "success",
+            }
+        )
     return results
 
 
 # ==============================================================================
 # 4. VERSIONED AUTHENTICATION POLICIES (WORKSPACE & IAM)
 # ==============================================================================
+
 
 def get_active_policy(domain: str) -> AuthenticationPolicy:
     """
@@ -468,10 +492,14 @@ def save_policy_version(
     # Enforce strict policy minimum bounds
     if clean_domain == AuthenticationPolicy.Domain.IAM:
         if password_min_length < 16:
-            raise ValidationError("IAM administrator policy requires a minimum password length of at least 16 characters.")
+            raise ValidationError(
+                "IAM administrator policy requires a minimum password length of at least 16 characters."
+            )
     else:
         if password_min_length < 12:
-            raise ValidationError("Workspace employee policy requires a minimum password length of at least 12 characters.")
+            raise ValidationError(
+                "Workspace employee policy requires a minimum password length of at least 12 characters."
+            )
 
     if failed_login_threshold < 1 or failed_login_threshold > 20:
         raise ValidationError("Failed login threshold must be between 1 and 20 attempts.")
@@ -488,14 +516,18 @@ def save_policy_version(
             )
 
     if not justification.strip():
-        raise ValidationError("A clear administrative justification is mandatory for policy updates.")
+        raise ValidationError(
+            "A clear administrative justification is mandatory for policy updates."
+        )
 
     with transaction.atomic():
         current_active = get_active_policy(clean_domain)
         next_version = current_active.version + 1
 
         # Deactivate old version
-        AuthenticationPolicy.objects.filter(domain=clean_domain, is_active=True).update(is_active=False)
+        AuthenticationPolicy.objects.filter(domain=clean_domain, is_active=True).update(
+            is_active=False
+        )
 
         # Create new version
         new_policy = AuthenticationPolicy.objects.create(
@@ -530,6 +562,7 @@ def save_policy_version(
 # 5. THE EIGHT REAL CONTROL ACTIONS
 # ==============================================================================
 
+
 def execute_revoke_session(
     session_ref: str,
     domain: str,
@@ -548,7 +581,10 @@ def execute_revoke_session(
         sess.save(update_fields=["is_active"])
     else:
         from django.contrib.sessions.models import Session
-        ws_sess = UserSession.objects.filter(models.Q(session_key=session_ref) | models.Q(session_digest=session_ref)).first()
+
+        ws_sess = UserSession.objects.filter(
+            models.Q(session_key=session_ref) | models.Q(session_digest=session_ref)
+        ).first()
         if not ws_sess:
             raise ValidationError(f"Workspace session '{session_ref}' not found.")
         Session.objects.filter(session_key=ws_sess.session_key).delete()
@@ -583,9 +619,12 @@ def execute_revoke_device(
         device.save(update_fields=["is_approved", "is_revoked", "last_used_time"])
 
         # Terminate any sessions bound to this device
-        bound_sessions = list(UserSession.objects.filter(device=device).values_list("session_key", flat=True))
+        bound_sessions = list(
+            UserSession.objects.filter(device=device).values_list("session_key", flat=True)
+        )
         if bound_sessions:
             from django.contrib.sessions.models import Session
+
             Session.objects.filter(session_key__in=bound_sessions).delete()
             UserSession.objects.filter(device=device).delete()
 
@@ -597,7 +636,10 @@ def execute_revoke_device(
         reference_id=device_ref,
         message=f"Device {device_ref} revoked by {actor_admin.admin_id}: {reason}",
     )
-    return {"status": "success", "message": f"Device '{device_ref}' and bound sessions revoked successfully."}
+    return {
+        "status": "success",
+        "message": f"Device '{device_ref}' and bound sessions revoked successfully.",
+    }
 
 
 def execute_temporary_restriction(
@@ -630,7 +672,10 @@ def execute_temporary_restriction(
         reference_id=clean_id,
         message=f"Account {clean_id} restricted for {duration_minutes}m by {actor_admin.admin_id}: {reason}",
     )
-    return {"status": "success", "message": f"Account '{clean_id}' restricted until {locked_until.strftime('%H:%M:%S')} UTC."}
+    return {
+        "status": "success",
+        "message": f"Account '{clean_id}' restricted until {locked_until.strftime('%H:%M:%S')} UTC.",
+    }
 
 
 def execute_release_lock(
@@ -702,18 +747,20 @@ def execute_export_records(
 
     export_rows = []
     for r in records:
-        export_rows.append({
-            "transaction_id": r.transaction_id,
-            "correlation_id": r.correlation_id,
-            "domain": r.domain,
-            "stage": r.stage,
-            "outcome": r.outcome,
-            "identity_ref": r.identity_ref,
-            "reason_category": r.reason_category,
-            "policy_version": r.policy_version,
-            "risk_decision": r.risk_decision,
-            "created_at": r.created_at.isoformat(),
-        })
+        export_rows.append(
+            {
+                "transaction_id": r.transaction_id,
+                "correlation_id": r.correlation_id,
+                "domain": r.domain,
+                "stage": r.stage,
+                "outcome": r.outcome,
+                "identity_ref": r.identity_ref,
+                "reason_category": r.reason_category,
+                "policy_version": r.policy_version,
+                "risk_decision": r.risk_decision,
+                "created_at": r.created_at.isoformat(),
+            }
+        )
 
     payload_str = json.dumps(export_rows, sort_keys=True)
     file_digest = hashlib.sha256(payload_str.encode("utf-8")).hexdigest()
@@ -767,12 +814,17 @@ def execute_start_investigation(
         message=f"Investigation #{incident.id} started for transaction {tx.transaction_id}",
     )
 
-    return {"status": "success", "incident_id": incident.id, "message": f"Investigation #{incident.id} opened."}
+    return {
+        "status": "success",
+        "incident_id": incident.id,
+        "message": f"Investigation #{incident.id} opened.",
+    }
 
 
 # ==============================================================================
 # 6. CORE SECURITY DEPENDENCIES & HEALTH PROBES
 # ==============================================================================
+
 
 def probe_all_dependencies() -> List[Dict[str, Any]]:
     """
@@ -792,15 +844,17 @@ def probe_all_dependencies() -> List[Dict[str, Any]]:
         db_ok = True
     except Exception as exc:
         db_err = str(exc)
-    probes.append({
-        "name": "TiDB / Database Runtime",
-        "key": "tidb",
-        "status": "healthy" if db_ok else "down",
-        "latency_ms": round((time.time() - t0) * 1000, 2),
-        "last_checked": timezone.now(),
-        "error": db_err,
-        "impact": "Authentication persistence, uniqueness, and distributed concurrency",
-    })
+    probes.append(
+        {
+            "name": "TiDB / Database Runtime",
+            "key": "tidb",
+            "status": "healthy" if db_ok else "down",
+            "latency_ms": round((time.time() - t0) * 1000, 2),
+            "last_checked": timezone.now(),
+            "error": db_err,
+            "impact": "Authentication persistence, uniqueness, and distributed concurrency",
+        }
+    )
 
     # 2. Identity Registry & Lifecycle Probe
     t0 = time.time()
@@ -812,15 +866,17 @@ def probe_all_dependencies() -> List[Dict[str, Any]]:
         id_ok = True
     except Exception as exc:
         id_err = str(exc)
-    probes.append({
-        "name": "Identity Registry & Lifecycle",
-        "key": "identity_registry",
-        "status": "healthy" if id_ok else "down",
-        "latency_ms": round((time.time() - t0) * 1000, 2),
-        "last_checked": timezone.now(),
-        "error": id_err,
-        "impact": "Account eligibility, active/suspended states, and employment boundaries",
-    })
+    probes.append(
+        {
+            "name": "Identity Registry & Lifecycle",
+            "key": "identity_registry",
+            "status": "healthy" if id_ok else "down",
+            "latency_ms": round((time.time() - t0) * 1000, 2),
+            "last_checked": timezone.now(),
+            "error": id_err,
+            "impact": "Account eligibility, active/suspended states, and employment boundaries",
+        }
+    )
 
     # 3. Credential & Hasher Service
     t0 = time.time()
@@ -832,34 +888,39 @@ def probe_all_dependencies() -> List[Dict[str, Any]]:
         hasher_ok = True
     except Exception:
         hasher_ok = False
-    probes.append({
-        "name": f"Credential Hasher ({hasher_name})",
-        "key": "hasher",
-        "status": "healthy" if hasher_ok else "degraded",
-        "latency_ms": round((time.time() - t0) * 1000, 2),
-        "last_checked": timezone.now(),
-        "error": None if hasher_ok else "Configured hasher not loaded",
-        "impact": "Password verification and timing-resistant dummy verification paths",
-    })
+    probes.append(
+        {
+            "name": f"Credential Hasher ({hasher_name})",
+            "key": "hasher",
+            "status": "healthy" if hasher_ok else "degraded",
+            "latency_ms": round((time.time() - t0) * 1000, 2),
+            "last_checked": timezone.now(),
+            "error": None if hasher_ok else "Configured hasher not loaded",
+            "impact": "Password verification and timing-resistant dummy verification paths",
+        }
+    )
 
     # 4. MFA & RFC 6238 TOTP Engine
     t0 = time.time()
     mfa_ok = False
     try:
         from apps.accounts.auth.mfa_totp import get_auth_key_ring
+
         ring = get_auth_key_ring()
         mfa_ok = bool(ring)
     except Exception:
         mfa_ok = False
-    probes.append({
-        "name": "MFA & TOTP Engine",
-        "key": "mfa_engine",
-        "status": "healthy" if mfa_ok else "down",
-        "latency_ms": round((time.time() - t0) * 1000, 2),
-        "last_checked": timezone.now(),
-        "error": None if mfa_ok else "Keyring unavailable",
-        "impact": "Second-factor challenge issuance, time-step verification, and replay guards",
-    })
+    probes.append(
+        {
+            "name": "MFA & TOTP Engine",
+            "key": "mfa_engine",
+            "status": "healthy" if mfa_ok else "down",
+            "latency_ms": round((time.time() - t0) * 1000, 2),
+            "last_checked": timezone.now(),
+            "error": None if mfa_ok else "Keyring unavailable",
+            "impact": "Second-factor challenge issuance, time-step verification, and replay guards",
+        }
+    )
 
     # 5. Distributed Rate Limiter
     t0 = time.time()
@@ -869,41 +930,47 @@ def probe_all_dependencies() -> List[Dict[str, Any]]:
         limiter_ok = True
     except Exception:
         limiter_ok = False
-    probes.append({
-        "name": "Distributed Rate Limiter",
-        "key": "rate_limiter",
-        "status": "healthy" if limiter_ok else "down",
-        "latency_ms": round((time.time() - t0) * 1000, 2),
-        "last_checked": timezone.now(),
-        "error": None if limiter_ok else "RateLimitBucket query failed",
-        "impact": "Atomic multi-worker brute-force defense and credential stuffing controls",
-    })
+    probes.append(
+        {
+            "name": "Distributed Rate Limiter",
+            "key": "rate_limiter",
+            "status": "healthy" if limiter_ok else "down",
+            "latency_ms": round((time.time() - t0) * 1000, 2),
+            "last_checked": timezone.now(),
+            "error": None if limiter_ok else "RateLimitBucket query failed",
+            "impact": "Atomic multi-worker brute-force defense and credential stuffing controls",
+        }
+    )
 
     # 6. Password-Spraying Detector
     t0 = time.time()
     spray_ok = True
-    probes.append({
-        "name": "Password-Spraying Detector",
-        "key": "spraying_detector",
-        "status": "healthy" if spray_ok else "degraded",
-        "latency_ms": round((time.time() - t0) * 1000, 2),
-        "last_checked": timezone.now(),
-        "error": None,
-        "impact": "Cross-account low-and-slow abuse detection and subnet clustering",
-    })
+    probes.append(
+        {
+            "name": "Password-Spraying Detector",
+            "key": "spraying_detector",
+            "status": "healthy" if spray_ok else "degraded",
+            "latency_ms": round((time.time() - t0) * 1000, 2),
+            "last_checked": timezone.now(),
+            "error": None,
+            "impact": "Cross-account low-and-slow abuse detection and subnet clustering",
+        }
+    )
 
     # 7. Rules-Based Risk Engine
     t0 = time.time()
     risk_ok = True
-    probes.append({
-        "name": "Risk Signals & Decisions Engine",
-        "key": "risk_engine",
-        "status": "healthy" if risk_ok else "degraded",
-        "latency_ms": round((time.time() - t0) * 1000, 2),
-        "last_checked": timezone.now(),
-        "error": None,
-        "impact": "ALLOW / CHALLENGE / DENY transaction risk scoring",
-    })
+    probes.append(
+        {
+            "name": "Risk Signals & Decisions Engine",
+            "key": "risk_engine",
+            "status": "healthy" if risk_ok else "degraded",
+            "latency_ms": round((time.time() - t0) * 1000, 2),
+            "last_checked": timezone.now(),
+            "error": None,
+            "impact": "ALLOW / CHALLENGE / DENY transaction risk scoring",
+        }
+    )
 
     # 8. Device Approval & Gate Service
     t0 = time.time()
@@ -913,15 +980,17 @@ def probe_all_dependencies() -> List[Dict[str, Any]]:
         dev_ok = True
     except Exception:
         dev_ok = False
-    probes.append({
-        "name": "Device Approval & Multi-Device Gate",
-        "key": "device_approval",
-        "status": "healthy" if dev_ok else "down",
-        "latency_ms": round((time.time() - t0) * 1000, 2),
-        "last_checked": timezone.now(),
-        "error": None if dev_ok else "Device tables inaccessible",
-        "impact": "Workspace conditional second-device authorization and number matching",
-    })
+    probes.append(
+        {
+            "name": "Device Approval & Multi-Device Gate",
+            "key": "device_approval",
+            "status": "healthy" if dev_ok else "down",
+            "latency_ms": round((time.time() - t0) * 1000, 2),
+            "last_checked": timezone.now(),
+            "error": None if dev_ok else "Device tables inaccessible",
+            "impact": "Workspace conditional second-device authorization and number matching",
+        }
+    )
 
     # 9. Server-Side Session Authority
     t0 = time.time()
@@ -932,15 +1001,17 @@ def probe_all_dependencies() -> List[Dict[str, Any]]:
         sess_ok = True
     except Exception:
         sess_ok = False
-    probes.append({
-        "name": "Server-Side Session Authority",
-        "key": "session_service",
-        "status": "healthy" if sess_ok else "down",
-        "latency_ms": round((time.time() - t0) * 1000, 2),
-        "last_checked": timezone.now(),
-        "error": None if sess_ok else "Session models inaccessible",
-        "impact": "Opaque server-side session stores, token rotation, and multi-worker revocation",
-    })
+    probes.append(
+        {
+            "name": "Server-Side Session Authority",
+            "key": "session_service",
+            "status": "healthy" if sess_ok else "down",
+            "latency_ms": round((time.time() - t0) * 1000, 2),
+            "last_checked": timezone.now(),
+            "error": None if sess_ok else "Session models inaccessible",
+            "impact": "Opaque server-side session stores, token rotation, and multi-worker revocation",
+        }
+    )
 
     # 10. Append-Only Audit & Outbox Engine
     t0 = time.time()
@@ -951,15 +1022,17 @@ def probe_all_dependencies() -> List[Dict[str, Any]]:
         audit_ok = True
     except Exception:
         audit_ok = False
-    probes.append({
-        "name": "Audit Integrity & Outbox Engine",
-        "key": "audit_outbox",
-        "status": "healthy" if audit_ok else "down",
-        "latency_ms": round((time.time() - t0) * 1000, 2),
-        "last_checked": timezone.now(),
-        "error": None if audit_ok else "Audit models inaccessible",
-        "impact": "Durable security events, canonical hash chaining, and reliable delivery",
-    })
+    probes.append(
+        {
+            "name": "Audit Integrity & Outbox Engine",
+            "key": "audit_outbox",
+            "status": "healthy" if audit_ok else "down",
+            "latency_ms": round((time.time() - t0) * 1000, 2),
+            "last_checked": timezone.now(),
+            "error": None if audit_ok else "Audit models inaccessible",
+            "impact": "Durable security events, canonical hash chaining, and reliable delivery",
+        }
+    )
 
     # 11. Alert Escalation & Notification
     t0 = time.time()
@@ -969,29 +1042,33 @@ def probe_all_dependencies() -> List[Dict[str, Any]]:
         alert_ok = True
     except Exception:
         alert_ok = False
-    probes.append({
-        "name": "Alert Escalation & Dead-Letter Service",
-        "key": "alert_escalation",
-        "status": "healthy" if alert_ok else "down",
-        "latency_ms": round((time.time() - t0) * 1000, 2),
-        "last_checked": timezone.now(),
-        "error": None if alert_ok else "Alert model inaccessible",
-        "impact": "High/critical 15-minute alert escalation and dead-letter queuing",
-    })
+    probes.append(
+        {
+            "name": "Alert Escalation & Dead-Letter Service",
+            "key": "alert_escalation",
+            "status": "healthy" if alert_ok else "down",
+            "latency_ms": round((time.time() - t0) * 1000, 2),
+            "last_checked": timezone.now(),
+            "error": None if alert_ok else "Alert model inaccessible",
+            "impact": "High/critical 15-minute alert escalation and dead-letter queuing",
+        }
+    )
 
     # 12. Clock & NTP Time Synchronization
     t0 = time.time()
     clock_drift_seconds = 0.05
     clock_ok = clock_drift_seconds < 1.0
-    probes.append({
-        "name": "Clock / NTP Synchronization",
-        "key": "clock_ntp",
-        "status": "healthy" if clock_ok else "degraded",
-        "latency_ms": round((time.time() - t0) * 1000, 2),
-        "last_checked": timezone.now(),
-        "error": None,
-        "impact": "TOTP boundary correctness, session expiry precision, and audit timestamp integrity",
-    })
+    probes.append(
+        {
+            "name": "Clock / NTP Synchronization",
+            "key": "clock_ntp",
+            "status": "healthy" if clock_ok else "degraded",
+            "latency_ms": round((time.time() - t0) * 1000, 2),
+            "last_checked": timezone.now(),
+            "error": None,
+            "impact": "TOTP boundary correctness, session expiry precision, and audit timestamp integrity",
+        }
+    )
 
     return probes
 
@@ -999,6 +1076,7 @@ def probe_all_dependencies() -> List[Dict[str, Any]]:
 # ==============================================================================
 # 7. DEDICATED IAM ACCOUNT RECOVERY CASES (DUAL-CONTROL WORKFLOW)
 # ==============================================================================
+
 
 def create_iam_recovery_case(
     requester_identity_ref: str,
@@ -1063,7 +1141,15 @@ def approve_iam_recovery_case(
             case.first_approver = approver
             case.first_approved_at = now
             case.status = IAMRecoveryCase.Status.UNDER_REVIEW
-            case.save(update_fields=["approval_state", "first_approver", "first_approved_at", "status", "updated_at"])
+            case.save(
+                update_fields=[
+                    "approval_state",
+                    "first_approver",
+                    "first_approved_at",
+                    "status",
+                    "updated_at",
+                ]
+            )
 
             log_auth_event(
                 event="iam.recovery.first_approved",
@@ -1075,7 +1161,9 @@ def approve_iam_recovery_case(
             )
         elif case.approval_state == IAMRecoveryCase.ApprovalState.FIRST_APPROVED:
             if case.first_approver and case.first_approver.id == approver.id:
-                raise PermissionDenied("Second approval must be granted by an independent authorized administrator.")
+                raise PermissionDenied(
+                    "Second approval must be granted by an independent authorized administrator."
+                )
 
             case.approval_state = IAMRecoveryCase.ApprovalState.DUAL_APPROVED
             case.second_approver = approver
@@ -1086,10 +1174,17 @@ def approve_iam_recovery_case(
             raw_token = secrets.token_urlsafe(32)
             case.one_time_reset_token = hashlib.sha256(raw_token.encode("utf-8")).hexdigest()
             case.token_expires_at = now + timedelta(minutes=10)
-            case.save(update_fields=[
-                "approval_state", "second_approver", "second_approved_at",
-                "status", "one_time_reset_token", "token_expires_at", "updated_at"
-            ])
+            case.save(
+                update_fields=[
+                    "approval_state",
+                    "second_approver",
+                    "second_approved_at",
+                    "status",
+                    "one_time_reset_token",
+                    "token_expires_at",
+                    "updated_at",
+                ]
+            )
 
             log_auth_event(
                 event="iam.recovery.dual_approved",

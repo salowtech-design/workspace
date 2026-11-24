@@ -57,7 +57,9 @@ class HostSecurityIsolationMiddleware:
             # Workspace application modules are strictly prohibited on iam.salowtech.com
             workspace_prefixes = ("/attendance", "/posts", "/directory", "/certificates")
             if any(path.startswith(prefix) for prefix in workspace_prefixes):
-                return HttpResponseNotFound("Workspace applications are not accessible on iam.salowtech.com.")
+                return HttpResponseNotFound(
+                    "Workspace applications are not accessible on iam.salowtech.com."
+                )
 
             # Root path redirects to IAM console or login
             if path in ("/", ""):
@@ -146,8 +148,15 @@ class AccountSecurityMiddleware:
             pass
         logout(request)
         request.session.flush()
-        login_url = reverse("accounts:login") + "?reason=idle&next=" + quote(request.get_full_path(), safe="/")
-        if request.headers.get("HX-Request") or request.headers.get("X-Requested-With") == "XMLHttpRequest":
+        login_url = (
+            reverse("accounts:login")
+            + "?reason=idle&next="
+            + quote(request.get_full_path(), safe="/")
+        )
+        if (
+            request.headers.get("HX-Request")
+            or request.headers.get("X-Requested-With") == "XMLHttpRequest"
+        ):
             response = HttpResponse(status=401)
             response["HX-Redirect"] = login_url
             return response

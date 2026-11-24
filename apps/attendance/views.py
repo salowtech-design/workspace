@@ -72,6 +72,7 @@ def check_in_view(request):
         else:
             from apps.face.models import FaceVerificationLog
             from apps.face.services import verify_face
+
             frame_data = request.POST.get("frame_data")
             result = verify_face(
                 user=request.user,

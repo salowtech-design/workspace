@@ -42,7 +42,6 @@ DEVICE_APPROVAL_EXPIRY_SECONDS = 60  # Strictly 1 minute per specification
 MAX_CONCURRENT_DEVICES = getattr(settings, "MAX_CONCURRENT_DEVICES", 3)
 
 
-
 def is_second_device_request(
     user: CustomUser,
     current_session_key: Optional[str] = None,
@@ -160,16 +159,22 @@ def approve_device_by_existing_session(
     """
     with transaction.atomic():
         req = (
-            DeviceApprovalRequest.objects.select_for_update()
-            .filter(request_id=request_id)
-            .first()
+            DeviceApprovalRequest.objects.select_for_update().filter(request_id=request_id).first()
         )
         if not req:
-            raise AuthException("AUTH-DEV-003", step="device_approval", message_override="Approval request not found.")
+            raise AuthException(
+                "AUTH-DEV-003",
+                step="device_approval",
+                message_override="Approval request not found.",
+            )
 
         check_and_expire_request(req)
         if req.status != DeviceApprovalRequest.Status.PENDING:
-            raise AuthException("AUTH-DEV-004", step="device_approval", message_override=f"Request cannot be approved ({req.status}).")
+            raise AuthException(
+                "AUTH-DEV-004",
+                step="device_approval",
+                message_override=f"Request cannot be approved ({req.status}).",
+            )
 
         # Must be the exact same employee approving from an existing authenticated session
         if req.user_id != approver.id:
@@ -213,6 +218,7 @@ def approve_device_by_existing_session(
         # Queue OTP email securely via transactional outbox with envelope encryption
         if req.user.email:
             from apps.core.email_service import queue_email
+
             queue_email(
                 recipient=req.user.email,
                 subject="Salow Workspace — Second Device Verification OTP",
@@ -250,20 +256,28 @@ def approve_device_by_admin(
 
     with transaction.atomic():
         req = (
-            DeviceApprovalRequest.objects.select_for_update()
-            .filter(request_id=request_id)
-            .first()
+            DeviceApprovalRequest.objects.select_for_update().filter(request_id=request_id).first()
         )
         if not req:
-            raise AuthException("AUTH-DEV-003", step="device_approval", message_override="Approval request not found.")
+            raise AuthException(
+                "AUTH-DEV-003",
+                step="device_approval",
+                message_override="Approval request not found.",
+            )
 
         check_and_expire_request(req)
         if req.status != DeviceApprovalRequest.Status.PENDING:
-            raise AuthException("AUTH-DEV-004", step="device_approval", message_override=f"Request cannot be approved ({req.status}).")
+            raise AuthException(
+                "AUTH-DEV-004",
+                step="device_approval",
+                message_override=f"Request cannot be approved ({req.status}).",
+            )
 
         # Strict No Self-Approval (Section 9)
         if admin_user.id == req.user_id:
-            raise PermissionDenied("Self-approval is strictly prohibited for administrator fallback.")
+            raise PermissionDenied(
+                "Self-approval is strictly prohibited for administrator fallback."
+            )
 
         # Dual control check for Super Admin target
         if req.user.role == CustomUser.Role.SUPER_ADMIN:
@@ -287,6 +301,7 @@ def approve_device_by_admin(
 
         if req.user.email:
             from apps.core.email_service import queue_email
+
             queue_email(
                 recipient=req.user.email,
                 subject="Salow Workspace — Admin Approved Device OTP",
@@ -318,12 +333,14 @@ def reject_device_request(
     """Rejects pending device request."""
     with transaction.atomic():
         req = (
-            DeviceApprovalRequest.objects.select_for_update()
-            .filter(request_id=request_id)
-            .first()
+            DeviceApprovalRequest.objects.select_for_update().filter(request_id=request_id).first()
         )
         if not req:
-            raise AuthException("AUTH-DEV-003", step="device_approval", message_override="Approval request not found.")
+            raise AuthException(
+                "AUTH-DEV-003",
+                step="device_approval",
+                message_override="Approval request not found.",
+            )
 
         req.status = DeviceApprovalRequest.Status.REJECTED
         req.rejection_reason = reason[:255]
@@ -357,9 +374,7 @@ def verify_device_email_otp(
 
     with transaction.atomic():
         req = (
-            DeviceApprovalRequest.objects.select_for_update()
-            .filter(request_id=request_id)
-            .first()
+            DeviceApprovalRequest.objects.select_for_update().filter(request_id=request_id).first()
         )
         if not req or req.status != DeviceApprovalRequest.Status.APPROVED:
             return False
@@ -487,16 +502,26 @@ def complete_device_verification_and_login(
 
     with transaction.atomic():
         req = (
-            DeviceApprovalRequest.objects.select_for_update()
-            .filter(request_id=request_id)
-            .first()
+            DeviceApprovalRequest.objects.select_for_update().filter(request_id=request_id).first()
         )
-        if not req or req.status != DeviceApprovalRequest.Status.APPROVED or not req.email_otp_verified:
-            raise AuthException("AUTH-DEV-010", step="device_approval", message_override="Incomplete verification steps.")
+        if (
+            not req
+            or req.status != DeviceApprovalRequest.Status.APPROVED
+            or not req.email_otp_verified
+        ):
+            raise AuthException(
+                "AUTH-DEV-010",
+                step="device_approval",
+                message_override="Incomplete verification steps.",
+            )
 
         # Anti-replay defense: request cannot be reused
         if req.completed_at is not None:
-            raise AuthException("AUTH-DEV-010", step="device_approval", message_override="Device approval request has already been completed.")
+            raise AuthException(
+                "AUTH-DEV-010",
+                step="device_approval",
+                message_override="Device approval request has already been completed.",
+            )
 
         # Validate and atomically consume server assertion
         assertion = (
@@ -528,6 +553,7 @@ def complete_device_verification_and_login(
         # Create independent server session for Device B
         create_verified_session(django_request, req.user)
         from apps.accounts.auth.session_backend import hash_session_bearer
+
         raw_sess_key = django_request.session.session_key or ""
         sess_digest = hash_session_bearer(raw_sess_key) if raw_sess_key else ""
         req.session_key = sess_digest

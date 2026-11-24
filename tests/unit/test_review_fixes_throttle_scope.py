@@ -1,4 +1,5 @@
 """Sensitive-endpoint throttling is per IP and per account+IP, so an attacker cannot burn a victim's quota."""
+
 import pytest
 from django.test import Client
 
@@ -7,7 +8,9 @@ from apps.core.models import RateLimitBucket
 
 def _post(ip, emp):
     c = Client(HTTP_HOST="localhost", REMOTE_ADDR=ip)
-    return c.post("/auth/login/", {"employee_id": emp, "password": "wrong-pass-1", "totp_code": "000000"})
+    return c.post(
+        "/auth/login/", {"employee_id": emp, "password": "wrong-pass-1", "totp_code": "000000"}
+    )
 
 
 @pytest.mark.django_db

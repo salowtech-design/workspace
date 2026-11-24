@@ -29,7 +29,18 @@ In `config/settings/prod.py`, startup validation asserts that:
 2. Default literals and development fallback secrets are strictly prohibited when `DEBUG=False`.
 3. **Key Reuse Prohibition**: All keys must be cryptographically distinct:
    ```python
-   key_set = {v for v in [biometric_key, activation_key, email_payload_key, session_hmac_key, audit_key, secret_key] if v}
+   key_set = {
+       v
+       for v in [
+           biometric_key,
+           activation_key,
+           email_payload_key,
+           session_hmac_key,
+           audit_key,
+           secret_key,
+       ]
+       if v
+   }
    if len(key_set) < 6:
        raise ImproperlyConfigured("Cryptographic keys must be unique per functional purpose.")
    ```

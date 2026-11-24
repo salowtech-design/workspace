@@ -3,7 +3,9 @@ from apps.accounts.auth.audit_chain import verify_audit_chain
 
 
 class Command(BaseCommand):
-    help = "Verifies cryptographic hash chaining and digital signatures across all audit checkpoints."
+    help = (
+        "Verifies cryptographic hash chaining and digital signatures across all audit checkpoints."
+    )
 
     def handle(self, *args, **options):
         success, message = verify_audit_chain()

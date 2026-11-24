@@ -100,6 +100,7 @@ class TestConcurrentReplayProtections:
                 except Exception as e:
                     if "locked" in str(e).lower() and attempt < 14:
                         import time
+
                         time.sleep(0.04 * (attempt + 1))
                         connection.close()
                         continue
@@ -151,6 +152,7 @@ class TestConcurrentReplayProtections:
                 except Exception as e:
                     if "locked" in str(e).lower() and attempt < 14:
                         import time
+
                         time.sleep(0.04 * (attempt + 1))
                         connection.close()
                         continue
@@ -211,7 +213,6 @@ class TestConcurrentReplayProtections:
         success_count = sum(1 for ok, _ in results if ok)
         assert success_count == 1, f"Expected 1 activation consumption, got {success_count}."
 
-
         record.refresh_from_db()
         assert record.consumed_at is not None
         assert record.is_live is None
@@ -224,7 +225,11 @@ class TestProxyHeaderValidation:
         rf = RequestFactory()
 
         middleware = RateLimitMiddleware(lambda r: None)
-        req = rf.get("/auth/login/", HTTP_X_FORWARDED_FOR="198.51.100.1, 203.0.113.195, 10.0.0.1", REMOTE_ADDR="127.0.0.1")
+        req = rf.get(
+            "/auth/login/",
+            HTTP_X_FORWARDED_FOR="198.51.100.1, 203.0.113.195, 10.0.0.1",
+            REMOTE_ADDR="127.0.0.1",
+        )
         ip = middleware._get_client_ip(req)
         # Must extract the leftmost client IP when arriving via trusted proxy
         assert ip == "198.51.100.1"

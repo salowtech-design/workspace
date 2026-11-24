@@ -1,4 +1,5 @@
 """Regression: templates carry no inline handlers or nonce-less inline scripts; CSP has a nonce."""
+
 import re
 from pathlib import Path
 

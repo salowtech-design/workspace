@@ -56,6 +56,7 @@ def login_view(request):
             record_transaction_stage,
             start_auth_transaction,
         )
+
         tx = start_auth_transaction(
             domain="workspace",
             identity_ref=emp_id,
@@ -64,10 +65,15 @@ def login_view(request):
 
         try:
             user = authenticate_password(emp_id, password, ip_address=ip_addr)
-            record_transaction_stage(tx.transaction_id, "password_check", "PASS", "Password verified", duration_ms=12.0)
-            record_transaction_stage(tx.transaction_id, "lifecycle", "PASS", f"User status: {user.status}")
+            record_transaction_stage(
+                tx.transaction_id, "password_check", "PASS", "Password verified", duration_ms=12.0
+            )
+            record_transaction_stage(
+                tx.transaction_id, "lifecycle", "PASS", f"User status: {user.status}"
+            )
 
             from apps.accounts.auth.risk_engine import decide_login_risk, RiskDecision
+
             risk_decision, risk_score, risk_signals = decide_login_risk(
                 user, ip_addr or "127.0.0.1", request.META.get("HTTP_USER_AGENT", "")
             )
@@ -84,14 +90,26 @@ def login_view(request):
             if risk_decision == RiskDecision.CONTAIN:
                 user.status = CustomUser.Status.LOCKED
                 user.save(update_fields=["status"])
-                complete_auth_transaction(tx.transaction_id, "denied", reason_category="risk_contain", risk_decision=decision_val, risk_signals=risk_signals)
+                complete_auth_transaction(
+                    tx.transaction_id,
+                    "denied",
+                    reason_category="risk_contain",
+                    risk_decision=decision_val,
+                    risk_signals=risk_signals,
+                )
                 raise AuthException(
                     "AUTH-SEC-002",
                     step="login_risk",
                     message_override="Account security hold applied due to suspicious activity. Please contact IT Security.",
                 )
             elif risk_decision == RiskDecision.DENY:
-                complete_auth_transaction(tx.transaction_id, "denied", reason_category="risk_deny", risk_decision=decision_val, risk_signals=risk_signals)
+                complete_auth_transaction(
+                    tx.transaction_id,
+                    "denied",
+                    reason_category="risk_deny",
+                    risk_decision=decision_val,
+                    risk_signals=risk_signals,
+                )
                 raise AuthException(
                     "AUTH-SEC-001",
                     step="login_risk",
@@ -103,8 +121,12 @@ def login_view(request):
             if not cred:
                 # First time login without MFA: route to MFA enrollment
                 request.session["_salow_act_user_id"] = user.id
-                record_transaction_stage(tx.transaction_id, "mfa_challenge", "PENDING", "MFA enrollment required")
-                complete_auth_transaction(tx.transaction_id, "challenged", reason_category="mfa_enrollment_required")
+                record_transaction_stage(
+                    tx.transaction_id, "mfa_challenge", "PENDING", "MFA enrollment required"
+                )
+                complete_auth_transaction(
+                    tx.transaction_id, "challenged", reason_category="mfa_enrollment_required"
+                )
                 return redirect("accounts:activate_mfa_setup")
 
             # Single-screen returning user authentication (Flow B)
@@ -127,10 +149,14 @@ def login_view(request):
 
                 if is_recovery:
                     redeem_recovery_code(user, clean_code)
-                    record_transaction_stage(tx.transaction_id, "mfa_verification", "PASS", "Recovery code redeemed")
+                    record_transaction_stage(
+                        tx.transaction_id, "mfa_verification", "PASS", "Recovery code redeemed"
+                    )
                 else:
                     verify_totp_code(user, clean_code)
-                    record_transaction_stage(tx.transaction_id, "mfa_verification", "PASS", "TOTP code verified")
+                    record_transaction_stage(
+                        tx.transaction_id, "mfa_verification", "PASS", "TOTP code verified"
+                    )
 
                 if is_second_device_request(
                     user,
@@ -142,12 +168,24 @@ def login_view(request):
                         ip_address=ip_addr,
                         user_agent=request.META.get("HTTP_USER_AGENT"),
                     )
-                    record_transaction_stage(tx.transaction_id, "device_check", "CHALLENGE", "Second device requires approval", device_ref=str(req_dev.request_id))
-                    complete_auth_transaction(tx.transaction_id, "challenged", reason_category="device_approval_required")
+                    record_transaction_stage(
+                        tx.transaction_id,
+                        "device_check",
+                        "CHALLENGE",
+                        "Second device requires approval",
+                        device_ref=str(req_dev.request_id),
+                    )
+                    complete_auth_transaction(
+                        tx.transaction_id, "challenged", reason_category="device_approval_required"
+                    )
                     return redirect("accounts:device_approval_wait", request_id=req_dev.request_id)
 
-                record_transaction_stage(tx.transaction_id, "device_check", "PASS", "Device approved")
-                record_transaction_stage(tx.transaction_id, "session_decision", "PASS", "Session issued")
+                record_transaction_stage(
+                    tx.transaction_id, "device_check", "PASS", "Device approved"
+                )
+                record_transaction_stage(
+                    tx.transaction_id, "session_decision", "PASS", "Session issued"
+                )
                 create_verified_session(request, user)
                 clear_failed_attempts(f"emp:{user.employee_id}")
 
@@ -174,14 +212,19 @@ def login_view(request):
             request.session[PENDING_LOGIN_ATTEMPTS_KEY] = 0
             request.session[LOGIN_NEXT_URL_KEY] = redirect_to
             request.session["_salow_login_tx_id"] = tx.transaction_id
-            record_transaction_stage(tx.transaction_id, "mfa_challenge", "PENDING", "Awaiting second factor challenge")
+            record_transaction_stage(
+                tx.transaction_id, "mfa_challenge", "PENDING", "Awaiting second factor challenge"
+            )
             return redirect("accounts:mfa_challenge")
         except AuthException as e:
             error = e.user_message
             record_transaction_stage(tx.transaction_id, "password_check", "FAIL", str(e))
             complete_auth_transaction(tx.transaction_id, "failed", reason_category="auth_exception")
             try:
-                from apps.accounts.auth.spraying_detection import record_auth_failure_and_check_spray
+                from apps.accounts.auth.spraying_detection import (
+                    record_auth_failure_and_check_spray,
+                )
+
                 record_auth_failure_and_check_spray(ip_addr or "127.0.0.1", emp_id)
             except Exception:
                 pass
@@ -285,10 +328,21 @@ def mfa_challenge_view(request):  # noqa: C901
 
                 tx_id = request.session.pop("_salow_login_tx_id", None)
                 if tx_id:
-                    from apps.accounts.auth.authentication_centre import complete_auth_transaction, record_transaction_stage
-                    record_transaction_stage(tx_id, "mfa_verification", "PASS", "Second factor verified successfully")
+                    from apps.accounts.auth.authentication_centre import (
+                        complete_auth_transaction,
+                        record_transaction_stage,
+                    )
+
+                    record_transaction_stage(
+                        tx_id, "mfa_verification", "PASS", "Second factor verified successfully"
+                    )
                     record_transaction_stage(tx_id, "session_decision", "PASS", "Session issued")
-                    complete_auth_transaction(tx_id, "success", reason_category="mfa_verified", session_ref=request.session.session_key or "")
+                    complete_auth_transaction(
+                        tx_id,
+                        "success",
+                        reason_category="mfa_verified",
+                        session_ref=request.session.session_key or "",
+                    )
 
                 next_url = request.session.pop(LOGIN_NEXT_URL_KEY, "")
                 for key in (

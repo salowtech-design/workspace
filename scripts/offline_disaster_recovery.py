@@ -27,9 +27,17 @@ from apps.accounts.auth.offline_recovery import (
 
 def main():
     parser = argparse.ArgumentParser(description="Salow Workspace Offline Disaster Recovery CLI")
-    parser.add_argument("--generate-shares", action="store_true", help="Generate initial 2-of-3 custodian split keys")
+    parser.add_argument(
+        "--generate-shares",
+        action="store_true",
+        help="Generate initial 2-of-3 custodian split keys",
+    )
     parser.add_argument("--backup-file", help="Path to encrypted backup file", default=None)
-    parser.add_argument("--dry-run", action="store_true", help="Validate key and decrypt without writing to database")
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Validate key and decrypt without writing to database",
+    )
     args = parser.parse_args()
 
     print("=" * 76)
@@ -39,6 +47,7 @@ def main():
     if args.generate_shares:
         print("[*] Generating new 256-bit offline disaster recovery key...")
         import secrets
+
         master_key = secrets.token_bytes(32)
         shares = split_secret_2_of_3(master_key)
         print("\n[IMPORTANT] 3 Custodian Shares Generated. Distribute independently:")
@@ -62,9 +71,13 @@ def main():
         s1 = parse_share(share1_str)
         s2 = parse_share(share2_str)
         if s1[0] == s2[0]:
-            print(f"[ERROR] Both shares are from Custodian #{s1[0]}. Two DISTINCT custodian shares are required.")
+            print(
+                f"[ERROR] Both shares are from Custodian #{s1[0]}. Two DISTINCT custodian shares are required."
+            )
             return 1
-        print(f"[*] Validated shares from Custodian #{s1[0]} and Custodian #{s2[0]}. Reconstructing key...")
+        print(
+            f"[*] Validated shares from Custodian #{s1[0]} and Custodian #{s2[0]}. Reconstructing key..."
+        )
         reconstructed_key = reconstruct_secret_2_of_3([s1, s2])
         print("[+] Offline master key successfully reconstructed!")
     except Exception as exc:

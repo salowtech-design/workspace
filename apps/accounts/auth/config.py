@@ -17,7 +17,9 @@ def get_activation_hmac_key() -> bytes:
     if configured:
         return configured.encode("utf-8") if isinstance(configured, str) else configured
     if not getattr(settings, "DEBUG", True) and not getattr(settings, "TESTING", False):
-        raise ImproperlyConfigured("ACTIVATION_HMAC_KEY must be explicitly configured in production.")
+        raise ImproperlyConfigured(
+            "ACTIVATION_HMAC_KEY must be explicitly configured in production."
+        )
     # Isolated development fallback using project secret key
     secret = getattr(settings, "SECRET_KEY", "fallback-secret-key-for-development-mode-testing")
     return hashlib.sha256(secret.encode("utf-8")).digest()
@@ -57,7 +59,9 @@ def get_biometric_key_ring_dict() -> dict[str, bytes]:
         return res
 
     if not getattr(settings, "DEBUG", True) and not getattr(settings, "TESTING", False):
-        raise ImproperlyConfigured("BIOMETRIC_PRIMARY_KEY_HEX must be explicitly configured in production.")
+        raise ImproperlyConfigured(
+            "BIOMETRIC_PRIMARY_KEY_HEX must be explicitly configured in production."
+        )
 
     fallback_key = hashlib.sha256(b"SalowWorkspaceBiometricKeyRingDevOnly2026").digest()
     return {"k1": fallback_key}
@@ -86,7 +90,9 @@ def get_email_key_ring_dict() -> dict[str, bytes]:
         return res
 
     if not getattr(settings, "DEBUG", True) and not getattr(settings, "TESTING", False):
-        raise ImproperlyConfigured("EMAIL_PAYLOAD_KEY_HEX must be explicitly configured in production.")
+        raise ImproperlyConfigured(
+            "EMAIL_PAYLOAD_KEY_HEX must be explicitly configured in production."
+        )
 
     fallback_key = hashlib.sha256(b"SalowWorkspaceEmailKeyRingDevOnly2026").digest()
     return {"k1": fallback_key}

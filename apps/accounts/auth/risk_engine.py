@@ -60,7 +60,11 @@ def evaluate_login_risk(
         signals.append(f"high_device_approval_velocity_{recent_approvals}")
 
     # Rule 4: Privileged account sensitivity (+15)
-    if user.role in (CustomUser.Role.SUPER_ADMIN, CustomUser.Role.ADMIN, CustomUser.Role.SECURITY_ADMIN):
+    if user.role in (
+        CustomUser.Role.SUPER_ADMIN,
+        CustomUser.Role.ADMIN,
+        CustomUser.Role.SECURITY_ADMIN,
+    ):
         score += 15
         signals.append("privileged_role_access")
 
@@ -105,6 +109,7 @@ def decide_login_risk(
     now = timezone.now()
     try:
         import zoneinfo
+
         kolkata_tz = zoneinfo.ZoneInfo("Asia/Kolkata")
         local_time = now.astimezone(kolkata_tz)
         if local_time.hour < 6 or local_time.hour >= 22:

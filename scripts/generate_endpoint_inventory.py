@@ -7,6 +7,7 @@ sys.path.insert(0, str(BASE_DIR))
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "config.settings.dev")
 
 import django
+
 django.setup()
 
 from django.urls import get_resolver
@@ -29,7 +30,12 @@ def get_endpoint_rows(urlconf, domain):
 
                 if domain == "iam.salowtech.com":
                     sec_domain = "IAM Control Plane"
-                    if "login" in path_str or "health" in path_str or "ready" in path_str or path_str == "/":
+                    if (
+                        "login" in path_str
+                        or "health" in path_str
+                        or "ready" in path_str
+                        or path_str == "/"
+                    ):
                         auth_req = "Public / Pre-Auth"
                         perm_req = "None"
                         unauth = "200 OK / Redirect to login"
@@ -48,7 +54,15 @@ def get_endpoint_rows(urlconf, domain):
                     sec_domain = "Workspace Application"
                     if (
                         path_str.startswith(
-                            ("/auth/login", "/auth/activate", "/auth/recovery", "/verify", "/health", "/ready", "/sw.js")
+                            (
+                                "/auth/login",
+                                "/auth/activate",
+                                "/auth/recovery",
+                                "/verify",
+                                "/health",
+                                "/ready",
+                                "/sw.js",
+                            )
                         )
                         or path_str == "/"
                     ):
@@ -67,19 +81,21 @@ def get_endpoint_rows(urlconf, domain):
                         unauth = "302 -> /auth/login/"
                         unauthz = "403 Forbidden"
 
-                rows.append({
-                    "host": domain,
-                    "path": path_str,
-                    "method": "GET / POST",
-                    "name": name,
-                    "view": cb_name,
-                    "auth": auth_req,
-                    "domain": sec_domain,
-                    "perm": perm_req,
-                    "unauth": unauth,
-                    "unauthz": unauthz,
-                    "status": "VERIFIED",
-                })
+                rows.append(
+                    {
+                        "host": domain,
+                        "path": path_str,
+                        "method": "GET / POST",
+                        "name": name,
+                        "view": cb_name,
+                        "auth": auth_req,
+                        "domain": sec_domain,
+                        "perm": perm_req,
+                        "unauth": unauth,
+                        "unauthz": unauthz,
+                        "status": "VERIFIED",
+                    }
+                )
 
     walk(resolver.url_patterns)
     return rows

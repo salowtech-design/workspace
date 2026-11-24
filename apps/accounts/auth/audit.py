@@ -15,25 +15,61 @@ def _resolve_alert_details(event: str, code: str, employee_id: str, message: str
     from apps.accounts.models import SecurityAlert
 
     if event == "account_locked":
-        return SecurityAlert.Category.ACCOUNT_LOCKOUT, SecurityAlert.Severity.HIGH, f"Account locked for {employee_id or 'unknown user'}"
+        return (
+            SecurityAlert.Category.ACCOUNT_LOCKOUT,
+            SecurityAlert.Severity.HIGH,
+            f"Account locked for {employee_id or 'unknown user'}",
+        )
     if event == "login_failed_wrong_password" and code == "AUTH-LOG-002":
-        return SecurityAlert.Category.REPEATED_AUTH_FAILURES, SecurityAlert.Severity.HIGH, f"Repeated login failures on account {employee_id}"
+        return (
+            SecurityAlert.Category.REPEATED_AUTH_FAILURES,
+            SecurityAlert.Severity.HIGH,
+            f"Repeated login failures on account {employee_id}",
+        )
     if event in ("role_updated_by_admin", "employee_created_by_admin") and any(
         kw in message.lower() for kw in ("admin", "super_admin", "security_admin")
     ):
-        return SecurityAlert.Category.PRIVILEGED_ROLE_CHANGE, SecurityAlert.Severity.HIGH, f"Privileged role assignment: {message[:120]}"
+        return (
+            SecurityAlert.Category.PRIVILEGED_ROLE_CHANGE,
+            SecurityAlert.Severity.HIGH,
+            f"Privileged role assignment: {message[:120]}",
+        )
     if event in ("mfa_reset_code_issued", "mfa_replaced_successfully"):
-        return SecurityAlert.Category.MFA_RESET, SecurityAlert.Severity.HIGH, f"MFA reset action for {employee_id}"
+        return (
+            SecurityAlert.Category.MFA_RESET,
+            SecurityAlert.Severity.HIGH,
+            f"MFA reset action for {employee_id}",
+        )
     if event == "recovery_code_redeemed":
-        return SecurityAlert.Category.RECOVERY_CODE_USED, SecurityAlert.Severity.HIGH, f"Emergency recovery code used by {employee_id}"
+        return (
+            SecurityAlert.Category.RECOVERY_CODE_USED,
+            SecurityAlert.Severity.HIGH,
+            f"Emergency recovery code used by {employee_id}",
+        )
     if event == "device_approved_by_user":
-        return SecurityAlert.Category.NEW_DEVICE_APPROVAL, SecurityAlert.Severity.MEDIUM, f"New secondary device approved for {employee_id}"
+        return (
+            SecurityAlert.Category.NEW_DEVICE_APPROVAL,
+            SecurityAlert.Severity.MEDIUM,
+            f"New secondary device approved for {employee_id}",
+        )
     if event == "device_approved_by_admin":
-        return SecurityAlert.Category.ADMIN_FALLBACK, SecurityAlert.Severity.HIGH, f"Secondary device approved via admin fallback for {employee_id}"
+        return (
+            SecurityAlert.Category.ADMIN_FALLBACK,
+            SecurityAlert.Severity.HIGH,
+            f"Secondary device approved via admin fallback for {employee_id}",
+        )
     if event == "break_glass_activated":
-        return SecurityAlert.Category.BREAK_GLASS_ACCESS, SecurityAlert.Severity.CRITICAL, f"CRITICAL: Break-glass emergency access activated by {employee_id}"
+        return (
+            SecurityAlert.Category.BREAK_GLASS_ACCESS,
+            SecurityAlert.Severity.CRITICAL,
+            f"CRITICAL: Break-glass emergency access activated by {employee_id}",
+        )
     if event in ("role_marker_mismatch", "certificate_tampered", "audit_integrity_violation"):
-        return SecurityAlert.Category.AUDIT_INTEGRITY, SecurityAlert.Severity.HIGH, f"Integrity incident detected: {message[:120]}"
+        return (
+            SecurityAlert.Category.AUDIT_INTEGRITY,
+            SecurityAlert.Severity.HIGH,
+            f"Integrity incident detected: {message[:120]}",
+        )
     return None, None, ""
 
 

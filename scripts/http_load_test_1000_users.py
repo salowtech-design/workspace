@@ -54,10 +54,12 @@ def simulate_virtual_user(
     metrics = []
 
     session = requests.Session()
-    session.headers.update({
-        "User-Agent": f"SalowLoadBench/1.0 (VU-{user_index:04d})",
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-    })
+    session.headers.update(
+        {
+            "User-Agent": f"SalowLoadBench/1.0 (VU-{user_index:04d})",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        }
+    )
 
     for _ in range(iterations):
         # 1. Login Request
@@ -83,7 +85,9 @@ def simulate_virtual_user(
             is_nav_ok = r_nav.status_code == 200
             metrics.append(RequestMetric("read_dashboard", r_nav.status_code, lat_nav, is_nav_ok))
         except Exception as exc:
-            metrics.append(RequestMetric("read_dashboard", 0, (time.perf_counter() - t1) * 1000.0, False))
+            metrics.append(
+                RequestMetric("read_dashboard", 0, (time.perf_counter() - t1) * 1000.0, False)
+            )
 
         # 3. Draft Save (Write)
         t2 = time.perf_counter()
@@ -98,9 +102,13 @@ def simulate_virtual_user(
             )
             lat_write = (time.perf_counter() - t2) * 1000.0
             is_write_ok = r_write.status_code in (200, 302)
-            metrics.append(RequestMetric("write_draft", r_write.status_code, lat_write, is_write_ok))
+            metrics.append(
+                RequestMetric("write_draft", r_write.status_code, lat_write, is_write_ok)
+            )
         except Exception as exc:
-            metrics.append(RequestMetric("write_draft", 0, (time.perf_counter() - t2) * 1000.0, False))
+            metrics.append(
+                RequestMetric("write_draft", 0, (time.perf_counter() - t2) * 1000.0, False)
+            )
 
     return metrics
 
@@ -157,7 +165,9 @@ def run_benchmark(target_url: str, vus: int, workers: int, iterations: int):
     print(f"Total Requests:       {total_reqs}")
     print(f"Elapsed Time:         {total_time:.2f} seconds")
     print(f"Throughput:           {total_reqs / total_time:.2f} req/s")
-    print(f"Successful Requests:  {successes}/{total_reqs} ({successes / max(1, total_reqs) * 100:.1f}%)")
+    print(
+        f"Successful Requests:  {successes}/{total_reqs} ({successes / max(1, total_reqs) * 100:.1f}%)"
+    )
     print(f"Throttled (HTTP 429): {throttled} (Expected rate-limiting enforcement)")
     print(f"Unhandled Errors:     {errors} ({errors / max(1, total_reqs) * 100:.2f}%)")
     print("-" * 72)

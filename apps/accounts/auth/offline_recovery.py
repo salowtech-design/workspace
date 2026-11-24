@@ -98,7 +98,9 @@ def reconstruct_secret_2_of_3(shares: List[Tuple[int, int]]) -> bytes:
     # Take first 2 shares
     (x1, y1), (x2, y2) = shares[0], shares[1]
     if x1 == x2:
-        raise ValueError("Duplicate shares provided. Reconstructing requires 2 distinct custodian shares.")
+        raise ValueError(
+            "Duplicate shares provided. Reconstructing requires 2 distinct custodian shares."
+        )
 
     # Lagrange basis polynomials evaluated at x = 0:
     # L1(0) = (0 - x2) / (x1 - x2) mod p
@@ -134,7 +136,9 @@ def decrypt_offline_backup(backup_file_path: Path, reconstructed_key: bytes) -> 
     drill_computed_sig = hmac.new(drill_sig_key, loaded_cipher, hashlib.sha256).hexdigest()
 
     manifest_sig = manifest.get("hmac_signature", "")
-    sig_valid = hmac.compare_digest(computed_sig, manifest_sig) or hmac.compare_digest(drill_computed_sig, manifest_sig)
+    sig_valid = hmac.compare_digest(computed_sig, manifest_sig) or hmac.compare_digest(
+        drill_computed_sig, manifest_sig
+    )
 
     # 2. Decrypt ciphertext with AES-256-GCM
     loaded_nonce = base64.b64decode(manifest["nonce_base64"])
@@ -146,7 +150,9 @@ def decrypt_offline_backup(backup_file_path: Path, reconstructed_key: bytes) -> 
             associated_data=manifest["checksum_sha256"].encode("utf-8"),
         )
     except Exception as exc:
-        raise PermissionDenied(f"Decryption failed: Reconstructed key does not match backup archive ({exc})")
+        raise PermissionDenied(
+            f"Decryption failed: Reconstructed key does not match backup archive ({exc})"
+        )
 
     if hashlib.sha256(decrypted_bytes).hexdigest() != manifest["checksum_sha256"]:
         raise ValueError("Decrypted backup payload checksum validation failed.")
@@ -182,28 +188,36 @@ def execute_post_restore_security_reconciliation(cursor, table_prefix: str = "")
         cursor.execute(f"UPDATE {t_iamsession} SET is_active = FALSE WHERE is_active = TRUE;")
         reconciled["iam_sessions_revoked"] = cursor.rowcount
     except Exception:
-        logger.exception("Post-restore reconciliation failed; restore must be treated as incomplete")
+        logger.exception(
+            "Post-restore reconciliation failed; restore must be treated as incomplete"
+        )
         raise
 
     try:
         cursor.execute(f"DELETE FROM {t_usersession};")
         reconciled["user_sessions_revoked"] = cursor.rowcount
     except Exception:
-        logger.exception("Post-restore reconciliation failed; restore must be treated as incomplete")
+        logger.exception(
+            "Post-restore reconciliation failed; restore must be treated as incomplete"
+        )
         raise
 
     try:
         cursor.execute(f"UPDATE {t_recovery} SET status = 'rejected' WHERE status = 'pending';")
         reconciled["recovery_requests_expired"] = cursor.rowcount
     except Exception:
-        logger.exception("Post-restore reconciliation failed; restore must be treated as incomplete")
+        logger.exception(
+            "Post-restore reconciliation failed; restore must be treated as incomplete"
+        )
         raise
 
     try:
         cursor.execute(f"UPDATE {t_device} SET status = 'rejected' WHERE status = 'pending';")
         reconciled["device_requests_expired"] = cursor.rowcount
     except Exception:
-        logger.exception("Post-restore reconciliation failed; restore must be treated as incomplete")
+        logger.exception(
+            "Post-restore reconciliation failed; restore must be treated as incomplete"
+        )
         raise
 
     return reconciled

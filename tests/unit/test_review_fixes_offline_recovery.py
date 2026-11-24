@@ -1,4 +1,5 @@
 """post-restore reconciliation builds table names from a prefix; the prefix must be validated."""
+
 from unittest import mock
 
 import pytest

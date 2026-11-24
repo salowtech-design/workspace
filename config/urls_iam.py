@@ -52,37 +52,57 @@ urlpatterns = [
     path("health/", health_probe, name="health_probe_slash"),
     path("ready", readiness_probe, name="readiness_probe"),
     path("ready/", readiness_probe, name="readiness_probe_slash"),
-
     # Canonical IAM Root Landing
     path("", iam_canonical_root, name="root"),
-
     # Canonical Sequence 1 IAM Authentication Routes (Section 3.1)
     path("auth/sign-in/", iam_sign_in_canonical_view, name="iam_sign_in_canonical"),
     path("auth/recovery/", iam_recovery_portal_view, name="iam_recovery_portal"),
     path("auth/recovery/actions/", iam_recovery_case_action_view, name="iam_recovery_action"),
-
     # Canonical Sequence 1 Console Routes (Section 3.1)
     path("console/", auth_centre_landing_view, name="console_root"),
     path("console/authentication/", auth_centre_landing_view, name="console_auth_landing"),
-    path("console/authentication/control/", auth_control_workspace_view, name="console_auth_control"),
+    path(
+        "console/authentication/control/", auth_control_workspace_view, name="console_auth_control"
+    ),
     path("console/authentication/iam/", auth_iam_view, name="console_auth_iam"),
-    path("console/authentication/transactions/", auth_control_workspace_view, name="console_auth_transactions"),
-    path("console/authentication/transactions/<str:transaction_id>/", auth_transaction_detail_view, name="console_auth_transaction_detail"),
-    path("console/authentication/policies/workspace/", auth_control_workspace_view, name="console_auth_policy_workspace"),
+    path(
+        "console/authentication/transactions/",
+        auth_control_workspace_view,
+        name="console_auth_transactions",
+    ),
+    path(
+        "console/authentication/transactions/<str:transaction_id>/",
+        auth_transaction_detail_view,
+        name="console_auth_transaction_detail",
+    ),
+    path(
+        "console/authentication/policies/workspace/",
+        auth_control_workspace_view,
+        name="console_auth_policy_workspace",
+    ),
     path("console/authentication/policies/iam/", auth_iam_view, name="console_auth_policy_iam"),
-    path("console/authentication/live-feed/", auth_live_activity_feed_view, name="console_auth_live_feed"),
-    path("console/authentication/presence-feed/", auth_presence_feed_view, name="console_auth_presence_feed"),
-    path("console/authentication/actions/", auth_control_action_view, name="console_auth_control_action"),
+    path(
+        "console/authentication/live-feed/",
+        auth_live_activity_feed_view,
+        name="console_auth_live_feed",
+    ),
+    path(
+        "console/authentication/presence-feed/",
+        auth_presence_feed_view,
+        name="console_auth_presence_feed",
+    ),
+    path(
+        "console/authentication/actions/",
+        auth_control_action_view,
+        name="console_auth_control_action",
+    ),
     path("console/heartbeat/", iam_heartbeat_view, name="console_iam_heartbeat"),
     path("console/sessions/", sessions_investigation_view, name="console_sessions"),
-
     # Direct Security Operations Views
     path("security/alerts/", security_alerts_view, name="security_alerts"),
     path("security/events/", security_events_view, name="security_events"),
-
     # Dedicated IAM Application URLs with namespace 'iam'
     path("iam/", include("apps.accounts.iam_urls", namespace="iam")),
-
     # Direct short paths on dedicated host
     path("login/", iam_login_view, name="login"),
     path("logout/", iam_logout_view, name="logout"),

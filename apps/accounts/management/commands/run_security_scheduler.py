@@ -47,10 +47,10 @@ class Command(BaseCommand):
         last_audit_checkpoint = 0.0
         last_access_review = 0.0
 
-        drift_interval = 60.0          # Check NTP drift every 60s
-        escalation_interval = 60.0     # Check alert escalation every 60s (15m SLA)
-        checkpoint_interval = 3600.0   # Check audit checkpoint every 1h
-        review_interval = 86400.0      # Check dormant accounts daily
+        drift_interval = 60.0  # Check NTP drift every 60s
+        escalation_interval = 60.0  # Check alert escalation every 60s (15m SLA)
+        checkpoint_interval = 3600.0  # Check audit checkpoint every 1h
+        review_interval = 86400.0  # Check dormant accounts daily
 
         while True:
             now = time.time()

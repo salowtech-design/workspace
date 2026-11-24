@@ -84,6 +84,7 @@ def _require_iam_admin_session(request):
 # 1. AUTHENTICATION CENTRE LANDING
 # ==============================================================================
 
+
 def auth_centre_landing_view(request):
     """
     Authentication Centre Landing Page (Sequence 1 Contract Section 3).
@@ -95,7 +96,9 @@ def auth_centre_landing_view(request):
     if redir:
         return redir
 
-    ws_metrics = get_auth_overview_metrics(AuthenticationPolicy.Domain.WORKSPACE, time_window_hours=24)
+    ws_metrics = get_auth_overview_metrics(
+        AuthenticationPolicy.Domain.WORKSPACE, time_window_hours=24
+    )
     iam_metrics = get_auth_overview_metrics(AuthenticationPolicy.Domain.IAM, time_window_hours=24)
     probes = probe_all_dependencies()
     healthy_deps = sum(1 for p in probes if p["status"] == "healthy")
@@ -115,6 +118,7 @@ def auth_centre_landing_view(request):
 # 2. WORKSPACE AUTHENTICATION CONTROL DASHBOARD
 # ==============================================================================
 
+
 def auth_control_workspace_view(request):
     """
     Workspace Employee Authentication Control Dashboard.
@@ -128,12 +132,21 @@ def auth_control_workspace_view(request):
     active_tab = request.GET.get("tab") or "overview"
     time_window_hours = int(request.GET.get("hours") or 24)
 
-    metrics = get_auth_overview_metrics(AuthenticationPolicy.Domain.WORKSPACE, time_window_hours=time_window_hours)
+    metrics = get_auth_overview_metrics(
+        AuthenticationPolicy.Domain.WORKSPACE, time_window_hours=time_window_hours
+    )
     live_activity = get_live_activity_feed(AuthenticationPolicy.Domain.WORKSPACE, limit=20)
     policy = get_active_policy(AuthenticationPolicy.Domain.WORKSPACE)
-    policy_history = AuthenticationPolicy.objects.filter(domain=AuthenticationPolicy.Domain.WORKSPACE).order_by("-version")[:10]
+    policy_history = AuthenticationPolicy.objects.filter(
+        domain=AuthenticationPolicy.Domain.WORKSPACE
+    ).order_by("-version")[:10]
     probes = probe_all_dependencies()
-    alerts = SecurityAlert.objects.filter(category__in=[SecurityAlert.Category.REPEATED_AUTH_FAILURES, SecurityAlert.Category.ACCOUNT_LOCKOUT]).order_by("-created_at")[:10]
+    alerts = SecurityAlert.objects.filter(
+        category__in=[
+            SecurityAlert.Category.REPEATED_AUTH_FAILURES,
+            SecurityAlert.Category.ACCOUNT_LOCKOUT,
+        ]
+    ).order_by("-created_at")[:10]
     audit_events = AuthEvent.objects.order_by("-time")[:25]
     active_sessions = UserSession.objects.all().select_related("user", "device")[:15]
     approved_devices = ApprovedDevice.objects.all().order_by("-last_used_time")[:15]
@@ -179,6 +192,7 @@ def auth_control_workspace_view(request):
 # 3. IAM AUTHENTICATION DASHBOARD
 # ==============================================================================
 
+
 def auth_iam_view(request):
     """
     Dedicated IAM Administrator Authentication Dashboard.
@@ -192,13 +206,22 @@ def auth_iam_view(request):
     active_tab = request.GET.get("tab") or "overview"
     time_window_hours = int(request.GET.get("hours") or 24)
 
-    metrics = get_auth_overview_metrics(AuthenticationPolicy.Domain.IAM, time_window_hours=time_window_hours)
+    metrics = get_auth_overview_metrics(
+        AuthenticationPolicy.Domain.IAM, time_window_hours=time_window_hours
+    )
     live_activity = get_live_activity_feed(AuthenticationPolicy.Domain.IAM, limit=20)
     presences = get_all_admin_presences(limit=15)
     policy = get_active_policy(AuthenticationPolicy.Domain.IAM)
-    policy_history = AuthenticationPolicy.objects.filter(domain=AuthenticationPolicy.Domain.IAM).order_by("-version")[:10]
+    policy_history = AuthenticationPolicy.objects.filter(
+        domain=AuthenticationPolicy.Domain.IAM
+    ).order_by("-version")[:10]
     probes = probe_all_dependencies()
-    alerts = SecurityAlert.objects.filter(category__in=[SecurityAlert.Category.REPEATED_AUTH_FAILURES, SecurityAlert.Category.ACCOUNT_LOCKOUT]).order_by("-created_at")[:10]
+    alerts = SecurityAlert.objects.filter(
+        category__in=[
+            SecurityAlert.Category.REPEATED_AUTH_FAILURES,
+            SecurityAlert.Category.ACCOUNT_LOCKOUT,
+        ]
+    ).order_by("-created_at")[:10]
     recovery_cases = IAMRecoveryCase.objects.all().order_by("-created_at")[:15]
     audit_events = AuthEvent.objects.filter(employee_id__startswith="IAM").order_by("-time")[:25]
     if not audit_events.exists():
@@ -246,6 +269,7 @@ def auth_iam_view(request):
 # ==============================================================================
 # 4. HTMX LIVE ACTIVITY & PRESENCE FEEDS
 # ==============================================================================
+
 
 def _parse_feed_limit(raw, default: int = 20, maximum: int = 100) -> int:
     """Return a safe row limit: non-numbers fall back to the default, values are clamped to 1..maximum."""
@@ -300,7 +324,9 @@ def iam_heartbeat_view(request):
     """
     session = get_iam_session_from_request(request)
     if not session or not session.is_active:
-        return JsonResponse({"error": "Unauthorized", "detail": "Valid IAM session required."}, status=401)
+        return JsonResponse(
+            {"error": "Unauthorized", "detail": "Valid IAM session required."}, status=401
+        )
 
     page_key = request.POST.get("page_key", "console")
     action_category = request.POST.get("action_category", "view")
@@ -317,17 +343,20 @@ def iam_heartbeat_view(request):
         last_outcome=last_outcome,
     )
 
-    return JsonResponse({
-        "status": "ok",
-        "admin_id": session.iam_admin.admin_id,
-        "presence_status": presence.presence_status,
-        "heartbeat_at": presence.last_heartbeat.isoformat(),
-    })
+    return JsonResponse(
+        {
+            "status": "ok",
+            "admin_id": session.iam_admin.admin_id,
+            "presence_status": presence.presence_status,
+            "heartbeat_at": presence.last_heartbeat.isoformat(),
+        }
+    )
 
 
 # ==============================================================================
 # 5. TRANSACTION DETAIL INVESTIGATION
 # ==============================================================================
+
 
 def auth_transaction_detail_view(request, transaction_id: str):
     """
@@ -355,6 +384,7 @@ def auth_transaction_detail_view(request, transaction_id: str):
 # ==============================================================================
 # 6. THE EIGHT REAL CONTROL ACTIONS (CSRF-PROTECTED POST DISPATCHER)
 # ==============================================================================
+
 
 @require_POST
 def auth_control_action_view(request):
@@ -387,7 +417,9 @@ def auth_control_action_view(request):
             identity_ref = request.POST.get("identity_ref", "").strip()
             domain = request.POST.get("domain", "workspace").strip()
             duration_minutes = int(request.POST.get("duration_minutes", 15))
-            res = execute_temporary_restriction(identity_ref, domain, actor_admin, duration_minutes, reason)
+            res = execute_temporary_restriction(
+                identity_ref, domain, actor_admin, duration_minutes, reason
+            )
             messages.success(request, res["message"])
 
         elif action_type == "release_lock":
@@ -402,9 +434,15 @@ def auth_control_action_view(request):
 
         elif action_type == "export_records":
             domain = request.POST.get("domain", "workspace").strip()
-            filters = {"query": request.POST.get("q", ""), "outcome": request.POST.get("outcome", "")}
+            filters = {
+                "query": request.POST.get("q", ""),
+                "outcome": request.POST.get("outcome", ""),
+            }
             res = execute_export_records(domain, filters, actor_admin)
-            messages.success(request, f"Export generated: {res['record_count']} records (Digest: {res['file_digest'][:12]}...)")
+            messages.success(
+                request,
+                f"Export generated: {res['record_count']} records (Digest: {res['file_digest'][:12]}...)",
+            )
 
         elif action_type == "start_investigation":
             transaction_id = request.POST.get("transaction_id", "").strip()
@@ -420,9 +458,17 @@ def auth_control_action_view(request):
             lockout_window_minutes = int(request.POST.get("lockout_window_minutes", 15))
             lockout_duration_minutes = int(request.POST.get("lockout_duration_minutes", 15))
             idle_session_timeout_minutes = int(request.POST.get("idle_session_timeout_minutes", 15))
-            absolute_session_timeout_hours = int(request.POST.get("absolute_session_timeout_hours", 12))
-            mfa_required = request.POST.get("mfa_required") == "on" or request.POST.get("mfa_required") == "true"
-            device_approval_required = request.POST.get("device_approval_required") == "on" or request.POST.get("device_approval_required") == "true"
+            absolute_session_timeout_hours = int(
+                request.POST.get("absolute_session_timeout_hours", 12)
+            )
+            mfa_required = (
+                request.POST.get("mfa_required") == "on"
+                or request.POST.get("mfa_required") == "true"
+            )
+            device_approval_required = (
+                request.POST.get("device_approval_required") == "on"
+                or request.POST.get("device_approval_required") == "true"
+            )
             justification = request.POST.get("justification", "").strip()
 
             new_pol = save_policy_version(
@@ -438,7 +484,10 @@ def auth_control_action_view(request):
                 editor_user=actor_admin.user,
                 justification=justification,
             )
-            messages.success(request, f"Policy for [{domain.upper()}] updated to version {new_pol.version} successfully.")
+            messages.success(
+                request,
+                f"Policy for [{domain.upper()}] updated to version {new_pol.version} successfully.",
+            )
 
         else:
             messages.error(request, f"Unknown action type: '{action_type}'.")
@@ -458,6 +507,7 @@ def auth_control_action_view(request):
 # 7. DEDICATED CANONICAL IAM SIGN-IN & RECOVERY PORTAL
 # ==============================================================================
 
+
 def iam_sign_in_canonical_view(request):
     """
     Dedicated IAM Administrator Sign-In Route: /auth/sign-in/ (Section 6.1).
@@ -476,7 +526,9 @@ def iam_sign_in_canonical_view(request):
         admin_id = request.POST.get("admin_id", "").strip().upper()
         password = request.POST.get("password", "")
         totp_code = request.POST.get("totp_code", "").strip()
-        client_ip = getattr(request, "client_ip", None) or request.META.get("REMOTE_ADDR", "127.0.0.1")
+        client_ip = getattr(request, "client_ip", None) or request.META.get(
+            "REMOTE_ADDR", "127.0.0.1"
+        )
 
         tx = start_auth_transaction(
             domain="iam",
@@ -486,26 +538,43 @@ def iam_sign_in_canonical_view(request):
 
         if not admin_id or not password or not totp_code:
             error = "Dedicated IAM ID, Password, and TOTP code are required."
-            record_transaction_stage(tx.transaction_id, "password_check", "FAIL", "Missing required credential fields")
+            record_transaction_stage(
+                tx.transaction_id, "password_check", "FAIL", "Missing required credential fields"
+            )
             complete_auth_transaction(tx.transaction_id, "failed", reason_category="missing_fields")
         elif len(password) < 16:
             error = "IAM Administrator password must meet the 16-character minimum requirement."
-            record_transaction_stage(tx.transaction_id, "password_check", "FAIL", "Password below 16-character minimum")
-            complete_auth_transaction(tx.transaction_id, "failed", reason_category="password_length_violation")
+            record_transaction_stage(
+                tx.transaction_id, "password_check", "FAIL", "Password below 16-character minimum"
+            )
+            complete_auth_transaction(
+                tx.transaction_id, "failed", reason_category="password_length_violation"
+            )
         else:
             try:
-                record_transaction_stage(tx.transaction_id, "password_check", "PASS", "Password verified")
+                record_transaction_stage(
+                    tx.transaction_id, "password_check", "PASS", "Password verified"
+                )
                 iam_admin = authenticate_iam_admin(
                     admin_id=admin_id,
                     password=password,
                     totp_code=totp_code,
                     client_ip=client_ip,
                 )
-                record_transaction_stage(tx.transaction_id, "mfa_verification", "PASS", "TOTP valid")
-                record_transaction_stage(tx.transaction_id, "lifecycle", "PASS", f"Status: {iam_admin.status}")
+                record_transaction_stage(
+                    tx.transaction_id, "mfa_verification", "PASS", "TOTP valid"
+                )
+                record_transaction_stage(
+                    tx.transaction_id, "lifecycle", "PASS", f"Status: {iam_admin.status}"
+                )
 
                 session = create_iam_session(iam_admin, request, assurance_level=1)
-                complete_auth_transaction(tx.transaction_id, "success", reason_category="credentials_and_mfa_valid", session_ref=session.session_key)
+                complete_auth_transaction(
+                    tx.transaction_id,
+                    "success",
+                    reason_category="credentials_and_mfa_valid",
+                    session_ref=session.session_key,
+                )
 
                 next_url = request.GET.get("next") or reverse("iam:auth_landing")
                 response = redirect(next_url)
@@ -524,11 +593,15 @@ def iam_sign_in_canonical_view(request):
             except AuthException as exc:
                 error = exc.user_message
                 record_transaction_stage(tx.transaction_id, "password_check", "FAIL", str(exc))
-                complete_auth_transaction(tx.transaction_id, "failed", reason_category="auth_exception")
+                complete_auth_transaction(
+                    tx.transaction_id, "failed", reason_category="auth_exception"
+                )
             except Exception as exc:
                 error = "Authentication failed. Please verify credentials."
                 record_transaction_stage(tx.transaction_id, "password_check", "FAIL", str(exc))
-                complete_auth_transaction(tx.transaction_id, "failed", reason_category="unexpected_error")
+                complete_auth_transaction(
+                    tx.transaction_id, "failed", reason_category="unexpected_error"
+                )
 
     return render(
         request,
@@ -582,7 +655,9 @@ def iam_recovery_case_action_view(request):
     try:
         if action == "approve":
             case = approve_iam_recovery_case(case_id, actor_admin, note=reason)
-            messages.success(request, f"Case [{case.case_id}] updated to state: {case.approval_state}.")
+            messages.success(
+                request, f"Case [{case.case_id}] updated to state: {case.approval_state}."
+            )
         elif action == "reject":
             case = reject_iam_recovery_case(case_id, actor_admin, rejection_reason=reason)
             messages.success(request, f"Case [{case.case_id}] rejected.")
@@ -609,9 +684,15 @@ def sessions_investigation_view(request):
     ws_sessions = []
 
     if domain in ("all", "iam"):
-        iam_sessions = IAMSession.objects.all().select_related("iam_admin").order_by("-last_activity")[:30]
+        iam_sessions = (
+            IAMSession.objects.all().select_related("iam_admin").order_by("-last_activity")[:30]
+        )
     if domain in ("all", "workspace"):
-        ws_sessions = UserSession.objects.all().select_related("user", "device").order_by("-last_activity")[:30]
+        ws_sessions = (
+            UserSession.objects.all()
+            .select_related("user", "device")
+            .order_by("-last_activity")[:30]
+        )
 
     context = {
         "iam_admin": session.iam_admin,

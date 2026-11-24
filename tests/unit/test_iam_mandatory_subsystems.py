@@ -148,7 +148,10 @@ class TestAuditTamperEvidenceSubsystem1:
 
         valid, msg = verify_audit_chain()
         assert valid is False
-        assert "discrepancy between db and independent storage" in msg.lower() or "signature mismatch" in msg.lower()
+        assert (
+            "discrepancy between db and independent storage" in msg.lower()
+            or "signature mismatch" in msg.lower()
+        )
 
 
 @pytest.mark.django_db
@@ -176,6 +179,7 @@ class TestAlertEscalationSubsystem2:
 
         # Verify escalation email dispatched to Security Reviewer / Admin
         from apps.core.models import EmailOutbox
+
         queued_email = EmailOutbox.objects.filter(recipient=sec_admin.email).latest("created_at")
         assert "ESCALATION - CRITICAL" in queued_email.subject
         assert "3 failed attempts" in queued_email.body_text
@@ -230,7 +234,9 @@ class TestRulesBasedRiskSignalsSubsystem5:
                 message="Failed attempt",
             )
 
-        score_elevated, signals_elevated = evaluate_login_risk(sample_user, "192.168.1.1", "Mozilla/5.0")
+        score_elevated, signals_elevated = evaluate_login_risk(
+            sample_user, "192.168.1.1", "Mozilla/5.0"
+        )
         assert score_elevated >= 35
         assert any("failures_prior_to_success" in s for s in signals_elevated)
 

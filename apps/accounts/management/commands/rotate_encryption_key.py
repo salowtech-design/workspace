@@ -46,9 +46,13 @@ class Command(BaseCommand):
         try:
             get_key(new_key_id)
         except Exception as e:
-            raise CommandError(f"Target key '{new_key_id}' not found in configured AUTH_KEY_RING: {e}")
+            raise CommandError(
+                f"Target key '{new_key_id}' not found in configured AUTH_KEY_RING: {e}"
+            )
 
-        self.stdout.write(f"Initiating comprehensive key rotation drill to key [{new_key_id}] (Dry Run: {dry_run})...")
+        self.stdout.write(
+            f"Initiating comprehensive key rotation drill to key [{new_key_id}] (Dry Run: {dry_run})..."
+        )
 
         totp_count = 0
         iam_count = 0
@@ -66,10 +70,14 @@ class Command(BaseCommand):
                     bytes(cred.nonce) if cred.nonce else b"",
                     cred.key_id,
                 )
-                new_enc, new_nonce, assigned_key = encrypt_totp_secret(raw_secret, key_id=new_key_id)
+                new_enc, new_nonce, assigned_key = encrypt_totp_secret(
+                    raw_secret, key_id=new_key_id
+                )
                 test_decrypt = decrypt_totp_secret(new_enc, new_nonce, assigned_key)
                 if test_decrypt != raw_secret:
-                    raise CommandError(f"Integrity check failed during re-encryption of TOTPCredential {cred.id}")
+                    raise CommandError(
+                        f"Integrity check failed during re-encryption of TOTPCredential {cred.id}"
+                    )
 
                 if not dry_run:
                     cred.encrypted_secret = new_enc
@@ -88,10 +96,14 @@ class Command(BaseCommand):
                     bytes(admin.totp_nonce) if admin.totp_nonce else b"",
                     admin.totp_key_id,
                 )
-                new_enc, new_nonce, assigned_key = encrypt_totp_secret(raw_secret, key_id=new_key_id)
+                new_enc, new_nonce, assigned_key = encrypt_totp_secret(
+                    raw_secret, key_id=new_key_id
+                )
                 test_decrypt = decrypt_totp_secret(new_enc, new_nonce, assigned_key)
                 if test_decrypt != raw_secret:
-                    raise CommandError(f"Integrity check failed during re-encryption of IAMAdminIdentity {admin.id}")
+                    raise CommandError(
+                        f"Integrity check failed during re-encryption of IAMAdminIdentity {admin.id}"
+                    )
 
                 if not dry_run:
                     admin.encrypted_totp_secret = new_enc
@@ -113,7 +125,9 @@ class Command(BaseCommand):
                         new_enc = encrypt_template(embedding, key_ring)
                         test_dec = decrypt_template(new_enc, key_ring)
                         if test_dec != embedding:
-                            raise CommandError(f"Integrity check failed during re-encryption of FaceTemplate {tmpl.id}")
+                            raise CommandError(
+                                f"Integrity check failed during re-encryption of FaceTemplate {tmpl.id}"
+                            )
 
                         if not dry_run:
                             tmpl.encrypted_template = new_enc
@@ -121,7 +135,9 @@ class Command(BaseCommand):
                             tmpl.save(update_fields=["encrypted_template", "key_id"])
                         face_count += 1
                     except Exception as err:
-                        self.stdout.write(self.style.WARNING(f"Skipping FaceTemplate {tmpl.id}: {err}"))
+                        self.stdout.write(
+                            self.style.WARNING(f"Skipping FaceTemplate {tmpl.id}: {err}")
+                        )
 
             # Domain 4: Re-encrypt pending/queued EmailOutbox payloads
             email_keys = get_email_key_ring_dict()
@@ -139,19 +155,31 @@ class Command(BaseCommand):
                             bytes(item.payload_nonce) if item.payload_nonce else b"",
                             item.payload_key_id,
                         )
-                        new_enc, new_nonce, assigned_kid = encrypt_payload(payload_dict, key_id=new_key_id)
+                        new_enc, new_nonce, assigned_kid = encrypt_payload(
+                            payload_dict, key_id=new_key_id
+                        )
                         test_dec = decrypt_payload(new_enc, new_nonce, assigned_kid)
                         if test_dec != payload_dict:
-                            raise CommandError(f"Integrity check failed during re-encryption of EmailOutbox {item.id}")
+                            raise CommandError(
+                                f"Integrity check failed during re-encryption of EmailOutbox {item.id}"
+                            )
 
                         if not dry_run:
                             item.encrypted_payload = new_enc
                             item.payload_nonce = new_nonce
                             item.payload_key_id = assigned_kid
-                            item.save(update_fields=["encrypted_payload", "payload_nonce", "payload_key_id"])
+                            item.save(
+                                update_fields=[
+                                    "encrypted_payload",
+                                    "payload_nonce",
+                                    "payload_key_id",
+                                ]
+                            )
                         email_count += 1
                     except Exception as err:
-                        self.stdout.write(self.style.WARNING(f"Skipping EmailOutbox {item.id}: {err}"))
+                        self.stdout.write(
+                            self.style.WARNING(f"Skipping EmailOutbox {item.id}: {err}")
+                        )
 
             status_verb = "Would re-encrypt" if dry_run else "Successfully re-encrypted"
             self.stdout.write(

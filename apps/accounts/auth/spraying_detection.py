@@ -20,9 +20,9 @@ from apps.core.models import RateLimitRecord
 
 # Multi-window thresholds (time_window_seconds, distinct_accounts_threshold, window_name)
 SPRAY_WINDOWS = [
-    (300, 5, "fast_5m"),        # 5 accounts in 5 minutes
-    (3600, 10, "medium_1h"),    # 10 accounts in 1 hour
-    (86400, 25, "slow_24h"),    # 25 accounts in 24 hours
+    (300, 5, "fast_5m"),  # 5 accounts in 5 minutes
+    (3600, 10, "medium_1h"),  # 10 accounts in 1 hour
+    (86400, 25, "slow_24h"),  # 25 accounts in 24 hours
 ]
 
 FAILURE_CODES = (
@@ -125,14 +125,16 @@ def record_auth_failure_and_check_spray(
                 severity=SecurityAlert.Severity.CRITICAL,
                 title=f"Password Spraying Attack Detected from IP {clean_ip} ({triggered_window})",
                 network_address=clean_ip,
-                description=json.dumps({
-                    "client_ip": clean_ip,
-                    "window": triggered_window,
-                    "targeted_accounts": list(detected_targets)[:25],
-                    "distinct_target_count": len(detected_targets),
-                    "detected_at": now_dt.isoformat(),
-                    "action_taken": "IP throttled via RateLimitRecord (30m ceiling)",
-                }),
+                description=json.dumps(
+                    {
+                        "client_ip": clean_ip,
+                        "window": triggered_window,
+                        "targeted_accounts": list(detected_targets)[:25],
+                        "distinct_target_count": len(detected_targets),
+                        "detected_at": now_dt.isoformat(),
+                        "action_taken": "IP throttled via RateLimitRecord (30m ceiling)",
+                    }
+                ),
                 status=SecurityAlert.Status.OPEN,
             )
 

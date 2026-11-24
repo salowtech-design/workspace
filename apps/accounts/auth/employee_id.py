@@ -91,12 +91,32 @@ ROLE_MARKER_MAP = {
     # Security Admin markers
     "SECADMIN": {CustomUser.Role.SECURITY_ADMIN, CustomUser.Role.SUPER_ADMIN},
     "SEC_ADMIN": {CustomUser.Role.SECURITY_ADMIN, CustomUser.Role.SUPER_ADMIN},
-    "SEC": {CustomUser.Role.SECURITY_ADMIN, CustomUser.Role.SECURITY_REVIEWER, CustomUser.Role.SUPER_ADMIN},
+    "SEC": {
+        CustomUser.Role.SECURITY_ADMIN,
+        CustomUser.Role.SECURITY_REVIEWER,
+        CustomUser.Role.SUPER_ADMIN,
+    },
     # Security Reviewer markers
-    "SECREV": {CustomUser.Role.SECURITY_REVIEWER, CustomUser.Role.SECURITY_ADMIN, CustomUser.Role.SUPER_ADMIN},
-    "SEC_REV": {CustomUser.Role.SECURITY_REVIEWER, CustomUser.Role.SECURITY_ADMIN, CustomUser.Role.SUPER_ADMIN},
-    "REVIEWER": {CustomUser.Role.SECURITY_REVIEWER, CustomUser.Role.SECURITY_ADMIN, CustomUser.Role.SUPER_ADMIN},
-    "REV": {CustomUser.Role.SECURITY_REVIEWER, CustomUser.Role.SECURITY_ADMIN, CustomUser.Role.SUPER_ADMIN},
+    "SECREV": {
+        CustomUser.Role.SECURITY_REVIEWER,
+        CustomUser.Role.SECURITY_ADMIN,
+        CustomUser.Role.SUPER_ADMIN,
+    },
+    "SEC_REV": {
+        CustomUser.Role.SECURITY_REVIEWER,
+        CustomUser.Role.SECURITY_ADMIN,
+        CustomUser.Role.SUPER_ADMIN,
+    },
+    "REVIEWER": {
+        CustomUser.Role.SECURITY_REVIEWER,
+        CustomUser.Role.SECURITY_ADMIN,
+        CustomUser.Role.SUPER_ADMIN,
+    },
+    "REV": {
+        CustomUser.Role.SECURITY_REVIEWER,
+        CustomUser.Role.SECURITY_ADMIN,
+        CustomUser.Role.SUPER_ADMIN,
+    },
 }
 
 
@@ -185,7 +205,9 @@ def reissue_employee_id(
         raise PermissionDenied("Only administrators may re-issue employee identifiers.")
 
     if not reason or not reason.strip():
-        raise ValidationError("A documented justification reason is required to re-issue an employee ID.")
+        raise ValidationError(
+            "A documented justification reason is required to re-issue an employee ID."
+        )
 
     normalized_new_id = normalize_employee_id(new_employee_id)
     if not normalized_new_id:
@@ -196,7 +218,9 @@ def reissue_employee_id(
         return user
 
     if CustomUser.objects.filter(employee_id=normalized_new_id).exclude(pk=user.pk).exists():
-        raise ValidationError(f"Employee ID '{normalized_new_id}' is already assigned to another account.")
+        raise ValidationError(
+            f"Employee ID '{normalized_new_id}' is already assigned to another account."
+        )
 
     user._allow_employee_id_change = True
     user.employee_id = normalized_new_id
@@ -211,4 +235,3 @@ def reissue_employee_id(
         message=f"Employee ID reissued from {old_id} to {normalized_new_id} by {actor.employee_id}. Reason: {reason}",
     )
     return user
-

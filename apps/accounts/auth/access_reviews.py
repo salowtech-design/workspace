@@ -63,7 +63,11 @@ def generate_quarterly_campaign(
                 if user.last_login < dormant_cutoff:
                     is_dormant = True
                     reason = f"Dormant account: no authentication activity since {user.last_login.strftime('%Y-%m-%d')} (>= {INACTIVITY_THRESHOLD_DAYS} days)."
-            elif hasattr(user, "date_joined") and user.date_joined < dormant_cutoff and user.status == CustomUser.Status.INVITED:
+            elif (
+                hasattr(user, "date_joined")
+                and user.date_joined < dormant_cutoff
+                and user.status == CustomUser.Status.INVITED
+            ):
                 is_dormant = True
                 reason = f"Unactivated invite older than {INACTIVITY_THRESHOLD_DAYS} days."
 

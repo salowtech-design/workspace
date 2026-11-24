@@ -61,7 +61,11 @@ def revoke_user_sessions(user: CustomUser, keep_session_key: str = None) -> int:
     qs = UserSession.objects.filter(user=user)
     if keep_session_key:
         keep_digest = hash_session_bearer(keep_session_key)
-        qs = qs.exclude(Q(session_key=keep_session_key) | Q(session_key=keep_digest) | Q(session_digest=keep_digest))
+        qs = qs.exclude(
+            Q(session_key=keep_session_key)
+            | Q(session_key=keep_digest)
+            | Q(session_digest=keep_digest)
+        )
 
     keys_to_purge = list(qs.values_list("session_key", flat=True))
     digests_to_purge = list(qs.values_list("session_digest", flat=True))
@@ -154,13 +158,14 @@ def synchronize_employee_lifecycle_revocation(user: CustomUser) -> dict:
     return revoked_stats
 
 
-
 def end_session_by_key(user: CustomUser, session_key: str) -> bool:
     """End a specific session from user's /security management page."""
     digest = hash_session_bearer(session_key)
-    deleted, _ = UserSession.objects.filter(
-        user=user
-    ).filter(Q(session_key=session_key) | Q(session_key=digest) | Q(session_digest=digest)).delete()
+    deleted, _ = (
+        UserSession.objects.filter(user=user)
+        .filter(Q(session_key=session_key) | Q(session_key=digest) | Q(session_digest=digest))
+        .delete()
+    )
     if deleted > 0:
         Session.objects.filter(session_key__in=[session_key, digest]).delete()
         return True

@@ -5,6 +5,7 @@ polling (device approval checks, event feeds, the session status call itself) ne
 activity, otherwise an open tab would never time out. The absolute session lifetime
 (SESSION_COOKIE_AGE, 12 hours) is separate and unchanged.
 """
+
 import time
 
 from django.conf import settings
@@ -27,7 +28,9 @@ def idle_limit_seconds() -> int:
         from apps.accounts.models import AuthenticationPolicy
 
         policy = (
-            AuthenticationPolicy.objects.filter(domain=AuthenticationPolicy.Domain.WORKSPACE, is_active=True)
+            AuthenticationPolicy.objects.filter(
+                domain=AuthenticationPolicy.Domain.WORKSPACE, is_active=True
+            )
             .order_by("-version")
             .first()
         )

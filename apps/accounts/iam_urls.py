@@ -28,7 +28,6 @@ urlpatterns = [
     path("stepup/", iam_stepup_view, name="stepup"),
     path("dashboard/", iam_dashboard_view, name="dashboard"),
     path("", iam_dashboard_view, name="root"),
-
     # Sequence 1 Authentication Centre Canonical Routes
     path("authentication/", auth_centre_landing_view, name="auth_landing"),
     path("authentication/control/", auth_control_workspace_view, name="auth_control"),
@@ -37,18 +36,22 @@ urlpatterns = [
     path("authentication/presence-feed/", auth_presence_feed_view, name="auth_presence_feed"),
     path("authentication/actions/", auth_control_action_view, name="auth_control_action"),
     path("authentication/transactions/", auth_control_workspace_view, name="auth_transactions"),
-    path("authentication/transactions/<str:transaction_id>/", auth_transaction_detail_view, name="auth_transaction_detail"),
-    path("authentication/policies/workspace/", auth_control_workspace_view, name="auth_policy_workspace"),
+    path(
+        "authentication/transactions/<str:transaction_id>/",
+        auth_transaction_detail_view,
+        name="auth_transaction_detail",
+    ),
+    path(
+        "authentication/policies/workspace/",
+        auth_control_workspace_view,
+        name="auth_policy_workspace",
+    ),
     path("authentication/policies/iam/", auth_iam_view, name="auth_policy_iam"),
-
     # Presence & Heartbeat
     path("heartbeat/", iam_heartbeat_view, name="heartbeat"),
-
     # Session Investigation
     path("sessions/", sessions_investigation_view, name="sessions"),
-
     # Recovery
     path("recovery/", iam_recovery_portal_view, name="recovery_portal"),
     path("recovery/actions/", iam_recovery_case_action_view, name="recovery_action"),
 ]
-

@@ -104,7 +104,11 @@ def security_alert_acknowledge_view(request, alert_id: int):
     Requires justification reason; strictly enforces independent review invariant.
     """
     reason = request.POST.get("reason", "").strip()
-    next_url = request.POST.get("next") or request.META.get("HTTP_REFERER") or "/auth/admin/iam/?tab=investigation"
+    next_url = (
+        request.POST.get("next")
+        or request.META.get("HTTP_REFERER")
+        or "/auth/admin/iam/?tab=investigation"
+    )
 
     try:
         acknowledge_security_alert(alert_id, request.user, reason)

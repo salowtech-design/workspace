@@ -156,7 +156,12 @@ class TestIAMAuthenticationAndAssurance:
 
         # Step up to L2 for "update_policy"
         totp = pyotp.TOTP(raw_totp)
-        assert stepup_iam_assurance(session, "Strong16CharMasterPass!", totp.now(), action_name="update_policy") is True
+        assert (
+            stepup_iam_assurance(
+                session, "Strong16CharMasterPass!", totp.now(), action_name="update_policy"
+            )
+            is True
+        )
 
         session.refresh_from_db()
         assert session.assurance_level == 2
@@ -165,14 +170,18 @@ class TestIAMAuthenticationAndAssurance:
         # L2 is satisfied for "update_policy"
         assert check_iam_assurance(request, required_level=2, action_name="update_policy") is True
         # L2 is NOT satisfied for an unrelated action "delete_database" (action binding)
-        assert check_iam_assurance(request, required_level=2, action_name="delete_database") is False
+        assert (
+            check_iam_assurance(request, required_level=2, action_name="delete_database") is False
+        )
 
         # After expiry (5 minutes), L2 is denied
         session.stepup_expires_at = timezone.now() - timedelta(seconds=1)
         session.save()
         assert check_iam_assurance(request, required_level=2, action_name="update_policy") is False
 
-    def test_level_3_dual_control_strictly_forbids_self_approval(self, rf, superadmin_person, second_superadmin_person):
+    def test_level_3_dual_control_strictly_forbids_self_approval(
+        self, rf, superadmin_person, second_superadmin_person
+    ):
         """L3 privileged operations require an independent second Super Admin approver."""
         admin_1, raw_totp_1 = create_iam_admin_identity(
             user=superadmin_person,
@@ -189,15 +198,32 @@ class TestIAMAuthenticationAndAssurance:
 
         request = rf.get("/")
         session = create_iam_session(admin_1, request, assurance_level=1)
-        stepup_iam_assurance(session, "Strong16CharMasterPass!", pyotp.TOTP(raw_totp_1).now(), action_name="break_glass")
+        stepup_iam_assurance(
+            session,
+            "Strong16CharMasterPass!",
+            pyotp.TOTP(raw_totp_1).now(),
+            action_name="break_glass",
+        )
 
         # Self-approval is rejected
-        assert check_iam_assurance(request, required_level=3, action_name="break_glass", approver_admin=admin_1) is False
+        assert (
+            check_iam_assurance(
+                request, required_level=3, action_name="break_glass", approver_admin=admin_1
+            )
+            is False
+        )
 
         # Independent second Super Admin approver succeeds
-        assert check_iam_assurance(request, required_level=3, action_name="break_glass", approver_admin=admin_2) is True
+        assert (
+            check_iam_assurance(
+                request, required_level=3, action_name="break_glass", approver_admin=admin_2
+            )
+            is True
+        )
 
-    def test_level_3_dual_control_full_lifecycle(self, rf, superadmin_person, second_superadmin_person):
+    def test_level_3_dual_control_full_lifecycle(
+        self, rf, superadmin_person, second_superadmin_person
+    ):
         """Full transaction-bound Level 3 dual approval request, second approver L2, and consumption."""
         admin_1, raw_totp_1 = create_iam_admin_identity(
             user=superadmin_person,
@@ -214,7 +240,12 @@ class TestIAMAuthenticationAndAssurance:
 
         req1 = rf.get("/")
         session_1 = create_iam_session(admin_1, req1, assurance_level=1)
-        stepup_iam_assurance(session_1, "Strong16CharMasterPass!", pyotp.TOTP(raw_totp_1).now(), action_name="rotate_root_keys")
+        stepup_iam_assurance(
+            session_1,
+            "Strong16CharMasterPass!",
+            pyotp.TOTP(raw_totp_1).now(),
+            action_name="rotate_root_keys",
+        )
 
         # 1. Requester creates dual approval request
         dual_req = create_dual_approval_request(
@@ -237,13 +268,26 @@ class TestIAMAuthenticationAndAssurance:
         assert "Second approver must complete independent fresh Level 2 step-up" in str(exc.value)
 
         # 4. Second approver completes independent fresh Level 2 step-up for the same action
-        stepup_iam_assurance(session_2, "Strong16CharMasterPass!", pyotp.TOTP(raw_totp_2).now(), action_name="rotate_root_keys")
+        stepup_iam_assurance(
+            session_2,
+            "Strong16CharMasterPass!",
+            pyotp.TOTP(raw_totp_2).now(),
+            action_name="rotate_root_keys",
+        )
         approved_req = approve_dual_approval_request(session_2, dual_req.request_id)
         assert approved_req.status == "approved"
         assert approved_req.approver == admin_2
 
         # 5. Assurance check passes with dual_request_id
-        assert check_iam_assurance(req1, required_level=3, action_name="rotate_root_keys", dual_request_id=dual_req.request_id) is True
+        assert (
+            check_iam_assurance(
+                req1,
+                required_level=3,
+                action_name="rotate_root_keys",
+                dual_request_id=dual_req.request_id,
+            )
+            is True
+        )
 
         # 6. Privileged execution consumes dual approval atomically (anti-replay)
         consumed = consume_dual_approval_request(

@@ -36,6 +36,7 @@ os.environ["USE_TIDB"] = "true"
 
 try:
     import pymysql
+
     pymysql.install_as_MySQLdb()
     import MySQLdb
 except ImportError:
@@ -47,8 +48,8 @@ except ImportError:
 
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "config.settings.dev")
 import django
-django.setup()
 
+django.setup()
 
 
 def _json_serial(obj):
@@ -62,10 +63,13 @@ def _json_serial(obj):
     raise TypeError(f"Type {type(obj)} not serializable")
 
 
-
 def _get_backup_encryption_key() -> bytes:
     """Derives independent 256-bit AES key for backup encryption."""
-    raw = os.getenv("BACKUP_ENCRYPTION_KEY") or os.getenv("AUDIT_HMAC_KEY") or os.getenv("SESSION_HMAC_KEY")
+    raw = (
+        os.getenv("BACKUP_ENCRYPTION_KEY")
+        or os.getenv("AUDIT_HMAC_KEY")
+        or os.getenv("SESSION_HMAC_KEY")
+    )
     if not raw:
         raw = "salow-independent-backup-encryption-key-32bytes-custody!"
     return hashlib.sha256(raw.encode("utf-8") if isinstance(raw, str) else raw).digest()
@@ -73,7 +77,11 @@ def _get_backup_encryption_key() -> bytes:
 
 def _get_backup_signing_key() -> bytes:
     """Derives independent HMAC signing key for backup integrity seal."""
-    raw = os.getenv("BACKUP_SIGNING_KEY") or os.getenv("AUDIT_HMAC_KEY") or "salow-independent-backup-signing-key-custody-2026!"
+    raw = (
+        os.getenv("BACKUP_SIGNING_KEY")
+        or os.getenv("AUDIT_HMAC_KEY")
+        or "salow-independent-backup-signing-key-custody-2026!"
+    )
     return hashlib.sha256(raw.encode("utf-8") if isinstance(raw, str) else raw).digest()
 
 
@@ -126,8 +134,14 @@ def run_real_backup_and_restore_drill() -> int:
         # -------------------------------------------------------------------
         t_phase1_start = time.perf_counter()
         cursor.execute("SHOW TABLES;")
-        all_tables = [row[0] for row in cursor.fetchall() if not row[0].startswith("_scratch_") and not row[0].startswith("_restore_")]
-        print(f"[*] Phase 1: Discovered {len(all_tables)} operational tables in database '{db_name}'.")
+        all_tables = [
+            row[0]
+            for row in cursor.fetchall()
+            if not row[0].startswith("_scratch_") and not row[0].startswith("_restore_")
+        ]
+        print(
+            f"[*] Phase 1: Discovered {len(all_tables)} operational tables in database '{db_name}'."
+        )
 
         backup_data = {
             "database": db_name,
@@ -171,11 +185,15 @@ def run_real_backup_and_restore_drill() -> int:
 
         cursor.execute("SELECT app, name, applied FROM django_migrations ORDER BY id;")
         migrations = cursor.fetchall()
-        backup_data["migrations"] = [{"app": m[0], "name": m[1], "applied": str(m[2])} for m in migrations]
+        backup_data["migrations"] = [
+            {"app": m[0], "name": m[1], "applied": str(m[2])} for m in migrations
+        ]
         backup_data["migrations_count"] = len(migrations)
 
         t_phase1_duration = time.perf_counter() - t_phase1_start
-        print(f"[+] Phase 1 Complete: Extracted real schema + {total_extracted_rows} rows across {len(all_tables)} tables in {t_phase1_duration:.2f}s.")
+        print(
+            f"[+] Phase 1 Complete: Extracted real schema + {total_extracted_rows} rows across {len(all_tables)} tables in {t_phase1_duration:.2f}s."
+        )
 
         # -------------------------------------------------------------------
         # Phase 2: Authenticated Encryption, Tamper Seal & Manifest Persistence
@@ -188,7 +206,9 @@ def run_real_backup_and_restore_drill() -> int:
         enc_key = _get_backup_encryption_key()
         nonce = os.urandom(12)
         aesgcm = AESGCM(enc_key)
-        ciphertext = aesgcm.encrypt(nonce, raw_payload_bytes, associated_data=checksum_sha256.encode("utf-8"))
+        ciphertext = aesgcm.encrypt(
+            nonce, raw_payload_bytes, associated_data=checksum_sha256.encode("utf-8")
+        )
 
         # Sign ciphertext with independent HMAC
         sig_key = _get_backup_signing_key()
@@ -211,7 +231,9 @@ def run_real_backup_and_restore_drill() -> int:
             json.dump(backup_manifest, f, indent=2)
 
         t_phase2_duration = time.perf_counter() - t_phase2_start
-        print(f"[+] Phase 2 Complete: Encrypted with AES-256-GCM ({len(ciphertext)} bytes), signed, and saved in {t_phase2_duration:.2f}s.")
+        print(
+            f"[+] Phase 2 Complete: Encrypted with AES-256-GCM ({len(ciphertext)} bytes), signed, and saved in {t_phase2_duration:.2f}s."
+        )
         print(f"    Payload SHA-256: {checksum_sha256}")
         print(f"    HMAC Tamper Seal: {hmac_sig[:32]}...")
 
@@ -232,7 +254,11 @@ def run_real_backup_and_restore_drill() -> int:
             return 1
 
         loaded_nonce = base64.b64decode(loaded_manifest["nonce_base64"])
-        decrypted_bytes = aesgcm.decrypt(loaded_nonce, loaded_cipher, associated_data=loaded_manifest["checksum_sha256"].encode("utf-8"))
+        decrypted_bytes = aesgcm.decrypt(
+            loaded_nonce,
+            loaded_cipher,
+            associated_data=loaded_manifest["checksum_sha256"].encode("utf-8"),
+        )
         if hashlib.sha256(decrypted_bytes).hexdigest() != loaded_manifest["checksum_sha256"]:
             print("[FAIL] Decrypted backup payload checksum mismatch!")
             return 1
@@ -254,12 +280,16 @@ def run_real_backup_and_restore_drill() -> int:
                 target_table = f"`{scratch_db}`.`{tbl}`"
                 cursor.execute(f"DROP TABLE IF EXISTS {target_table};")
                 create_sql = restored_data["tables"][tbl]["create_sql"]
-                renamed_sql = create_sql.replace(f"CREATE TABLE `{tbl}`", f"CREATE TABLE {target_table}")
+                renamed_sql = create_sql.replace(
+                    f"CREATE TABLE `{tbl}`", f"CREATE TABLE {target_table}"
+                )
             else:
                 target_table = f"`{scratch_prefix}{tbl}`"
                 cursor.execute(f"DROP TABLE IF EXISTS {target_table};")
                 create_sql = restored_data["tables"][tbl]["create_sql"]
-                renamed_sql = create_sql.replace(f"CREATE TABLE `{tbl}`", f"CREATE TABLE {target_table}")
+                renamed_sql = create_sql.replace(
+                    f"CREATE TABLE `{tbl}`", f"CREATE TABLE {target_table}"
+                )
 
             cursor.execute(renamed_sql)
 
@@ -278,7 +308,14 @@ def run_real_backup_and_restore_drill() -> int:
                     for c_name, val in zip(cols, r):
                         if isinstance(val, dict) and val.get("__type__") == "decimal":
                             val = decimal.Decimal(val["value"])
-                        elif c_name in ("encrypted_template", "encrypted_secret", "encrypted_payload", "nonce", "totp_nonce", "payload_nonce"):
+                        elif c_name in (
+                            "encrypted_template",
+                            "encrypted_secret",
+                            "encrypted_payload",
+                            "nonce",
+                            "totp_nonce",
+                            "payload_nonce",
+                        ):
                             if isinstance(val, str):
                                 try:
                                     val = base64.b64decode(val)
@@ -292,11 +329,15 @@ def run_real_backup_and_restore_drill() -> int:
             cursor.execute(f"SELECT COUNT(*) FROM {target_table};")
             scratch_count = cursor.fetchone()[0]
             if scratch_count != tbl_info["row_count"]:
-                print(f"[FAIL] Restored row count mismatch on {target_table}: expected {tbl_info['row_count']}, got {scratch_count}")
+                print(
+                    f"[FAIL] Restored row count mismatch on {target_table}: expected {tbl_info['row_count']}, got {scratch_count}"
+                )
                 cursor.execute("SET FOREIGN_KEY_CHECKS = 1;")
                 return 1
 
-        print(f"[+] Phase 3 Complete: Successfully restored and verified all {len(all_restore_tables)} tables in isolated scratch schema.")
+        print(
+            f"[+] Phase 3 Complete: Successfully restored and verified all {len(all_restore_tables)} tables in isolated scratch schema."
+        )
 
         # -------------------------------------------------------------------
         # Phase 4: Mandatory Post-Restore Security Reconciliation
@@ -309,7 +350,9 @@ def run_real_backup_and_restore_drill() -> int:
             return f"`{scratch_db}`.`{tbl_name}`" if scratch_db else f"`{scratch_prefix}{tbl_name}`"
 
         session_tbl = _get_target("accounts_usersession")
-        cursor.execute(f"UPDATE {session_tbl} SET mfa_verified = FALSE, last_activity = '2000-01-01 00:00:00';")
+        cursor.execute(
+            f"UPDATE {session_tbl} SET mfa_verified = FALSE, last_activity = '2000-01-01 00:00:00';"
+        )
 
         iam_sess_tbl = _get_target("accounts_iamsession")
         cursor.execute(f"UPDATE {iam_sess_tbl} SET is_active = FALSE;")
@@ -333,16 +376,18 @@ def run_real_backup_and_restore_drill() -> int:
         conn.commit()
         cursor.execute("SET FOREIGN_KEY_CHECKS = 1;")
 
-
         t_recon_duration = time.perf_counter() - t_recon_start
         t_restore_duration = time.perf_counter() - t_restore_start
-        print(f"[+] Phase 4 Complete: Security reconciliation verified (zero stale sessions or approvals resurrected) in {t_recon_duration:.2f}s.")
+        print(
+            f"[+] Phase 4 Complete: Security reconciliation verified (zero stale sessions or approvals resurrected) in {t_recon_duration:.2f}s."
+        )
 
         # -------------------------------------------------------------------
         # Phase 5: Audit Chain Integrity Verification
         # -------------------------------------------------------------------
         print("[*] Phase 5: Verifying tamper-evident audit chain integrity...")
         from apps.accounts.auth.audit_chain import verify_audit_chain
+
         chain_valid, chain_msg = verify_audit_chain()
         print(f"    Audit Chain Status: {'VALID' if chain_valid else 'INVALID'}")
         print(f"    Details: {chain_msg}")

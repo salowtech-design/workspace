@@ -1,4 +1,5 @@
 """Step-up and break-glass grants live in the database, not in per-process dictionaries."""
+
 import pytest
 
 from apps.accounts.auth import stepup
@@ -8,8 +9,11 @@ from apps.accounts.models import CustomUser, PrivilegeElevation
 @pytest.fixture
 def admin(db):
     return CustomUser.objects.create_user(
-        employee_id="ST-ELEV-01", full_name="A", password="ValidPass2026!@#",
-        role=CustomUser.Role.SUPER_ADMIN, status=CustomUser.Status.ACTIVE,
+        employee_id="ST-ELEV-01",
+        full_name="A",
+        password="ValidPass2026!@#",
+        role=CustomUser.Role.SUPER_ADMIN,
+        status=CustomUser.Status.ACTIVE,
     )
 
 
@@ -31,7 +35,9 @@ def test_sudo_grant_is_a_database_row_visible_to_another_worker(admin):
 
 @pytest.mark.django_db
 def test_break_glass_roundtrip_expiry_and_revoke(admin, monkeypatch):
-    stepup.activate_break_glass(admin, reason="database outage during payroll", justification_ticket="T-1")
+    stepup.activate_break_glass(
+        admin, reason="database outage during payroll", justification_ticket="T-1"
+    )
     row = PrivilegeElevation.objects.get(user_id_ref=admin.id, kind="break_glass")
     assert row.reason.startswith("database outage") and row.ticket == "T-1"
     assert stepup.is_break_glass_active(admin) is True

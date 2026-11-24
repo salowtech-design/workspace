@@ -45,7 +45,11 @@ class Command(BaseCommand):
             )
             return
 
-        self.stdout.write(self.style.NOTICE(f"Starting transactional email outbox worker daemon (interval: {interval}s)..."))
+        self.stdout.write(
+            self.style.NOTICE(
+                f"Starting transactional email outbox worker daemon (interval: {interval}s)..."
+            )
+        )
         try:
             while True:
                 success, failed = process_email_outbox(batch_size=batch_size)

@@ -84,6 +84,7 @@ class TestLifecycleSynchronization:
         admin_person.save()
 
         import pyotp
+
         totp_val = pyotp.TOTP(raw_totp).now()
 
         with pytest.raises(AuthException) as exc:
@@ -131,7 +132,6 @@ class TestLifecycleSynchronization:
         )
         req = rf.get("/iam/dashboard/")
         iam_sess = create_iam_session(iam_admin, req)
-
 
         # Create Workspace session
         UserSession.objects.create(
@@ -207,6 +207,7 @@ class TestOfflineDisasterRecoverySecretSharing:
     def test_split_and_reconstruct_from_any_two_shares(self):
         """2-of-3 threshold split secret can be reconstructed from any 2 distinct shares."""
         import secrets
+
         master_secret = secrets.token_bytes(32)
 
         shares = split_secret_2_of_3(master_secret)
@@ -228,6 +229,7 @@ class TestOfflineDisasterRecoverySecretSharing:
     def test_duplicate_shares_rejected(self):
         """Reconstructing from duplicate shares is rejected."""
         import secrets
+
         master_secret = secrets.token_bytes(32)
         shares = split_secret_2_of_3(master_secret)
 

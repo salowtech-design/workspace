@@ -63,4 +63,3 @@ def service_worker_view(request):
     except Exception as e:
         logger.error("Failed to read sw.js: %s", e)
         return HttpResponse("// sw unavailable", content_type="application/javascript", status=404)
-

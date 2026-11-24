@@ -53,7 +53,9 @@ class _SharedGrantStore:
             }
         else:
             defaults = {"granted_at": value}
-        PrivilegeElevation.objects.update_or_create(user_id_ref=user_id, kind=self.kind, defaults=defaults)
+        PrivilegeElevation.objects.update_or_create(
+            user_id_ref=user_id, kind=self.kind, defaults=defaults
+        )
 
     def pop(self, user_id, default=None):
         old = self.get(user_id, default)

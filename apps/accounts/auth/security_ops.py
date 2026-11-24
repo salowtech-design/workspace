@@ -91,7 +91,9 @@ def acknowledge_security_alert(
         raise PermissionDenied("User does not have permission to acknowledge security alerts.")
 
     if not reason or not reason.strip():
-        raise ValidationError("Justification reason is mandatory when acknowledging security alerts.")
+        raise ValidationError(
+            "Justification reason is mandatory when acknowledging security alerts."
+        )
 
     with transaction.atomic():
         alert = SecurityAlert.objects.select_for_update().filter(id=alert_id).first()
@@ -108,7 +110,9 @@ def acknowledge_security_alert(
         alert.acknowledged_by = actor
         alert.acknowledged_at = timezone.now()
         alert.acknowledgement_reason = reason.strip()
-        alert.save(update_fields=["status", "acknowledged_by", "acknowledged_at", "acknowledgement_reason"])
+        alert.save(
+            update_fields=["status", "acknowledged_by", "acknowledged_at", "acknowledgement_reason"]
+        )
 
         log_auth_event(
             event="security_alert_acknowledged",
@@ -137,15 +141,17 @@ def get_security_events_stream(
     events = qs[:limit]
     results = []
     for evt in events:
-        results.append({
-            "id": evt.id,
-            "event": evt.event,
-            "code": evt.code,
-            "step": evt.step,
-            "employee_id": evt.employee_id or "ANONYMOUS",
-            "time": evt.time.isoformat(),
-            "network_address": evt.network_address or "UNKNOWN",
-            "reference_id": evt.reference_id,
-            "message": evt.message,
-        })
+        results.append(
+            {
+                "id": evt.id,
+                "event": evt.event,
+                "code": evt.code,
+                "step": evt.step,
+                "employee_id": evt.employee_id or "ANONYMOUS",
+                "time": evt.time.isoformat(),
+                "network_address": evt.network_address or "UNKNOWN",
+                "reference_id": evt.reference_id,
+                "message": evt.message,
+            }
+        )
     return results

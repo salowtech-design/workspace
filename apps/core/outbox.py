@@ -54,10 +54,13 @@ def process_outbox_batch(batch_size: int = 50) -> tuple[int, int]:
 
     with transaction.atomic():
         can_skip = getattr(connection.features, "has_select_for_update_skip_locked", False)
-        qs = OutboxEvent.objects.select_for_update(skip_locked=True) if can_skip else OutboxEvent.objects.select_for_update()
+        qs = (
+            OutboxEvent.objects.select_for_update(skip_locked=True)
+            if can_skip
+            else OutboxEvent.objects.select_for_update()
+        )
         events = list(
-            qs.filter(status=OutboxEvent.Status.PENDING)
-            .order_by("created_at")[:batch_size]
+            qs.filter(status=OutboxEvent.Status.PENDING).order_by("created_at")[:batch_size]
         )
         if not events:
             return 0, 0

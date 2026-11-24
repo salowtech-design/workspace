@@ -122,7 +122,9 @@ def export_checkpoint_off_db(checkpoint: AuditCheckpoint) -> Path:
         "previous_checkpoint_hash": checkpoint.previous_checkpoint_hash,
         "key_id": checkpoint.key_id,
         "signature": checkpoint.signature,
-        "created_at": checkpoint.created_at.isoformat() if checkpoint.created_at else timezone.now().isoformat(),
+        "created_at": checkpoint.created_at.isoformat()
+        if checkpoint.created_at
+        else timezone.now().isoformat(),
         "status": checkpoint.status,
     }
 
@@ -293,7 +295,10 @@ def verify_audit_chain() -> Tuple[bool, str]:
 
         expected_prev_hash = cp.cumulative_hash
 
-    return True, "All audit checkpoints verified successfully against database and independent custody storage."
+    return (
+        True,
+        "All audit checkpoints verified successfully against database and independent custody storage.",
+    )
 
 
 def _record_tamper_alert(checkpoint: AuditCheckpoint, details: str):
@@ -305,11 +310,13 @@ def _record_tamper_alert(checkpoint: AuditCheckpoint, details: str):
         category=SecurityAlert.Category.AUDIT_INTEGRITY,
         severity=SecurityAlert.Severity.CRITICAL,
         title=f"AUDIT INTEGRITY VIOLATION: {checkpoint.checkpoint_id}",
-        description=json.dumps({
-            "checkpoint_id": checkpoint.checkpoint_id,
-            "error": details,
-            "detected_at": timezone.now().isoformat(),
-        }),
+        description=json.dumps(
+            {
+                "checkpoint_id": checkpoint.checkpoint_id,
+                "error": details,
+                "detected_at": timezone.now().isoformat(),
+            }
+        ),
         status=SecurityAlert.Status.OPEN,
     )
 
@@ -320,10 +327,12 @@ def _record_orphan_tamper_alert(checkpoint_id: str, details: str):
         category=SecurityAlert.Category.AUDIT_INTEGRITY,
         severity=SecurityAlert.Severity.CRITICAL,
         title=f"AUDIT INTEGRITY VIOLATION: {checkpoint_id}",
-        description=json.dumps({
-            "checkpoint_id": checkpoint_id,
-            "error": details,
-            "detected_at": timezone.now().isoformat(),
-        }),
+        description=json.dumps(
+            {
+                "checkpoint_id": checkpoint_id,
+                "error": details,
+                "detected_at": timezone.now().isoformat(),
+            }
+        ),
         status=SecurityAlert.Status.OPEN,
     )

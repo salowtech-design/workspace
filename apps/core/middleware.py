@@ -99,10 +99,11 @@ class RateLimitMiddleware:
         except Exception as e:
             logger.debug("Failed to clear sudo cache: %s", e)
 
-
     def _get_client_ip(self, request) -> str:
         remote_addr = request.META.get("REMOTE_ADDR", "127.0.0.1")
-        trusted_proxies = getattr(settings, "TRUSTED_PROXIES", ["127.0.0.1", "::1", "localhost", "testclient"])
+        trusted_proxies = getattr(
+            settings, "TRUSTED_PROXIES", ["127.0.0.1", "::1", "localhost", "testclient"]
+        )
 
         # 1. Direct Cloudflare header if request arrives via trusted reverse proxy
         cf_ip = request.META.get("HTTP_CF_CONNECTING_IP")
@@ -171,6 +172,7 @@ class RateLimitMiddleware:
 
         if len(self._storage) > 500:
             import time
+
             cutoff = time.time() - self.WINDOW_SECONDS
             stale_keys = [k for k, ts in list(self._storage.items()) if not ts or ts[-1] <= cutoff]
             for k in stale_keys:
@@ -224,9 +226,7 @@ class RateLimitMiddleware:
                 RateLimitRecord.objects.create(key=k, timestamp=now_ts)
                 with transaction.atomic():
                     bucket = (
-                        RateLimitBucket.objects.select_for_update()
-                        .filter(bucket_key=k)
-                        .first()
+                        RateLimitBucket.objects.select_for_update().filter(bucket_key=k).first()
                     )
                     if not bucket:
                         # Two first requests can both see "no row" (a row lock cannot lock a missing row):
@@ -270,4 +270,3 @@ class RateLimitMiddleware:
                 )
 
         return self.get_response(request)
-

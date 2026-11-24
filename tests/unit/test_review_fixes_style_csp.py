@@ -1,4 +1,5 @@
 """style-src no longer allows 'unsafe-inline': nothing in templates, scripts or HTML built in Python may use a style attribute."""
+
 import re
 from pathlib import Path
 
@@ -15,8 +16,17 @@ def test_no_style_attributes_in_templates():
 
 
 def test_no_style_attributes_in_static_js_or_python_html():
-    paths = [p for p in (ROOT / "static").glob("*.js")] + list((ROOT / "apps").rglob("views/*.py")) + [ROOT / "apps/certificates/services.py"]
-    bad = [str(p) for p in paths if re.search(r"""\sstyle\s*=\s*["']""", p.read_text()) or "setAttribute('style'" in p.read_text()]
+    paths = (
+        [p for p in (ROOT / "static").glob("*.js")]
+        + list((ROOT / "apps").rglob("views/*.py"))
+        + [ROOT / "apps/certificates/services.py"]
+    )
+    bad = [
+        str(p)
+        for p in paths
+        if re.search(r"""\sstyle\s*=\s*["']""", p.read_text())
+        or "setAttribute('style'" in p.read_text()
+    ]
     assert bad == []
 
 

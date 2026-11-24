@@ -39,7 +39,10 @@ def device_approval_wait_view(request, request_id: uuid.UUID):
     check_and_expire_request(req)
     if req.status == DeviceApprovalRequest.Status.APPROVED:
         return redirect("accounts:device_email_otp", request_id=req.request_id)
-    elif req.status in (DeviceApprovalRequest.Status.EXPIRED, DeviceApprovalRequest.Status.REJECTED):
+    elif req.status in (
+        DeviceApprovalRequest.Status.EXPIRED,
+        DeviceApprovalRequest.Status.REJECTED,
+    ):
         return render(
             request,
             "accounts/devices/approval_expired.html",
@@ -63,22 +66,28 @@ def device_approval_status_view(request, request_id: uuid.UUID):
 
     if req.status == DeviceApprovalRequest.Status.APPROVED:
         # Client-side HTMX redirect to next step (Email OTP verification)
-        response = HttpResponse('<div class="alert alert-success">Approved! Redirecting to email verification...</div>')
+        response = HttpResponse(
+            '<div class="alert alert-success">Approved! Redirecting to email verification...</div>'
+        )
         response["HX-Redirect"] = f"/auth/devices/approval/{req.request_id}/email-otp/"
         return response
     elif req.status == DeviceApprovalRequest.Status.REJECTED:
-        response = HttpResponse('<div class="alert alert-error">Request rejected by existing session.</div>')
+        response = HttpResponse(
+            '<div class="alert alert-error">Request rejected by existing session.</div>'
+        )
         response["HX-Redirect"] = f"/auth/devices/approval/{req.request_id}/wait/"
         return response
     elif req.status == DeviceApprovalRequest.Status.EXPIRED:
-        response = HttpResponse('<div class="alert alert-error">Request expired after 60 seconds.</div>')
+        response = HttpResponse(
+            '<div class="alert alert-error">Request expired after 60 seconds.</div>'
+        )
         response["HX-Redirect"] = f"/auth/devices/approval/{req.request_id}/wait/"
         return response
 
     return HttpResponse(
         f'<div class="status-indicator-pending s-73849dbd">'
-        f'● Awaiting approval from active device ({req.requesting_device_ip or "Remote"})...'
-        f'</div>'
+        f"● Awaiting approval from active device ({req.requesting_device_ip or 'Remote'})..."
+        f"</div>"
     )
 
 
@@ -90,6 +99,7 @@ def check_pending_device_approval_view(request):
     Renders modal popup with transaction-bound number matching when pending.
     """
     from django.utils import timezone
+
     now = timezone.now()
     pending_req = (
         DeviceApprovalRequest.objects.filter(
@@ -129,14 +139,18 @@ def device_decision_view(request, request_id: uuid.UUID):
     try:
         if decision == "approve":
             challenge_num = request.POST.get("matching_number")
-            submitted_number = int(challenge_num) if challenge_num and challenge_num.isdigit() else None
+            submitted_number = (
+                int(challenge_num) if challenge_num and challenge_num.isdigit() else None
+            )
             approve_device_by_existing_session(
                 request_id,
                 request.user,
                 submitted_number=submitted_number,
                 approving_device_id=request.session.session_key or "",
             )
-            messages.success(request, f"Secondary device approved. Verification code sent to {req.user.email}.")
+            messages.success(
+                request, f"Secondary device approved. Verification code sent to {req.user.email}."
+            )
         else:
             reject_device_request(request_id, request.user, reason=reason)
             messages.info(request, "Secondary device request was rejected.")
@@ -189,14 +203,20 @@ def device_face_verify_view(request, request_id: uuid.UUID):
         face_ok = False
         if is_dev:
             stub = StubVerifier(allowed=True)
-            res = stub.verify(user_id=req.user.employee_id, challenge_nonce="dev-secondary-nonce", frames=[])
+            res = stub.verify(
+                user_id=req.user.employee_id, challenge_nonce="dev-secondary-nonce", frames=[]
+            )
             face_ok = res.success
         elif has_template:
             from apps.face.services import verify_face
+
             res = verify_face(user=req.user, purpose=FaceVerificationLog.Purpose.STEP_UP)
             face_ok = res.success
             if not face_ok:
-                error = res.error_reason or "Facial recognition similarity score below security threshold."
+                error = (
+                    res.error_reason
+                    or "Facial recognition similarity score below security threshold."
+                )
         else:
             error = "Biometric face template not enrolled for this account. Contact your administrator for fallback authorization."
 
@@ -218,7 +238,9 @@ def device_face_verify_view(request, request_id: uuid.UUID):
                     request_id,
                     assertion_token=assertion.single_use_nonce,
                 )
-                messages.success(request, "Secondary device verified successfully. Welcome to Salow Workspace!")
+                messages.success(
+                    request, "Secondary device verified successfully. Welcome to Salow Workspace!"
+                )
                 return redirect("attendance:panel")
             except AuthException as e:
                 error = e.user_message

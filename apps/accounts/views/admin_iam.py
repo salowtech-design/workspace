@@ -145,7 +145,9 @@ ROLE_PERMISSIONS_MATRIX = [
 ]
 
 
-def enforce_mutation_assurance(request, action_name: str, required_level: int, payload: Any = None) -> Optional[Any]:
+def enforce_mutation_assurance(
+    request, action_name: str, required_level: int, payload: Any = None
+) -> Optional[Any]:
     """
     Enforces required IAM assurance level (L1, L2, L3) with canonical payload binding.
     If session lacks required assurance, redirects to step-up or displays error.
@@ -155,12 +157,17 @@ def enforce_mutation_assurance(request, action_name: str, required_level: int, p
         return None
 
     digest = compute_payload_digest(payload) if payload else None
-    if not check_iam_assurance(request, required_level=required_level, action_name=action_name, payload_digest=digest):
+    if not check_iam_assurance(
+        request, required_level=required_level, action_name=action_name, payload_digest=digest
+    ):
         if required_level == 2:
             stepup_url = "/iam/stepup/"
             return redirect(f"{stepup_url}?action={action_name}&next={request.get_full_path()}")
         elif required_level == 3:
-            messages.error(request, f"Operation '{action_name}' requires independent Level 3 Dual Approval from a second Super Administrator.")
+            messages.error(
+                request,
+                f"Operation '{action_name}' requires independent Level 3 Dual Approval from a second Super Administrator.",
+            )
             return redirect(request.get_full_path())
     return None
 
@@ -215,12 +222,17 @@ def admin_iam_dashboard_view(request):  # noqa: C901
             if action in ("create_employee", "update_role"):
                 target_role = request.POST.get("role") or request.POST.get("new_role")
                 if target_role == CustomUser.Role.SUPER_ADMIN:
-                    messages.error(request, "Workspace Security Admins cannot provision or promote Super Admin accounts.")
+                    messages.error(
+                        request,
+                        "Workspace Security Admins cannot provision or promote Super Admin accounts.",
+                    )
                     return redirect(f"{request.path}?tab={active_tab}")
             elif action in ("activate_break_glass", "create_service_identity"):
-                messages.error(request, "Workspace Security Admins cannot execute root IAM elevation operations.")
+                messages.error(
+                    request,
+                    "Workspace Security Admins cannot execute root IAM elevation operations.",
+                )
                 return redirect(f"{request.path}?tab={active_tab}")
-
 
         # -------------------------------------------------------------------
         # 1. Identity & Accounts: Create Employee with Activation Code
@@ -316,8 +328,17 @@ def admin_iam_dashboard_view(request):  # noqa: C901
                 messages.error(request, "You do not have permission to modify roles.")
             else:
                 payload = {"target_employee_id": target_emp_id, "new_role": new_role}
-                req_level = 3 if (new_role == CustomUser.Role.SUPER_ADMIN or target_user.role == CustomUser.Role.SUPER_ADMIN) else 2
-                redirect_resp = enforce_mutation_assurance(request, "update_role", required_level=req_level, payload=payload)
+                req_level = (
+                    3
+                    if (
+                        new_role == CustomUser.Role.SUPER_ADMIN
+                        or target_user.role == CustomUser.Role.SUPER_ADMIN
+                    )
+                    else 2
+                )
+                redirect_resp = enforce_mutation_assurance(
+                    request, "update_role", required_level=req_level, payload=payload
+                )
                 if redirect_resp:
                     return redirect_resp
 
@@ -350,7 +371,9 @@ def admin_iam_dashboard_view(request):  # noqa: C901
                 try:
                     check_recovery_authority(actor, target_user)
                     payload = {"target_employee_id": target_emp_id, "action": "issue_mfa_reset"}
-                    redirect_resp = enforce_mutation_assurance(request, "issue_mfa_reset", required_level=2, payload=payload)
+                    redirect_resp = enforce_mutation_assurance(
+                        request, "issue_mfa_reset", required_level=2, payload=payload
+                    )
                     if redirect_resp:
                         return redirect_resp
 
@@ -393,8 +416,13 @@ def admin_iam_dashboard_view(request):  # noqa: C901
             target_emp_id = request.POST.get("target_employee_id", "").strip().upper()
             target_user = CustomUser.objects.filter(employee_id=target_emp_id).first()
             if target_user:
-                payload = {"target_employee_id": target_emp_id, "action": "revoke_user_all_sessions"}
-                redirect_resp = enforce_mutation_assurance(request, "revoke_user_all_sessions", required_level=2, payload=payload)
+                payload = {
+                    "target_employee_id": target_emp_id,
+                    "action": "revoke_user_all_sessions",
+                }
+                redirect_resp = enforce_mutation_assurance(
+                    request, "revoke_user_all_sessions", required_level=2, payload=payload
+                )
                 if redirect_resp:
                     return redirect_resp
 
@@ -465,7 +493,9 @@ def admin_iam_dashboard_view(request):  # noqa: C901
             else:
                 payload = {"target_employee_id": target_emp_id, "action": "suspend_account"}
                 req_level = 3 if target_user.role == CustomUser.Role.SUPER_ADMIN else 2
-                redirect_resp = enforce_mutation_assurance(request, "suspend_account", required_level=req_level, payload=payload)
+                redirect_resp = enforce_mutation_assurance(
+                    request, "suspend_account", required_level=req_level, payload=payload
+                )
                 if redirect_resp:
                     return redirect_resp
 
@@ -494,7 +524,9 @@ def admin_iam_dashboard_view(request):  # noqa: C901
                 messages.error(request, f"User {target_emp_id} not found.")
             else:
                 payload = {"target_employee_id": target_emp_id, "action": "reactivate_account"}
-                redirect_resp = enforce_mutation_assurance(request, "reactivate_account", required_level=2, payload=payload)
+                redirect_resp = enforce_mutation_assurance(
+                    request, "reactivate_account", required_level=2, payload=payload
+                )
                 if redirect_resp:
                     return redirect_resp
 
@@ -530,7 +562,9 @@ def admin_iam_dashboard_view(request):  # noqa: C901
             else:
                 payload = {"target_employee_id": target_emp_id, "action": "exit_account"}
                 req_level = 3 if target_user.role == CustomUser.Role.SUPER_ADMIN else 2
-                redirect_resp = enforce_mutation_assurance(request, "exit_account", required_level=req_level, payload=payload)
+                redirect_resp = enforce_mutation_assurance(
+                    request, "exit_account", required_level=req_level, payload=payload
+                )
                 if redirect_resp:
                     return redirect_resp
 
@@ -616,7 +650,9 @@ def admin_iam_dashboard_view(request):  # noqa: C901
                     request, "Only system administrators can provision Service Identities."
                 )
             else:
-                redirect_resp = enforce_mutation_assurance(request, "create_service_identity", required_level=2)
+                redirect_resp = enforce_mutation_assurance(
+                    request, "create_service_identity", required_level=2
+                )
                 if redirect_resp:
                     return redirect_resp
 
@@ -655,7 +691,9 @@ def admin_iam_dashboard_view(request):  # noqa: C901
             if actor.role not in (CustomUser.Role.SUPER_ADMIN, CustomUser.Role.ADMIN):
                 messages.error(request, "Only system administrators can revoke Service Identities.")
             else:
-                redirect_resp = enforce_mutation_assurance(request, "revoke_service_identity", required_level=2)
+                redirect_resp = enforce_mutation_assurance(
+                    request, "revoke_service_identity", required_level=2
+                )
                 if redirect_resp:
                     return redirect_resp
 
@@ -844,10 +882,11 @@ def admin_iam_live_stream_view(request):
     # HTMX Polling Support (Section 13 & Defect 7)
     if request.headers.get("HX-Request") or request.GET.get("format") == "html":
         from django.http import HttpResponse
+
         events = AuthEvent.objects.order_by("-time")[:limit]
         rows = []
         for evt in events:
-            is_info = (evt.code == "INFO")
+            is_info = evt.code == "INFO"
             badge_color = "#059669" if is_info else "#dc2626"
             t_str = evt.time.strftime("%H:%M:%S") if evt.time else ""
             row_html = (
@@ -857,12 +896,15 @@ def admin_iam_live_stream_view(request):
                 f'<span class="evt-badge {"evt-ok" if is_info else "evt-bad"}">{evt.event}</span>'
                 f'<span class="s-03d9fc85">{evt.employee_id or "ANONYMOUS"}</span>'
                 f'<span class="s-c14ddfd0">[{evt.step}] {evt.message}</span>'
-                f'</div>'
+                f"</div>"
                 f'<div class="s-9bca2879">{evt.reference_id or "-"} | {evt.network_address or "-"}</div>'
-                f'</div>'
+                f"</div>"
             )
             rows.append(row_html)
-        return HttpResponse("".join(rows) or '<div class="s-a54b67c5">No security events recorded.</div>', content_type="text/html")
+        return HttpResponse(
+            "".join(rows) or '<div class="s-a54b67c5">No security events recorded.</div>',
+            content_type="text/html",
+        )
 
     # Support standard Last-Event-ID header and last_id query param
     last_id_str = request.headers.get("Last-Event-ID") or request.GET.get("last_id")

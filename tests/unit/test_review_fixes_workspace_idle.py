@@ -1,4 +1,5 @@
 """Workspace idle timeout (15 minutes) with a warning; separate from the 12 hour absolute lifetime."""
+
 import time
 
 import pytest
@@ -12,9 +13,13 @@ from apps.accounts.models import AuthenticationPolicy, CustomUser
 @pytest.fixture
 def employee(db):
     return CustomUser.objects.create(
-        email="idle.emp@salowtech.com", employee_id="EMP-WIDLE-01", full_name="Idle Employee",
-        password=make_password("SalowStrongPassword2026!"), role=CustomUser.Role.EMPLOYEE,
-        status=CustomUser.Status.ACTIVE, is_active=True,
+        email="idle.emp@salowtech.com",
+        employee_id="EMP-WIDLE-01",
+        full_name="Idle Employee",
+        password=make_password("SalowStrongPassword2026!"),
+        role=CustomUser.Role.EMPLOYEE,
+        status=CustomUser.Status.ACTIVE,
+        is_active=True,
     )
 
 
@@ -42,8 +47,13 @@ def test_default_limit_is_fifteen_minutes_and_warning_two_minutes(db):
 
 def test_active_workspace_policy_value_is_used(db):
     AuthenticationPolicy.objects.filter(domain="workspace").update(is_active=False)
-    AuthenticationPolicy.objects.create(domain="workspace", version=50, idle_session_timeout_minutes=20, is_active=True,
-                                        justification="t")
+    AuthenticationPolicy.objects.create(
+        domain="workspace",
+        version=50,
+        idle_session_timeout_minutes=20,
+        is_active=True,
+        justification="t",
+    )
     assert workspace_idle.idle_limit_seconds() == 20 * 60
 
 
@@ -122,7 +132,11 @@ def test_idle_signout_leaves_other_sessions_of_the_same_user_alone(employee):
     b.force_login(employee)
     _age(a, 16 * 60)
     a.get("/directory/")
-    assert "_auth_user_id" not in a.client.session if hasattr(a, "client") else "_auth_user_id" not in a.session
+    assert (
+        "_auth_user_id" not in a.client.session
+        if hasattr(a, "client")
+        else "_auth_user_id" not in a.session
+    )
     assert "_auth_user_id" in b.session
 
 

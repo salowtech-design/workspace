@@ -20,7 +20,9 @@ if os.environ.get("DEV_VERIFIER", "false").lower() in ("true", "1", "yes"):
 
 SECRET_KEY = os.environ.get("DJANGO_SECRET_KEY")
 if SECRET_KEY and SECRET_KEY.startswith("change-me"):
-    raise ImproperlyConfigured("DJANGO_SECRET_KEY is the .env.example placeholder. Generate a new secret.")
+    raise ImproperlyConfigured(
+        "DJANGO_SECRET_KEY is the .env.example placeholder. Generate a new secret."
+    )
 if not SECRET_KEY or len(SECRET_KEY) < 50:
     raise ImproperlyConfigured(
         "DJANGO_SECRET_KEY must be set in production and be at least 50 characters long."
@@ -86,7 +88,14 @@ if not raw_session_key or len(raw_session_key) < 32:
     )
 
 # Disallow key reuse across purposes
-key_set = {SECRET_KEY, raw_audit_key, raw_activation_key, raw_session_key, raw_biometric_key, raw_email_key}
+key_set = {
+    SECRET_KEY,
+    raw_audit_key,
+    raw_activation_key,
+    raw_session_key,
+    raw_biometric_key,
+    raw_email_key,
+}
 if len(key_set) < 6:
     raise ImproperlyConfigured(
         "Cryptographic keys must be unique per purpose; key duplication across purposes is strictly prohibited."

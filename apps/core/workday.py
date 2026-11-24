@@ -39,7 +39,9 @@ def get_workday_boundaries(work_date: date) -> Tuple[datetime, datetime]:
     return start, end
 
 
-def is_session_crossing_midnight(session: WorkSession, check_time: Optional[datetime] = None) -> bool:
+def is_session_crossing_midnight(
+    session: WorkSession, check_time: Optional[datetime] = None
+) -> bool:
     """
     Checks if an open session started on a previous calendar date in Asia/Kolkata.
     Per v4.0 invariant: Midnight does NOT close an attendance session.
@@ -92,7 +94,9 @@ def refresh_daily_workspace_context(
     post_status = "submitted" if today_post else "pending"
 
     # 3. Preserved Historical Evidence Counters (Historical data MUST NOT be deleted)
-    historical_attendance_count = WorkSession.objects.filter(user=user).exclude(work_date=today).count()
+    historical_attendance_count = (
+        WorkSession.objects.filter(user=user).exclude(work_date=today).count()
+    )
     historical_posts_count = Post.objects.filter(author=user).exclude(work_date=today).count()
     total_certificates_count = Certificate.objects.filter(recipient=user).count()
     total_audit_count = AuditLog.objects.count()

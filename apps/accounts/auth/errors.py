@@ -32,7 +32,10 @@ CATALOGUE: dict[str, AuthErrorDefinition] = {
     "AUTH-MFA-001": AuthErrorDefinition(
         "AUTH-MFA-001", "Authenticator credential could not be initialized."
     ),
-    "AUTH-MFA-002": AuthErrorDefinition("AUTH-MFA-002", "Authenticator code is incorrect. If it keeps failing, check that your phone's date and time are set automatically."),
+    "AUTH-MFA-002": AuthErrorDefinition(
+        "AUTH-MFA-002",
+        "Authenticator code is incorrect. If it keeps failing, check that your phone's date and time are set automatically.",
+    ),
     "AUTH-MFA-003": AuthErrorDefinition(
         "AUTH-MFA-003",
         "Authenticator code has already been used. Please wait for the next 30-second code.",

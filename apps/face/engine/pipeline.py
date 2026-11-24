@@ -47,6 +47,7 @@ ONNX_RUNTIME_AVAILABLE: bool = False
 
 try:
     import onnxruntime as ort  # type: ignore # noqa: F401
+
     ONNX_RUNTIME_AVAILABLE = True
 except ImportError:
     ONNX_RUNTIME_AVAILABLE = False
@@ -57,6 +58,7 @@ class BiometricPipelineUnavailableError(Exception):
     Raised when live camera sensor hardware or ONNX inference models are not available.
     Classified as BLOCKED — EXTERNAL DEPENDENCY in compliance reports.
     """
+
     pass
 
 
@@ -65,6 +67,7 @@ class Biometric1ToNForbiddenError(Exception):
     Raised if any caller attempts 1:N identification (searching across multiple users).
     Salow Security Architecture strictly mandates 1:1 user-bound verification.
     """
+
     pass
 
 
@@ -156,7 +159,9 @@ class FaceInferencePipeline:
         try:
             enrolled_embedding = decrypt_template(template.encrypted_template, key_ring)
         except Exception as exc:
-            logger.error("Failed to decrypt enrolled template for %s: %s", target_user.employee_id, exc)
+            logger.error(
+                "Failed to decrypt enrolled template for %s: %s", target_user.employee_id, exc
+            )
             return VerificationResult(
                 success=False,
                 confidence_score=0.0,
@@ -216,7 +221,12 @@ class FaceInferencePipeline:
         Enforce security invariant: Reject any request that attempts to pass
         client-side boolean verification flags (e.g., face_verified=True).
         """
-        prohibited_keys = ["face_verified", "is_face_verified", "biometric_passed", "override_liveness"]
+        prohibited_keys = [
+            "face_verified",
+            "is_face_verified",
+            "biometric_passed",
+            "override_liveness",
+        ]
         for key in prohibited_keys:
             if key in data and data[key] is True:
                 raise ValueError(

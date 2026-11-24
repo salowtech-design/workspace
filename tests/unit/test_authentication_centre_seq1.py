@@ -169,13 +169,17 @@ def iam_admin_pair(db):
 def test_auth_001_iam_signin_valid_credentials_and_totp(iam_admin_pair):
     (admin, raw_totp), _ = iam_admin_pair
     rf = RequestFactory()
-    request = rf.post("/auth/sign-in/", {
-        "admin_id": admin.admin_id,
-        "password": "IamMasterSecretPassword2026!#",
-        "totp_code": pyotp.TOTP(raw_totp).now(),
-    })
+    request = rf.post(
+        "/auth/sign-in/",
+        {
+            "admin_id": admin.admin_id,
+            "password": "IamMasterSecretPassword2026!#",
+            "totp_code": pyotp.TOTP(raw_totp).now(),
+        },
+    )
 
     from apps.accounts.views.authentication_centre import iam_sign_in_canonical_view
+
     response = iam_sign_in_canonical_view(request)
 
     assert response.status_code == 302
@@ -280,6 +284,7 @@ def test_auth_006_workspace_session_rejected_on_iam(workspace_user):
     request.session = MagicMock(session_key="ws-session-token-12345")
 
     from apps.accounts.views.authentication_centre import auth_centre_landing_view
+
     response = auth_centre_landing_view(request)
 
     # Must redirect to IAM sign-in
@@ -347,6 +352,7 @@ def test_auth_009_workspace_activation_one_time_expiry(workspace_user):
 @pytest.mark.django_db
 def test_auth_010_ten_recovery_codes_hashed(workspace_user):
     from apps.accounts.auth.recovery_codes import hash_recovery_code
+
     codes = generate_ten_recovery_codes(workspace_user)
     assert len(codes) == 10
 
@@ -436,15 +442,21 @@ def test_auth_014_immediate_revocation_enforced(iam_admin_pair):
 # ==============================================================================
 @pytest.mark.django_db
 def test_auth_015_durable_correlated_audit_event():
-    tx = start_auth_transaction(domain="workspace", identity_ref="EMP-SEQ1-TEST", client_ip="1.2.3.4")
+    tx = start_auth_transaction(
+        domain="workspace", identity_ref="EMP-SEQ1-TEST", client_ip="1.2.3.4"
+    )
     record_transaction_stage(tx.transaction_id, "password_check", "PASS", "Password verified")
     complete_auth_transaction(tx.transaction_id, "success", reason_category="test_complete")
 
-    events = list(AuthEvent.objects.filter(reference_id=tx.transaction_id).values_list("event", flat=True))
+    events = list(
+        AuthEvent.objects.filter(reference_id=tx.transaction_id).values_list("event", flat=True)
+    )
     assert len(events) >= 2
     assert "auth.requested" in events
     assert "auth.terminal.success" in events
-    assert AuthEvent.objects.filter(reference_id=tx.transaction_id, employee_id="EMP-SEQ1-TEST").exists()
+    assert AuthEvent.objects.filter(
+        reference_id=tx.transaction_id, employee_id="EMP-SEQ1-TEST"
+    ).exists()
 
 
 # ==============================================================================
@@ -475,7 +487,9 @@ def test_auth_017_object_level_permissions_prevent_tampering(workspace_user):
 # ==============================================================================
 @pytest.mark.django_db
 def test_auth_018_secret_leakage_scan():
-    tx = start_auth_transaction(domain="workspace", identity_ref="EMP-SECRET-CHECK", client_ip="1.2.3.4")
+    tx = start_auth_transaction(
+        domain="workspace", identity_ref="EMP-SECRET-CHECK", client_ip="1.2.3.4"
+    )
     record_transaction_stage(tx.transaction_id, "password_check", "PASS", "Scrubbed details only")
     complete_auth_transaction(tx.transaction_id, "success")
 
@@ -545,7 +559,9 @@ def test_auth_021_iam_recovery_requires_dual_control_no_self_approval(iam_admin_
     with pytest.raises(PermissionDenied):
         approve_iam_recovery_case(case.case_id, approver=admin1, note="Self approval attempt")
 
-    approved_case = approve_iam_recovery_case(case.case_id, approver=admin2, note="Verified via secure channel")
+    approved_case = approve_iam_recovery_case(
+        case.case_id, approver=admin2, note="Verified via secure channel"
+    )
     assert approved_case.first_approver == admin2
     assert approved_case.approval_state == IAMRecoveryCase.ApprovalState.FIRST_APPROVED
 
@@ -560,6 +576,7 @@ def test_auth_022_three_workspace_recovery_pathways(workspace_user):
     assert rec_obj is not None
 
     from apps.accounts.auth.reset import self_service_reset_password
+
     self_service_reset_password(
         employee_id=workspace_user.employee_id,
         credential_token=codes[0],
@@ -570,6 +587,7 @@ def test_auth_022_three_workspace_recovery_pathways(workspace_user):
     assert check_password("NewSecuredPassword2026!#", workspace_user.password) is True
 
     from apps.accounts.models import PasskeyCredential
+
     assert hasattr(PasskeyCredential, "credential_id")
 
 
@@ -610,7 +628,9 @@ def test_auth_024_risk_challenge_or_deny_enforced(workspace_user):
         time=now,
     )
 
-    score, signals = evaluate_login_risk(workspace_user, client_ip="198.51.100.99", user_agent="Unknown-Bot")
+    score, signals = evaluate_login_risk(
+        workspace_user, client_ip="198.51.100.99", user_agent="Unknown-Bot"
+    )
     assert score >= 35
     assert len(signals) > 0
 
@@ -633,7 +653,9 @@ def test_auth_025_password_spraying_detection_triggers_alert():
         )
         record_auth_failure_and_check_spray(attacker_ip, attempted_id=f"EMP-SPRAY-{i}")
 
-    alert = SecurityAlert.objects.filter(category=SecurityAlert.Category.REPEATED_AUTH_FAILURES).first()
+    alert = SecurityAlert.objects.filter(
+        category=SecurityAlert.Category.REPEATED_AUTH_FAILURES
+    ).first()
     assert alert is not None
     assert "spray" in alert.title.lower() or "spray" in alert.description.lower()
 
@@ -726,12 +748,16 @@ def test_auth_030_all_controls_map_to_real_backend_handlers(iam_admin_pair, work
     assert r1["status"] == "success"
 
     # 2. execute_revoke_device
-    dev = ApprovedDevice.objects.create(user=workspace_user, device_id="fp-test-01", display_name="Laptop")
+    dev = ApprovedDevice.objects.create(
+        user=workspace_user, device_id="fp-test-01", display_name="Laptop"
+    )
     r2 = execute_revoke_device("fp-test-01", admin, "Stolen device report")
     assert r2["status"] == "success"
 
     # 3. execute_temporary_restriction
-    r3 = execute_temporary_restriction(workspace_user.employee_id, "workspace", admin, 15, "Suspicious velocity")
+    r3 = execute_temporary_restriction(
+        workspace_user.employee_id, "workspace", admin, 15, "Suspicious velocity"
+    )
     assert r3["status"] == "success"
 
     # 4. execute_release_lock
@@ -739,7 +765,9 @@ def test_auth_030_all_controls_map_to_real_backend_handlers(iam_admin_pair, work
     assert r4["status"] == "success"
 
     # 5. execute_acknowledge_alert
-    alert = SecurityAlert.objects.create(title="Test Alert", category=SecurityAlert.Category.REPEATED_AUTH_FAILURES)
+    alert = SecurityAlert.objects.create(
+        title="Test Alert", category=SecurityAlert.Category.REPEATED_AUTH_FAILURES
+    )
     r5 = execute_acknowledge_alert(alert.id, admin, "Investigating")
     assert r5["status"] == "success"
 
@@ -750,9 +778,13 @@ def test_auth_030_all_controls_map_to_real_backend_handlers(iam_admin_pair, work
 
     # 7. execute_start_investigation
     tx = start_auth_transaction("workspace", "EMP-TEST", "127.0.0.1")
-    r7 = execute_start_investigation(tx.transaction_id, admin, "Suspicious Activity", "Follow up immediately")
+    r7 = execute_start_investigation(
+        tx.transaction_id, admin, "Suspicious Activity", "Follow up immediately"
+    )
     assert r7["status"] == "success"
 
     # 8. save_policy_version
-    r8 = save_policy_version("workspace", 12, 5, 15, 15, 15, 12, True, True, admin.user, "Updated control check")
+    r8 = save_policy_version(
+        "workspace", 12, 5, 15, 15, 15, 12, True, True, admin.user, "Updated control check"
+    )
     assert r8.version > 0

@@ -61,4 +61,3 @@ def _configure_sqlite_wal(sender, connection, **kwargs):
                 cursor.execute("PRAGMA busy_timeout=30000;")
         except Exception:
             pass
-

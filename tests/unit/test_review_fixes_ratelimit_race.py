@@ -1,5 +1,6 @@
 """Found by the TiDB concurrency run: two simultaneous first requests for a rate-limit key raced on the
 unique bucket_key, logged a database error and (on sensitive endpoints) returned a spurious 503."""
+
 from datetime import timedelta
 from unittest import mock
 
@@ -38,11 +39,19 @@ class _MissesOnce:
 @override_settings(DEBUG=False)
 def test_first_request_race_counts_against_winner_row_and_does_not_503():
     RateLimitMiddleware.reset()
-    req = RequestFactory().post("/auth/login/", {"employee_id": "RACE-1"}, REMOTE_ADDR="198.51.100.9")
+    req = RequestFactory().post(
+        "/auth/login/", {"employee_id": "RACE-1"}, REMOTE_ADDR="198.51.100.9"
+    )
     key = "198.51.100.9:sensitive"
-    RateLimitBucket.objects.create(bucket_key=key, count=1, reset_at=timezone.now() + timedelta(seconds=60))
+    RateLimitBucket.objects.create(
+        bucket_key=key, count=1, reset_at=timezone.now() + timedelta(seconds=60)
+    )
     mw = RateLimitMiddleware(lambda r: HttpResponse("ok"))
-    with mock.patch.object(RateLimitBucket.objects, "select_for_update", side_effect=lambda: _MissesOnce(RateLimitBucket.objects)):
+    with mock.patch.object(
+        RateLimitBucket.objects,
+        "select_for_update",
+        side_effect=lambda: _MissesOnce(RateLimitBucket.objects),
+    ):
         resp = mw(req)
     assert resp.status_code == 200
     assert RateLimitBucket.objects.get(bucket_key=key).count == 2

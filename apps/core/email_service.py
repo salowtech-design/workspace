@@ -33,11 +33,15 @@ def _get_encryption_key(key_id: Optional[str] = None) -> tuple[bytes, str]:
     kid = key_id or os.getenv("EMAIL_PAYLOAD_ACTIVE_KEY_ID", "k1")
     key = keys.get(kid)
     if not key:
-        key_hex = os.getenv("EMAIL_PAYLOAD_KEY_HEX") or getattr(settings, "EMAIL_PAYLOAD_KEY_HEX", None)
+        key_hex = os.getenv("EMAIL_PAYLOAD_KEY_HEX") or getattr(
+            settings, "EMAIL_PAYLOAD_KEY_HEX", None
+        )
         if key_hex and len(key_hex) == 64:
             return bytes.fromhex(key_hex), kid
         if not getattr(settings, "DEBUG", True) and not getattr(settings, "TESTING", False):
-            raise ImproperlyConfigured("Valid encryption key required for email payload encryption.")
+            raise ImproperlyConfigured(
+                "Valid encryption key required for email payload encryption."
+            )
         key = hashlib.sha256(b"SalowWorkspaceEmailPayloadDevOnly2026").digest()
     return key, kid
 
@@ -174,7 +178,11 @@ def notify_admin_reset_approved(employee_id: str, employee_email: str, reset_url
         subject=subject,
         body_text=body,
         notification_type="admin_reset_approved",
-        sensitive_payload={"reset_url": reset_url, "template": template, "employee_id": employee_id},
+        sensitive_payload={
+            "reset_url": reset_url,
+            "template": template,
+            "employee_id": employee_id,
+        },
     )
 
 
@@ -236,7 +244,11 @@ def notify_email_reset_link_requested(employee_id: str, employee_email: str, res
         subject=subject,
         body_text=body,
         notification_type="email_reset_link",
-        sensitive_payload={"reset_url": reset_url, "template": template, "employee_id": employee_id},
+        sensitive_payload={
+            "reset_url": reset_url,
+            "template": template,
+            "employee_id": employee_id,
+        },
     )
 
 
@@ -264,7 +276,11 @@ def notify_mfa_replacement_requested(employee_id: str, employee_email: str, veri
         subject=subject,
         body_text=body,
         notification_type="mfa_replacement_requested",
-        sensitive_payload={"verification_url": verification_url, "template": template, "employee_id": employee_id},
+        sensitive_payload={
+            "verification_url": verification_url,
+            "template": template,
+            "employee_id": employee_id,
+        },
     )
 
 
@@ -348,7 +364,11 @@ def send_email_verification_link(employee_id: str, employee_email: str, verifica
         subject=subject,
         body_text=body,
         notification_type="email_verification",
-        sensitive_payload={"verification_url": verification_url, "template": template, "employee_id": employee_id},
+        sensitive_payload={
+            "verification_url": verification_url,
+            "template": template,
+            "employee_id": employee_id,
+        },
     )
 
 
@@ -376,13 +396,16 @@ def process_email_outbox(batch_size: int = 50) -> tuple[int, int]:
     claimed_ids = []
     with transaction.atomic():
         can_skip = getattr(connection.features, "has_select_for_update_skip_locked", False)
-        qs = EmailOutbox.objects.select_for_update(skip_locked=True) if can_skip else EmailOutbox.objects.select_for_update()
+        qs = (
+            EmailOutbox.objects.select_for_update(skip_locked=True)
+            if can_skip
+            else EmailOutbox.objects.select_for_update()
+        )
         candidates = list(
             qs.filter(
                 status__in=[EmailOutbox.Status.QUEUED, EmailOutbox.Status.RETRY_PENDING],
                 scheduled_at__lte=now,
-            )
-            .order_by("created_at")[:batch_size]
+            ).order_by("created_at")[:batch_size]
         )
         for item in candidates:
             item.status = EmailOutbox.Status.SENDING
@@ -433,7 +456,9 @@ def process_email_outbox(batch_size: int = 50) -> tuple[int, int]:
             except Exception as e:
                 failed = True
                 error_msg = f"Failed to decrypt payload: {e}"
-                logger.error("Failed to decrypt sensitive email payload for outbox %s: %s", item.id, e)
+                logger.error(
+                    "Failed to decrypt sensitive email payload for outbox %s: %s", item.id, e
+                )
 
         if not failed:
             try:
@@ -449,7 +474,9 @@ def process_email_outbox(batch_size: int = 50) -> tuple[int, int]:
             except Exception as exc:  # noqa: BLE001
                 failed = True
                 error_msg = str(exc)
-                logger.warning("Failed to send email %s to %s: %s", item.id, item.recipient, error_msg)
+                logger.warning(
+                    "Failed to send email %s to %s: %s", item.id, item.recipient, error_msg
+                )
 
         with transaction.atomic():
             if failed:
@@ -463,7 +490,16 @@ def process_email_outbox(batch_size: int = 50) -> tuple[int, int]:
                     backoff_seconds = min(3600, 30 * (2 ** (item.retry_count - 1)))
                     item.scheduled_at = timezone.now() + timezone.timedelta(seconds=backoff_seconds)
                 item.claimed_by = ""
-                item.save(update_fields=["status", "retry_count", "last_error", "scheduled_at", "claimed_by", "updated_at"])
+                item.save(
+                    update_fields=[
+                        "status",
+                        "retry_count",
+                        "last_error",
+                        "scheduled_at",
+                        "claimed_by",
+                        "updated_at",
+                    ]
+                )
             else:
                 success_count += 1
                 item.status = EmailOutbox.Status.ACCEPTED_BY_TRANSPORT

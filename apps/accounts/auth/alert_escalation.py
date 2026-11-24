@@ -52,7 +52,11 @@ def escalate_unacknowledged_alerts() -> List[SecurityAlert]:
             # 1. Enqueue outbox notification to designated security reviewers
             reviewer_emails = list(
                 CustomUser.objects.filter(
-                    role__in=(CustomUser.Role.SECURITY_REVIEWER, CustomUser.Role.SECURITY_ADMIN, CustomUser.Role.SUPER_ADMIN),
+                    role__in=(
+                        CustomUser.Role.SECURITY_REVIEWER,
+                        CustomUser.Role.SECURITY_ADMIN,
+                        CustomUser.Role.SUPER_ADMIN,
+                    ),
                     status=CustomUser.Status.ACTIVE,
                 ).values_list("email", flat=True)
             )

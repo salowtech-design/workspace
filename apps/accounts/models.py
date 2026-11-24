@@ -271,7 +271,9 @@ class ApprovedDevice(models.Model):
     user = models.ForeignKey(CustomUser, on_delete=models.CASCADE, related_name="approved_devices")
     device_id = models.CharField(max_length=64, unique=True, db_index=True)
     display_name = models.CharField(max_length=128)
-    device_type = models.CharField(max_length=32, choices=DeviceType.choices, default=DeviceType.DESKTOP)
+    device_type = models.CharField(
+        max_length=32, choices=DeviceType.choices, default=DeviceType.DESKTOP
+    )
     platform_metadata = models.TextField(blank=True, default="{}")
     registration_time = models.DateTimeField(auto_now_add=True)
     last_used_time = models.DateTimeField(auto_now=True)
@@ -315,6 +317,7 @@ class UserSession(models.Model):
     def save(self, *args, **kwargs):
         if self.session_key and not self.session_digest:
             from apps.accounts.auth.session_backend import hash_session_bearer
+
             self.session_digest = hash_session_bearer(self.session_key)
         super().save(*args, **kwargs)
 
@@ -564,13 +567,17 @@ class SecurityAlert(models.Model):
         RESOLVED = "resolved", "Resolved"
 
     category = models.CharField(max_length=64, choices=Category.choices, db_index=True)
-    severity = models.CharField(max_length=16, choices=Severity.choices, default=Severity.HIGH, db_index=True)
+    severity = models.CharField(
+        max_length=16, choices=Severity.choices, default=Severity.HIGH, db_index=True
+    )
     title = models.CharField(max_length=255)
     description = models.TextField(blank=True, default="")
     employee_id = models.CharField(max_length=32, blank=True, db_index=True)
     network_address = models.GenericIPAddressField(null=True, blank=True)
     reference_id = models.CharField(max_length=64, blank=True, db_index=True)
-    status = models.CharField(max_length=20, choices=Status.choices, default=Status.OPEN, db_index=True)
+    status = models.CharField(
+        max_length=20, choices=Status.choices, default=Status.OPEN, db_index=True
+    )
     created_at = models.DateTimeField(auto_now_add=True, db_index=True)
 
     # Triaged / Acknowledged
@@ -685,6 +692,7 @@ class IAMSession(models.Model):
     def save(self, *args, **kwargs):
         if self.session_key and not self.session_digest:
             from apps.accounts.auth.iam_auth import hash_session_bearer
+
             self.session_digest = hash_session_bearer(self.session_key)
         super().save(*args, **kwargs)
 
@@ -1055,12 +1063,18 @@ class IAMAdminPresence(models.Model):
         from django.utils import timezone
         from apps.accounts.auth.iam_auth import effective_iam_idle_timeout_minutes
 
-        if not self.admin_identity.user.is_active or self.admin_identity.status != IAMAdminIdentity.Status.ACTIVE:
+        if (
+            not self.admin_identity.user.is_active
+            or self.admin_identity.status != IAMAdminIdentity.Status.ACTIVE
+        ):
             return "REVOKED"
         session = IAMSession.objects.filter(session_key=self.session_key).first()
         if not session or not session.is_active:
             return "REVOKED"
-        if session.last_activity and (timezone.now() - session.last_activity > timedelta(minutes=effective_iam_idle_timeout_minutes())):
+        if session.last_activity and (
+            timezone.now() - session.last_activity
+            > timedelta(minutes=effective_iam_idle_timeout_minutes())
+        ):
             return "EXPIRED"
         age_seconds = (timezone.now() - self.last_heartbeat).total_seconds()
         if age_seconds <= 15:
@@ -1185,8 +1199,6 @@ class IAMRecoveryCase(models.Model):
         return f"IAM Recovery Case {self.case_id} for {self.requester_identity_ref} ({self.status})"
 
 
-
-
 class PrivilegeElevation(models.Model):
     """Shared (database) record of step-up (sudo) and break-glass grants.
 
@@ -1206,7 +1218,9 @@ class PrivilegeElevation(models.Model):
 
     class Meta:
         constraints = [
-            models.UniqueConstraint(fields=["user_id_ref", "kind"], name="uniq_privilege_elevation_user_kind"),
+            models.UniqueConstraint(
+                fields=["user_id_ref", "kind"], name="uniq_privilege_elevation_user_kind"
+            ),
         ]
 
     def __str__(self):

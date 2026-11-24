@@ -1,4 +1,5 @@
 """IAM admin sessions expire after 5 minutes of inactivity; absolute expiry is separate (8 hours)."""
+
 from datetime import timedelta
 
 import pytest
@@ -30,7 +31,9 @@ def session_and_token(db):
         is_active=True,
     )
     admin, _ = create_iam_admin_identity(
-        user=user, admin_id="IAM-IDLE-01", password="IamMasterSecretPassword2026!#",
+        user=user,
+        admin_id="IAM-IDLE-01",
+        password="IamMasterSecretPassword2026!#",
         role=IAMAdminIdentity.Role.SUPER_ADMIN,
     )
     setup = RequestFactory().get("/")
@@ -93,13 +96,19 @@ def test_background_polling_does_not_reset_idle_clock(session_and_token, path):
 def test_polling_alone_cannot_keep_session_past_five_minutes(session_and_token):
     session, token = session_and_token
     _set_times(session, last_activity=timezone.now() - timedelta(minutes=6))
-    assert get_iam_session_from_request(_request(token, "/console/authentication/live-feed/")) is None
+    assert (
+        get_iam_session_from_request(_request(token, "/console/authentication/live-feed/")) is None
+    )
 
 
 def test_absolute_expiry_is_separate_from_idle(session_and_token):
     """An active admin is still signed out after 8 hours."""
     session, token = session_and_token
-    _set_times(session, last_activity=timezone.now(), created_at=timezone.now() - timedelta(hours=8, minutes=1))
+    _set_times(
+        session,
+        last_activity=timezone.now(),
+        created_at=timezone.now() - timedelta(hours=8, minutes=1),
+    )
     assert get_iam_session_from_request(_request(token)) is None
 
 
@@ -114,13 +123,19 @@ def test_default_iam_policy_idle_baseline_is_five(db):
 
 # --- Policy consistency: stored policy value, displayed value and enforced value agree ---
 
+
 def _legacy_iam_policy(idle):
     from apps.accounts.models import AuthenticationPolicy
 
     AuthenticationPolicy.objects.filter(domain="iam").update(is_active=False)
     return AuthenticationPolicy.objects.create(
-        domain="iam", version=99, idle_session_timeout_minutes=idle, absolute_session_timeout_hours=8,
-        password_min_length=16, is_active=True, justification="test",
+        domain="iam",
+        version=99,
+        idle_session_timeout_minutes=idle,
+        absolute_session_timeout_hours=8,
+        password_min_length=16,
+        is_active=True,
+        justification="test",
     )
 
 
@@ -145,13 +160,23 @@ def test_iam_policy_cannot_be_saved_above_five(db, session_and_token):
     from apps.accounts.auth.authentication_centre import save_policy_version
 
     kwargs = dict(
-        domain="iam", password_min_length=16, failed_login_threshold=3, lockout_window_minutes=15,
-        lockout_duration_minutes=15, absolute_session_timeout_hours=8, mfa_required=True,
-        device_approval_required=False, editor_user=None, justification="why",
+        domain="iam",
+        password_min_length=16,
+        failed_login_threshold=3,
+        lockout_window_minutes=15,
+        lockout_duration_minutes=15,
+        absolute_session_timeout_hours=8,
+        mfa_required=True,
+        device_approval_required=False,
+        editor_user=None,
+        justification="why",
     )
     with pytest.raises(ValidationError):
         save_policy_version(idle_session_timeout_minutes=6, **kwargs)
-    assert save_policy_version(idle_session_timeout_minutes=5, **kwargs).idle_session_timeout_minutes == 5
+    assert (
+        save_policy_version(idle_session_timeout_minutes=5, **kwargs).idle_session_timeout_minutes
+        == 5
+    )
 
 
 def test_workspace_policy_idle_is_not_capped(db):
@@ -162,6 +187,7 @@ def test_workspace_policy_idle_is_not_capped(db):
 
 
 # --- Full request path (middleware, urls, views) on the IAM host ---
+
 
 def _iam_client(token):
     from django.conf import settings

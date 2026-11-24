@@ -4,6 +4,7 @@ Safe for production. Schedule it (cron or a timer), for example every 15 minutes
 Rows with a timestamp in the future (IP blocks written by spraying detection) are kept
 until they expire.
 """
+
 import time
 from datetime import timedelta
 

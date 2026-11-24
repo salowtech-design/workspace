@@ -42,6 +42,8 @@ from apps.accounts.models import (
 IAM_ADMIN_MIN_PASSWORD_LENGTH = 16
 IAM_SESSION_COOKIE_NAME = getattr(settings, "IAM_SESSION_COOKIE_NAME", "__Host-salow_iam_session")
 IAM_SESSION_IDLE_TIMEOUT_MINUTES = 5
+
+
 # Background polling (live feeds, presence heartbeat) must not count as admin activity,
 # otherwise a dashboard left open in a browser would never reach the idle timeout.
 def effective_iam_idle_timeout_minutes() -> int:
@@ -54,12 +56,16 @@ def effective_iam_idle_timeout_minutes() -> int:
         from apps.accounts.models import AuthenticationPolicy
 
         policy = (
-            AuthenticationPolicy.objects.filter(domain=AuthenticationPolicy.Domain.IAM, is_active=True)
+            AuthenticationPolicy.objects.filter(
+                domain=AuthenticationPolicy.Domain.IAM, is_active=True
+            )
             .order_by("-version")
             .first()
         )
         if policy is not None:
-            return max(1, min(IAM_SESSION_IDLE_TIMEOUT_MINUTES, int(policy.idle_session_timeout_minutes)))
+            return max(
+                1, min(IAM_SESSION_IDLE_TIMEOUT_MINUTES, int(policy.idle_session_timeout_minutes))
+            )
     except Exception:
         pass
     return IAM_SESSION_IDLE_TIMEOUT_MINUTES
@@ -159,7 +165,9 @@ def authenticate_iam_admin(
         if not iam_admin:
             record_failed_attempt(lockout_key, threshold=3)
             # Prevent timing enumeration
-            check_password(password, "pbkdf2_sha256$600000$dummy$dummypasswordhashforunknownaccounts")
+            check_password(
+                password, "pbkdf2_sha256$600000$dummy$dummypasswordhashforunknownaccounts"
+            )
             raise AuthException(
                 "AUTH-IAM-001",
                 step="iam_login",
@@ -174,16 +182,12 @@ def authenticate_iam_admin(
             )
 
         # Linked employee identity lifecycle synchronization (Phase 1 IAM Invariant)
-        if (
-            iam_admin.user.status != CustomUser.Status.ACTIVE
-            or not iam_admin.user.is_active
-        ):
+        if iam_admin.user.status != CustomUser.Status.ACTIVE or not iam_admin.user.is_active:
             raise AuthException(
                 "AUTH-IAM-006",
                 step="iam_login",
                 message_override=f"Authoritative employee identity is {iam_admin.user.status}. IAM administrator access denied.",
             )
-
 
         # 1. Verify password
         if not check_password(password, iam_admin.password_hash):
@@ -320,13 +324,17 @@ def get_iam_session_from_request(request) -> Optional[IAMSession]:
 
     now = timezone.now()
     # 1. Idle expiry check (inactivity since the last real request)
-    if session.last_activity and now - session.last_activity > timedelta(minutes=effective_iam_idle_timeout_minutes()):
+    if session.last_activity and now - session.last_activity > timedelta(
+        minutes=effective_iam_idle_timeout_minutes()
+    ):
         session.is_active = False
         session.save(update_fields=["is_active"])
         return None
 
     # 2. Absolute expiry check (hours since sign-in, independent of activity)
-    if session.created_at and now - session.created_at > timedelta(hours=IAM_SESSION_ABSOLUTE_TIMEOUT_HOURS):
+    if session.created_at and now - session.created_at > timedelta(
+        hours=IAM_SESSION_ABSOLUTE_TIMEOUT_HOURS
+    ):
         session.is_active = False
         session.save(update_fields=["is_active"])
         return None
@@ -340,7 +348,6 @@ def get_iam_session_from_request(request) -> Optional[IAMSession]:
         session.is_active = False
         session.save(update_fields=["is_active"])
         return None
-
 
     # Update last activity, except for background polling requests
     if not request.path.startswith(IAM_PASSIVE_PATH_PREFIXES):
@@ -370,10 +377,7 @@ def stepup_iam_assurance(
     Atomically locks IAMAdminIdentity to prevent TOTP replay races across workers.
     """
     with transaction.atomic():
-        iam_admin = (
-            IAMAdminIdentity.objects.select_for_update()
-            .get(id=iam_session.iam_admin_id)
-        )
+        iam_admin = IAMAdminIdentity.objects.select_for_update().get(id=iam_session.iam_admin_id)
         if not check_password(password, iam_admin.password_hash):
             return False
 
@@ -487,15 +491,21 @@ def approve_dual_approval_request(
     now = timezone.now()
     with transaction.atomic():
         req = (
-            IAMDualApprovalRequest.objects.select_for_update()
-            .filter(request_id=request_id)
-            .first()
+            IAMDualApprovalRequest.objects.select_for_update().filter(request_id=request_id).first()
         )
         if not req:
-            raise AuthException("AUTH-IAM-L3-002", step="dual_approval", message_override="Approval request not found.")
+            raise AuthException(
+                "AUTH-IAM-L3-002",
+                step="dual_approval",
+                message_override="Approval request not found.",
+            )
 
         if req.status != IAMDualApprovalRequest.Status.PENDING or req.expires_at <= now:
-            raise AuthException("AUTH-IAM-L3-003", step="dual_approval", message_override="Approval request is not pending or has expired.")
+            raise AuthException(
+                "AUTH-IAM-L3-003",
+                step="dual_approval",
+                message_override="Approval request is not pending or has expired.",
+            )
 
         # Strict No Self-Approval (Section 9)
         if approver_session.iam_admin.id == req.requester_id:
@@ -506,7 +516,9 @@ def approve_dual_approval_request(
             approver_session.iam_admin.role != IAMAdminIdentity.Role.SUPER_ADMIN
             or approver_session.iam_admin.status != IAMAdminIdentity.Status.ACTIVE
         ):
-            raise PermissionDenied("Only active Super Administrators can grant Level 3 dual approval.")
+            raise PermissionDenied(
+                "Only active Super Administrators can grant Level 3 dual approval."
+            )
 
         # Approver must hold fresh Level 2 step-up for the same action
         if (
@@ -552,38 +564,80 @@ def consume_dual_approval_request(
     with transaction.atomic():
         req = (
             IAMDualApprovalRequest.objects.select_for_update()
-            .select_related("requester__user", "approver__user", "requester_session", "approver_session")
+            .select_related(
+                "requester__user", "approver__user", "requester_session", "approver_session"
+            )
             .filter(request_id=request_id)
             .first()
         )
         if not req:
-            raise AuthException("AUTH-IAM-L3-005", step="dual_approval", message_override="Approval request not found.")
+            raise AuthException(
+                "AUTH-IAM-L3-005",
+                step="dual_approval",
+                message_override="Approval request not found.",
+            )
 
         if req.status != IAMDualApprovalRequest.Status.APPROVED or req.consumed_at is not None:
-            raise AuthException("AUTH-IAM-L3-006", step="dual_approval", message_override="Approval request is not approved or has already been consumed.")
+            raise AuthException(
+                "AUTH-IAM-L3-006",
+                step="dual_approval",
+                message_override="Approval request is not approved or has already been consumed.",
+            )
 
         if req.expires_at <= now:
-            raise AuthException("AUTH-IAM-L3-007", step="dual_approval", message_override="Dual approval request has expired.")
+            raise AuthException(
+                "AUTH-IAM-L3-007",
+                step="dual_approval",
+                message_override="Dual approval request has expired.",
+            )
 
         if req.action != expected_action or req.target_id != str(expected_target_id):
-            raise AuthException("AUTH-IAM-L3-008", step="dual_approval", message_override="Dual approval parameters do not match executed action.")
+            raise AuthException(
+                "AUTH-IAM-L3-008",
+                step="dual_approval",
+                message_override="Dual approval parameters do not match executed action.",
+            )
 
         # Revalidate payload digest if specified or bound
         if expected_payload_digest is not None:
             if req.payload_digest != expected_payload_digest:
-                raise AuthException("AUTH-IAM-L3-009", step="dual_approval", message_override="Dual approval payload digest mismatch.")
+                raise AuthException(
+                    "AUTH-IAM-L3-009",
+                    step="dual_approval",
+                    message_override="Dual approval payload digest mismatch.",
+                )
         elif req.payload_digest:
-            raise AuthException("AUTH-IAM-L3-009", step="dual_approval", message_override="Dual approval requires payload digest verification.")
+            raise AuthException(
+                "AUTH-IAM-L3-009",
+                step="dual_approval",
+                message_override="Dual approval requires payload digest verification.",
+            )
 
         # Revalidate requester status and authorization
         requester = req.requester
-        if not requester or requester.status != IAMAdminIdentity.Status.ACTIVE or not requester.user.is_active:
-            raise AuthException("AUTH-IAM-L3-010", step="dual_approval", message_override="Requester administrator account is no longer active.")
+        if (
+            not requester
+            or requester.status != IAMAdminIdentity.Status.ACTIVE
+            or not requester.user.is_active
+        ):
+            raise AuthException(
+                "AUTH-IAM-L3-010",
+                step="dual_approval",
+                message_override="Requester administrator account is no longer active.",
+            )
 
         # Revalidate approver status and authorization
         approver = req.approver
-        if not approver or approver.status != IAMAdminIdentity.Status.ACTIVE or not approver.user.is_active:
-            raise AuthException("AUTH-IAM-L3-011", step="dual_approval", message_override="Approver administrator account is no longer active.")
+        if (
+            not approver
+            or approver.status != IAMAdminIdentity.Status.ACTIVE
+            or not approver.user.is_active
+        ):
+            raise AuthException(
+                "AUTH-IAM-L3-011",
+                step="dual_approval",
+                message_override="Approver administrator account is no longer active.",
+            )
 
         # Revalidate separation of duties (no self-approval)
         if requester.id == approver.id:
@@ -591,10 +645,18 @@ def consume_dual_approval_request(
 
         # Revalidate sessions
         if req.requester_session and not req.requester_session.is_active:
-            raise AuthException("AUTH-IAM-L3-012", step="dual_approval", message_override="Requester session has expired or was revoked.")
+            raise AuthException(
+                "AUTH-IAM-L3-012",
+                step="dual_approval",
+                message_override="Requester session has expired or was revoked.",
+            )
 
         if req.approver_session and not req.approver_session.is_active:
-            raise AuthException("AUTH-IAM-L3-013", step="dual_approval", message_override="Approver session has expired or was revoked.")
+            raise AuthException(
+                "AUTH-IAM-L3-013",
+                step="dual_approval",
+                message_override="Approver session has expired or was revoked.",
+            )
 
         # Atomically consume
         req.status = IAMDualApprovalRequest.Status.CONSUMED
@@ -627,7 +689,9 @@ def check_iam_assurance(
     - Level 2: Sensitive action step-up re-authentication bound to action and valid.
     - Level 3: Privileged operation requiring Level 2 AND independent second approver Level 2 (no self-approval).
     """
-    iam_session: Optional[IAMSession] = getattr(request, "iam_session", None) or get_iam_session_from_request(request)
+    iam_session: Optional[IAMSession] = getattr(
+        request, "iam_session", None
+    ) or get_iam_session_from_request(request)
     if not iam_session or not iam_session.is_active:
         return False
 

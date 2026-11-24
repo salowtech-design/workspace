@@ -88,7 +88,11 @@ def activate_password_view(request):
             except AuthException as e:
                 error = e.user_message
 
-    return render(request, "accounts/activate/password.html", {"target_user": user, "user": user, "error": error})
+    return render(
+        request,
+        "accounts/activate/password.html",
+        {"target_user": user, "user": user, "error": error},
+    )
 
 
 def activate_mfa_setup_view(request):

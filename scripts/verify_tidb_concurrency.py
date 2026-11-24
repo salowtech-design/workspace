@@ -20,11 +20,13 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(BASE_DIR))
 
 from dotenv import load_dotenv
+
 load_dotenv(BASE_DIR / ".env")
 os.environ["USE_TIDB"] = "true"
 
 try:
     import pymysql
+
     pymysql.install_as_MySQLdb()
 except ImportError:
     pass
@@ -32,6 +34,7 @@ except ImportError:
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "config.settings.dev")
 
 import django
+
 django.setup()
 
 from django.db import connection, transaction
@@ -43,6 +46,7 @@ from apps.accounts.auth.mfa_totp import encrypt_secret, get_auth_key_ring, verif
 from apps.accounts.auth.recovery_codes import generate_ten_recovery_codes, redeem_recovery_code
 from apps.accounts.auth.activation import issue_activation_code, verify_and_consume_code
 from apps.accounts.auth.errors import AuthException
+
 
 def run_tidb_concurrency_audit():
     print("=" * 70)
@@ -77,7 +81,7 @@ def run_tidb_concurrency_audit():
                 "email": "tidb-concurrency@salowtech.internal",
                 "role": CustomUser.Role.EMPLOYEE,
                 "status": CustomUser.Status.ACTIVE,
-            }
+            },
         )
         if not user.password:
             user.set_password("TiDB-Pessimistic-Test-2026!")
@@ -107,7 +111,7 @@ def run_tidb_concurrency_audit():
     valid_code = totp.now()
 
     def attempt_verify(worker_id):
-        connection.close() # Force fresh connection per thread
+        connection.close()  # Force fresh connection per thread
         t0 = time.perf_counter()
         try:
             u = CustomUser.objects.get(id=user.id)
@@ -134,11 +138,13 @@ def run_tidb_concurrency_audit():
     print(f"[*] TOTP Results: {len(success_totp)} Successes, {len(fail_totp)} Rejections")
     for ok, wid, msg, el in results_totp:
         status_tag = "[PASS-OK]" if ok else "[REJECTED]"
-        print(f"    Worker {wid}: {status_tag} {msg} ({el*1000:.1f}ms)")
+        print(f"    Worker {wid}: {status_tag} {msg} ({el * 1000:.1f}ms)")
 
     assert len(success_totp) == 1, f"FAIL: Expected exactly 1 TOTP success, got {len(success_totp)}"
     assert len(fail_totp) == 4, f"FAIL: Expected 4 rejections, got {len(fail_totp)}"
-    print("[PASS] Test 1: Exactly 1 concurrent TOTP submission accepted, 4 replayed requests rejected.")
+    print(
+        "[PASS] Test 1: Exactly 1 concurrent TOTP submission accepted, 4 replayed requests rejected."
+    )
 
     # -------------------------------------------------------------
     # TEST 2: Concurrent Recovery Code Redemption
@@ -173,7 +179,7 @@ def run_tidb_concurrency_audit():
     print(f"[*] Recovery Code Results: {len(success_rc)} Redeemed, {len(fail_rc)} Rejected")
     for ok, wid, msg, el in results_rc:
         status_tag = "[REDEEMED]" if ok else "[BLOCKED]"
-        print(f"    Worker {wid}: {status_tag} {msg} ({el*1000:.1f}ms)")
+        print(f"    Worker {wid}: {status_tag} {msg} ({el * 1000:.1f}ms)")
 
     assert len(success_rc) == 1, f"FAIL: Expected exactly 1 redemption, got {len(success_rc)}"
     assert len(fail_rc) == 4, f"FAIL: Expected 4 rejections, got {len(fail_rc)}"
@@ -185,7 +191,9 @@ def run_tidb_concurrency_audit():
     print("\n--- [TEST 3] Concurrent Activation Code Redemption (5 Threads) ---")
     with transaction.atomic():
         ActivationCode.objects.filter(user=user).delete()
-    code_record, raw_activation = issue_activation_code(user=user, purpose=ActivationCode.Purpose.ACTIVATION)
+    code_record, raw_activation = issue_activation_code(
+        user=user, purpose=ActivationCode.Purpose.ACTIVATION
+    )
 
     def attempt_activate(worker_id):
         connection.close()
@@ -216,7 +224,7 @@ def run_tidb_concurrency_audit():
     print(f"[*] Activation Code Results: {len(success_act)} Consumed, {len(fail_act)} Rejected")
     for ok, wid, msg, el in results_act:
         status_tag = "[CONSUMED]" if ok else "[BLOCKED]"
-        print(f"    Worker {wid}: {status_tag} {msg} ({el*1000:.1f}ms)")
+        print(f"    Worker {wid}: {status_tag} {msg} ({el * 1000:.1f}ms)")
 
     assert len(success_act) == 1, f"FAIL: Expected exactly 1 consumption, got {len(success_act)}"
     assert len(fail_act) == 4, f"FAIL: Expected 4 rejections, got {len(fail_act)}"
@@ -227,6 +235,7 @@ def run_tidb_concurrency_audit():
     # -------------------------------------------------------------
     print("\n--- [TEST 4] Concurrent Rate-Limit Updates on TiDB (5 Threads, 10 Inserts) ---")
     from apps.core.models import RateLimitRecord
+
     test_rate_key = f"tidb_test_rate_{int(time.time())}"
     now_ts = time.time()
 
@@ -251,12 +260,16 @@ def run_tidb_concurrency_audit():
 
     rate_successes = sum(1 for ok, _, _ in results_rate if ok)
     db_count = RateLimitRecord.objects.filter(key=test_rate_key).count()
-    print(f"[*] Rate-Limit Concurrent Hits: {rate_successes}/10 successful, DB persisted count: {db_count}")
+    print(
+        f"[*] Rate-Limit Concurrent Hits: {rate_successes}/10 successful, DB persisted count: {db_count}"
+    )
     assert rate_successes == 10, f"Expected 10 successes, got {rate_successes}"
     assert db_count == 10, f"Expected 10 DB records, got {db_count}"
     # Cleanup test records
     RateLimitRecord.objects.filter(key=test_rate_key).delete()
-    print("[PASS] Test 4: Distributed rate-limit records inserted and counted atomically under concurrent load.")
+    print(
+        "[PASS] Test 4: Distributed rate-limit records inserted and counted atomically under concurrent load."
+    )
 
     # -------------------------------------------------------------
     # TEST 5: Concurrent Session Revocation on TiDB
@@ -301,20 +314,26 @@ def run_tidb_concurrency_audit():
             results_sess.append(f.result())
 
     for op, wid, val, el in results_sess:
-        print(f"    Worker {wid} [{op}]: {val} ({el*1000:.1f}ms)")
+        print(f"    Worker {wid} [{op}]: {val} ({el * 1000:.1f}ms)")
 
     # Ensure all sessions are completely cleared
     final_count = UserSession.objects.filter(user=user).count()
     assert final_count == 0, f"Expected 0 active sessions after revocation, found {final_count}"
-    print("[PASS] Test 5: Immediate multi-device session revocation purged all active sessions across connections.")
+    print(
+        "[PASS] Test 5: Immediate multi-device session revocation purged all active sessions across connections."
+    )
 
     # -------------------------------------------------------------
     # TEST 6: Concurrent MFA Replacement Token Consumption
     # -------------------------------------------------------------
     print("\n--- [TEST 6] Concurrent MFA Replacement Token Consumption (5 Threads) ---")
     with transaction.atomic():
-        ActivationCode.objects.filter(user=user, purpose=ActivationCode.Purpose.MFA_REPLACEMENT).delete()
-    mfa_rec, raw_mfa_code = issue_activation_code(user=user, purpose=ActivationCode.Purpose.MFA_REPLACEMENT)
+        ActivationCode.objects.filter(
+            user=user, purpose=ActivationCode.Purpose.MFA_REPLACEMENT
+        ).delete()
+    mfa_rec, raw_mfa_code = issue_activation_code(
+        user=user, purpose=ActivationCode.Purpose.MFA_REPLACEMENT
+    )
 
     def attempt_consume_mfa(worker_id):
         connection.close()
@@ -345,9 +364,11 @@ def run_tidb_concurrency_audit():
     print(f"[*] MFA Replacement Results: {len(success_mfa)} Consumed, {len(fail_mfa)} Rejected")
     for ok, wid, msg, el in results_mfa:
         status_tag = "[CONSUMED]" if ok else "[BLOCKED]"
-        print(f"    Worker {wid}: {status_tag} {msg} ({el*1000:.1f}ms)")
+        print(f"    Worker {wid}: {status_tag} {msg} ({el * 1000:.1f}ms)")
 
-    assert len(success_mfa) == 1, f"FAIL: Expected exactly 1 MFA replacement consumption, got {len(success_mfa)}"
+    assert len(success_mfa) == 1, (
+        f"FAIL: Expected exactly 1 MFA replacement consumption, got {len(success_mfa)}"
+    )
     assert len(fail_mfa) == 4, f"FAIL: Expected 4 rejections, got {len(fail_mfa)}"
     print("[PASS] Test 6: Exactly 1 concurrent MFA replacement token consumed, 4 rejected.")
 
@@ -356,7 +377,8 @@ def run_tidb_concurrency_audit():
     # -------------------------------------------------------------
     print("\n--- [TEST 7] Outbox Event Atomic Claiming and Status Transitions (5 Threads) ---")
     from apps.core.models import OutboxEvent
-    test_event_id = f"evt_tidb_{int(time.time()*1000)}"
+
+    test_event_id = f"evt_tidb_{int(time.time() * 1000)}"
     test_event_type = f"audit.concurrency.test.{int(time.time())}"
     with transaction.atomic():
         event = OutboxEvent.objects.create(
@@ -372,7 +394,11 @@ def run_tidb_concurrency_audit():
         try:
             with transaction.atomic():
                 # Attempt to lock and claim the pending event
-                ev = OutboxEvent.objects.select_for_update().filter(event_id=test_event_id, status=OutboxEvent.Status.PENDING).first()
+                ev = (
+                    OutboxEvent.objects.select_for_update()
+                    .filter(event_id=test_event_id, status=OutboxEvent.Status.PENDING)
+                    .first()
+                )
                 if ev:
                     ev.status = OutboxEvent.Status.PROCESSED
                     ev.processed_at = timezone.now()
@@ -399,17 +425,22 @@ def run_tidb_concurrency_audit():
     print(f"[*] Outbox Claim Results: {len(success_outbox)} Claimed, {len(fail_outbox)} Bypassed")
     for ok, wid, msg, el in results_outbox:
         status_tag = "[CLAIMED]" if ok else "[BYPASSED]"
-        print(f"    Worker {wid}: {status_tag} {msg} ({el*1000:.1f}ms)")
+        print(f"    Worker {wid}: {status_tag} {msg} ({el * 1000:.1f}ms)")
 
-    assert len(success_outbox) == 1, f"FAIL: Expected exactly 1 outbox claim, got {len(success_outbox)}"
+    assert len(success_outbox) == 1, (
+        f"FAIL: Expected exactly 1 outbox claim, got {len(success_outbox)}"
+    )
     assert len(fail_outbox) == 4, f"FAIL: Expected 4 bypasses, got {len(fail_outbox)}"
     # Cleanup event
     OutboxEvent.objects.filter(event_id=test_event_id).delete()
-    print("[PASS] Test 7: Exactly 1 concurrent worker claimed the pending outbox event with pessimistic locking.")
+    print(
+        "[PASS] Test 7: Exactly 1 concurrent worker claimed the pending outbox event with pessimistic locking."
+    )
 
     print("\n" + "=" * 70)
     print("ALL 7 TIDB CLOUD CONCURRENCY & REPLAY AUDIT TESTS PASSED [PASS]")
     print("=" * 70)
+
 
 if __name__ == "__main__":
     run_tidb_concurrency_audit()

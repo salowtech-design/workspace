@@ -42,21 +42,38 @@ def _verify_custodian(admin_id: str, password: str, totp_code: str) -> IAMAdminI
         .first()
     )
     if not admin:
-        raise AuthException("AUTH-EMG-001", step="emergency_access", message_override=f"Custodian [{clean_id}] not found.")
+        raise AuthException(
+            "AUTH-EMG-001",
+            step="emergency_access",
+            message_override=f"Custodian [{clean_id}] not found.",
+        )
 
     if admin.status != IAMAdminIdentity.Status.ACTIVE:
-        raise AuthException("AUTH-EMG-002", step="emergency_access", message_override=f"Custodian [{clean_id}] is {admin.status}.")
+        raise AuthException(
+            "AUTH-EMG-002",
+            step="emergency_access",
+            message_override=f"Custodian [{clean_id}] is {admin.status}.",
+        )
 
     if admin.role != IAMAdminIdentity.Role.SUPER_ADMIN:
         raise PermissionDenied(f"Custodian [{clean_id}] must hold the Super Admin role.")
 
     target_hash = admin.password_hash or (admin.user.password if admin.user else "")
     from django.contrib.auth.hashers import check_password
+
     if not target_hash or not check_password(password, target_hash):
-        raise AuthException("AUTH-EMG-003", step="emergency_access", message_override=f"Invalid password for custodian [{clean_id}].")
+        raise AuthException(
+            "AUTH-EMG-003",
+            step="emergency_access",
+            message_override=f"Invalid password for custodian [{clean_id}].",
+        )
 
     if not admin.encrypted_totp_secret:
-        raise AuthException("AUTH-EMG-004", step="emergency_access", message_override=f"Custodian [{clean_id}] has no active TOTP enrolled.")
+        raise AuthException(
+            "AUTH-EMG-004",
+            step="emergency_access",
+            message_override=f"Custodian [{clean_id}] has no active TOTP enrolled.",
+        )
 
     raw_secret = decrypt_totp_secret(
         bytes(admin.encrypted_totp_secret),
@@ -69,7 +86,11 @@ def _verify_custodian(admin_id: str, password: str, totp_code: str) -> IAMAdminI
     cleaned_code = totp_code.strip()
 
     if not totp.verify(cleaned_code, for_time=current_time, valid_window=1):
-        raise AuthException("AUTH-EMG-005", step="emergency_access", message_override=f"Invalid TOTP code for custodian [{clean_id}].")
+        raise AuthException(
+            "AUTH-EMG-005",
+            step="emergency_access",
+            message_override=f"Invalid TOTP code for custodian [{clean_id}].",
+        )
 
     matched_step = None
     for step_offset in [0, -1, 1]:
@@ -80,7 +101,11 @@ def _verify_custodian(admin_id: str, password: str, totp_code: str) -> IAMAdminI
 
     step_to_record = matched_step or current_step
     if matched_step is not None and matched_step <= admin.last_used_step:
-        raise AuthException("AUTH-EMG-006", step="emergency_access", message_override=f"TOTP code for custodian [{clean_id}] has already been consumed.")
+        raise AuthException(
+            "AUTH-EMG-006",
+            step="emergency_access",
+            message_override=f"TOTP code for custodian [{clean_id}] has already been consumed.",
+        )
 
     admin.last_used_step = step_to_record
     admin.save(update_fields=["last_used_step"])
@@ -109,18 +134,29 @@ def activate_independent_emergency_access(
 
     # Rule 1: Two-person integrity — distinct custodians strictly required
     if clean_c1 == clean_c2:
-        raise PermissionDenied("Two-person emergency access strictly prohibits self-authorization. Custodians must differ.")
+        raise PermissionDenied(
+            "Two-person emergency access strictly prohibits self-authorization. Custodians must differ."
+        )
 
     # Rule 2: Justification and incident parameters
     if not incident_id or len(incident_id.strip()) < 4:
         raise ValidationError("A valid incident identifier (e.g. INC-2026-001) is required.")
 
     if not reason or len(reason.strip()) < 20:
-        raise ValidationError("Emergency access requires a comprehensive justification (minimum 20 characters).")
+        raise ValidationError(
+            "Emergency access requires a comprehensive justification (minimum 20 characters)."
+        )
 
-    allowed_scopes = ("incident_investigation", "cluster_recovery", "credential_remediation", "audit_forensics")
+    allowed_scopes = (
+        "incident_investigation",
+        "cluster_recovery",
+        "credential_remediation",
+        "audit_forensics",
+    )
     if scope not in allowed_scopes:
-        raise ValidationError(f"Invalid emergency access scope '{scope}'. Allowed scopes: {', '.join(allowed_scopes)}")
+        raise ValidationError(
+            f"Invalid emergency access scope '{scope}'. Allowed scopes: {', '.join(allowed_scopes)}"
+        )
 
     duration = min(max(1, duration_minutes), MAX_EMERGENCY_WINDOW_MINUTES)
     now = timezone.now()

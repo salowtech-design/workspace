@@ -25,6 +25,7 @@ sys.path.insert(0, str(BASE_DIR))
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "config.settings.test")
 
 import django
+
 django.setup()
 
 from django.test import Client
@@ -32,7 +33,14 @@ from django.core.management import call_command
 from django.utils import timezone
 import pyotp
 
-from apps.accounts.models import CustomUser, ActivationCode, TOTPCredential, RecoveryCode, UserSession, RecoveryRequest
+from apps.accounts.models import (
+    CustomUser,
+    ActivationCode,
+    TOTPCredential,
+    RecoveryCode,
+    UserSession,
+    RecoveryRequest,
+)
 from apps.accounts.auth.activation import issue_activation_code
 from apps.accounts.auth.mfa_totp import get_auth_key_ring, decrypt_secret
 from apps.accounts.auth.recovery_codes import generate_ten_recovery_codes
@@ -41,6 +49,7 @@ from apps.attendance.models import WorkSession
 from apps.core.middleware import RateLimitMiddleware
 
 call_command("migrate", verbosity=0)
+
 
 def run_e2e_journeys():
     print("=" * 75)
@@ -61,7 +70,7 @@ def run_e2e_journeys():
             "email": "activation.test@salowtech.com",
             "role": CustomUser.Role.EMPLOYEE,
             "status": CustomUser.Status.INVITED,
-        }
+        },
     )
     u1.status = CustomUser.Status.INVITED
     u1.save()
@@ -69,16 +78,22 @@ def run_e2e_journeys():
     code_obj, raw_act_code = issue_activation_code(u1, purpose=ActivationCode.Purpose.ACTIVATION)
 
     # Step 1: Submit activation code
-    r1 = client.post("/auth/activate/", {"employee_id": u1.employee_id, "activation_code": raw_act_code})
-    print(f"[*] Step 1: Submit Activation Code -> HTTP {r1.status_code} (Redirect: {r1.headers.get('Location')})")
+    r1 = client.post(
+        "/auth/activate/", {"employee_id": u1.employee_id, "activation_code": raw_act_code}
+    )
+    print(
+        f"[*] Step 1: Submit Activation Code -> HTTP {r1.status_code} (Redirect: {r1.headers.get('Location')})"
+    )
     assert r1.status_code == 302
 
     # Step 2: Set password
-    r2 = client.post("/auth/activate/password/", {
-        "password": "StrongPassword2026!",
-        "confirm_password": "StrongPassword2026!"
-    })
-    print(f"[*] Step 2: Set Initial Password -> HTTP {r2.status_code} (Redirect: {r2.headers.get('Location')})")
+    r2 = client.post(
+        "/auth/activate/password/",
+        {"password": "StrongPassword2026!", "confirm_password": "StrongPassword2026!"},
+    )
+    print(
+        f"[*] Step 2: Set Initial Password -> HTTP {r2.status_code} (Redirect: {r2.headers.get('Location')})"
+    )
     assert r2.status_code == 302
 
     # Step 3: GET MFA setup page (initializes pending TOTP secret and SVG QR code)
@@ -91,27 +106,39 @@ def run_e2e_journeys():
     totp = pyotp.TOTP(sec)
     valid_otp = totp.now()
 
-    r3 = client.post("/auth/activate/mfa/setup/", {
-        "code": valid_otp,
-    })
-    print(f"[*] Step 3: Confirm Initial TOTP Code -> HTTP {r3.status_code} (Redirect: {r3.headers.get('Location')})")
+    r3 = client.post(
+        "/auth/activate/mfa/setup/",
+        {
+            "code": valid_otp,
+        },
+    )
+    print(
+        f"[*] Step 3: Confirm Initial TOTP Code -> HTTP {r3.status_code} (Redirect: {r3.headers.get('Location')})"
+    )
     assert r3.status_code == 302
 
     # Step 4: Confirm recovery codes saved
     RateLimitMiddleware.reset()
     r4_get = client.get("/auth/activate/recovery-codes/")
     assert r4_get.status_code == 200
-    r4 = client.post("/auth/activate/recovery-codes/", {
-        "confirmed_saved": "1",
-    })
-    print(f"[*] Step 4: Confirm Recovery Codes Saved -> HTTP {r4.status_code} (Redirect: {r4.headers.get('Location')})")
+    r4 = client.post(
+        "/auth/activate/recovery-codes/",
+        {
+            "confirmed_saved": "1",
+        },
+    )
+    print(
+        f"[*] Step 4: Confirm Recovery Codes Saved -> HTTP {r4.status_code} (Redirect: {r4.headers.get('Location')})"
+    )
     assert r4.status_code == 302
 
     # Step 5: Verify recovery codes generated & user active
     u1.refresh_from_db()
     assert u1.status == CustomUser.Status.ACTIVE
     rc_count = RecoveryCode.objects.filter(user=u1, used_at__isnull=True).count()
-    print(f"[*] Step 5: Status Active={u1.status == CustomUser.Status.ACTIVE}, Unused Recovery Codes={rc_count}")
+    print(
+        f"[*] Step 5: Status Active={u1.status == CustomUser.Status.ACTIVE}, Unused Recovery Codes={rc_count}"
+    )
     assert rc_count == 10
     print("[PASS] Journey 1: Account Activation successfully confirmed.")
 
@@ -125,12 +152,13 @@ def run_e2e_journeys():
     cred.last_used_step = (int(time.time()) // 30) - 2
     cred.save(update_fields=["last_used_step"])
 
-    r_login = client.post("/auth/login/", {
-        "employee_id": u1.employee_id,
-        "password": "StrongPassword2026!",
-        "totp_code": totp.now()
-    })
-    print(f"[*] Submit Single-Screen Login with TOTP -> HTTP {r_login.status_code} (Redirect: {r_login.headers.get('Location')})")
+    r_login = client.post(
+        "/auth/login/",
+        {"employee_id": u1.employee_id, "password": "StrongPassword2026!", "totp_code": totp.now()},
+    )
+    print(
+        f"[*] Submit Single-Screen Login with TOTP -> HTTP {r_login.status_code} (Redirect: {r_login.headers.get('Location')})"
+    )
     assert r_login.status_code == 302
     assert client.session.get("_salow_mfa_verified") is True
     assert UserSession.objects.filter(user=u1, mfa_verified=True).exists()
@@ -145,12 +173,13 @@ def run_e2e_journeys():
     raw_codes = generate_ten_recovery_codes(u1)
     test_rc = raw_codes[0]
 
-    r_rc_login = client.post("/auth/login/", {
-        "employee_id": u1.employee_id,
-        "password": "StrongPassword2026!",
-        "totp_code": test_rc
-    })
-    print(f"[*] Submit Single-Screen Login with Recovery Code -> HTTP {r_rc_login.status_code} (Redirect: {r_rc_login.headers.get('Location')})")
+    r_rc_login = client.post(
+        "/auth/login/",
+        {"employee_id": u1.employee_id, "password": "StrongPassword2026!", "totp_code": test_rc},
+    )
+    print(
+        f"[*] Submit Single-Screen Login with Recovery Code -> HTTP {r_rc_login.status_code} (Redirect: {r_rc_login.headers.get('Location')})"
+    )
     assert r_rc_login.status_code == 302
     assert client.session.get("_salow_mfa_verified") is True
 
@@ -166,11 +195,19 @@ def run_e2e_journeys():
     print("\n--- [JOURNEY 4] Recovery Method 1: Admin Reset (Dual Approval for Super Admin) ---")
     super_admin1, _ = CustomUser.objects.get_or_create(
         employee_id="E2E-SA-001",
-        defaults={"full_name": "Super Admin 1", "role": CustomUser.Role.SUPER_ADMIN, "status": CustomUser.Status.ACTIVE}
+        defaults={
+            "full_name": "Super Admin 1",
+            "role": CustomUser.Role.SUPER_ADMIN,
+            "status": CustomUser.Status.ACTIVE,
+        },
     )
     super_admin2, _ = CustomUser.objects.get_or_create(
         employee_id="E2E-SA-002",
-        defaults={"full_name": "Super Admin 2", "role": CustomUser.Role.SUPER_ADMIN, "status": CustomUser.Status.ACTIVE}
+        defaults={
+            "full_name": "Super Admin 2",
+            "role": CustomUser.Role.SUPER_ADMIN,
+            "status": CustomUser.Status.ACTIVE,
+        },
     )
     if not super_admin1.password:
         super_admin1.set_password("AdminSecure2026!")
@@ -183,11 +220,12 @@ def run_e2e_journeys():
         user=super_admin1,
         request_type=RecoveryRequest.RequestType.ADMIN_PASSWORD_RESET,
         status=RecoveryRequest.Status.PENDING,
-        reason="Super admin lost credentials"
+        reason="Super admin lost credentials",
     )
 
     # Single super admin approval should NOT complete it
     from apps.accounts.auth.reset import approve_administrator_reset
+
     grant_sudo(super_admin2)
     try:
         approve_administrator_reset(req.id, actor=super_admin2, second_approver=None)
@@ -200,10 +238,16 @@ def run_e2e_journeys():
     # Dual super admin approval
     super_admin3, _ = CustomUser.objects.get_or_create(
         employee_id="E2E-SA-003",
-        defaults={"full_name": "Super Admin 3", "role": CustomUser.Role.SUPER_ADMIN, "status": CustomUser.Status.ACTIVE}
+        defaults={
+            "full_name": "Super Admin 3",
+            "role": CustomUser.Role.SUPER_ADMIN,
+            "status": CustomUser.Status.ACTIVE,
+        },
     )
     grant_sudo(super_admin3)
-    approved_req, act_url = approve_administrator_reset(req.id, actor=super_admin2, second_approver=super_admin3)
+    approved_req, act_url = approve_administrator_reset(
+        req.id, actor=super_admin2, second_approver=super_admin3
+    )
     assert approved_req.status == RecoveryRequest.Status.APPROVED
     print("[*] Dual Super Admin approval completed successfully.")
     print("[PASS] Journey 4: Dual-Approval Admin Reset verified.")
@@ -217,7 +261,9 @@ def run_e2e_journeys():
     s = client.session
     s["_salow_mfa_verified"] = True
     s.save()
-    UserSession.objects.update_or_create(session_key=s.session_key, defaults={"user": u1, "mfa_verified": True})
+    UserSession.objects.update_or_create(
+        session_key=s.session_key, defaults={"user": u1, "mfa_verified": True}
+    )
 
     # Active employee can access workspace
     r_ws = client.get("/attendance/")
@@ -230,7 +276,9 @@ def run_e2e_journeys():
 
     # Suspended employee must be ejected/denied
     r_suspended = client.get("/attendance/")
-    print(f"[*] Suspended Employee GET /attendance/ -> HTTP {r_suspended.status_code} (Redirect: {r_suspended.headers.get('Location')})")
+    print(
+        f"[*] Suspended Employee GET /attendance/ -> HTTP {r_suspended.status_code} (Redirect: {r_suspended.headers.get('Location')})"
+    )
     assert r_suspended.status_code == 302
     assert "/auth/login/" in r_suspended.headers.get("Location")
     print("[PASS] Journey 5: Account suspension immediate session ejection verified.")
@@ -241,7 +289,11 @@ def run_e2e_journeys():
     print("\n--- [JOURNEY 6] Segregation Between Workspace Admin and Central IAM ---")
     admin_user, _ = CustomUser.objects.get_or_create(
         employee_id="E2E-ADM-001",
-        defaults={"full_name": "Operations Admin", "role": CustomUser.Role.ADMIN, "status": CustomUser.Status.ACTIVE}
+        defaults={
+            "full_name": "Operations Admin",
+            "role": CustomUser.Role.ADMIN,
+            "status": CustomUser.Status.ACTIVE,
+        },
     )
     client.force_login(admin_user)
     s = client.session
@@ -251,7 +303,9 @@ def run_e2e_journeys():
     r_admin_ws = client.get("/attendance/admin/")
     print(f"[*] Admin GET /attendance/admin/ -> HTTP {r_admin_ws.status_code}")
     assert r_admin_ws.status_code == 200
-    assert "Daily Operational Summaries" in r_admin_ws.content.decode("utf-8") or "Attendance" in r_admin_ws.content.decode("utf-8")
+    assert "Daily Operational Summaries" in r_admin_ws.content.decode(
+        "utf-8"
+    ) or "Attendance" in r_admin_ws.content.decode("utf-8")
 
     r_admin_iam = client.get("/auth/admin/iam/")
     print(f"[*] Admin GET /auth/admin/iam/ -> HTTP {r_admin_iam.status_code}")
@@ -266,7 +320,11 @@ def run_e2e_journeys():
     # Attendance Check-In
     u_emp, _ = CustomUser.objects.get_or_create(
         employee_id="E2E-REG-001",
-        defaults={"full_name": "Regression Employee", "role": CustomUser.Role.EMPLOYEE, "status": CustomUser.Status.ACTIVE}
+        defaults={
+            "full_name": "Regression Employee",
+            "role": CustomUser.Role.EMPLOYEE,
+            "status": CustomUser.Status.ACTIVE,
+        },
     )
     client.force_login(u_emp)
     s = client.session
@@ -297,6 +355,7 @@ def run_e2e_journeys():
     print("\n" + "=" * 75)
     print("ALL 7 CORE USER JOURNEYS & INTEGRATIONS VERIFIED [PASS]")
     print("=" * 75)
+
 
 if __name__ == "__main__":
     run_e2e_journeys()

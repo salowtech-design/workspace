@@ -41,10 +41,14 @@ User = get_user_model()
 def _extract_otp(email: EmailOutbox) -> str:
     if email.encrypted_payload and email.payload_nonce and email.payload_key_id:
         from apps.core.email_service import decrypt_payload
-        payload = decrypt_payload(bytes(email.encrypted_payload), bytes(email.payload_nonce), email.payload_key_id)
+
+        payload = decrypt_payload(
+            bytes(email.encrypted_payload), bytes(email.payload_nonce), email.payload_key_id
+        )
         if isinstance(payload, dict) and "otp" in payload:
             return payload["otp"]
     import re
+
     match = re.search(r"code is: (\d{6})", email.body_text)
     return match.group(1) if match else ""
 
@@ -158,13 +162,17 @@ class TestSecondDeviceVerification:
 
         # 1. Missing challenge number rejected
         with pytest.raises(AuthException) as exc1:
-            approve_device_by_existing_session(req.request_id, approver=dual_device_user, submitted_number=None)
+            approve_device_by_existing_session(
+                req.request_id, approver=dual_device_user, submitted_number=None
+            )
         assert "mandatory" in str(exc1.value).lower()
 
         # 2. Mismatched challenge number rejected
         wrong_number = (req.number_challenge + 1) if req.number_challenge < 99 else 10
         with pytest.raises(AuthException) as exc2:
-            approve_device_by_existing_session(req.request_id, approver=dual_device_user, submitted_number=wrong_number)
+            approve_device_by_existing_session(
+                req.request_id, approver=dual_device_user, submitted_number=wrong_number
+            )
         assert "mismatch" in str(exc2.value).lower()
 
         # 3. Matching challenge number accepted
@@ -198,12 +206,16 @@ class TestSecondDeviceVerification:
         """Arbitrary user cannot approve device request belonging to another employee."""
         req = create_device_approval_request(user=dual_device_user)
         with pytest.raises(PermissionDenied):
-            approve_device_by_existing_session(req.request_id, approver=admin_user, submitted_number=req.number_challenge)
+            approve_device_by_existing_session(
+                req.request_id, approver=admin_user, submitted_number=req.number_challenge
+            )
 
     def test_secondary_device_email_otp_verification(self, dual_device_user):
         """Device B submits the 6-digit email OTP; successfully validates against hash."""
         req = create_device_approval_request(user=dual_device_user)
-        approve_device_by_existing_session(req.request_id, approver=dual_device_user, submitted_number=req.number_challenge)
+        approve_device_by_existing_session(
+            req.request_id, approver=dual_device_user, submitted_number=req.number_challenge
+        )
 
         # Retrieve raw OTP from queued email
         email = EmailOutbox.objects.filter(recipient=dual_device_user.email).latest("created_at")
@@ -221,7 +233,9 @@ class TestSecondDeviceVerification:
     def test_complete_device_verification_and_session_creation(self, rf, dual_device_user):
         """After email OTP and biometric face check, independent session is granted."""
         req = create_device_approval_request(user=dual_device_user)
-        approve_device_by_existing_session(req.request_id, approver=dual_device_user, submitted_number=req.number_challenge)
+        approve_device_by_existing_session(
+            req.request_id, approver=dual_device_user, submitted_number=req.number_challenge
+        )
 
         email = EmailOutbox.objects.filter(recipient=dual_device_user.email).latest("created_at")
         raw_otp = _extract_otp(email)
@@ -258,7 +272,9 @@ class TestSecondDeviceVerification:
     def test_rejection_blocks_secondary_device(self, dual_device_user):
         """Rejecting device request transitions status to REJECTED."""
         req = create_device_approval_request(user=dual_device_user)
-        reject_device_request(req.request_id, actor=dual_device_user, reason="Unauthorized device detected")
+        reject_device_request(
+            req.request_id, actor=dual_device_user, reason="Unauthorized device detected"
+        )
 
         req.refresh_from_db()
         assert req.status == DeviceApprovalRequest.Status.REJECTED
@@ -299,7 +315,9 @@ class TestSecondDeviceVerification:
     def test_expired_email_otp_rejected(self, dual_device_user):
         """Email OTP submitted after 5 minutes is rejected."""
         req = create_device_approval_request(user=dual_device_user)
-        approve_device_by_existing_session(req.request_id, approver=dual_device_user, submitted_number=req.number_challenge)
+        approve_device_by_existing_session(
+            req.request_id, approver=dual_device_user, submitted_number=req.number_challenge
+        )
 
         email = EmailOutbox.objects.filter(recipient=dual_device_user.email).latest("created_at")
         raw_otp = _extract_otp(email)
@@ -313,7 +331,9 @@ class TestSecondDeviceVerification:
     def test_replaying_completed_device_request_rejected(self, rf, dual_device_user):
         """Completed approval request cannot be reused or re-verified (anti-replay)."""
         req = create_device_approval_request(user=dual_device_user)
-        approve_device_by_existing_session(req.request_id, approver=dual_device_user, submitted_number=req.number_challenge)
+        approve_device_by_existing_session(
+            req.request_id, approver=dual_device_user, submitted_number=req.number_challenge
+        )
 
         email = EmailOutbox.objects.filter(recipient=dual_device_user.email).latest("created_at")
         raw_otp = _extract_otp(email)
@@ -350,7 +370,9 @@ class TestSecondDeviceVerification:
     def test_unverified_face_rejected(self, rf, dual_device_user):
         """Attempting to complete device login without verified face assertion raises AuthException."""
         req = create_device_approval_request(user=dual_device_user)
-        approve_device_by_existing_session(req.request_id, approver=dual_device_user, submitted_number=req.number_challenge)
+        approve_device_by_existing_session(
+            req.request_id, approver=dual_device_user, submitted_number=req.number_challenge
+        )
 
         email = EmailOutbox.objects.filter(recipient=dual_device_user.email).latest("created_at")
         raw_otp = _extract_otp(email)

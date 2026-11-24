@@ -1,4 +1,5 @@
 """Production settings must reject key values that are published in the repository."""
+
 import os
 import secrets
 import subprocess
@@ -32,7 +33,10 @@ def _env(**overrides):
 def _import_prod(**overrides):
     return subprocess.run(
         [sys.executable, "-c", "import importlib; importlib.import_module('config.settings.prod')"],
-        env=_env(**overrides), capture_output=True, text=True, cwd=ROOT,
+        env=_env(**overrides),
+        capture_output=True,
+        text=True,
+        cwd=ROOT,
     )
 
 

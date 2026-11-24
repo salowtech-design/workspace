@@ -74,14 +74,19 @@ class Command(BaseCommand):
                 )
             )
             import json
+
             SecurityAlert.objects.create(
                 category=SecurityAlert.Category.AUDIT_INTEGRITY,
                 severity=SecurityAlert.Severity.HIGH,
                 title="NTP Synchronization Source Unavailable",
-                description=json.dumps({
-                    "error": "All configured NTP servers (time.google.com, pool.ntp.org, time.windows.com) timed out or UDP 123 blocked.",
-                    "local_timestamp": datetime.fromtimestamp(local_time, tz=dt_tz.utc).isoformat(),
-                }),
+                description=json.dumps(
+                    {
+                        "error": "All configured NTP servers (time.google.com, pool.ntp.org, time.windows.com) timed out or UDP 123 blocked.",
+                        "local_timestamp": datetime.fromtimestamp(
+                            local_time, tz=dt_tz.utc
+                        ).isoformat(),
+                    }
+                ),
                 status=SecurityAlert.Status.OPEN,
             )
             return
@@ -96,18 +101,27 @@ class Command(BaseCommand):
             self.stderr.write(self.style.ERROR(f"ALERT: {msg}"))
 
             import json
+
             SecurityAlert.objects.create(
                 category=SecurityAlert.Category.AUDIT_INTEGRITY,
                 severity=SecurityAlert.Severity.HIGH,
                 title="System Clock Drift Exceeds Tolerance",
-                description=json.dumps({
-                    "offset_seconds": round(offset, 4),
-                    "threshold_seconds": max_drift,
-                    "reference_server": server_used,
-                    "local_timestamp": datetime.fromtimestamp(local_time, tz=dt_tz.utc).isoformat(),
-                    "reference_timestamp": datetime.fromtimestamp(reference_time, tz=dt_tz.utc).isoformat(),
-                }),
+                description=json.dumps(
+                    {
+                        "offset_seconds": round(offset, 4),
+                        "threshold_seconds": max_drift,
+                        "reference_server": server_used,
+                        "local_timestamp": datetime.fromtimestamp(
+                            local_time, tz=dt_tz.utc
+                        ).isoformat(),
+                        "reference_timestamp": datetime.fromtimestamp(
+                            reference_time, tz=dt_tz.utc
+                        ).isoformat(),
+                    }
+                ),
                 status=SecurityAlert.Status.OPEN,
             )
         else:
-            self.stdout.write(self.style.SUCCESS("System clock is synchronized within security tolerances."))
+            self.stdout.write(
+                self.style.SUCCESS("System clock is synchronized within security tolerances.")
+            )

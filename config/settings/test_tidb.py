@@ -3,6 +3,7 @@
 Point TIDB_TEST_HOST/PORT at an isolated TiDB (for example a local tidb-server). Never use
 the production cluster: Django creates and drops a database named test_<NAME>.
 """
+
 import os
 
 from .test import *  # noqa: F403

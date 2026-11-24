@@ -109,7 +109,9 @@ class TestPlaywrightBrowserAcceptance:
         desktop_ctx = browser.new_context(viewport={"width": 1280, "height": 800})
         page = desktop_ctx.new_page()
         page.set_default_timeout(60000)
-        res = page.goto(f"{live_server.url}/auth/login/", wait_until="domcontentloaded", timeout=60000)
+        res = page.goto(
+            f"{live_server.url}/auth/login/", wait_until="domcontentloaded", timeout=60000
+        )
         assert res.status == 200
 
         # Assert security headers in real HTTP response
@@ -302,7 +304,6 @@ class TestPlaywrightBrowserAcceptance:
 
         context.close()
 
-
     def test_workspace_idle_warning_stay_signed_in_and_signout(
         self, browser, live_server, seeded_users
     ):
@@ -327,7 +328,9 @@ class TestPlaywrightBrowserAcceptance:
         assert "/attendance" in page.url
 
         def session_key():
-            return next(c["value"] for c in context.cookies() if c["name"] == settings.SESSION_COOKIE_NAME)
+            return next(
+                c["value"] for c in context.cookies() if c["name"] == settings.SESSION_COOKIE_NAME
+            )
 
         def age(seconds_ago):
             s = SessionStore(session_key=session_key())
@@ -390,7 +393,9 @@ class TestPlaywrightBrowserAcceptance:
         assert "SENSITIVE-" not in stored
 
         page.goto(f"{live_server.url}/auth/login/?flow=signin")
-        left = page.evaluate("() => Object.keys(sessionStorage).filter(k => k.startsWith('_salow_draft_')).length")
+        left = page.evaluate(
+            "() => Object.keys(sessionStorage).filter(k => k.startsWith('_salow_draft_')).length"
+        )
         assert left == 0
         context.close()
 
@@ -402,7 +407,10 @@ class TestPlaywrightBrowserAcceptance:
         context = browser.new_context(viewport={"width": 1280, "height": 800})
         page = context.new_page()
         violations = []
-        page.on("console", lambda m: violations.append(m.text) if "Content Security Policy" in m.text else None)
+        page.on(
+            "console",
+            lambda m: violations.append(m.text) if "Content Security Policy" in m.text else None,
+        )
 
         resp = page.goto(f"{live_server.url}/auth/login/?flow=signin")
         csp = resp.headers["content-security-policy"]

@@ -131,7 +131,10 @@ class TestIndependentEmergencyAccess:
                 scope="cluster_recovery",
                 reason="Testing self authorization rejection.",
             )
-        assert "distinct custodians strictly required" in str(exc.value).lower() or "prohibits self-authorization" in str(exc.value).lower()
+        assert (
+            "distinct custodians strictly required" in str(exc.value).lower()
+            or "prohibits self-authorization" in str(exc.value).lower()
+        )
 
     def test_short_justification_rejected(self, superadmin_pair):
         """Justification shorter than 20 characters is rejected."""
@@ -245,7 +248,9 @@ class TestMultiWindowSprayingDetection:
 
         # Confirm subnet rate-limit record exists and immediately exceeds sensitive threshold (>= 10 records)
         records = RateLimitRecord.objects.filter(key=f"{subnet_ips[-1]}:sensitive")
-        assert records.count() >= 10, f"Expected at least 10 records for immediate block, got {records.count()}"
+        assert records.count() >= 10, (
+            f"Expected at least 10 records for immediate block, got {records.count()}"
+        )
 
     def test_spraying_detection_blocks_subsequent_request_immediately(self):
         """Spraying detection inserts sufficient records to immediately block attacker IP."""
