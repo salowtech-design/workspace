@@ -84,6 +84,12 @@ def deserialize_backup_value(val):
     return val
 
 
+def table_fingerprint(serialized_rows) -> str:
+    """Order-independent SHA-256 over serialised rows, used to compare source and restored content."""
+    lines = sorted(json.dumps(r, sort_keys=True, default=_json_serial) for r in serialized_rows)
+    return hashlib.sha256("\n".join(lines).encode("utf-8")).hexdigest()
+
+
 def _get_backup_encryption_key() -> bytes:
     """Derives independent 256-bit AES key for backup encryption."""
     raw = (
@@ -331,6 +337,14 @@ def run_real_backup_and_restore_drill() -> int:
                     cursor.execute(insert_sql, tuple(unserialized_r))
                 conn.commit()
 
+            # Content check: restored rows must equal the backed-up rows, not just match in number
+            cursor.execute(f"SELECT * FROM {target_table};")
+            restored_rows = [[serialize_backup_value(v) for v in row] for row in cursor.fetchall()]
+            if table_fingerprint(restored_rows) != table_fingerprint(tbl_info["rows"]):
+                print(f"[FAIL] Restored content mismatch on {target_table}")
+                cursor.execute("SET FOREIGN_KEY_CHECKS = 1;")
+                return 1
+
             # Verify row counts match
             cursor.execute(f"SELECT COUNT(*) FROM {target_table};")
             scratch_count = cursor.fetchone()[0]
@@ -414,7 +428,9 @@ def run_real_backup_and_restore_drill() -> int:
     # Observed RTO: Time required to extract, encrypt, restore, reconcile, and verify
     observed_rto = total_drill_time
     # Measured RPO: Raft-replicated write log latency (typically < 100ms in TiDB Serverless)
-    observed_rpo_estimate = "< 5.0 seconds (TiDB multi-AZ consensus and raft replication)"
+    observed_rpo_estimate = (
+        "not measured by this drill (depends on backup frequency and TiDB replication)"
+    )
 
     print("-" * 76)
     print("DISASTER RECOVERY & BACKUP DRILL REAL METRICS:")
@@ -424,7 +440,7 @@ def run_real_backup_and_restore_drill() -> int:
     print(f"  Restoration Latency:       {t_restore_duration:.2f} seconds")
     print(f"  Security Reconciliation:   {t_recon_duration:.2f} seconds")
     print(f"  Measured Recovery Time Objective (RTO): {observed_rto:.2f}s (Target: < 300s)")
-    print(f"  Estimated Recovery Point Objective (RPO): {observed_rpo_estimate}")
+    print(f"  Recovery Point Objective (RPO): {observed_rpo_estimate}")
     print("=" * 76)
     print("[SUCCESS] Gate 6 Full Backup & Real Restore Drill PASSED cleanly.")
     print("=" * 76)

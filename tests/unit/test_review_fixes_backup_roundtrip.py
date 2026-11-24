@@ -105,3 +105,11 @@ def test_console_fails_on_a_tampered_archive(tmp_path, monkeypatch):
     m["ciphertext_base64"] = base64.b64encode(bytes(c)).decode()
     path.write_text(json.dumps(m))
     assert _run_console(path, key, monkeypatch) == 1
+
+
+def test_table_fingerprint_detects_changed_content_not_row_order():
+    mod = _load("tidb_backup_verify")
+    a = [[1, "x"], [2, "y"]]
+    assert mod.table_fingerprint(a) == mod.table_fingerprint(list(reversed(a)))
+    assert mod.table_fingerprint(a) != mod.table_fingerprint([[1, "x"], [2, "z"]])
+    assert mod.table_fingerprint(a) != mod.table_fingerprint([[1, "x"]])
