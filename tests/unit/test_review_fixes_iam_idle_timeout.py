@@ -226,3 +226,98 @@ def test_http_real_page_request_keeps_admin_signed_in(session_and_token):
     refreshed = IAMSession.objects.get(pk=session.pk)
     assert refreshed.is_active is True
     assert timezone.now() - refreshed.last_activity < timedelta(seconds=30)
+
+
+# --- Polls at the paths the templates actually reverse to, and the live action feed ---
+
+
+def _fresh_idle(session):
+    _set_times(session, last_activity=timezone.now() - timedelta(minutes=4))
+    return IAMSession.objects.get(pk=session.pk).last_activity
+
+
+@pytest.mark.parametrize(
+    "method,path",
+    [
+        ("get", "/iam/authentication/live-feed/?domain=iam"),
+        ("get", "/iam/authentication/presence-feed/"),
+        ("post", "/iam/heartbeat/"),
+        ("get", "/iam/live-events/"),
+    ],
+)
+def test_polls_on_iam_app_paths_do_not_extend_idle(session_and_token, method, path):
+    session, token = session_and_token
+    client = _iam_client(token)
+    stale = _fresh_idle(session)
+    getattr(client, method)(path)
+    assert abs((IAMSession.objects.get(pk=session.pk).last_activity - stale).total_seconds()) < 1
+
+
+def _emit(event, actor="", subject="", message="m"):
+    from apps.accounts.auth.audit import log_auth_event
+
+    return log_auth_event(
+        event=event,
+        code="INFO",
+        step="t",
+        employee_id=subject,
+        actor_employee_id=actor,
+        message=message,
+        network_address="203.0.113.9",
+    )
+
+
+def test_live_events_requires_an_active_iam_session(session_and_token, client):
+    from apps.accounts.auth.live_events import reset_snapshot
+
+    reset_snapshot()
+    session, token = session_and_token
+    assert client.get("/iam/live-events/").status_code in (401, 302)  # no IAM cookie
+    ic = _iam_client(token)
+    assert ic.get("/iam/live-events/").status_code == 200
+    IAMSession.objects.filter(pk=session.pk).update(is_active=False)  # revoked
+    revoked = ic.get("/iam/live-events/")
+    assert revoked.status_code in (401, 302) and b"events" not in revoked.content
+
+
+def test_live_events_cursor_dedup_actor_domain_and_no_leaks(session_and_token):
+    from apps.accounts.auth.live_events import reset_snapshot
+
+    session, token = session_and_token
+    ic = _iam_client(token)
+    reset_snapshot()
+    e1 = _emit("team_membership_added", actor="ST-ACT1", subject="ST-SUB1")
+    e2 = _emit("password_verified", subject="ST-SUB2")
+    reset_snapshot()
+    first = ic.get("/iam/live-events/?limit=100").json()
+    ids = [e["id"] for e in first["events"]]
+    assert e1.id in ids and e2.id in ids
+    row = next(e for e in first["events"] if e["id"] == e1.id)
+    assert row["actor"] == "ST-ACT1" and row["subject"] == "ST-SUB1" and row["domain"] == "iam"
+    assert set(row) == {
+        "id",
+        "time",
+        "domain",
+        "event",
+        "code",
+        "actor",
+        "subject",
+        "reference",
+        "message",
+    }
+    assert "203.0.113.9" not in str(first)
+    # Reconnect with the cursor: nothing is repeated.
+    reset_snapshot()
+    again = ic.get(f"/iam/live-events/?after={first['cursor']}").json()
+    assert again["events"] == [] and again["cursor"] == first["cursor"]
+    # A new event shows up exactly once, and the domain filter applies.
+    e3 = _emit("sessions_revoked", actor="ST-ACT2", subject="ST-SUB3")
+    reset_snapshot()
+    nxt = ic.get(f"/iam/live-events/?after={first['cursor']}").json()
+    assert [e["id"] for e in nxt["events"]] == [e3.id]
+    only_ws = ic.get("/iam/live-events/?domain=workspace&limit=100").json()
+    assert all(e["domain"] == "workspace" for e in only_ws["events"])
+    # Last-Event-ID header works like ?after=
+    reset_snapshot()
+    hdr = ic.get("/iam/live-events/", HTTP_LAST_EVENT_ID=str(first["cursor"])).json()
+    assert [e["id"] for e in hdr["events"]] == [e3.id]

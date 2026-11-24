@@ -16,6 +16,7 @@ from apps.accounts.views.authentication_centre import (
     auth_presence_feed_view,
     auth_transaction_detail_view,
     iam_heartbeat_view,
+    iam_live_events_view,
     iam_recovery_case_action_view,
     iam_recovery_portal_view,
     iam_sign_in_canonical_view,
@@ -97,6 +98,7 @@ urlpatterns = [
         name="console_auth_control_action",
     ),
     path("console/heartbeat/", iam_heartbeat_view, name="console_iam_heartbeat"),
+    path("console/live-events/", iam_live_events_view, name="console_live_events"),
     path("console/sessions/", sessions_investigation_view, name="console_sessions"),
     # Direct Security Operations Views
     path("security/alerts/", security_alerts_view, name="security_alerts"),

@@ -77,6 +77,12 @@ IAM_PASSIVE_PATH_PREFIXES = (
     "/console/authentication/live-feed",
     "/console/authentication/presence-feed",
     "/security/events",
+    # The same polls as served on the IAM application paths (templates reverse to /iam/...)
+    "/iam/heartbeat",
+    "/iam/authentication/live-feed",
+    "/iam/authentication/presence-feed",
+    "/iam/live-events",
+    "/console/live-events",
 )
 IAM_SESSION_ABSOLUTE_TIMEOUT_HOURS = 8
 

@@ -726,3 +726,29 @@ def sessions_investigation_view(request):
         "now": timezone.now(),
     }
     return render(request, "accounts/admin/sessions_investigation.html", context)
+
+
+def iam_live_events_view(request):
+    """JSON action feed for IAM dashboards. Cursor via ?after=<id>; polled about once a second.
+
+    Needs a valid, active IAM session on every request (revocation takes effect at the
+    next poll). Workspace sessions get 401."""
+    from apps.accounts.auth.live_events import read_events
+
+    session = get_iam_session_from_request(request)
+    if not session or not session.is_active:
+        return JsonResponse({"error": "Unauthorized"}, status=401)
+    after = request.GET.get("after") or request.headers.get("Last-Event-ID")
+    after_id = int(after) if after and after.isdigit() else None
+    domain = request.GET.get("domain", "all").lower().strip()
+    if domain not in ("all", "iam", "workspace"):
+        domain = "all"
+    try:
+        limit = int(request.GET.get("limit", "50"))
+    except ValueError:
+        limit = 50
+    data = read_events(after_id, domain, limit)
+    data["server_time"] = timezone.now().isoformat()
+    response = JsonResponse(data)
+    response["Cache-Control"] = "no-store"
+    return response
