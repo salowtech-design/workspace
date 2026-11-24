@@ -17,6 +17,7 @@ import hashlib
 import hmac
 import json
 import logging
+import re
 import secrets
 from pathlib import Path
 from typing import Dict, List, Tuple
@@ -168,6 +169,9 @@ def execute_post_restore_security_reconciliation(cursor, table_prefix: str = "")
         "recovery_requests_expired": 0,
         "device_requests_expired": 0,
     }
+
+    if not re.fullmatch(r"[A-Za-z0-9_]*", table_prefix or ""):
+        raise ValueError("table_prefix may contain only letters, digits and underscores.")
 
     t_usersession = f"`{table_prefix}accounts_usersession`"
     t_iamsession = f"`{table_prefix}accounts_iamsession`"
