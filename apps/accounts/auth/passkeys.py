@@ -71,7 +71,7 @@ def generate_passkey_registration_options(request, user: CustomUser) -> str:
         exclude_credentials=existing_credentials,
         authenticator_selection=AuthenticatorSelectionCriteria(
             resident_key=ResidentKeyRequirement.PREFERRED,
-            user_verification=UserVerificationRequirement.PREFERRED,
+            user_verification=UserVerificationRequirement.REQUIRED,
         ),
         supported_pub_key_algs=[
             COSEAlgorithmIdentifier.ECDSA_SHA_256,
@@ -107,7 +107,7 @@ def verify_passkey_registration(
             expected_challenge=expected_challenge,
             expected_rp_id=rp_id,
             expected_origin=origin,
-            require_user_verification=False,
+            require_user_verification=True,
         )
     except Exception as e:
         log_auth_event(
@@ -162,7 +162,7 @@ def generate_passkey_authentication_options(
     options = generate_authentication_options(
         rp_id=rp_id,
         allow_credentials=allow_credentials,
-        user_verification=UserVerificationRequirement.PREFERRED,
+        user_verification=UserVerificationRequirement.REQUIRED,
     )
 
     request.session[AUTH_CHALLENGE_SESSION_KEY] = options.challenge.hex()
@@ -210,7 +210,7 @@ def verify_passkey_authentication(
             expected_origin=origin,
             credential_public_key=passkey.public_key,
             credential_current_sign_count=passkey.sign_count,
-            require_user_verification=False,
+            require_user_verification=True,
         )
     except Exception as e:
         log_auth_event(
