@@ -1,11 +1,12 @@
 import os
+import secrets
 from datetime import timedelta
 
 from django.core.management.base import BaseCommand
 from django.db import transaction
 from django.utils import timezone
 
-from apps.accounts.models import CustomUser, TOTPCredential
+from apps.accounts.models import CustomUser
 from apps.attendance.models import WorkSession
 from apps.certificates.models import Certificate, CertificateTemplate
 from apps.certificates.services import issue_certificate, revoke_certificate
@@ -21,7 +22,7 @@ class Command(BaseCommand):
         parser.add_argument(
             "--default-password",
             type=str,
-            default=os.getenv("PILOT_DEFAULT_PASSWORD", "SalowPilot2026!Secure"),
+            default=os.getenv("PILOT_DEFAULT_PASSWORD", ""),
             help="Default initial password for seeded pilot accounts.",
         )
 
@@ -51,13 +52,6 @@ class Command(BaseCommand):
         if not admin.has_usable_password():
             admin.set_password(default_pwd)
             admin.save()
-        TOTPCredential.objects.get_or_create(
-            user=admin,
-            defaults={
-                "encrypted_secret": b"pilot_totp_key_32bytes_sample12",
-                "confirmed_at": timezone.now(),
-            },
-        )
 
         manager, _ = CustomUser.objects.get_or_create(
             employee_id="ST-MGR-1001",
@@ -270,7 +264,7 @@ class Command(BaseCommand):
             )
 
     def handle(self, *args, **options):
-        default_pwd = options["default_password"]
+        default_pwd = options.get("default_password") or secrets.token_urlsafe(16)
 
         with transaction.atomic():
             admin, manager, eng1, eng2, intern, team_core, team_front = self._seed_org(default_pwd)

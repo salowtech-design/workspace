@@ -8,6 +8,7 @@ Implements auditable risk scoring:
 """
 
 from datetime import timedelta
+from enum import Enum
 from typing import Dict, List, Tuple
 
 from django.utils import timezone
@@ -78,7 +79,7 @@ def evaluate_login_risk(
     return total_score, signals
 
 
-class RiskDecision:
+class RiskDecision(str, Enum):
     ALLOW = "allow"
     CHALLENGE = "challenge"
     DENY = "deny"

@@ -196,7 +196,6 @@ django_session                                    2281  Automated Test Session C
   3. `ST-EMP-2001`: Arjun Patel (Employee)
   4. `ST-EMP-2002`: Neha Reddy (Employee)
   5. `ST-INT-3001`: Kavya Iyer (Intern)
-  6. `AKIF-CO-001`: Akif Hussain (Employee)
 
 ---
 

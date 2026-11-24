@@ -543,11 +543,11 @@ def test_revoke_user_sessions_clears_sudo_elevation(client, test_users):
 @pytest.mark.django_db
 def test_dedicated_synthetic_staging_admin_automation(client):
     """
-    Dedicated synthetic staging administrator STAGE-ADM-0001
-    has valid credentials, TOTP, and recovery codes ready for test automation.
+    Dedicated test staging administrator TEST-SUPER-ADMIN-01
+    has valid test credentials, TOTP, and recovery codes ready for test automation.
     """
     stage_adm = CustomUser.objects.create(
-        employee_id="STAGE-ADM-0001",
+        employee_id="TEST-SUPER-ADMIN-01",
         full_name="Synthetic Staging Admin",
         email="staging.admin@salowtech.com",
         email_verified=True,
@@ -556,7 +556,8 @@ def test_dedicated_synthetic_staging_admin_automation(client):
         is_staff=True,
         is_superuser=True,
     )
-    stage_adm.set_password("StageAdminPass2026!@#")
+    test_password = "TestFixturePass123!@#"
+    stage_adm.set_password(test_password)
     stage_adm.save()
 
     # Provision TOTP
@@ -578,8 +579,8 @@ def test_dedicated_synthetic_staging_admin_automation(client):
         reverse("accounts:login"),
         {
             "flow": "signin",
-            "employee_id": "STAGE-ADM-0001",
-            "password": "StageAdminPass2026!@#",
+            "employee_id": "TEST-SUPER-ADMIN-01",
+            "password": test_password,
             "totp_code": totp_valid,
         },
     )

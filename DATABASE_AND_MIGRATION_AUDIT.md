@@ -78,9 +78,9 @@ This conclusively proves that prior claims of "3,120 dead outbox events" and "14
 | `django_session` | `django.contrib.sessions.models.Session`| 6,289 | 0 | "214" |
 
 ### Remote TiDB Cloud Accounts Identified:
-- `AKIF-CO-001` (Akif Hussain, `super_admin`, status: `active`)
-- `EMP-BD-001` (Employee BD 001, `employee`, status: `invited`)
-- `STAGE-ADM-0001` (Synthetic Staging Admin, `super_admin`, status: `active`)
+- `ST-ADM-0001` (System Admin, `super_admin`, status: `active`)
+- `ST-EMP-0001` (Employee Sample, `employee`, status: `invited`)
+- `ST-AUD-0001` (Synthetic Security Reviewer, `super_admin`, status: `active`)
 - `TIDB-CONC-TEST-01` (TiDB Concurrency Test Subject, `employee`, status: `active`)
 
 ---

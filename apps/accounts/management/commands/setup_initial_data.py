@@ -1,4 +1,5 @@
 import os
+import secrets
 
 from django.core.management.base import BaseCommand
 from django.db import transaction
@@ -32,7 +33,7 @@ class Command(BaseCommand):
         parser.add_argument(
             "--admin-password",
             type=str,
-            default=os.getenv("ADMIN_PASSWORD", "SalowAdmin2026!Secure"),
+            default=os.getenv("ADMIN_PASSWORD", ""),
             help="Initial Password for Super Admin",
         )
         parser.add_argument(
@@ -50,7 +51,7 @@ class Command(BaseCommand):
         parser.add_argument(
             "--demo-password",
             type=str,
-            default="DemoEmp2026!Secure",
+            default="",
             help="Initial Password for Demo Staff Account",
         )
 
@@ -58,11 +59,11 @@ class Command(BaseCommand):
         admin_id = options["admin_id"].strip().upper()
         admin_name = options["admin_name"].strip()
         admin_email = options["admin_email"].strip()
-        admin_password = options["admin_password"]
+        admin_password = options["admin_password"] or secrets.token_urlsafe(16)
 
         demo_id = options["demo_id"].strip().upper()
         demo_name = options["demo_name"].strip()
-        demo_password = options["demo_password"]
+        demo_password = options["demo_password"] or secrets.token_urlsafe(16)
 
         with transaction.atomic():
             # 1. Super Admin

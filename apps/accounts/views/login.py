@@ -72,26 +72,27 @@ def login_view(request):
             risk_decision, risk_score, risk_signals = decide_login_risk(
                 user, ip_addr or "127.0.0.1", request.META.get("HTTP_USER_AGENT", "")
             )
+            decision_val = getattr(risk_decision, "value", str(risk_decision))
             record_transaction_stage(
                 tx.transaction_id,
                 "risk_evaluation",
-                risk_decision.value.upper(),
+                decision_val.upper(),
                 f"Risk score: {risk_score}",
-                risk_decision=risk_decision.value,
+                risk_decision=decision_val,
                 risk_signals=risk_signals,
             )
 
             if risk_decision == RiskDecision.CONTAIN:
                 user.status = CustomUser.Status.LOCKED
                 user.save(update_fields=["status"])
-                complete_auth_transaction(tx.transaction_id, "denied", reason_category="risk_contain", risk_decision=risk_decision.value, risk_signals=risk_signals)
+                complete_auth_transaction(tx.transaction_id, "denied", reason_category="risk_contain", risk_decision=decision_val, risk_signals=risk_signals)
                 raise AuthException(
                     "AUTH-SEC-002",
                     step="login_risk",
                     message_override="Account security hold applied due to suspicious activity. Please contact IT Security.",
                 )
             elif risk_decision == RiskDecision.DENY:
-                complete_auth_transaction(tx.transaction_id, "denied", reason_category="risk_deny", risk_decision=risk_decision.value, risk_signals=risk_signals)
+                complete_auth_transaction(tx.transaction_id, "denied", reason_category="risk_deny", risk_decision=decision_val, risk_signals=risk_signals)
                 raise AuthException(
                     "AUTH-SEC-001",
                     step="login_risk",

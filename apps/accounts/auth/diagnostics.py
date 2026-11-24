@@ -122,7 +122,7 @@ def run_auth_doctor_checks() -> list[DiagnosticCheckResult]:  # noqa: C901
 
     # 4. TOTP Configuration & SVG QR
     try:
-        sample_secret = "JBSWY3DPEHPK3PXP"  # noqa: S105
+        sample_secret = pyotp.random_base32()
         sample_uri = "otpauth://totp/Salowtech:TEST?secret=" + sample_secret
         svg = render_svg_qr(sample_uri)
         totp = pyotp.TOTP(sample_secret, interval=30, digits=6)
