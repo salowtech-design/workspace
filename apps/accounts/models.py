@@ -1185,3 +1185,29 @@ class IAMRecoveryCase(models.Model):
         return f"IAM Recovery Case {self.case_id} for {self.requester_identity_ref} ({self.status})"
 
 
+
+
+class PrivilegeElevation(models.Model):
+    """Shared (database) record of step-up (sudo) and break-glass grants.
+
+    Replaces per-process dictionaries so every worker sees the same grant and a restart does not lose it.
+    One row per user and kind.
+    """
+
+    class Kind(models.TextChoices):
+        SUDO = "sudo", "Step-up (sudo)"
+        BREAK_GLASS = "break_glass", "Break-glass"
+
+    user_id_ref = models.BigIntegerField(db_index=True)
+    kind = models.CharField(max_length=16, choices=Kind.choices)
+    granted_at = models.FloatField()
+    reason = models.CharField(max_length=500, blank=True, default="")
+    ticket = models.CharField(max_length=200, blank=True, default="")
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["user_id_ref", "kind"], name="uniq_privilege_elevation_user_kind"),
+        ]
+
+    def __str__(self):
+        return f"{self.kind} for user {self.user_id_ref}"

@@ -17,7 +17,54 @@ from apps.accounts.auth.mfa_totp import verify_totp_code
 from apps.accounts.models import CustomUser
 
 SUDO_GRANTED_TIMESTAMP_KEY = "_salow_sudo_granted_at"
-_USER_SUDO_CACHE: dict[int, float] = {}
+
+
+class _SharedGrantStore:
+    """Dict-like view over the PrivilegeElevation table (shared by all workers, survives restarts)."""
+
+    def __init__(self, kind: str, with_details: bool):
+        self.kind = kind
+        self.with_details = with_details
+
+    def _qs(self):
+        from apps.accounts.models import PrivilegeElevation
+
+        return PrivilegeElevation.objects.filter(kind=self.kind)
+
+    def get(self, user_id, default=None):
+        row = self._qs().filter(user_id_ref=user_id).first()
+        if row is None:
+            return default
+        if self.with_details:
+            return {"granted_at": row.granted_at, "reason": row.reason, "ticket": row.ticket}
+        return row.granted_at
+
+    def __contains__(self, user_id):
+        return self._qs().filter(user_id_ref=user_id).exists()
+
+    def __setitem__(self, user_id, value):
+        from apps.accounts.models import PrivilegeElevation
+
+        if self.with_details:
+            defaults = {
+                "granted_at": value["granted_at"],
+                "reason": value.get("reason", "")[:500],
+                "ticket": value.get("ticket", "")[:200],
+            }
+        else:
+            defaults = {"granted_at": value}
+        PrivilegeElevation.objects.update_or_create(user_id_ref=user_id, kind=self.kind, defaults=defaults)
+
+    def pop(self, user_id, default=None):
+        old = self.get(user_id, default)
+        self._qs().filter(user_id_ref=user_id).delete()
+        return old
+
+    def clear(self):
+        self._qs().delete()
+
+
+_USER_SUDO_CACHE = _SharedGrantStore("sudo", with_details=False)
 
 
 def is_sudo_active(target: Union[object, CustomUser]) -> bool:
@@ -153,7 +200,7 @@ def verify_stepup(request, password: str, totp_code: str = None) -> bool:
 BREAK_GLASS_SESSION_KEY = "_salow_break_glass_active"
 BREAK_GLASS_REASON_KEY = "_salow_break_glass_reason"
 BREAK_GLASS_WINDOW_MINUTES = 15
-_USER_BREAK_GLASS_CACHE: dict[int, dict] = {}
+_USER_BREAK_GLASS_CACHE = _SharedGrantStore("break_glass", with_details=True)
 
 
 def activate_break_glass(
