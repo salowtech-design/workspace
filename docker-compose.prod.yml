@@ -82,6 +82,9 @@ services:
     environment:
       - DJANGO_SETTINGS_MODULE=config.settings.prod
       - PYTHONUNBUFFERED=1
+      - AUDIT_CHECKPOINT_DIR=/audit_checkpoints
+    volumes:
+      - salow_audit_checkpoints:/audit_checkpoints # the scheduler writes signed checkpoints here
     depends_on:
       - web
     command: python manage.py run_security_scheduler --interval 10
@@ -108,3 +111,4 @@ services:
 # if the host or its disk is lost, the volume is lost with it. Copy files off the host separately.
 volumes:
   salow_backups:
+  salow_audit_checkpoints:

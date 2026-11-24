@@ -1,32 +1,33 @@
 /* ==========================================================================
    SALOW WORKSPACE DESIGN TOKENS
-   Brand Palette:
-   - Primary: #AD8B73 (Warm Camel / Sandstone)
-   - Background: #FFFBE9 (Warm Cream)
+   Brand Palette (from salowtech.com live site, extracted 24 Nov 2026):
+   - Primary maroon #7D3024, light maroon #8A3B30, ink #2B231A, soft ink #443F36
+   - Cream #FAF7F0, blush #F5EFEB, sand #CEBCA4
+   - primary-100 (#EADFD6) and primary-700 (#5E2219) are derived tints/shades, not site values.
    No hard-coded one-off styles. Central source of truth for UI properties.
    ========================================================================== */
 
 :root {
   /* Color Palette - Neutrals */
-  --color-bg-base: #FFFBE9;
+  --color-bg-base: #FAF7F0;
   --color-bg-surface: #FFFFFF;
-  --color-bg-subtle: #F6F0DC;
+  --color-bg-subtle: #F5EFEB;
   --color-bg-elevated: #FFFFFF;
 
-  --color-text-main: #2A241F;
-  --color-text-muted: #6B6157;
+  --color-text-main: #2B231A;
+  --color-text-muted: #5A544A;
   --color-text-subtle: #968B80;
   --color-text-inverse: #FFFFFF;
 
-  --color-border-subtle: #E8E2CF;
-  --color-border-strong: #D1C9B4;
+  --color-border-subtle: #E6DDD0;
+  --color-border-strong: #CEBCA4;
 
   /* Brand / Primary */
-  --color-primary-50: #F9F5F0;
-  --color-primary-100: #F2EAE1;
-  --color-primary-500: #AD8B73;
-  --color-primary-600: #96745C;
-  --color-primary-700: #7F6049;
+  --color-primary-50: #F5EFEB;
+  --color-primary-100: #EADFD6;
+  --color-primary-500: #7D3024;
+  --color-primary-600: #7D3024;
+  --color-primary-700: #5E2219;
 
   /* Feedback Colors */
   --color-success-bg: #EAF7ED;

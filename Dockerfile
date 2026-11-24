@@ -31,8 +31,8 @@ RUN uv export --no-dev --format requirements-txt -o requirements.txt && \
 
 # Create non-root system user and directory structure
 RUN groupadd -r salow && useradd -r -g salow -u 1000 salow && \
-    mkdir -p /app/static /app/media /backups && \
-    chown -R salow:salow /app /backups && chmod 700 /backups
+    mkdir -p /app/static /app/media /backups /audit_checkpoints && \
+    chown -R salow:salow /app /backups /audit_checkpoints && chmod 700 /backups /audit_checkpoints
 
 # Copy application source code
 COPY --chown=salow:salow . .

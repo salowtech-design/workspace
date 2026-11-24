@@ -236,3 +236,57 @@ th {
   text-transform: uppercase;
   color: var(--color-text-muted);
 }
+
+
+/* Brand mascot: the site only publishes a 128px original, so it is shown small. */
+.brand-mascot {
+  width: 32px;
+  height: 32px;
+  object-fit: contain;
+}
+
+/* Responsive shell: stack the sidebar above content on narrow screens. */
+@media (max-width: 768px) {
+  .app-shell {
+    flex-direction: column;
+  }
+
+  .sidebar {
+    width: 100%;
+    border-right: none;
+    border-bottom: 1px solid var(--color-border-subtle);
+    padding: var(--space-4);
+  }
+
+  .brand {
+    margin-bottom: var(--space-3);
+  }
+
+  .nav-links {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-1) var(--space-3);
+  }
+
+  .main-content,
+  main {
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  .s-fabadb3f,
+  .s-6d00741b {
+    flex-wrap: wrap;
+    gap: var(--space-3);
+  }
+
+  .s-fabadb3f > *,
+  .s-6d00741b > * {
+    min-width: 0;
+  }
+
+  table {
+    display: block;
+    overflow-x: auto;
+  }
+}
