@@ -245,7 +245,7 @@
             <div class="grid grid-cols-1 md:grid-cols-3 gap-4 pt-2">
 
                 <!-- 1. Start Formal Investigation -->
-                <form method="POST" action="{% url 'iam:auth_actions' %}" class="bg-gray-900 border border-gray-800 rounded-xl p-4 space-y-3">
+                <form method="POST" action="{% url 'iam:auth_control_action' %}" class="bg-gray-900 border border-gray-800 rounded-xl p-4 space-y-3">
                     {% csrf_token %}
                     <input type="hidden" name="action_type" value="start_investigation">
                     <input type="hidden" name="transaction_id" value="{{ tx.transaction_id }}">
@@ -261,7 +261,7 @@
                 </form>
 
                 <!-- 2. Temporary Restriction on Actor -->
-                <form method="POST" action="{% url 'iam:auth_actions' %}" class="bg-gray-900 border border-gray-800 rounded-xl p-4 space-y-3">
+                <form method="POST" action="{% url 'iam:auth_control_action' %}" class="bg-gray-900 border border-gray-800 rounded-xl p-4 space-y-3">
                     {% csrf_token %}
                     <input type="hidden" name="action_type" value="temporary_restriction">
                     <input type="hidden" name="identity_ref" value="{{ tx.identity_ref }}">
@@ -281,7 +281,7 @@
                 </form>
 
                 <!-- 3. Revoke Session / Lockout -->
-                <form method="POST" action="{% url 'iam:auth_actions' %}" class="bg-gray-900 border border-gray-800 rounded-xl p-4 space-y-3">
+                <form method="POST" action="{% url 'iam:auth_control_action' %}" class="bg-gray-900 border border-gray-800 rounded-xl p-4 space-y-3">
                     {% csrf_token %}
                     <input type="hidden" name="action_type" value="revoke_session">
                     <input type="hidden" name="session_ref" value="{{ tx.session_ref|default:'' }}">

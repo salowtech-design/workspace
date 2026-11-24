@@ -184,8 +184,14 @@ def test_auth_001_iam_signin_valid_credentials_and_totp(iam_admin_pair):
 
     assert response.status_code == 302
     assert IAM_SESSION_COOKIE_NAME in response.cookies
-    session_key = response.cookies[IAM_SESSION_COOKIE_NAME].value
-    assert IAMSession.objects.filter(session_key=session_key, is_active=True).exists()
+    cookie_value = response.cookies[IAM_SESSION_COOKIE_NAME].value
+    # The cookie holds the raw bearer token; the database holds only its digest.
+    from apps.accounts.auth.iam_auth import hash_session_bearer
+
+    assert not IAMSession.objects.filter(session_key=cookie_value).exists()
+    assert IAMSession.objects.filter(
+        session_key=hash_session_bearer(cookie_value), is_active=True
+    ).exists()
     assert "salow_sessionid" not in response.cookies
 
 

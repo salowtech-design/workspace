@@ -16,6 +16,7 @@ Provides:
 """
 
 import json
+import logging
 import time
 from datetime import timedelta
 from typing import Any, Optional
@@ -305,8 +306,12 @@ def admin_iam_dashboard_view(request):  # noqa: C901
                             f"One-time activation code generated.",
                         )
                         return redirect(f"{request.path}?tab=identity")
-                except Exception as exc:
-                    messages.error(request, f"Failed to create employee: {exc}")
+                except Exception:
+                    logging.getLogger(__name__).exception("Employee creation failed")
+                    messages.error(
+                        request,
+                        "Failed to create employee. The error was logged; please check the details and try again.",
+                    )
 
         # -------------------------------------------------------------------
         # 2. Roles & Permissions: Update Employee Role

@@ -68,6 +68,18 @@ from apps.accounts.models import (
 logger = logging.getLogger(__name__)
 
 
+def _safe_return_url(request, default: str) -> str:
+    """Return the POSTed return_url only if it stays on this host, else the default."""
+    from django.utils.http import url_has_allowed_host_and_scheme
+
+    candidate = request.POST.get("return_url") or ""
+    if candidate and url_has_allowed_host_and_scheme(
+        candidate, allowed_hosts={request.get_host()}, require_https=request.is_secure()
+    ):
+        return candidate
+    return default
+
+
 def _require_iam_admin_session(request):
     """Enforces active IAM administrator session. Redirects unauthenticated requests to IAM login."""
     session = get_iam_session_from_request(request)
@@ -397,7 +409,7 @@ def auth_control_action_view(request):  # noqa: C901 (refactor deferred, behavio
         return redir
 
     action_type = request.POST.get("action_type", "").strip()
-    return_url = request.POST.get("return_url") or reverse("iam:auth_landing")
+    return_url = _safe_return_url(request, reverse("iam:auth_landing"))
     reason = request.POST.get("reason", "").strip() or "Standard administrative action"
     actor_admin = session.iam_admin
 
@@ -496,9 +508,11 @@ def auth_control_action_view(request):  # noqa: C901 (refactor deferred, behavio
         messages.error(request, f"Validation error: {exc}")
     except PermissionDenied as exc:
         messages.error(request, f"Permission denied: {exc}")
-    except Exception as exc:
+    except Exception:
         logger.exception("Error executing auth control action '%s'", action_type)
-        messages.error(request, f"Operation failed: {exc}")
+        messages.error(
+            request, "Operation failed. The error was logged; please try again or contact support."
+        )
 
     return redirect(return_url)
 
@@ -583,7 +597,8 @@ def iam_sign_in_canonical_view(request):
                 secure = getattr(settings, "SESSION_COOKIE_SECURE", False)
                 response.set_cookie(
                     cookie_name,
-                    session.session_key,
+                    # The cookie carries the raw bearer token; only its digest is stored.
+                    getattr(request, "session_key_iam", None) or session.session_key,
                     httponly=True,
                     secure=secure,
                     samesite="Strict" if secure else "Lax",
@@ -650,7 +665,7 @@ def iam_recovery_case_action_view(request):
     action = request.POST.get("action", "").strip()
     reason = request.POST.get("reason", "").strip()
     actor_admin = session.iam_admin
-    return_url = request.POST.get("return_url") or reverse("iam:auth_iam")
+    return_url = _safe_return_url(request, reverse("iam:auth_iam"))
 
     try:
         if action == "approve":
@@ -665,8 +680,12 @@ def iam_recovery_case_action_view(request):
             messages.error(request, f"Unknown action: {action}")
     except PermissionDenied as exc:
         messages.error(request, f"Permission Denied: {exc}")
-    except Exception as exc:
-        messages.error(request, f"Approval operation failed: {exc}")
+    except Exception:
+        logger.exception("Error executing recovery case action '%s'", action)
+        messages.error(
+            request,
+            "Approval operation failed. The error was logged; please try again or contact support.",
+        )
 
     return redirect(return_url)
 

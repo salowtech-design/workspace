@@ -8,6 +8,8 @@ Provides:
 5. Dedicated Workspace Security Administration Tab (Section 11)
 """
 
+import logging
+
 from django.conf import settings
 from django.contrib import messages
 from django.shortcuts import redirect, render
@@ -114,7 +116,8 @@ def iam_login_view(request):  # noqa: C901 (refactor deferred, behavior covered 
                 secure = getattr(settings, "SESSION_COOKIE_SECURE", False)
                 response.set_cookie(
                     cookie_name,
-                    session.session_key,
+                    # The cookie carries the raw bearer token; only its digest is stored.
+                    getattr(request, "session_key_iam", None) or session.session_key,
                     httponly=True,
                     secure=secure,
                     samesite="Strict" if secure else "Lax",
@@ -129,7 +132,8 @@ def iam_login_view(request):  # noqa: C901 (refactor deferred, behavior covered 
                         tx.transaction_id, "failed", reason_category="auth_exception"
                     )
             except Exception as exc:
-                error = f"Authentication failed: {exc}"
+                logging.getLogger(__name__).exception("IAM sign-in failed unexpectedly")
+                error = "Authentication failed. Please try again or contact support."
                 if tx:
                     record_transaction_stage(tx.transaction_id, "password_check", "FAIL", str(exc))
                     complete_auth_transaction(
@@ -247,8 +251,11 @@ def iam_dashboard_view(request):
                 messages.success(
                     request, f"Workspace security policy '{policy_key}' updated successfully."
                 )
-            except Exception as e:
-                messages.error(request, f"Failed to update policy: {e}")
+            except Exception:
+                logging.getLogger(__name__).exception("Workspace policy update failed")
+                messages.error(
+                    request, "Failed to update policy. The error was logged; please try again."
+                )
         else:
             messages.error(request, "Policy key and justification are required.")
 

@@ -14,6 +14,8 @@ from pathlib import Path
 # Allow synchronous Django ORM operations alongside Playwright's sync event loop
 os.environ["DJANGO_ALLOW_ASYNC_UNSAFE"] = "true"
 
+import tempfile
+
 import pyotp
 import pytest
 from django.utils import timezone
@@ -24,7 +26,11 @@ from apps.accounts.auth.mfa_totp import encrypt_secret, get_auth_key_ring
 from apps.accounts.models import ActivationCode, CustomUser, RecoveryCode, TOTPCredential
 from apps.core.middleware import RateLimitMiddleware
 
-SCREENSHOT_DIR = Path("reports/e2e_screenshots")
+# Screenshots go to a temp folder (or E2E_SCREENSHOT_DIR) so a test run never rewrites
+# the PNG files that are committed under reports/.
+SCREENSHOT_DIR = Path(
+    os.environ.get("E2E_SCREENSHOT_DIR") or Path(tempfile.gettempdir()) / "salow_e2e_screenshots"
+)
 SCREENSHOT_DIR.mkdir(parents=True, exist_ok=True)
 
 

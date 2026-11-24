@@ -104,7 +104,7 @@
                             </td>
                             <td class="px-4 py-3 text-right">
                                 {% if sess.is_active %}
-                                <form method="POST" action="{% url 'iam:auth_actions' %}" class="inline-block">
+                                <form method="POST" action="{% url 'iam:auth_control_action' %}" class="inline-block">
                                     {% csrf_token %}
                                     <input type="hidden" name="action_type" value="revoke_session">
                                     <input type="hidden" name="domain" value="iam">
@@ -188,7 +188,7 @@
                             </td>
                             <td class="px-4 py-3 text-right">
                                 {% if sess.is_active %}
-                                <form method="POST" action="{% url 'iam:auth_actions' %}" class="inline-block">
+                                <form method="POST" action="{% url 'iam:auth_control_action' %}" class="inline-block">
                                     {% csrf_token %}
                                     <input type="hidden" name="action_type" value="revoke_session">
                                     <input type="hidden" name="domain" value="workspace">

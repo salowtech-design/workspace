@@ -1,3 +1,4 @@
+import logging
 from datetime import timedelta
 
 from django.conf import settings
@@ -86,8 +87,12 @@ def check_in_view(request):
         )
     except ValidationError as err:
         messages.error(request, str(err.message if hasattr(err, "message") else err))
-    except Exception as exc:
-        messages.error(request, f"Check-in failed: {exc}")
+    except Exception:
+        logging.getLogger(__name__).exception("Attendance check-in failed")
+        messages.error(
+            request,
+            "Check-in failed. The error was logged; use manual attendance if this continues.",
+        )
 
     return redirect("attendance:panel")
 
@@ -108,8 +113,12 @@ def check_out_view(request):
         )
     except ValidationError as err:
         messages.error(request, str(err.message if hasattr(err, "message") else err))
-    except Exception as exc:
-        messages.error(request, f"Check-out failed: {exc}")
+    except Exception:
+        logging.getLogger(__name__).exception("Attendance check-out failed")
+        messages.error(
+            request,
+            "Check-out failed. The error was logged; use manual attendance if this continues.",
+        )
 
     return redirect("attendance:panel")
 
