@@ -1053,14 +1053,14 @@ class IAMAdminPresence(models.Model):
     def presence_status(self) -> str:
         from datetime import timedelta
         from django.utils import timezone
-        from apps.accounts.auth.iam_auth import IAM_SESSION_IDLE_TIMEOUT_MINUTES
+        from apps.accounts.auth.iam_auth import effective_iam_idle_timeout_minutes
 
         if not self.admin_identity.user.is_active or self.admin_identity.status != IAMAdminIdentity.Status.ACTIVE:
             return "REVOKED"
         session = IAMSession.objects.filter(session_key=self.session_key).first()
         if not session or not session.is_active:
             return "REVOKED"
-        if session.last_activity and (timezone.now() - session.last_activity > timedelta(minutes=IAM_SESSION_IDLE_TIMEOUT_MINUTES)):
+        if session.last_activity and (timezone.now() - session.last_activity > timedelta(minutes=effective_iam_idle_timeout_minutes())):
             return "EXPIRED"
         age_seconds = (timezone.now() - self.last_heartbeat).total_seconds()
         if age_seconds <= 15:
@@ -1103,6 +1103,15 @@ class AuthenticationPolicy(models.Model):
         verbose_name = "Authentication Policy"
         verbose_name_plural = "Authentication Policies"
         ordering = ["domain", "-version"]
+
+    @property
+    def effective_idle_session_timeout_minutes(self) -> int:
+        """Idle limit enforced for this policy. IAM policies are capped at the platform maximum (5)."""
+        if self.domain == self.Domain.IAM:
+            from apps.accounts.auth.iam_auth import IAM_SESSION_IDLE_TIMEOUT_MINUTES
+
+            return min(IAM_SESSION_IDLE_TIMEOUT_MINUTES, self.idle_session_timeout_minutes)
+        return self.idle_session_timeout_minutes
 
     def __str__(self):
         return f"Policy {self.domain.upper()} v{self.version} (Active={self.is_active})"

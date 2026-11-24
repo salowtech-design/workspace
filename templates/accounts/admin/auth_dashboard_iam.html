@@ -401,8 +401,8 @@
                             class="mt-1 w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-gray-100">
                     </div>
                     <div>
-                        <label class="block text-gray-400">Idle Session Timeout (Minutes, Baseline: 5)</label>
-                        <input type="number" name="idle_session_timeout_minutes" value="{{ policy.idle_session_timeout_minutes }}" min="1" max="60" required
+                        <label class="block text-gray-400">Idle Session Timeout (Minutes, 1 to 5, Baseline: 5)</label>
+                        <input type="number" name="idle_session_timeout_minutes" value="{{ policy.effective_idle_session_timeout_minutes }}" min="1" max="5" required
                             class="mt-1 w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-gray-100">
                     </div>
                     <div>
@@ -445,7 +445,7 @@
                                 </td>
                                 <td class="px-3 py-2 text-gray-300">{{ p.password_min_length }} chars</td>
                                 <td class="px-3 py-2 text-gray-300">{{ p.failed_login_threshold }} failures</td>
-                                <td class="px-3 py-2 text-gray-400">{{ p.idle_session_timeout_minutes }}m / {{ p.absolute_session_timeout_hours }}h</td>
+                                <td class="px-3 py-2 text-gray-400">{{ p.effective_idle_session_timeout_minutes }}m / {{ p.absolute_session_timeout_hours }}h</td>
                                 <td class="px-3 py-2 text-gray-400 max-w-xs truncate">{{ p.justification|default:"Default baseline" }}</td>
                                 <td class="px-3 py-2 text-gray-500">{{ p.created_at|date:"Y-m-d H:i" }}</td>
                             </tr>

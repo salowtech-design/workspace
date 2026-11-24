@@ -44,6 +44,27 @@ IAM_SESSION_COOKIE_NAME = getattr(settings, "IAM_SESSION_COOKIE_NAME", "__Host-s
 IAM_SESSION_IDLE_TIMEOUT_MINUTES = 5
 # Background polling (live feeds, presence heartbeat) must not count as admin activity,
 # otherwise a dashboard left open in a browser would never reach the idle timeout.
+def effective_iam_idle_timeout_minutes() -> int:
+    """Idle limit actually enforced: the active IAM policy value, capped at the platform maximum (5).
+
+    Older policy rows stored 10; they are capped, never raised. If the policy cannot be read,
+    the platform maximum applies.
+    """
+    try:
+        from apps.accounts.models import AuthenticationPolicy
+
+        policy = (
+            AuthenticationPolicy.objects.filter(domain=AuthenticationPolicy.Domain.IAM, is_active=True)
+            .order_by("-version")
+            .first()
+        )
+        if policy is not None:
+            return max(1, min(IAM_SESSION_IDLE_TIMEOUT_MINUTES, int(policy.idle_session_timeout_minutes)))
+    except Exception:
+        pass
+    return IAM_SESSION_IDLE_TIMEOUT_MINUTES
+
+
 IAM_PASSIVE_PATH_PREFIXES = (
     "/console/heartbeat",
     "/console/authentication/live-feed",
@@ -299,7 +320,7 @@ def get_iam_session_from_request(request) -> Optional[IAMSession]:
 
     now = timezone.now()
     # 1. Idle expiry check (inactivity since the last real request)
-    if session.last_activity and now - session.last_activity > timedelta(minutes=IAM_SESSION_IDLE_TIMEOUT_MINUTES):
+    if session.last_activity and now - session.last_activity > timedelta(minutes=effective_iam_idle_timeout_minutes()):
         session.is_active = False
         session.save(update_fields=["is_active"])
         return None

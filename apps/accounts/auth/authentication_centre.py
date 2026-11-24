@@ -479,6 +479,14 @@ def save_policy_version(
     if idle_session_timeout_minutes < 1 or idle_session_timeout_minutes > 120:
         raise ValidationError("Idle session timeout must be between 1 and 120 minutes.")
 
+    if clean_domain == AuthenticationPolicy.Domain.IAM:
+        from apps.accounts.auth.iam_auth import IAM_SESSION_IDLE_TIMEOUT_MINUTES
+
+        if idle_session_timeout_minutes > IAM_SESSION_IDLE_TIMEOUT_MINUTES:
+            raise ValidationError(
+                f"IAM administrator idle timeout cannot exceed {IAM_SESSION_IDLE_TIMEOUT_MINUTES} minutes."
+            )
+
     if not justification.strip():
         raise ValidationError("A clear administrative justification is mandatory for policy updates.")
 
