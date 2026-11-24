@@ -285,6 +285,24 @@ th {
     min-width: 0;
   }
 
+  .topbar {
+    flex-wrap: wrap;
+    gap: var(--space-3);
+  }
+
+  .topbar > * {
+    min-width: 0;
+  }
+
+  .topbar > div {
+    flex-wrap: wrap;
+  }
+
+  .badge {
+    max-width: 100%;
+    white-space: normal;
+  }
+
   table {
     display: block;
     overflow-x: auto;
