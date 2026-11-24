@@ -19,6 +19,7 @@ import uuid
 from datetime import timedelta
 from typing import Any, Dict, List, Optional
 
+from django.conf import settings
 from django.contrib.auth.hashers import get_hasher
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import connection, models, transaction
@@ -1122,20 +1123,21 @@ def approve_iam_recovery_case(
     Requester cannot approve their own case.
     Requires two distinct authorized approvers before issuing a one-time reset token.
     """
-    case = IAMRecoveryCase.objects.filter(case_id=case_id).first()
-    if not case:
-        raise ValidationError(f"Recovery case '{case_id}' not found.")
-
-    if case.status in (IAMRecoveryCase.Status.REJECTED, IAMRecoveryCase.Status.COMPLETED):
-        raise ValidationError(f"Recovery case '{case_id}' is already closed ({case.status}).")
-
-    # Anti-Self-Approval
-    if case.admin_identity and case.admin_identity.id == approver.id:
-        raise PermissionDenied("Requester cannot approve their own IAM account recovery case.")
-
     now = timezone.now()
 
     with transaction.atomic():
+        # Lock the case row so two simultaneous approvals cannot both count as the first.
+        case = IAMRecoveryCase.objects.select_for_update().filter(case_id=case_id).first()
+        if not case:
+            raise ValidationError(f"Recovery case '{case_id}' not found.")
+
+        if case.status in (IAMRecoveryCase.Status.REJECTED, IAMRecoveryCase.Status.COMPLETED):
+            raise ValidationError(f"Recovery case '{case_id}' is already closed ({case.status}).")
+
+        # Anti-Self-Approval
+        if case.admin_identity and case.admin_identity.id == approver.id:
+            raise PermissionDenied("Requester cannot approve their own IAM account recovery case.")
+
         if case.approval_state == IAMRecoveryCase.ApprovalState.PENDING:
             case.approval_state = IAMRecoveryCase.ApprovalState.FIRST_APPROVED
             case.first_approver = approver
@@ -1170,10 +1172,12 @@ def approve_iam_recovery_case(
             case.second_approved_at = now
             case.status = IAMRecoveryCase.Status.APPROVED
 
-            # Generate short-lived, single-use reset token (10-minute expiry)
-            raw_token = secrets.token_urlsafe(32)
-            case.one_time_reset_token = hashlib.sha256(raw_token.encode("utf-8")).hexdigest()
-            case.token_expires_at = now + timedelta(minutes=10)
+            # Production guard: the identity-proofing method is not yet approved by the policy
+            # owner (d408c012 p2, 3c8bc77b p11), so no reset token is issued until it is.
+            if getattr(settings, "IAM_RECOVERY_PROOFING_APPROVED", False):
+                raw_token = secrets.token_urlsafe(32)
+                case.one_time_reset_token = hashlib.sha256(raw_token.encode("utf-8")).hexdigest()
+                case.token_expires_at = now + timedelta(minutes=10)
             case.save(
                 update_fields=[
                     "approval_state",
@@ -1192,7 +1196,8 @@ def approve_iam_recovery_case(
                 step="iam_recovery_approval",
                 employee_id=approver.admin_id,
                 reference_id=case_id,
-                message=f"Recovery case [{case_id}] granted Dual Approval by {approver.admin_id}. Reset token generated.",
+                message=f"Recovery case [{case_id}] granted Dual Approval by {approver.admin_id}. "
+                f"Reset token issued: {bool(case.one_time_reset_token)}.",
             )
 
     return case

@@ -794,3 +794,39 @@ def test_auth_030_all_controls_map_to_real_backend_handlers(iam_admin_pair, work
         "workspace", 12, 5, 15, 15, 15, 12, True, True, admin.user, "Updated control check"
     )
     assert r8.version > 0
+
+
+def _third_iam_admin():
+    u3 = User.objects.create(
+        email="iam.admin3@salowtech.com",
+        employee_id="EMP-IAM-03",
+        full_name="IAM Admin Third",
+        password=make_password("SuperSecureIamPass2026!"),
+        role=CustomUser.Role.SUPER_ADMIN,
+        status=CustomUser.Status.ACTIVE,
+        is_active=True,
+    )
+    admin3, _ = create_iam_admin_identity(
+        user=u3,
+        admin_id="IAM-ADMIN-03",
+        password="IamMasterSecretPassword2026!#",
+        role=IAMAdminIdentity.Role.SUPER_ADMIN,
+    )
+    return admin3
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("approved,expect_token", [(False, False), (True, True)])
+def test_iam_recovery_token_only_after_proofing_method_is_approved(
+    iam_admin_pair, settings, approved, expect_token
+):
+    """Two distinct approvals complete the case state, but no reset token is issued while no
+    identity-proofing method is approved (d408c012 p2, 3c8bc77b p11)."""
+    settings.IAM_RECOVERY_PROOFING_APPROVED = approved
+    (admin1, _), (admin2, _) = iam_admin_pair
+    case = create_iam_recovery_case(admin1.admin_id, requester_note="Lost hardware token")
+    approve_iam_recovery_case(case.case_id, approver=admin2)
+    done = approve_iam_recovery_case(case.case_id, approver=_third_iam_admin())
+    assert done.approval_state == IAMRecoveryCase.ApprovalState.DUAL_APPROVED
+    assert bool(done.one_time_reset_token) is expect_token
+    assert (done.token_expires_at is not None) is expect_token
