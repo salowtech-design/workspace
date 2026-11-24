@@ -27,13 +27,11 @@ from apps.accounts.auth.audit import log_auth_event
 from apps.accounts.auth.errors import AuthException
 from apps.accounts.auth.mfa_totp import (
     generate_qr_svg,
-    get_or_create_pending_totp,
 )
 from apps.accounts.auth.passkeys import verify_passkey_authentication
 from apps.accounts.auth.passwords import set_user_password, validate_employee_password
 from apps.accounts.auth.reset import (
     approve_administrator_reset,
-    complete_authenticator_replacement,
     reject_administrator_reset,
     request_administrator_reset,
     request_authenticator_replacement,
@@ -54,6 +52,7 @@ from apps.accounts.permissions import (
 PW_RESET_SESSION_UID = "_salow_pw_reset_user_id"
 MFA_REPLACE_SESSION_UID = "_salow_mfa_replace_uid"
 MFA_REPLACE_CODES_KEY = "_salow_mfa_replace_codes"
+MFA_REPLACE_PENDING_KEY = "_salow_mfa_replace_pending"
 
 
 LEGACY_RECOVERY_ACTIONS = frozenset(
@@ -367,23 +366,50 @@ def mfa_replacement_setup_view(request):
     if not user:
         return redirect("accounts:forgot_password")
 
-    secret, uri, _ = get_or_create_pending_totp(user)
+    # The new secret lives only in this recovery session. The current authenticator row is
+    # not touched until the replacement is committed, so abandoning the flow loses nothing.
+    import base64
+
+    import pyotp
+
+    from apps.accounts.auth.mfa_totp import (
+        TOTP_VERIFY_WINDOW,
+        decrypt_secret,
+        encrypt_secret,
+        get_auth_key_ring,
+        get_otpauth_uri,
+    )
+    from apps.accounts.auth.recovery_codes import new_raw_recovery_codes
+
+    kr = get_auth_key_ring()
+    pending = request.session.get(MFA_REPLACE_PENDING_KEY)
+    if pending:
+        secret = decrypt_secret(
+            base64.b64decode(pending["c"]), base64.b64decode(pending["n"]), pending["k"], kr
+        )
+    else:
+        secret = pyotp.random_base32(length=32)
+        ct, nonce, key_id = encrypt_secret(secret, kr)
+        request.session[MFA_REPLACE_PENDING_KEY] = {
+            "c": base64.b64encode(ct).decode(),
+            "n": base64.b64encode(nonce).decode(),
+            "k": key_id,
+        }
+    uri = get_otpauth_uri(secret, user.employee_id)
     qr_svg = generate_qr_svg(uri)
 
     grouped_secret = " ".join([secret[i : i + 4] for i in range(0, len(secret), 4)])
 
     error = None
     if request.method == "POST":
-        totp_code = request.POST.get("code", "").strip()
+        totp_code = request.POST.get("code", "").strip().replace(" ", "")
         if not totp_code:
             error = "Please enter the 6-digit code from your authenticator app."
+        elif not pyotp.TOTP(secret).verify(totp_code, valid_window=TOTP_VERIFY_WINDOW):
+            error = "That code did not match the new authenticator. Check the app and try again."
         else:
-            try:
-                new_codes = complete_authenticator_replacement(user, totp_code)
-                request.session[MFA_REPLACE_CODES_KEY] = new_codes
-                return redirect("accounts:mfa_replacement_recovery_codes")
-            except AuthException as e:
-                error = e.user_message
+            request.session[MFA_REPLACE_CODES_KEY] = new_raw_recovery_codes()
+            return redirect("accounts:mfa_replacement_recovery_codes")
 
     return render(
         request,
@@ -420,9 +446,28 @@ def mfa_replacement_recovery_codes_view(request):
         if not confirmed:
             error = "You must confirm that you have saved your recovery codes before proceeding."
         else:
+            import base64
+
+            from apps.accounts.auth.mfa_totp import decrypt_secret, get_auth_key_ring
+            from apps.accounts.auth.reset import finalize_authenticator_replacement
+
+            pending = request.session.get(MFA_REPLACE_PENDING_KEY)
+            if not pending:
+                messages.error(request, "Authenticator replacement session expired.")
+                return redirect("accounts:forgot_password")
+            new_secret = decrypt_secret(
+                base64.b64decode(pending["c"]),
+                base64.b64decode(pending["n"]),
+                pending["k"],
+                get_auth_key_ring(),
+            )
+            # Commit now (acknowledged): only here do the old factor and old codes retire.
+            finalize_authenticator_replacement(user, new_secret, recovery_codes)
+
             # Clean up replacement session keys
             request.session.pop(MFA_REPLACE_SESSION_UID, None)
             request.session.pop(MFA_REPLACE_CODES_KEY, None)
+            request.session.pop(MFA_REPLACE_PENDING_KEY, None)
 
             # Establish server-side authenticated session
             create_verified_session(request, user)

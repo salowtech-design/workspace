@@ -996,6 +996,52 @@ def complete_authenticator_replacement(user: CustomUser, totp_code: str) -> list
     return new_recovery_codes
 
 
+def finalize_authenticator_replacement(
+    user: CustomUser, new_secret_b32: str, raw_codes: list[str]
+) -> None:
+    """Atomic commit of an authenticator replacement, run only after the new
+    authenticator code was verified AND the user acknowledged the new recovery codes.
+    Until this runs, the old authenticator and old recovery codes stay valid."""
+    from apps.accounts.auth.mfa_totp import encrypt_secret, get_auth_key_ring
+    from apps.accounts.auth.recovery_codes import hash_recovery_code
+    from apps.accounts.models import RecoveryCode, TOTPCredential
+
+    ciphertext, nonce, key_id = encrypt_secret(new_secret_b32, get_auth_key_ring())
+    with transaction.atomic():
+        TOTPCredential.objects.update_or_create(
+            user=user,
+            defaults={
+                "encrypted_secret": ciphertext,
+                "nonce": nonce,
+                "key_id": key_id,
+                "confirmed_at": timezone.now(),
+                "last_used_step": 0,
+            },
+        )
+        RecoveryCode.objects.filter(user=user).delete()
+        RecoveryCode.objects.bulk_create(
+            [
+                RecoveryCode(user=user, keyed_hash=hash_recovery_code(c), used_at=None)
+                for c in raw_codes
+            ]
+        )
+        RecoveryRequest.objects.filter(
+            user=user,
+            request_type=RecoveryRequest.RequestType.MFA_REPLACEMENT,
+            status__in=[RecoveryRequest.Status.PENDING, RecoveryRequest.Status.APPROVED],
+        ).update(status=RecoveryRequest.Status.COMPLETED)
+        revoke_user_sessions(user)
+        if user.email and user.email_verified:
+            notify_mfa_replacement_success(user.employee_id, user.email)
+        log_auth_event(
+            event="mfa_replacement_completed",
+            code="INFO",
+            step="complete_mfa_replacement",
+            employee_id=user.employee_id,
+            message="Authenticator replacement committed after code check and acknowledgement",
+        )
+
+
 def self_service_reset_password(
     employee_id: str,
     credential_token: str,

@@ -22,6 +22,15 @@ def hash_recovery_code(raw_code: str) -> str:
     return hmac.new(key, normalized.encode("utf-8"), "sha256").hexdigest()
 
 
+def new_raw_recovery_codes() -> list[str]:
+    """Ten fresh raw codes without touching the database (committed later by the caller)."""
+    codes = []
+    for _ in range(10):
+        hex_val = secrets.token_hex(5).upper()
+        codes.append(f"{hex_val[:5]}-{hex_val[5:]}")
+    return codes
+
+
 def generate_ten_recovery_codes(user: CustomUser) -> list[str]:
     """
     Generate 10 single-use recovery codes for an employee.

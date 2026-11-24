@@ -472,8 +472,10 @@ class TestRecoveryMethod3MfaReplacement:
         assert "Manual Setup Key" in content_setup
 
         # Generate TOTP code from pending credential
-        cred = TOTPCredential.objects.get(user=standard_employee)
-        secret = decrypt_secret(cred.encrypted_secret, cred.nonce, cred.key_id, get_auth_key_ring())
+        import re as _re
+
+        key_text = _re.search(r"((?:[A-Z2-7]{4} ){7}[A-Z2-7]{4})", content_setup)
+        secret = key_text.group(1).replace(" ", "")
         totp = pyotp.TOTP(secret)
 
         # 5. Submit valid 6-digit TOTP code
@@ -735,3 +737,83 @@ class TestMethod3RequiresTheRegisteredCompanyEmail:
         assert "has been sent" in resp.content.decode("utf-8")
         assert RecoveryRequest.objects.filter(user=standard_employee).count() == 1
         assert EmailOutbox.objects.count() == 1
+
+
+class TestAuthenticatorReplacementKeepsOldFactorUntilAcknowledged:
+    """The old authenticator and old recovery codes stay valid until the new code is
+    verified AND the new recovery codes are acknowledged (abandoning loses nothing)."""
+
+    def _to_setup(self, client, user):
+        rec, raw = issue_email_token(user, ActivationCode.Purpose.MFA_REPLACEMENT)
+        url = reverse("accounts:mfa_replacement_verify")
+        client.post(url, {"token": raw})
+        page = client.get(reverse("accounts:mfa_replacement_setup")).content.decode()
+        import re as _re
+
+        return _re.search(r"((?:[A-Z2-7]{4} ){7}[A-Z2-7]{4})", page).group(1).replace(" ", "")
+
+    def test_opening_setup_page_does_not_touch_the_old_authenticator(
+        self, client, standard_employee
+    ):
+        before = TOTPCredential.objects.get(user=standard_employee)
+        old_secret = decrypt_secret(
+            before.encrypted_secret, before.nonce, before.key_id, get_auth_key_ring()
+        )
+        self._to_setup(client, standard_employee)
+        after = TOTPCredential.objects.get(user=standard_employee)
+        assert after.confirmed_at is not None
+        assert (
+            decrypt_secret(after.encrypted_secret, after.nonce, after.key_id, get_auth_key_ring())
+            == old_secret
+        )
+
+    def test_abandoning_before_acknowledgement_keeps_old_factor_and_codes(
+        self, client, standard_employee
+    ):
+        generate_ten_recovery_codes(standard_employee)
+        old_hashes = set(
+            RecoveryCode.objects.filter(user=standard_employee).values_list("keyed_hash", flat=True)
+        )
+        before = TOTPCredential.objects.get(user=standard_employee)
+        old_secret = decrypt_secret(
+            before.encrypted_secret, before.nonce, before.key_id, get_auth_key_ring()
+        )
+        new_secret = self._to_setup(client, standard_employee)
+        client.post(
+            reverse("accounts:mfa_replacement_setup"), {"code": pyotp.TOTP(new_secret).now()}
+        )
+        # user closes the page here: no acknowledgement
+        cred = TOTPCredential.objects.get(user=standard_employee)
+        assert (
+            decrypt_secret(cred.encrypted_secret, cred.nonce, cred.key_id, get_auth_key_ring())
+            == old_secret
+        )
+        assert old_hashes == set(
+            RecoveryCode.objects.filter(user=standard_employee).values_list("keyed_hash", flat=True)
+        )
+
+    def test_wrong_code_does_not_advance(self, client, standard_employee):
+        self._to_setup(client, standard_employee)
+        resp = client.post(reverse("accounts:mfa_replacement_setup"), {"code": "000000"})
+        assert resp.status_code == 200
+
+    def test_acknowledgement_commits_new_factor_and_codes(self, client, standard_employee):
+        generate_ten_recovery_codes(standard_employee)
+        old_hashes = set(
+            RecoveryCode.objects.filter(user=standard_employee).values_list("keyed_hash", flat=True)
+        )
+        new_secret = self._to_setup(client, standard_employee)
+        client.post(
+            reverse("accounts:mfa_replacement_setup"), {"code": pyotp.TOTP(new_secret).now()}
+        )
+        RateLimitMiddleware.reset()
+        client.post(reverse("accounts:mfa_replacement_recovery_codes"), {"confirmed_saved": "1"})
+        cred = TOTPCredential.objects.get(user=standard_employee)
+        assert (
+            decrypt_secret(cred.encrypted_secret, cred.nonce, cred.key_id, get_auth_key_ring())
+            == new_secret
+        )
+        new_hashes = set(
+            RecoveryCode.objects.filter(user=standard_employee).values_list("keyed_hash", flat=True)
+        )
+        assert len(new_hashes) == 10 and not (new_hashes & old_hashes)
