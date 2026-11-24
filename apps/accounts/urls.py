@@ -12,6 +12,11 @@ from apps.accounts.views.admin_iam import (
     admin_iam_live_stream_view,
     admin_security_shield_view,
 )
+from apps.accounts.views.backups import (
+    admin_backup_check_view,
+    admin_backup_run_view,
+    admin_backups_view,
+)
 from apps.accounts.views.device_approval import (
     check_pending_device_approval_view,
     device_admin_approve_view,
@@ -103,6 +108,9 @@ urlpatterns = [
         passkey_recovery_verify_view,
         name="passkey_recovery_verify",
     ),
+    path("admin/backups/", admin_backups_view, name="admin_backups"),
+    path("admin/backups/run/", admin_backup_run_view, name="admin_backup_run"),
+    path("admin/backups/<int:run_id>/check/", admin_backup_check_view, name="admin_backup_check"),
     path("recovery/console/", admin_recovery_console_view, name="admin_recovery_console"),
     path(
         "recovery/console/<int:request_id>/approve/",

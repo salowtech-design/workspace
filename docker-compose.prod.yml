@@ -22,6 +22,9 @@ services:
     environment:
       - DJANGO_SETTINGS_MODULE=config.settings.prod
       - PYTHONUNBUFFERED=1
+      - BACKUP_STORAGE_DIR=/backups
+    volumes:
+      - salow_backups:/backups:ro # Backups page reads status only; the backup worker writes
     command: >
       gunicorn config.wsgi:application
       --bind 0.0.0.0:8000
@@ -82,3 +85,26 @@ services:
     depends_on:
       - web
     command: python manage.py run_security_scheduler --interval 10
+
+  backup_worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: salow-workspace:production
+    restart: always
+    env_file:
+      - .env.production
+    environment:
+      - DJANGO_SETTINGS_MODULE=config.settings.prod
+      - PYTHONUNBUFFERED=1
+      - BACKUP_STORAGE_DIR=/backups
+    volumes:
+      - salow_backups:/backups
+    depends_on:
+      - web
+    command: python manage.py process_backup_jobs --loop --interval 30
+
+# A named volume keeps backup files when containers are replaced. It is NOT an off-site copy:
+# if the host or its disk is lost, the volume is lost with it. Copy files off the host separately.
+volumes:
+  salow_backups:

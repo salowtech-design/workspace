@@ -183,8 +183,8 @@ def run_real_backup_and_restore_drill() -> int:
         return 1
 
     cursor = conn.cursor()
-    backup_dir = BASE_DIR / "backups"
-    backup_dir.mkdir(exist_ok=True)
+    backup_dir = Path(os.getenv("BACKUP_STORAGE_DIR") or (BASE_DIR / "backups"))
+    backup_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
     timestamp_str = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
     backup_file = backup_dir / f"tidb_full_backup_{timestamp_str}.enc.json"
 

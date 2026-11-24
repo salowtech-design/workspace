@@ -49,6 +49,7 @@ PERM_AUDIT_VIEW = "core.audit.view"
 
 PERM_RECOVERY_DELEGATED = "accounts.recovery.delegated"
 PERM_RECOVERY_ADMIN = "accounts.recovery.admin"
+PERM_BACKUP_MANAGE = "accounts.backup.manage"
 
 PERM_SECURITY_EVENTS_READ = "security.events.read"
 PERM_SECURITY_ALERTS_ACK = "security.alerts.acknowledge"
@@ -81,6 +82,7 @@ ROLE_PERMISSIONS: dict[str, set[str]] = {
         PERM_AUDIT_VIEW,
         PERM_RECOVERY_DELEGATED,
         PERM_RECOVERY_ADMIN,
+        PERM_BACKUP_MANAGE,
         PERM_SECURITY_EVENTS_READ,
         PERM_SECURITY_ALERTS_ACK,
         PERM_DEVICE_APPROVE,
@@ -241,6 +243,7 @@ def require_permission(perm_code: str):
 
 
 __all__ = [
+    "PERM_BACKUP_MANAGE",
     "PERM_ATTENDANCE_APPROVE",
     "PERM_ATTENDANCE_OVERRIDE",
     "PERM_ATTENDANCE_VIEW_ALL",

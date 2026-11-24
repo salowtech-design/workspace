@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+
+{% block title %}Backups — Salow Workspace{% endblock %}
+
+{% block content %}
+<div class="s-6514ea59">
+  <div class="s-fabadb3f">
+    <div>
+      <h1 class="s-4c214798">Database Backups</h1>
+      <p class="s-9ab8d4a3">Signed in as <strong>{{ actor.get_role_display }}</strong> ({{ actor.employee_id }})</p>
+    </div>
+    <div class="s-487b2c58">
+      <span class="s-190f4303">✓ Sudo Mode Active</span>
+      <span class="s-d3f5bace">Audited Operation</span>
+    </div>
+  </div>
+
+  <div class="s-09ff1c92">
+    <h3 class="s-5169172d">What these buttons do:</h3>
+    <ul class="s-871dd7b0">
+      <li><strong>Run backup</strong> queues a request. A separate backup worker runs it. Nothing runs inside this page.</li>
+      <li><strong>Check file</strong> only confirms the stored file is present and its recorded size and checksum match. It does not decrypt or restore anything.</li>
+      <li><strong>Restore</strong> is not available here. Restores are done offline by authorised key holders.</li>
+      <li>Files are kept in <code>{{ storage_dir }}</code> on this server. A server folder is not an off-site copy.</li>
+    </ul>
+  </div>
+
+  <form method="post" action="{% url 'accounts:admin_backup_run' %}">
+    {% csrf_token %}
+    <button type="submit" class="btn btn-primary" data-confirm="Queue a database backup now?">Run backup</button>
+  </form>
+
+  <h2 class="s-abee07ad">Recent backup runs</h2>
+  {% for run in runs %}
+  <div class="card s-8771d6f2">
+    <div class="s-6d00741b">
+      <div>
+        <div class="s-ae05e31e">
+          <span class="s-e56f487c">Run {{ run.id }}</span>
+          <span class="s-f97ffb66">{{ run.get_status_display }}</span>
+        </div>
+        <div class="s-3c50f654">
+          Requested by {{ run.requested_by_employee_id }} • {{ run.created_at|date:"Y-m-d H:i" }}
+          {% if run.status == "succeeded" %}
+          • {{ run.table_count }} tables, {{ run.total_rows }} rows, {{ run.byte_size }} bytes
+          • Encryption: {{ run.encryption_mode }}
+          • Scratch restore at backup time: {% if run.scratch_restore_ok %}passed{% else %}not run{% endif %}
+          {% endif %}
+        </div>
+        {% if run.error_message %}<div class="s-b2f49ed0">{{ run.error_message }}</div>{% endif %}
+      </div>
+      {% if run.status == "succeeded" %}
+      <form method="post" action="{% url 'accounts:admin_backup_check' run.id %}">
+        {% csrf_token %}
+        <button type="submit" class="btn btn-outline">Check file</button>
+      </form>
+      {% endif %}
+    </div>
+  </div>
+  {% empty %}
+  <p class="s-9ab8d4a3">No backups have been requested yet.</p>
+  {% endfor %}
+</div>
+{% endblock %}

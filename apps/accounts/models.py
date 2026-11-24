@@ -1228,3 +1228,41 @@ class PrivilegeElevation(models.Model):
 
     def __str__(self):
         return f"{self.kind} for user {self.user_id_ref}"
+
+
+class BackupRun(models.Model):
+    """One requested database backup, claimed and executed by the backup worker.
+
+    The web app only queues a row. The worker process claims it with a single atomic status update,
+    runs the backup, and records the outcome. The row never holds key material or archive contents.
+    """
+
+    class Status(models.TextChoices):
+        QUEUED = "queued", "Queued"
+        RUNNING = "running", "Running"
+        SUCCEEDED = "succeeded", "Succeeded"
+        FAILED = "failed", "Failed"
+
+    status = models.CharField(
+        max_length=12, choices=Status.choices, default=Status.QUEUED, db_index=True
+    )
+    requested_by_ref = models.BigIntegerField(db_index=True)
+    requested_by_employee_id = models.CharField(max_length=32, blank=True, default="")
+    created_at = models.DateTimeField(auto_now_add=True)
+    started_at = models.DateTimeField(null=True, blank=True)
+    finished_at = models.DateTimeField(null=True, blank=True)
+    attempts = models.PositiveSmallIntegerField(default=0)
+    file_name = models.CharField(max_length=128, blank=True, default="")
+    byte_size = models.BigIntegerField(null=True, blank=True)
+    checksum_sha256 = models.CharField(max_length=64, blank=True, default="")
+    table_count = models.IntegerField(null=True, blank=True)
+    total_rows = models.BigIntegerField(null=True, blank=True)
+    encryption_mode = models.CharField(max_length=32, blank=True, default="")
+    scratch_restore_ok = models.BooleanField(default=False)
+    error_message = models.CharField(max_length=500, blank=True, default="")
+
+    class Meta:
+        ordering = ["-id"]
+
+    def __str__(self):
+        return f"Backup run {self.pk} ({self.status})"

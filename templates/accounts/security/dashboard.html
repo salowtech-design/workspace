@@ -20,6 +20,11 @@
                 Recovery Console
             </a>
             {% endif %}
+            {% if user.role == 'super_admin' %}
+            <a href="{% url 'accounts:admin_backups' %}" class="btn btn-secondary btn-sm">
+                Backups
+            </a>
+            {% endif %}
         </div>
     </div>
 
