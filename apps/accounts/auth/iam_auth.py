@@ -420,6 +420,13 @@ def stepup_iam_assurance(
         iam_admin.save(update_fields=["last_used_step"])
 
         iam_session.refresh_from_db()
+        # Rotate the bearer token on re-authentication / elevation (4049aa5f s12, AUTH-013):
+        # the old cookie value stops working; the caller sets the new one from rotated_token.
+        new_token = secrets.token_urlsafe(48)
+        new_digest = hash_session_bearer(new_token)
+        iam_session.session_key = new_digest
+        iam_session.session_digest = new_digest
+        iam_session.rotated_token = new_token
         iam_session.assurance_level = 2
         iam_session.stepup_action = action_name
         iam_session.stepup_expires_at = timezone.now() + timedelta(minutes=5)
@@ -432,6 +439,8 @@ def stepup_iam_assurance(
         iam_session.pending_summary = ""
         iam_session.save(
             update_fields=[
+                "session_key",
+                "session_digest",
                 "assurance_level",
                 "stepup_action",
                 "stepup_expires_at",

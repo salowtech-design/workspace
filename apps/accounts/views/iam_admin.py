@@ -14,6 +14,7 @@ from django.conf import settings
 from django.contrib import messages
 from django.shortcuts import redirect, render
 from django.urls import reverse
+from django.utils.http import url_has_allowed_host_and_scheme
 
 from apps.accounts.auth.errors import AuthException
 from apps.accounts.auth.iam_auth import (
@@ -169,6 +170,10 @@ def iam_stepup_view(request):
 
     action = request.GET.get("action") or request.POST.get("action") or "sensitive_operation"
     next_url = request.GET.get("next") or request.POST.get("next") or reverse("iam:dashboard")
+    if not url_has_allowed_host_and_scheme(
+        next_url, allowed_hosts={request.get_host()}, require_https=request.is_secure()
+    ):
+        next_url = reverse("iam:dashboard")
     error = None
 
     if request.method == "POST":
@@ -180,7 +185,17 @@ def iam_stepup_view(request):
                 request,
                 f"Step-up authentication verified for '{action}' (Assurance Level 2 granted).",
             )
-            return redirect(next_url)
+            response = redirect(next_url)
+            secure = getattr(settings, "SESSION_COOKIE_SECURE", False)
+            response.set_cookie(
+                IAM_SESSION_COOKIE_NAME,
+                session.rotated_token,
+                httponly=True,
+                secure=secure,
+                samesite="Strict" if secure else "Lax",
+                path="/",
+            )
+            return response
         else:
             error = "Invalid password or TOTP code. Step-up authentication failed."
 

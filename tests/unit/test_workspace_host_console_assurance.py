@@ -302,3 +302,71 @@ class TestLevel3TwoPersonFlow:
         req.refresh_from_db()
         assert u3.status == CustomUser.Status.ACTIVE
         assert req.status == IAMDualApprovalRequest.Status.APPROVED
+
+
+@pytest.mark.django_db
+class TestIamStepupRotatesSessionAndKeepsNextLocal:
+    PASSWORD = "IamMasterSecretPassword2026!#"
+
+    def _login(self):
+        from django.test import Client
+
+        from apps.accounts.auth.iam_auth import (
+            IAM_SESSION_COOKIE_NAME,
+            create_iam_admin_identity,
+            create_iam_session,
+        )
+
+        u = CustomUser.objects.create_user(
+            employee_id="ST-ROT-SA1",
+            full_name="Rot",
+            email="st-rot@salowtech.com",
+            password="Xx-pass-2026!ab",
+            role=CustomUser.Role.SUPER_ADMIN,
+            status=CustomUser.Status.ACTIVE,
+            is_active=True,
+        )
+        admin, secret = create_iam_admin_identity(
+            user=u, admin_id="IAM-ROT-0001", password=self.PASSWORD, role="super_admin"
+        )
+        c = Client()
+        fake = type("R", (), {"META": {"REMOTE_ADDR": "10.0.0.1"}, "headers": {}})()
+        sess = create_iam_session(admin, fake)
+        c.cookies[IAM_SESSION_COOKIE_NAME] = fake.session_key_iam
+        return c, sess, secret, IAM_SESSION_COOKIE_NAME
+
+    def _step(self, c, secret, **extra):
+        import time
+
+        import pyotp
+
+        data = {
+            "action": "suspend_account",
+            "password": self.PASSWORD,
+            "totp_code": pyotp.TOTP(secret).at(time.time()),
+        }
+        data.update(extra)
+        return c.post("/iam/stepup/", data, HTTP_HOST="iam.salowtech.com")
+
+    def test_stepup_issues_a_new_cookie_and_the_old_one_stops_working(self):
+        from apps.accounts.auth.iam_auth import hash_session_bearer
+        from apps.accounts.models import IAMSession
+
+        c, sess, secret, name = self._login()
+        old = c.cookies[name].value
+        resp = self._step(c, secret)
+        assert resp.status_code == 302
+        new = resp.cookies[name].value
+        assert new and new != old
+        sess.refresh_from_db()
+        assert sess.assurance_level == 2
+        assert sess.session_key == hash_session_bearer(new)
+        assert not IAMSession.objects.filter(session_key=hash_session_bearer(old)).exists()
+        c.cookies[name] = old
+        r = c.get("/iam/dashboard/", HTTP_HOST="iam.salowtech.com")
+        assert r.status_code == 302 and "/login" in r.url
+
+    def test_stepup_next_must_stay_on_the_iam_host(self):
+        c, sess, secret, name = self._login()
+        resp = self._step(c, secret, next="https://evil.example/steal")
+        assert resp.status_code == 302 and "evil.example" not in resp.url
