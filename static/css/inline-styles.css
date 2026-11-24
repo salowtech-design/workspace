@@ -733,3 +733,9 @@
 .evt-badge { padding: 0.15rem 0.4rem; border-radius: 3px; font-weight: 700; font-size: 0.72rem; }
 .evt-badge.evt-ok { background: #059669; }
 .evt-badge.evt-bad { background: #dc2626; }
+
+/* IAM dashboard tab strip on narrow screens: the open tab comes first and the rest scroll sideways */
+@media (max-width: 640px) {
+  .s-bef28989 { flex-wrap: nowrap; overflow-x: auto !important; }
+  .s-bef28989 .tab-dyn.tab-on { order: -1; }
+}
