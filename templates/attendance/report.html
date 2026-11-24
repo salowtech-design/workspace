@@ -5,36 +5,36 @@
 {% block content %}
 <div class="topbar">
   <div>
-    <h1 style="font-size: var(--text-2xl); font-weight: 700;">Attendance Report</h1>
-    <p style="color: var(--color-text-muted); font-size: var(--text-sm);">
+    <h1 class="s-f39f281d">Attendance Report</h1>
+    <p class="s-1e0c03d8">
       Aggregated attendance summary for {{ report.start_date }} to {{ report.end_date }}
     </p>
   </div>
   <a href="{% url 'attendance:panel' %}" class="btn btn-secondary">&larr; Back to Panel</a>
 </div>
 
-<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: var(--space-4); margin-bottom: var(--space-6);">
-  <div class="card" style="margin-bottom: 0;">
-    <div style="font-size: var(--text-sm); color: var(--color-text-muted);">Total Sessions</div>
-    <div style="font-size: var(--text-2xl); font-weight: 700; color: var(--color-primary); margin-top: var(--space-2);">
+<div class="s-baaca3d1">
+  <div class="card s-648149ce">
+    <div class="s-ae80d0ad">Total Sessions</div>
+    <div class="s-0a97e89c">
       {{ report.total_sessions }}
     </div>
   </div>
-  <div class="card" style="margin-bottom: 0;">
-    <div style="font-size: var(--text-sm); color: var(--color-text-muted);">Completed Sessions</div>
-    <div style="font-size: var(--text-2xl); font-weight: 700; color: var(--color-success-text); margin-top: var(--space-2);">
+  <div class="card s-648149ce">
+    <div class="s-ae80d0ad">Completed Sessions</div>
+    <div class="s-a69489dd">
       {{ report.completed_sessions }}
     </div>
   </div>
-  <div class="card" style="margin-bottom: 0;">
-    <div style="font-size: var(--text-sm); color: var(--color-text-muted);">Total Hours Logged</div>
-    <div style="font-size: var(--text-2xl); font-weight: 700; color: var(--color-text-main); margin-top: var(--space-2);">
+  <div class="card s-648149ce">
+    <div class="s-ae80d0ad">Total Hours Logged</div>
+    <div class="s-7c5847c4">
       {{ report.total_hours_worked }}h
     </div>
   </div>
-  <div class="card" style="margin-bottom: 0;">
-    <div style="font-size: var(--text-sm); color: var(--color-text-muted);">Manual Exceptions</div>
-    <div style="font-size: var(--text-2xl); font-weight: 700; color: var(--color-warning-text); margin-top: var(--space-2);">
+  <div class="card s-648149ce">
+    <div class="s-ae80d0ad">Manual Exceptions</div>
+    <div class="s-681e56db">
       {{ report.manual_exceptions_count }}
     </div>
   </div>
@@ -57,7 +57,7 @@
         <tbody>
           {% for session in recent_sessions %}
             <tr>
-              <td style="font-weight: 500;">{{ session.work_date }}</td>
+              <td class="s-af5bb0af">{{ session.work_date }}</td>
               <td>{{ session.check_in_at|date:"Y-m-d H:i:s" }}</td>
               <td>{% if session.check_out_at %}{{ session.check_out_at|date:"Y-m-d H:i:s" }}{% else %}&mdash;{% endif %}</td>
               <td><span class="badge">{{ session.get_verification_method_display }}</span></td>
@@ -72,7 +72,7 @@
       </table>
     </div>
   {% else %}
-    <p style="color: var(--color-text-muted); font-size: var(--text-sm);">No session records found in this range.</p>
+    <p class="s-1e0c03d8">No session records found in this range.</p>
   {% endif %}
 </div>
 {% endblock %}

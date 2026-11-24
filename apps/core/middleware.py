@@ -31,7 +31,7 @@ class SecurityHeadersMiddleware:
             "default-src 'self'",
             f"script-src 'self' 'nonce-{request.csp_nonce}'",
             "script-src-attr 'none'",
-            "style-src 'self' 'unsafe-inline'",
+            f"style-src 'self' 'nonce-{request.csp_nonce}'",
             "img-src 'self' data:",
             "font-src 'self'",
             "connect-src 'self'",

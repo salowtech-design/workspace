@@ -3,7 +3,7 @@
 {% block title %}{{ cert.title }} — {{ cert.recipient_name }}{% endblock %}
 
 {% block extra_head %}
-<style>
+<style nonce="{{ csp_nonce }}">
 @media print {
   body {
     background-color: #FFFFFF !important;
@@ -45,17 +45,17 @@
 {% block content %}
 <div class="topbar">
   <div>
-    <a href="{% url 'certificates:list' %}" style="font-size: var(--text-sm); color: var(--color-text-muted);">&larr; Back to Certificates</a>
-    <h1 style="font-size: var(--text-2xl); font-weight: 700; margin-top: var(--space-2);">{{ cert.title }}</h1>
+    <a href="{% url 'certificates:list' %}" class="s-ae80d0ad">&larr; Back to Certificates</a>
+    <h1 class="s-7f06b55d">{{ cert.title }}</h1>
   </div>
-  <div class="actions-bar" style="display: flex; gap: var(--space-2);">
+  <div class="actions-bar s-55f46b0b">
     <button data-action="print" class="btn btn-primary">&#128438; Print / Save PDF</button>
     <a href="{% url 'certificates:svg' cert.uuid %}" class="btn btn-outline" target="_blank">&#10515; Raw SVG</a>
   </div>
 </div>
 
 {% if cert.is_revoked %}
-<div class="alert alert-danger" style="margin-bottom: var(--space-4);">
+<div class="alert alert-danger s-8c301060">
   <strong>ATTENTION: THIS CERTIFICATE HAS BEEN REVOKED</strong><br>
   Revoked on {{ cert.revoked_at|date:"F d, Y H:i" }} by {{ cert.revoked_by.full_name|default:"Administrator" }}.<br>
   Reason: {{ cert.revocation_reason }}
@@ -65,54 +65,54 @@
 <!-- Certificate Canvas -->
 <div class="certificate-frame">
   <div class="certificate-inner-border">
-    <div style="font-size: 13px; font-weight: 700; letter-spacing: 4px; color: #7F6049; margin-bottom: 6px;">
+    <div class="s-d3aff36c">
       SALOW TECHNOLOGIES
     </div>
-    <div style="font-size: 11px; font-weight: 600; letter-spacing: 1.5px; color: #6B6157; margin-bottom: 20px;">
+    <div class="s-969761e4">
       OFFICIAL RECOGNITION CREDENTIAL
     </div>
 
-    <div style="font-size: 26px; font-weight: 800; color: #2A241F; letter-spacing: 1px; margin-bottom: 15px; text-transform: uppercase;">
+    <div class="s-a7d83672">
       {{ cert.title }}
     </div>
 
-    <div style="font-size: 13px; font-style: italic; color: #6B6157; margin-bottom: 12px;">
+    <div class="s-2b76f75b">
       This certificate is proudly presented to
     </div>
 
-    <div style="font-size: 32px; font-weight: 700; color: #96745C; border-bottom: 2px solid #AD8B73; display: inline-block; padding-bottom: 6px; margin-bottom: 12px; min-width: 320px;">
+    <div class="s-56e3ed94">
       {{ cert.recipient_name }}
     </div>
 
-    <div style="font-size: 13px; font-weight: 600; color: #6B6157; margin-bottom: 24px;">
+    <div class="s-a6e6b71d">
       {{ cert.recipient_role }} &bull; Employee ID: {{ cert.recipient.employee_id }}
     </div>
 
-    <p style="max-width: 650px; margin: 0 auto 30px auto; font-size: 14px; line-height: 1.8; color: #2A241F;">
+    <p class="s-5034cc4c">
       {{ cert.description }}
     </p>
 
     <!-- Signatures and Details -->
-    <div style="display: flex; justify-content: space-between; align-items: flex-end; margin-top: 40px; padding: 0 20px;">
-      <div style="text-align: left;">
-        <div style="font-size: 11px; font-weight: 700; color: #2A241F;">Date of Issuance:</div>
-        <div style="font-size: 13px; color: #6B6157;">{{ cert.issue_date|date:"F d, Y" }}</div>
+    <div class="s-88520d96">
+      <div class="s-26cef2c5">
+        <div class="s-d881b9cd">Date of Issuance:</div>
+        <div class="s-cd0757e8">{{ cert.issue_date|date:"F d, Y" }}</div>
       </div>
 
       <!-- Seal -->
-      <div style="width: 70px; height: 70px; border-radius: 50%; border: 3px solid #AD8B73; background-color: #FFFBE9; display: flex; flex-direction: column; align-items: center; justify-content: center; box-shadow: 0 0 0 3px #D1C9B4;">
-        <span style="font-size: 9px; font-weight: 800; color: #7F6049; letter-spacing: 0.5px;">SALOW</span>
-        <span style="font-size: 8px; font-weight: 600; color: #AD8B73;">VERIFIED</span>
+      <div class="s-5725d835">
+        <span class="s-8b8ea46d">SALOW</span>
+        <span class="s-96e84d8a">VERIFIED</span>
       </div>
 
-      <div style="text-align: right;">
-        <div style="font-size: 11px; font-weight: 700; color: #2A241F;">Authorized Signatory:</div>
-        <div style="font-size: 13px; color: #6B6157;">{{ cert.issued_by.full_name|default:"Executive Authority" }}</div>
+      <div class="s-13cbe03b">
+        <div class="s-d881b9cd">Authorized Signatory:</div>
+        <div class="s-cd0757e8">{{ cert.issued_by.full_name|default:"Executive Authority" }}</div>
       </div>
     </div>
 
     <!-- Security Footer -->
-    <div style="margin-top: 35px; padding-top: 15px; border-top: 1px solid #E8E2CF; font-family: monospace; font-size: 10px; color: #6B6157; display: flex; justify-content: space-between;">
+    <div class="s-d2da38db">
       <div>Serial: <strong>{{ cert.serial_number }}</strong></div>
       <div>Hash: {{ cert.verification_hash|slice:":24" }}...</div>
       <div>Verify at: <a href="{% url 'public_verify_id' cert.serial_number %}" target="_blank">/verify/{{ cert.serial_number }}</a></div>
@@ -121,11 +121,11 @@
 </div>
 
 {% if can_manage and not cert.is_revoked %}
-<div class="card revoke-section" style="padding: var(--space-6); border-color: var(--color-danger-border);">
-  <h3 style="font-size: var(--text-base); font-weight: 600; color: var(--color-danger-text); margin-bottom: var(--space-2);">
+<div class="card revoke-section s-f8a53802">
+  <h3 class="s-08cf11ac">
     Revoke Certificate
   </h3>
-  <p style="font-size: var(--text-sm); color: var(--color-text-muted); margin-bottom: var(--space-4);">
+  <p class="s-26191502">
     Revocation permanently marks this credential as invalid. The revocation reason and action will be recorded in the security audit log.
   </p>
   <form method="post" action="{% url 'certificates:revoke' cert.uuid %}">
@@ -133,7 +133,7 @@
     <div class="form-group">
       {{ revoke_form.reason }}
     </div>
-    <button type="submit" class="btn btn-outline" style="color: var(--color-danger-text); border-color: var(--color-danger-border);" data-confirm="Are you sure you want to revoke this certificate? This action cannot be undone.">
+    <button type="submit" class="btn btn-outline s-99cdf0a9" data-confirm="Are you sure you want to revoke this certificate? This action cannot be undone.">
       Revoke Credential
     </button>
   </form>

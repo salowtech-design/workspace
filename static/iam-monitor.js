@@ -37,13 +37,13 @@ document.addEventListener('DOMContentLoaded', () => {
         const badgeColor = isSafe ? '#059669' : '#dc2626';
 
         row.innerHTML = `
-          <div style="display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap;">
-            <span style="color: #94a3b8;">${data.time || ''}</span>
-            <span style="padding: 0.15rem 0.4rem; border-radius: 3px; background: ${badgeColor}; font-weight: 700; font-size: 0.72rem;">${data.event}</span>
-            <span style="font-weight: 600; color: #38bdf8;">${data.employee_id}</span>
-            <span style="color: #cbd5e1;">[${data.step}] ${data.message}</span>
+          <div class="s-769bd11b">
+            <span class="s-aa3ee35a">${data.time || ''}</span>
+            <span class="evt-badge ${isSafe ? 'evt-ok' : 'evt-bad'}">${data.event}</span>
+            <span class="s-03d9fc85">${data.employee_id}</span>
+            <span class="s-c14ddfd0">[${data.step}] ${data.message}</span>
           </div>
-          <div style="color: #64748b; font-size: 0.72rem;">${data.reference_id} | ${data.network_address}</div>
+          <div class="s-9bca2879">${data.reference_id} | ${data.network_address}</div>
         `;
 
         container.insertBefore(row, container.firstChild);

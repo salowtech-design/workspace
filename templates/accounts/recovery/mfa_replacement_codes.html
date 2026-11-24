@@ -3,44 +3,44 @@
 {% block title %}Backup Recovery Codes — Salow Workspace{% endblock %}
 
 {% block content %}
-<div class="card" style="max-width: 620px; margin: 2rem auto;">
-  <div style="text-align: center; margin-bottom: 1.5rem;">
-    <h2 style="font-size: 1.5rem; font-weight: 700; color: var(--color-primary-600); margin: 0 0 0.5rem 0;">
+<div class="card s-e407fe45">
+  <div class="s-b8472b1c">
+    <h2 class="s-c287534f">
       New Backup Recovery Codes
     </h2>
-    <p style="color: var(--color-text-muted); font-size: 0.9rem; margin: 0;">
+    <p class="s-59d1160d">
       Generated for Employee ID: <strong>{{ employee_id }}</strong>
     </p>
   </div>
 
   {% if error %}
-  <div class="alert alert-danger" style="margin-bottom: 1.5rem;">
+  <div class="alert alert-danger s-f0b24eea">
     {{ error }}
   </div>
   {% endif %}
 
-  <div class="alert alert-warning" style="margin-bottom: 1.5rem; background: #fffbeb; border-left: 4px solid #f59e0b; padding: 1rem; border-radius: 4px; font-size: 0.875rem; color: #92400e;">
+  <div class="alert alert-warning s-222343a2">
     <strong>Important Security Notice:</strong>
     All previously issued recovery codes for this account have been invalidated.
     These 10 single-use codes are displayed <strong>only once</strong> and cannot be viewed again after you leave this page.
   </div>
 
-  <div style="background: var(--color-bg-surface-secondary, #f8fafc); border: 1px solid var(--color-border, #cbd5e1); border-radius: 6px; padding: 1.25rem; margin-bottom: 1.5rem;">
-    <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 0.75rem;">
+  <div class="s-e3b0986a">
+    <div class="s-7636bce5">
       {% for code in codes %}
-      <div style="background: #ffffff; padding: 0.5rem 0.75rem; border: 1px dashed var(--color-border-subtle, #e2e8f0); border-radius: 4px; text-align: center;">
-        <code style="font-size: 1.05rem; font-weight: 700; letter-spacing: 1.5px; color: var(--color-text-main, #1e293b);">{{ code }}</code>
+      <div class="s-6ee2a38e">
+        <code class="s-ca6fb486">{{ code }}</code>
       </div>
       {% endfor %}
     </div>
 
-    <div style="display: flex; gap: 0.75rem; justify-content: center; margin-top: 1.25rem;">
+    <div class="s-bc9737d4">
       <button
         type="button"
-        class="btn btn-secondary"
+        class="btn btn-secondary s-260d028a"
         id="copy-btn"
         data-copy="{{ formatted_codes_text }}" data-copied-label="Copied to Clipboard!"
-        style="padding: 0.5rem 1rem; font-size: 0.85rem;"
+       
       >
         Copy All Codes
       </button>
@@ -48,8 +48,8 @@
         id="download-link"
         download="salow-recovery-codes-{{ employee_id }}.txt"
         href="data:text/plain;charset=utf-8,{{ formatted_codes_text|urlencode }}"
-        class="btn btn-outline"
-        style="padding: 0.5rem 1rem; font-size: 0.85rem; text-decoration: none; display: inline-flex; align-items: center;"
+        class="btn btn-outline s-d51e98df"
+       
       >
         Download as .txt
       </a>
@@ -59,14 +59,14 @@
   <form method="post" action="{% url 'accounts:mfa_replacement_recovery_codes' %}">
     {% csrf_token %}
 
-    <div style="background: #ffffff; border: 1px solid var(--color-border, #cbd5e1); border-radius: 6px; padding: 1rem; margin-bottom: 1.5rem;">
-      <label style="display: flex; align-items: flex-start; gap: 0.65rem; cursor: pointer; font-size: 0.9rem; color: var(--color-text-main, #1e293b);">
+    <div class="s-db396611">
+      <label class="s-c62b38a2">
         <input
           type="checkbox"
           name="confirmed_saved"
           value="1"
           required
-          style="margin-top: 0.2rem;"
+          class="s-87880f75"
         >
         <span>
           I have copied or downloaded these 10 recovery codes and stored them in a secure password manager or offline location.
@@ -76,8 +76,8 @@
 
     <button
       type="submit"
-      class="btn btn-primary"
-      style="width: 100%; padding: 0.75rem 1rem; font-weight: 600; font-size: 1rem; border-radius: 6px; background: var(--color-primary-600, #2563eb); color: #ffffff; border: none; cursor: pointer;"
+      class="btn btn-primary s-0ea74e2b"
+     
     >
       Confirm & Access Workspace →
     </button>

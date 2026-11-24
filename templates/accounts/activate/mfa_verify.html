@@ -3,31 +3,31 @@
 {% block title %}Confirm Authenticator — Salowtech Workspace{% endblock %}
 
 {% block content %}
-<div class="card" style="max-width: 440px; margin: 3rem auto; text-align: center;">
-    <span class="badge badge-info" style="margin-bottom: 0.5rem;">Step 4 of 5</span>
-    <h2 style="margin: 0; font-size: 1.4rem; color: var(--color-primary-600);">Confirm Authenticator Code</h2>
-    <p style="color: var(--color-text-muted); font-size: 0.9rem; margin-top: 0.25rem;">
+<div class="card s-958cb614">
+    <span class="badge badge-info s-1c09f0c0">Step 4 of 5</span>
+    <h2 class="s-24c00410">Confirm Authenticator Code</h2>
+    <p class="s-0029a8ac">
         Enter the current 6-digit code displayed in your authenticator app to complete pairing.
     </p>
 
     {% if error %}
-    <div class="alert alert-danger" style="margin: 1rem 0; text-align: left;">
+    <div class="alert alert-danger s-ad8b6cef">
         {{ error }}
     </div>
     {% endif %}
 
-    <form method="post" class="space-y-4" style="text-align: left; margin-top: 1.5rem;">
+    <form method="post" class="space-y-4 s-1e33e0cc">
         {% csrf_token %}
         <div class="form-group">
             <label for="code" class="form-label">6-Digit Authenticator Code</label>
-            <input type="text" id="code" name="code" class="form-input" placeholder="000000" maxlength="6" autofocus required style="text-align: center; font-size: 1.5rem; letter-spacing: 4px; font-family: var(--font-mono);">
+            <input type="text" id="code" name="code" class="form-input s-2f29bef2" placeholder="000000" maxlength="6" autofocus required>
         </div>
 
-        <button type="submit" class="btn btn-primary" style="width: 100%;">Verify & Confirm Pairing</button>
+        <button type="submit" class="btn btn-primary s-69d66e5b">Verify & Confirm Pairing</button>
     </form>
 
-    <div style="margin-top: 1rem;">
-        <a href="{% url 'accounts:activate_mfa_setup' %}" style="font-size: 0.85rem; color: var(--color-text-muted);">← Back to QR Code</a>
+    <div class="s-dab43fb9">
+        <a href="{% url 'accounts:activate_mfa_setup' %}" class="s-5ebad1a2">← Back to QR Code</a>
     </div>
 </div>
 {% endblock %}

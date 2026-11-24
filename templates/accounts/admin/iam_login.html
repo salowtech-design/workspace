@@ -3,32 +3,32 @@
 {% block title %}IAM Administrator Sign-In — Salow Tech{% endblock %}
 
 {% block content %}
-<div style="max-width: 480px; margin: 3rem auto; padding: 2.5rem;" class="card">
-    <div style="text-align: center; margin-bottom: 2rem;">
-        <div style="font-size: 2.75rem; margin-bottom: 0.5rem;">🔐</div>
-        <h2 style="font-size: 1.5rem; font-weight: 800; color: var(--color-primary-600); margin: 0 0 0.5rem 0;">
+<div class="s-58581f24" class="card">
+    <div class="s-485c3355">
+        <div class="s-91d65e26">🔐</div>
+        <h2 class="s-017b15e1">
             Central IAM Console
         </h2>
-        <div style="font-size: 0.85rem; font-weight: 600; color: #b45309; text-transform: uppercase; letter-spacing: 1px;">
+        <div class="s-9964c04b">
             iam.salowtech.com • Authority Level 1
         </div>
-        <p style="font-size: 0.88rem; color: var(--color-text-muted); margin: 0.75rem 0 0 0;">
+        <p class="s-3dee2687">
             Dedicated sign-in for Central IAM administrators. Requires dedicated credentials (min 16 characters) and fresh IAM TOTP.
         </p>
     </div>
 
     {% if error %}
-    <div class="alert alert-danger" style="margin-bottom: 1.5rem;" role="alert">
+    <div class="alert alert-danger s-f0b24eea" role="alert">
         {{ error }}
     </div>
     {% endif %}
 
-    <form method="post" action="{% url 'iam:login' %}" style="display: flex; flex-direction: column; gap: 1.25rem;">
+    <form method="post" action="{% url 'iam:login' %}" class="s-5921cf57">
         {% csrf_token %}
         <input type="hidden" name="next" value="{{ request.GET.next|default:'' }}">
 
         <div>
-            <label for="admin_id" style="display: block; font-size: 0.85rem; font-weight: 600; margin-bottom: 0.35rem;">
+            <label for="admin_id" class="s-19b2c137">
                 Dedicated IAM Admin ID
             </label>
             <input type="text"
@@ -37,12 +37,12 @@
                    required
                    autofocus
                    placeholder="e.g. IAM-SUPER-01"
-                   style="width: 100%; padding: 0.65rem 0.85rem; border: 1px solid var(--color-border); border-radius: 6px; font-size: 0.95rem; text-transform: uppercase;">
+                   class="s-ae3353bf">
         </div>
 
         <div>
-            <label for="password" style="display: block; font-size: 0.85rem; font-weight: 600; margin-bottom: 0.35rem;">
-                IAM Master Password <span style="font-size: 0.75rem; color: var(--color-text-muted);">(min 16 chars)</span>
+            <label for="password" class="s-19b2c137">
+                IAM Master Password <span class="s-9c51c2fc">(min 16 chars)</span>
             </label>
             <input type="password"
                    id="password"
@@ -50,11 +50,11 @@
                    required
                    minlength="16"
                    placeholder="••••••••••••••••"
-                   style="width: 100%; padding: 0.65rem 0.85rem; border: 1px solid var(--color-border); border-radius: 6px; font-size: 0.95rem;">
+                   class="s-4e4a961a">
         </div>
 
         <div>
-            <label for="totp_code" style="display: block; font-size: 0.85rem; font-weight: 600; margin-bottom: 0.35rem;">
+            <label for="totp_code" class="s-19b2c137">
                 Fresh IAM TOTP Authenticator Code
             </label>
             <input type="text"
@@ -66,16 +66,16 @@
                    inputmode="numeric"
                    autocomplete="one-time-code"
                    placeholder="000000"
-                   style="width: 100%; padding: 0.65rem 0.85rem; border: 1px solid var(--color-border); border-radius: 6px; font-size: 1.1rem; letter-spacing: 4px; text-align: center;">
+                   class="s-5040ab4f">
         </div>
 
-        <button type="submit" class="btn btn-primary" style="width: 100%; padding: 0.75rem; font-weight: 700; font-size: 1rem; margin-top: 0.5rem;">
+        <button type="submit" class="btn btn-primary s-281cf788">
             Authenticate to Central IAM
         </button>
     </form>
 
-    <div style="margin-top: 2rem; padding-top: 1.25rem; border-top: 1px solid var(--color-border-subtle); text-align: center; font-size: 0.8rem; color: var(--color-text-muted);">
-        Looking for employee workspace? <a href="https://app.salowtech.com/auth/login/?flow=signin" style="color: var(--color-primary-600); font-weight: 600;">Go to Salow Workspace</a>
+    <div class="s-03723f28">
+        Looking for employee workspace? <a href="https://app.salowtech.com/auth/login/?flow=signin" class="s-8f573919">Go to Salow Workspace</a>
     </div>
 </div>
 {% endblock %}

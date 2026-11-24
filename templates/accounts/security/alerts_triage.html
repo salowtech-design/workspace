@@ -3,16 +3,16 @@
 {% block title %}Security Alerts Triage Console — Salow Workspace{% endblock %}
 
 {% block content %}
-<div class="content-header" style="margin-bottom: 1.5rem; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 1rem;">
+<div class="content-header s-18ed5710">
     <div>
-        <h1 style="font-size: 1.75rem; font-weight: 700; color: #b91c1c; margin: 0;">
+        <h1 class="s-3946e8c8">
             Security Alerts Triage Console
         </h1>
-        <p style="color: var(--color-text-muted); font-size: 0.9rem; margin-top: 0.25rem;">
+        <p class="s-0029a8ac">
             Central Security Operations (SecOps) Incident Response &amp; Independent Acknowledgment.
         </p>
     </div>
-    <div style="display: flex; gap: 0.75rem;">
+    <div class="s-5340b68c">
         <a href="{% url 'accounts:admin_iam' %}?tab=investigation" class="btn btn-secondary btn-sm">
             ← Return to IAM Investigation
         </a>
@@ -20,7 +20,7 @@
 </div>
 
 <!-- Filter Tabs -->
-<div style="display: flex; gap: 0.5rem; margin-bottom: 1.5rem;">
+<div class="s-dd5d935b">
     <a href="?status=open" class="btn btn-sm {% if status_filter == 'open' %}btn-primary{% else %}btn-outline{% endif %}">
         Open Alerts
     </a>
@@ -34,8 +34,8 @@
 
 <!-- Alerts Table -->
 <div class="card">
-    <div class="table-container" style="overflow-x: auto;">
-        <table class="table" style="width: 100%; font-size: 0.85rem;">
+    <div class="table-container s-42d4450c">
+        <table class="table s-4ec424bd">
             <thead>
                 <tr>
                     <th>ID</th>
@@ -53,7 +53,7 @@
                 <tr>
                     <td><code>#{{ alert.id }}</code></td>
                     <td>
-                        <span class="badge" style="background: {% if alert.severity == 'critical' %}#fee2e2; color: #b91c1c;{% elif alert.severity == 'high' %}#ffedd5; color: #c2410c;{% else %}#e0f2fe; color: #0369a1;{% endif %} font-weight: 700;">
+                        <span class="badge fw-700 {% if alert.severity == 'critical' %}sev-critical{% elif alert.severity == 'high' %}sev-high{% else %}sev-low{% endif %}">
                             {{ alert.severity|upper }}
                         </span>
                     </td>
@@ -61,7 +61,7 @@
                     <td>
                         <strong>{{ alert.title }}</strong>
                         {% if alert.description %}
-                        <div style="font-size: 0.78rem; color: var(--color-text-muted); margin-top: 0.2rem;">{{ alert.description }}</div>
+                        <div class="s-2e258235">{{ alert.description }}</div>
                         {% endif %}
                     </td>
                     <td>{{ alert.employee_id|default:"-" }}</td>
@@ -75,24 +75,24 @@
                     </td>
                     <td>
                         {% if alert.status == 'open' and can_acknowledge %}
-                        <form method="post" action="{% url 'accounts:security_alert_acknowledge' alert.id %}" style="display: flex; gap: 0.35rem;">
+                        <form method="post" action="{% url 'accounts:security_alert_acknowledge' alert.id %}" class="s-6d9d6fda">
                             {% csrf_token %}
-                            <input type="text" name="reason" placeholder="Mandatory reason..." required style="font-size: 0.75rem; padding: 0.25rem 0.5rem; border-radius: 4px; border: 1px solid var(--color-border-subtle);">
+                            <input type="text" name="reason" placeholder="Mandatory reason..." required class="s-043bf72e">
                             <button type="submit" class="btn btn-sm btn-primary">Acknowledge</button>
                         </form>
                         {% elif alert.status == 'acknowledged' %}
-                        <div style="font-size: 0.78rem;">
+                        <div class="s-a768c15a">
                             <strong>{{ alert.acknowledged_by.employee_id }}</strong>: {{ alert.acknowledgement_reason }}
-                            <div style="color: var(--color-text-muted); font-size: 0.72rem;">{{ alert.acknowledged_at|date:"M d, H:i" }}</div>
+                            <div class="s-b462b0e9">{{ alert.acknowledged_at|date:"M d, H:i" }}</div>
                         </div>
                         {% else %}
-                        <span style="font-size: 0.78rem; color: var(--color-text-muted);">Read-Only</span>
+                        <span class="s-8ba88f78">Read-Only</span>
                         {% endif %}
                     </td>
                 </tr>
                 {% empty %}
                 <tr>
-                    <td colspan="8" style="text-align: center; color: var(--color-text-muted); padding: 2rem;">
+                    <td colspan="8" class="s-e2741f68">
                         No security alerts matching this filter.
                     </td>
                 </tr>

@@ -3,15 +3,15 @@
 {% block title %}Security & Credentials — Salowtech Workspace{% endblock %}
 
 {% block content %}
-<div class="card" style="max-width: 860px; margin: 2rem auto;">
-    <div style="display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 1px solid var(--color-border-subtle); padding-bottom: 1.25rem; margin-bottom: 1.5rem;">
+<div class="card s-da14e420">
+    <div class="s-84fdca8e">
         <div>
-            <h2 style="margin: 0; font-size: 1.5rem; color: var(--color-primary-600);">Security & Credentials</h2>
-            <p style="color: var(--color-text-muted); font-size: 0.95rem; margin-top: 0.25rem;">
+            <h2 class="s-eb0e8602">Security & Credentials</h2>
+            <p class="s-bd57ecc6">
                 Manage active device sessions, WebAuthn passkeys, and account credentials.
             </p>
         </div>
-        <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
+        <div class="s-d25a0ac8">
             <a href="{% url 'accounts:change_password' %}" class="btn btn-secondary btn-sm">
                 Change Password
             </a>
@@ -24,21 +24,21 @@
     </div>
 
     <!-- Passkeys Section -->
-    <div style="margin-bottom: 2.5rem;">
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem;">
+    <div class="s-8351944d">
+        <div class="s-5e27577f">
             <div>
-                <h3 style="font-size: 1.2rem; margin: 0;">Passkeys & Biometric Authenticators</h3>
-                <p style="color: var(--color-text-muted); font-size: 0.85rem; margin: 0.2rem 0 0 0;">
+                <h3 class="s-e12c2fb5">Passkeys & Biometric Authenticators</h3>
+                <p class="s-f3f8b789">
                     FIDO2 WebAuthn credentials using Touch ID, Windows Hello, or security keys.
                 </p>
             </div>
-            <button type="button" id="enroll-passkey-btn" class="btn btn-primary btn-sm" style="display: flex; align-items: center; gap: 0.4rem;">
+            <button type="button" id="enroll-passkey-btn" class="btn btn-primary btn-sm s-bc95c626">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="16"></line><line x1="8" y1="12" x2="16" y2="12"></line></svg>
                 Enroll Passkey
             </button>
         </div>
 
-        <div id="passkey-reg-status" style="display: none; padding: 0.75rem; margin-bottom: 0.75rem; border-radius: 4px; font-size: 0.85rem;"></div>
+        <div id="passkey-reg-status" class="s-32dc1670"></div>
 
         <div class="table-responsive">
             <table class="table">
@@ -55,19 +55,19 @@
                     {% for pk in passkeys %}
                     <tr>
                         <td><strong>{{ pk.display_name }}</strong></td>
-                        <td style="font-size: 0.85rem; color: var(--color-text-muted);">{{ pk.created_at|date:"d M Y" }}</td>
-                        <td style="font-size: 0.85rem; color: var(--color-text-muted);">{{ pk.last_used_at|date:"d M Y H:i"|default:"Never" }}</td>
+                        <td class="s-5ebad1a2">{{ pk.created_at|date:"d M Y" }}</td>
+                        <td class="s-5ebad1a2">{{ pk.last_used_at|date:"d M Y H:i"|default:"Never" }}</td>
                         <td><span class="badge badge-success">Operational</span></td>
                         <td>
                             <form method="post" action="{% url 'accounts:passkey_delete' pk.id %}" data-confirm="Revoke this passkey credential?">
                                 {% csrf_token %}
-                                <button type="submit" class="btn btn-sm btn-outline" style="color: var(--color-danger-text);">Revoke</button>
+                                <button type="submit" class="btn btn-sm btn-outline s-4ac5e039">Revoke</button>
                             </form>
                         </td>
                     </tr>
                     {% empty %}
                     <tr>
-                        <td colspan="5" style="text-align: center; color: var(--color-text-muted); padding: 1.25rem;">
+                        <td colspan="5" class="s-767d5844">
                             No passkeys registered. Click "Enroll Passkey" to register your current device.
                         </td>
                     </tr>
@@ -78,18 +78,18 @@
     </div>
 
     <!-- Active Sessions Section -->
-    <div style="margin-bottom: 2.5rem;">
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem;">
+    <div class="s-8351944d">
+        <div class="s-5e27577f">
             <div>
-                <h3 style="font-size: 1.2rem; margin: 0;">Active Device Sessions</h3>
-                <p style="color: var(--color-text-muted); font-size: 0.85rem; margin: 0.2rem 0 0 0;">
+                <h3 class="s-e12c2fb5">Active Device Sessions</h3>
+                <p class="s-f3f8b789">
                     Manage active logins. Terminating other sessions protects your account if a device is lost.
                 </p>
             </div>
             {% if sessions|length > 1 %}
             <form method="post" action="{% url 'accounts:terminate_all_other_sessions' %}">
                 {% csrf_token %}
-                <button type="submit" class="btn btn-outline btn-sm" style="color: var(--color-danger-text);">
+                <button type="submit" class="btn btn-outline btn-sm s-4ac5e039">
                     Terminate All Other Sessions
                 </button>
             </form>
@@ -112,7 +112,7 @@
                     <tr>
                         <td>{{ sess.user_agent|truncatechars:40|default:"Browser Session" }}</td>
                         <td><code>{{ sess.ip_address|default:"-" }}</code></td>
-                        <td style="color: var(--color-text-muted); font-size: 0.85rem;">{{ sess.last_activity|date:"d M H:i" }}</td>
+                        <td class="s-b462045d">{{ sess.last_activity|date:"d M H:i" }}</td>
                         <td>
                             {% if sess.session_key == current_session_key %}
                             <span class="badge badge-success">This Device</span>
@@ -124,7 +124,7 @@
                             {% if sess.session_key != current_session_key %}
                             <form method="post" action="{% url 'accounts:terminate_session' sess.session_key %}">
                                 {% csrf_token %}
-                                <button type="submit" class="btn btn-sm btn-outline" style="color: var(--color-danger-text);">Revoke</button>
+                                <button type="submit" class="btn btn-sm btn-outline s-4ac5e039">Revoke</button>
                             </form>
                             {% else %}
                             —
@@ -133,7 +133,7 @@
                     </tr>
                     {% empty %}
                     <tr>
-                        <td colspan="5" style="text-align: center; color: var(--color-text-muted); padding: 1.25rem;">No active sessions found.</td>
+                        <td colspan="5" class="s-767d5844">No active sessions found.</td>
                     </tr>
                     {% endfor %}
                 </tbody>
@@ -143,7 +143,7 @@
 
     <!-- Security Events Audit Section -->
     <div>
-        <h3 style="font-size: 1.2rem; margin-bottom: 0.75rem;">Recent Security Events</h3>
+        <h3 class="s-14458021">Recent Security Events</h3>
         <div class="table-responsive">
             <table class="table">
                 <thead>
@@ -157,14 +157,14 @@
                 <tbody>
                     {% for evt in recent_events %}
                     <tr>
-                        <td style="font-size: 0.85rem; color: var(--color-text-muted);">{{ evt.time|date:"d M Y H:i:s" }}</td>
+                        <td class="s-5ebad1a2">{{ evt.time|date:"d M Y H:i:s" }}</td>
                         <td><strong>{{ evt.event }}</strong></td>
                         <td><code>{{ evt.reference_id|default:"-" }}</code></td>
                         <td>{{ evt.network_address|default:"-" }}</td>
                     </tr>
                     {% empty %}
                     <tr>
-                        <td colspan="4" style="text-align: center; color: var(--color-text-muted); padding: 1.25rem;">No recent security events recorded.</td>
+                        <td colspan="4" class="s-767d5844">No recent security events recorded.</td>
                     </tr>
                     {% endfor %}
                 </tbody>

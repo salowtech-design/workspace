@@ -76,7 +76,7 @@ def device_approval_status_view(request, request_id: uuid.UUID):
         return response
 
     return HttpResponse(
-        f'<div class="status-indicator-pending" style="color: #d97706; font-weight: 600;">'
+        f'<div class="status-indicator-pending s-73849dbd">'
         f'● Awaiting approval from active device ({req.requesting_device_ip or "Remote"})...'
         f'</div>'
     )

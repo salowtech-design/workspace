@@ -4,17 +4,17 @@
 
 {% block content %}
 <div class="card">
-    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem; flex-wrap: wrap; gap: 1rem;">
+    <div class="s-e5be7b85">
         <div>
-            <h2 style="margin: 0; font-size: 1.5rem;">Employee Directory</h2>
-            <p style="color: var(--color-text-muted); font-size: 0.9rem; margin-top: 0.25rem;">
+            <h2 class="s-f65d3aff">Employee Directory</h2>
+            <p class="s-0029a8ac">
                 Browse colleagues, departments, and reporting structures across Salow Tech.
             </p>
         </div>
 
-        <form method="get" style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
-            <input type="text" name="q" class="form-input" placeholder="Search name or ID..." value="{{ query }}" style="width: 220px;">
-            <select name="dept" class="form-input" style="width: 180px;">
+        <form method="get" class="s-d25a0ac8">
+            <input type="text" name="q" class="form-input s-7006b2a9" placeholder="Search name or ID..." value="{{ query }}">
+            <select name="dept" class="form-input s-85066813">
                 <option value="">All Departments</option>
                 {% for dept in departments %}
                 <option value="{{ dept.code }}" {% if selected_dept == dept.code %}selected{% endif %}>{{ dept.name }}</option>
@@ -52,7 +52,7 @@
                 </tr>
                 {% empty %}
                 <tr>
-                    <td colspan="5" style="text-align: center; color: var(--color-text-muted); padding: 2rem;">
+                    <td colspan="5" class="s-e2741f68">
                         No employees match the search filter.
                     </td>
                 </tr>

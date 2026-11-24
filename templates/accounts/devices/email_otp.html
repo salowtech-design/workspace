@@ -3,40 +3,40 @@
 {% block title %}Verify Company Email OTP — Salow Workspace{% endblock %}
 
 {% block content %}
-<div style="max-width: 480px; margin: 3rem auto; padding: 2rem;" class="card">
-    <div style="text-align: center; margin-bottom: 1.5rem;">
-        <div style="font-size: 2.5rem; margin-bottom: 0.5rem;">✉️</div>
-        <h2 style="font-size: 1.4rem; font-weight: 700; color: var(--color-primary-600); margin: 0 0 0.5rem 0;">
+<div class="s-b42ee315" class="card">
+    <div class="s-b8472b1c">
+        <div class="s-301831f1">✉️</div>
+        <h2 class="s-44d9ccaf">
             Email Verification Challenge
         </h2>
-        <p style="font-size: 0.88rem; color: var(--color-text-muted); margin: 0;">
+        <p class="s-4b906298">
             Primary device approval confirmed! Enter the 6-digit one-time code sent to <strong>{{ user.email }}</strong>.
         </p>
     </div>
 
     {% if error %}
-    <div class="alert alert-error" style="margin-bottom: 1.25rem;">
+    <div class="alert alert-error s-1bd4b9f5">
         {{ error }}
     </div>
     {% endif %}
 
     <form method="post">
         {% csrf_token %}
-        <div class="form-group" style="margin-bottom: 1.5rem;">
-            <label for="id_email_otp" class="form-label" style="font-weight: 600;">6-Digit Email Code</label>
+        <div class="form-group s-f0b24eea">
+            <label for="id_email_otp" class="form-label s-5c05f4af">6-Digit Email Code</label>
             <input type="text"
                    name="email_otp"
                    id="id_email_otp"
-                   class="form-input"
+                   class="form-input s-51a81b31"
                    placeholder="123456"
                    maxlength="6"
                    required
                    autocomplete="one-time-code"
                    autofocus
-                   style="font-size: 1.5rem; font-weight: 700; text-align: center; letter-spacing: 0.4rem;">
+                  >
         </div>
 
-        <button type="submit" class="btn btn-primary" style="width: 100%; padding: 0.75rem; font-weight: 600;">
+        <button type="submit" class="btn btn-primary s-36a98587">
             Verify Email & Proceed to Face Check →
         </button>
     </form>

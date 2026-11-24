@@ -3,14 +3,14 @@
 {% block title %}Verify Identity — Salow Workspace{% endblock %}
 
 {% block content %}
-<div class="card" style="max-width: 440px; margin: 3rem auto;">
-    <h2 style="margin-top: 0; font-size: 1.4rem;">Two-Factor Authentication</h2>
-    <p style="color: var(--color-text-muted); font-size: 0.9rem;">
+<div class="card s-0ed86b33">
+    <h2 class="s-100120df">Two-Factor Authentication</h2>
+    <p class="s-55818bf2">
         Enter the 6-digit verification code from your authenticator app, or enter a backup recovery code.
     </p>
 
     {% if error %}
-    <div class="alert alert-danger" style="margin-bottom: 1rem;">
+    <div class="alert alert-danger s-f267e3ca">
         {{ error }}
     </div>
     {% endif %}
@@ -22,7 +22,7 @@
             <input type="text" id="token" name="token" class="form-input" placeholder="000000" maxlength="6" autofocus>
         </div>
 
-        <div style="text-align: center; color: var(--color-text-muted); font-size: 0.85rem; margin: 0.5rem 0;">
+        <div class="s-17c02266">
             — OR USE BACKUP CODE —
         </div>
 
@@ -31,7 +31,7 @@
             <input type="text" id="recovery_code" name="recovery_code" class="form-input" placeholder="ABC12-DEF34">
         </div>
 
-        <button type="submit" class="btn btn-primary" style="width: 100%;">Verify & Sign In</button>
+        <button type="submit" class="btn btn-primary s-69d66e5b">Verify & Sign In</button>
     </form>
 </div>
 {% endblock %}

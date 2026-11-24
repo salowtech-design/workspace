@@ -5,13 +5,13 @@
 {% block content %}
 <div class="topbar">
   <div>
-    <a href="{% url 'certificates:list' %}" style="font-size: var(--text-sm); color: var(--color-text-muted);">&larr; Back to Certificates</a>
-    <h1 style="font-size: var(--text-2xl); font-weight: 700; margin-top: var(--space-2);">Issue New Official Certificate</h1>
+    <a href="{% url 'certificates:list' %}" class="s-ae80d0ad">&larr; Back to Certificates</a>
+    <h1 class="s-7f06b55d">Issue New Official Certificate</h1>
   </div>
 </div>
 
-<div style="max-width: 760px; margin: 0 auto;">
-  <div class="card" style="padding: var(--space-8);">
+<div class="s-f4ac9648">
+  <div class="card s-21ced7e8">
     <form method="post">
       {% csrf_token %}
 
@@ -19,18 +19,18 @@
         <label class="form-label">Recipient Employee *</label>
         {{ form.recipient }}
         {% if form.recipient.errors %}
-          <div style="color: var(--color-danger-text); font-size: var(--text-xs); margin-top: 0.25rem;">
+          <div class="s-a7446d06">
             {{ form.recipient.errors.0 }}
           </div>
         {% endif %}
       </div>
 
-      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-4);">
+      <div class="s-4369740e">
         <div class="form-group">
           <label class="form-label">Certificate Title *</label>
           {{ form.title }}
           {% if form.title.errors %}
-            <div style="color: var(--color-danger-text); font-size: var(--text-xs); margin-top: 0.25rem;">
+            <div class="s-a7446d06">
               {{ form.title.errors.0 }}
             </div>
           {% endif %}
@@ -51,13 +51,13 @@
         <label class="form-label">Citation / Description Body *</label>
         {{ form.description }}
         {% if form.description.errors %}
-          <div style="color: var(--color-danger-text); font-size: var(--text-xs); margin-top: 0.25rem;">
+          <div class="s-a7446d06">
             {{ form.description.errors.0 }}
           </div>
         {% endif %}
       </div>
 
-      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-4);">
+      <div class="s-4369740e">
         <div class="form-group">
           <label class="form-label">Issue Date</label>
           {{ form.issue_date }}
@@ -69,7 +69,7 @@
         </div>
       </div>
 
-      <div style="display: flex; justify-content: flex-end; gap: var(--space-3); margin-top: var(--space-6);">
+      <div class="s-82b5bbfa">
         <a href="{% url 'certificates:list' %}" class="btn btn-outline">Cancel</a>
         <button type="submit" class="btn btn-primary">Generate & Issue Credential</button>
       </div>

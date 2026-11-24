@@ -4,17 +4,17 @@
 
 {% block content %}
 <div class="card">
-    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem; flex-wrap: wrap; gap: 1rem;">
+    <div class="s-e5be7b85">
         <div>
-            <h2 style="margin: 0; font-size: 1.5rem; color: var(--color-primary-600);">Authentication Audit Timeline</h2>
-            <p style="color: var(--color-text-muted); font-size: 0.9rem; margin-top: 0.25rem;">
+            <h2 class="s-eb0e8602">Authentication Audit Timeline</h2>
+            <p class="s-0029a8ac">
                 Filter diagnostic events, reference IDs, and authentication error codes.
             </p>
         </div>
 
-        <form method="get" style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
-            <input type="text" name="emp" class="form-input" placeholder="Employee ID..." value="{{ emp_filter }}" style="width: 160px;">
-            <input type="text" name="code" class="form-input" placeholder="Error Code (e.g. AUTH-MFA)..." value="{{ code_filter }}" style="width: 200px;">
+        <form method="get" class="s-d25a0ac8">
+            <input type="text" name="emp" class="form-input s-611bf920" placeholder="Employee ID..." value="{{ emp_filter }}">
+            <input type="text" name="code" class="form-input s-ec060bac" placeholder="Error Code (e.g. AUTH-MFA)..." value="{{ code_filter }}">
             <button type="submit" class="btn btn-primary">Filter</button>
         </form>
     </div>
@@ -34,16 +34,16 @@
             <tbody>
                 {% for evt in events %}
                 <tr>
-                    <td style="font-size: 0.85rem; color: var(--color-text-muted);">{{ evt.time|date:"Y-m-d H:i:s" }}</td>
+                    <td class="s-5ebad1a2">{{ evt.time|date:"Y-m-d H:i:s" }}</td>
                     <td><span class="badge {% if evt.code == 'INFO' %}badge-outline{% else %}badge-danger{% endif %}">{{ evt.code }}</span></td>
                     <td><code>{{ evt.reference_id }}</code></td>
                     <td><strong>{{ evt.employee_id|default:"-" }}</strong></td>
-                    <td>{{ evt.event }} <small style="color: var(--color-text-muted);">({{ evt.step }})</small></td>
-                    <td style="font-size: 0.85rem; max-width: 300px; word-break: break-all;">{{ evt.message }}</td>
+                    <td>{{ evt.event }} <small class="s-7326de92">({{ evt.step }})</small></td>
+                    <td class="s-df944090">{{ evt.message }}</td>
                 </tr>
                 {% empty %}
                 <tr>
-                    <td colspan="6" style="text-align: center; color: var(--color-text-muted); padding: 2rem;">No matching authentication events found.</td>
+                    <td colspan="6" class="s-e2741f68">No matching authentication events found.</td>
                 </tr>
                 {% endfor %}
             </tbody>

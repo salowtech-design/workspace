@@ -3,31 +3,31 @@
 {% block title %}IAM Administrator Recovery Queue — Salow Workspace{% endblock %}
 
 {% block content %}
-<div style="max-width: 960px; margin: 2rem auto;">
-  <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 1.5rem; border-bottom: 1px solid var(--color-border-subtle, #e2e8f0); padding-bottom: 1rem;">
+<div class="s-6514ea59">
+  <div class="s-fabadb3f">
     <div>
-      <h1 style="margin: 0; font-size: 1.6rem; font-weight: 700; color: var(--color-primary-600, #2563eb);">
+      <h1 class="s-4c214798">
         IAM Administrator Recovery Queue
       </h1>
-      <p style="color: var(--color-text-muted, #64748b); font-size: 0.9rem; margin-top: 0.25rem;">
+      <p class="s-9ab8d4a3">
         Delegated Recovery Authority: <strong>{{ actor.get_role_display }}</strong> ({{ actor.employee_id }})
       </p>
     </div>
-    <div style="display: flex; gap: 0.5rem; align-items: center;">
-      <span style="background: #dcfce7; color: #166534; font-size: 0.8rem; font-weight: 600; padding: 0.35rem 0.75rem; border-radius: 9999px; border: 1px solid #86efac;">
+    <div class="s-487b2c58">
+      <span class="s-190f4303">
         ✓ Sudo Mode Active
       </span>
-      <span style="background: var(--color-primary-50, #eff6ff); color: var(--color-primary-700, #1d4ed8); font-size: 0.8rem; font-weight: 600; padding: 0.35rem 0.75rem; border-radius: 9999px; border: 1px solid var(--color-primary-200, #bfdbfe);">
+      <span class="s-d3f5bace">
         Audited Operation
       </span>
     </div>
   </div>
 
-  <div style="background: var(--color-bg-surface-secondary, #f8fafc); padding: 1.25rem; border-radius: 6px; margin-bottom: 2rem; border: 1px solid var(--color-border-subtle, #e2e8f0);">
-    <h3 style="margin: 0 0 0.5rem 0; font-size: 0.95rem; font-weight: 600; color: var(--color-text-main, #1e293b);">
+  <div class="s-09ff1c92">
+    <h3 class="s-5169172d">
       Security & Approval Policy:
     </h3>
-    <ul style="margin: 0; padding-left: 1.25rem; font-size: 0.85rem; color: var(--color-text-muted, #64748b); line-height: 1.5;">
+    <ul class="s-871dd7b0">
       <li><strong>Anti-Enumeration:</strong> Recovery requests submitted via Method 1 are queued here without disclosing user existence to untrusted callers.</li>
       <li><strong>Dual-Control Requirement:</strong> Approving recovery for a <strong>Super Admin</strong> account requires concurrent sign-off from two distinct Super Admins.</li>
       <li><strong>Self-Approval Prohibited:</strong> Administrators cannot approve their own password or authenticator recovery requests.</li>
@@ -36,75 +36,75 @@
   </div>
 
   {% if generated_token %}
-  <div class="card" style="margin-bottom: 2rem; border: 2px solid #16a34a; background: #f0fdf4; padding: 1.5rem; border-radius: 8px;">
-    <h3 style="margin-top: 0; color: #166534; font-size: 1.15rem; font-weight: 700;">
+  <div class="card s-8cca9e2e">
+    <h3 class="s-9dd2d2a1">
       {{ token_title|default:"Single-Use Password Reset Token Generated" }}
     </h3>
-    <p style="font-size: 0.9rem; color: #1e293b; margin-bottom: 0.75rem;">
+    <p class="s-839de077">
       Single-Use recovery code generated for <strong>{{ target_user.employee_id }}</strong>:
     </p>
-    <div style="background: #ffffff; border: 1px solid #86efac; border-radius: 6px; padding: 0.75rem 1rem; font-family: monospace; font-size: 1.25rem; font-weight: 700; color: #15803d; letter-spacing: 0.1em; display: inline-block;">
+    <div class="s-a2ec00a8">
       {{ generated_token }}
     </div>
-    <p style="font-size: 0.8rem; color: #64748b; margin-top: 0.75rem; margin-bottom: 0;">
+    <p class="s-7dc50478">
       Provide this secure token to the employee directly. It expires in 15 minutes and can only be redeemed once.
     </p>
   </div>
   {% endif %}
 
-  <h2 style="font-size: 1.2rem; font-weight: 600; color: var(--color-text-main, #1e293b); margin-bottom: 1rem;">
+  <h2 class="s-abee07ad">
     Pending Recovery Requests ({{ pending_requests.count }})
   </h2>
 
   {% if pending_requests %}
-  <div style="display: flex; flex-direction: column; gap: 1.25rem;">
+  <div class="s-5921cf57">
     {% for req in pending_requests %}
-    <div class="card" style="border: 1px solid var(--color-border, #cbd5e1); border-radius: 8px; padding: 1.25rem; background: #ffffff; box-shadow: 0 1px 3px rgba(0,0,0,0.05);">
-      <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 1rem;">
+    <div class="card s-8771d6f2">
+      <div class="s-6d00741b">
         <div>
-          <div style="display: flex; align-items: center; gap: 0.75rem;">
-            <span style="font-size: 1.1rem; font-weight: 700; color: var(--color-text-main, #1e293b);">
+          <div class="s-ae05e31e">
+            <span class="s-e56f487c">
               {{ req.user.full_name }}
             </span>
-            <code style="background: var(--color-bg-surface-secondary, #f1f5f9); padding: 0.2rem 0.5rem; border-radius: 4px; font-size: 0.85rem; font-weight: 600;">
+            <code class="s-ed6b6580">
               {{ req.user.employee_id }}
             </code>
-            <span style="font-size: 0.8rem; padding: 0.2rem 0.5rem; border-radius: 4px; font-weight: 600; background: #e0e7ff; color: #3730a3;">
+            <span class="s-f97ffb66">
               {{ req.user.get_role_display }}
             </span>
           </div>
-          <div style="font-size: 0.85rem; color: var(--color-text-muted, #64748b); margin-top: 0.25rem;">
-            Email: {{ req.user.email|default:"None registered" }} {% if req.user.email_verified %}<span style="color: #166534;">(Verified)</span>{% else %}<span style="color: #b45309;">(Unverified)</span>{% endif %}
+          <div class="s-3c50f654">
+            Email: {{ req.user.email|default:"None registered" }} {% if req.user.email_verified %}<span class="s-4ba85d8b">(Verified)</span>{% else %}<span class="s-414f610d">(Unverified)</span>{% endif %}
             • Requested: {{ req.created_at|date:"Y-m-d H:i" }}
           </div>
         </div>
 
-        <span style="background: #fef3c7; color: #92400e; font-size: 0.8rem; font-weight: 600; padding: 0.25rem 0.65rem; border-radius: 9999px;">
+        <span class="s-444c98a3">
           {{ req.get_request_type_display }}
         </span>
       </div>
 
       {% if req.reason %}
-      <div style="background: #f8fafc; border-left: 3px solid var(--color-primary-500, #3b82f6); padding: 0.5rem 0.75rem; border-radius: 0 4px 4px 0; font-size: 0.85rem; color: var(--color-text-main, #1e293b); margin-bottom: 1rem;">
+      <div class="s-b2f49ed0">
         <strong>Employee Note:</strong> {{ req.reason }}
       </div>
       {% endif %}
 
-      <div style="display: flex; flex-wrap: wrap; gap: 1rem; align-items: flex-end; padding-top: 0.75rem; border-top: 1px solid var(--color-border-subtle, #f1f5f9);">
+      <div class="s-9d554989">
         <!-- Approve Form -->
-        <form method="post" action="{% url 'accounts:admin_approve_recovery' req.id %}" style="display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center;">
+        <form method="post" action="{% url 'accounts:admin_approve_recovery' req.id %}" class="s-c110ecd6">
           {% csrf_token %}
 
           {% if req.user.role == "super_admin" %}
-          <div style="display: flex; flex-direction: column;">
-            <label for="second_approver_{{ req.id }}" style="font-size: 0.75rem; font-weight: 600; color: #b45309;">
+          <div class="s-ba30f188">
+            <label for="second_approver_{{ req.id }}" class="s-412ae08f">
               Co-Approver (Required for Super Admin):
             </label>
             <select
               id="second_approver_{{ req.id }}"
               name="second_approver_id"
               required
-              style="padding: 0.4rem 0.6rem; font-size: 0.85rem; border: 1px solid var(--color-border, #cbd5e1); border-radius: 4px;"
+              class="s-e27cc256"
             >
               <option value="">Select Second Super Admin...</option>
               {% for sa in super_admins %}
@@ -116,8 +116,8 @@
 
           <button
             type="submit"
-            class="btn btn-primary"
-            style="padding: 0.45rem 1rem; font-size: 0.875rem; background: #16a34a; border-color: #16a34a;"
+            class="btn btn-primary s-73f7cbd4"
+           
             data-confirm="Approve recovery for {{ req.user.employee_id }}? A reset link will be sent to their email."
           >
             Approve & Issue Link
@@ -125,19 +125,19 @@
         </form>
 
         <!-- Reject Form -->
-        <form method="post" action="{% url 'accounts:admin_reject_recovery' req.id %}" style="display: flex; gap: 0.5rem; align-items: center; margin-left: auto;">
+        <form method="post" action="{% url 'accounts:admin_reject_recovery' req.id %}" class="s-86a21701">
           {% csrf_token %}
           <input
             type="text"
             name="reason"
             placeholder="Rejection reason..."
             required
-            style="padding: 0.4rem 0.6rem; font-size: 0.85rem; border: 1px solid var(--color-border, #cbd5e1); border-radius: 4px; min-width: 220px;"
+            class="s-71787eac"
           >
           <button
             type="submit"
-            class="btn btn-outline"
-            style="padding: 0.45rem 1rem; font-size: 0.875rem; color: #dc2626; border-color: #fca5a5;"
+            class="btn btn-outline s-afb6bffe"
+           
             data-confirm="Reject recovery request for {{ req.user.employee_id }}?"
           >
             Reject
@@ -148,19 +148,19 @@
     {% endfor %}
   </div>
   {% else %}
-  <div class="card" style="text-align: center; padding: 3rem 1.5rem; border: 1px dashed var(--color-border, #cbd5e1); border-radius: 8px; background: #ffffff;">
-    <div style="font-size: 2rem; margin-bottom: 0.5rem; color: #94a3b8;">✓</div>
-    <h3 style="margin: 0 0 0.5rem 0; font-size: 1.1rem; color: var(--color-text-main, #1e293b);">
+  <div class="card s-56e8d448">
+    <div class="s-ea578752">✓</div>
+    <h3 class="s-af66bd02">
       No Pending Recovery Requests
     </h3>
-    <p style="margin: 0; font-size: 0.875rem; color: var(--color-text-muted, #64748b);">
+    <p class="s-7478728e">
       All employee recovery requests have been processed. New requests will appear here in real-time.
     </p>
   </div>
   {% endif %}
 
-  <div style="margin-top: 2rem; text-align: right;">
-    <a href="{% url 'accounts:security' %}" style="font-size: 0.875rem; color: var(--color-text-muted, #64748b); text-decoration: none;">
+  <div class="s-e492681a">
+    <a href="{% url 'accounts:security' %}" class="s-d0dd0b27">
       ← Return to Security & Sessions
     </a>
   </div>

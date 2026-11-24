@@ -3,43 +3,43 @@
 {% block title %}Sign In — Salowtech Workspace{% endblock %}
 
 {% block content %}
-<div class="card" style="max-width: 460px; margin: 3rem auto; text-align: center; border: 1px solid var(--color-border-subtle); box-shadow: 0 4px 16px rgba(42, 36, 31, 0.06);">
-    <div style="margin-bottom: 1.5rem;">
-        <img src="/static/img/logo.jpg" alt="Salowtech Logo" style="height: 64px; width: 64px; object-fit: contain; margin-bottom: 0.5rem; border-radius: 8px;">
-        <h2 style="margin: 0; font-size: 1.5rem; color: var(--color-primary-600); font-weight: 700;">Salowtech Workspace</h2>
-        <p style="color: var(--color-text-muted); font-size: 0.88rem; margin-top: 0.25rem;">
+<div class="card s-fe29e128">
+    <div class="s-f0b24eea">
+        <img src="/static/img/logo.jpg" alt="Salowtech Logo" class="s-63fdcc73">
+        <h2 class="s-580e7beb">Salowtech Workspace</h2>
+        <p class="s-84e54f86">
             Enterprise Identity & Access Management
         </p>
     </div>
 
     <!-- Exactly Two Primary Buttons Side by Side: Login and Sign In -->
-    <div id="landing-buttons-container" style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; margin-bottom: 1.5rem;" role="tablist" aria-label="Authentication Options">
-        <button type="button" id="btn-login" class="btn btn-primary" style="display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 0.85rem 0.5rem; font-weight: 700; font-size: 1.05rem; border-radius: 6px; cursor: pointer; transition: all 0.15s ease;">
+    <div id="landing-buttons-container" class="s-5ded4aa8" role="tablist" aria-label="Authentication Options">
+        <button type="button" id="btn-login" class="btn btn-primary s-5327b0f0">
             <span>Login</span>
-            <span style="font-size: 0.72rem; font-weight: 400; opacity: 0.9; margin-top: 0.15rem;">First-Time Activation</span>
+            <span class="s-c319bba4">First-Time Activation</span>
         </button>
-        <button type="button" id="btn-signin" class="btn btn-primary" style="display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 0.85rem 0.5rem; font-weight: 700; font-size: 1.05rem; border-radius: 6px; cursor: pointer; transition: all 0.15s ease;">
+        <button type="button" id="btn-signin" class="btn btn-primary s-5327b0f0">
             <span>Sign In</span>
-            <span style="font-size: 0.72rem; font-weight: 400; opacity: 0.9; margin-top: 0.15rem;">Returning Employee</span>
+            <span class="s-c319bba4">Returning Employee</span>
         </button>
     </div>
 
     {% if request.GET.reason == "idle" and not error %}
-    <div class="alert alert-info" id="login-idle-notice" style="margin-bottom: 1.25rem; text-align: left;">
+    <div class="alert alert-info s-6f11fb3f" id="login-idle-notice">
         You were signed out because of inactivity. Sign in again to continue.
     </div>
     {% endif %}
     {% if error %}
-    <div class="alert alert-danger" id="login-error-alert" style="margin-bottom: 1.25rem; text-align: left;">
+    <div class="alert alert-danger s-6f11fb3f" id="login-error-alert">
         {{ error }}
     </div>
     {% endif %}
 
     <!-- State 1: First-Time Activation Flow (Initially Hidden unless flow='login') -->
-    <div id="login-flow-container" style="display: {% if flow == 'login' %}block{% else %}none{% endif %}; text-align: left;">
-        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 1rem; padding-bottom: 0.5rem; border-bottom: 1px solid var(--color-border-subtle);">
-            <h3 style="margin: 0; font-size: 1.1rem; color: var(--color-primary-600); font-weight: 600;">First-Time Account Activation</h3>
-            <button type="button" class="btn-back-landing" style="background: none; border: none; font-size: 0.82rem; color: var(--color-primary-600); cursor: pointer; text-decoration: underline; font-weight: 600;">← Back</button>
+    <div id="login-flow-container" class="text-left{% if flow != 'login' %} d-none{% endif %}">
+        <div class="s-7a365447">
+            <h3 class="s-00ed56fc">First-Time Account Activation</h3>
+            <button type="button" class="btn-back-landing s-0e8b573d">← Back</button>
         </div>
         <form method="post" action="{% url 'accounts:activate' %}" id="activation-form" class="space-y-4">
             {% csrf_token %}
@@ -49,31 +49,31 @@
             </div>
             <div class="form-group">
                 <label for="act_password" class="form-label">Password</label>
-                <div style="position: relative; display: flex; align-items: center;">
-                    <input type="password" id="act_password" name="password" class="form-input" placeholder="••••••••••••" autocomplete="current-password" required style="padding-right: 2.75rem; width: 100%;">
-                    <button type="button" id="toggle-act-password-btn" aria-label="Toggle password visibility" title="Show/Hide password" style="position: absolute; right: 0.75rem; background: none; border: none; padding: 0.25rem; cursor: pointer; color: var(--color-text-muted); display: flex; align-items: center; justify-content: center; transition: color 0.15s ease;">
+                <div class="s-5df001c8">
+                    <input type="password" id="act_password" name="password" class="form-input s-e889570e" placeholder="••••••••••••" autocomplete="current-password" required>
+                    <button type="button" id="toggle-act-password-btn" aria-label="Toggle password visibility" title="Show/Hide password" class="s-209973b1">
                         <svg class="eye-open" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                             <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
                             <circle cx="12" cy="12" r="3"></circle>
                         </svg>
-                        <svg class="eye-closed" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display: none;">
+                        <svg class="eye-closed s-f2892a2e" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                             <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path>
                             <line x1="1" y1="1" x2="23" y2="23"></line>
                         </svg>
                     </button>
                 </div>
             </div>
-            <button type="submit" id="btn-submit-activation" class="btn btn-primary" style="width: 100%; font-size: 1rem; font-weight: 700; padding: 0.8rem; margin-top: 0.5rem;">
+            <button type="submit" id="btn-submit-activation" class="btn btn-primary s-bea6f1ff">
                 Activate Account →
             </button>
         </form>
     </div>
 
     <!-- State 2: Returning Employee Sign-In Flow (Initially Hidden unless flow='signin' or error) -->
-    <div id="signin-flow-container" style="display: {% if flow == 'signin' or error %}block{% else %}none{% endif %}; text-align: left;">
-        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 1rem; padding-bottom: 0.5rem; border-bottom: 1px solid var(--color-border-subtle);">
-            <h3 style="margin: 0; font-size: 1.1rem; color: var(--color-primary-600); font-weight: 600;">Returning Employee Sign-In</h3>
-            <button type="button" class="btn-back-landing" style="background: none; border: none; font-size: 0.82rem; color: var(--color-primary-600); cursor: pointer; text-decoration: underline; font-weight: 600;">← Back</button>
+    <div id="signin-flow-container" class="text-left{% if flow != 'signin' and not error %} d-none{% endif %}">
+        <div class="s-7a365447">
+            <h3 class="s-00ed56fc">Returning Employee Sign-In</h3>
+            <button type="button" class="btn-back-landing s-0e8b573d">← Back</button>
         </div>
         <form method="post" action="{% url 'accounts:login' %}" id="signin-form" class="space-y-4">
             {% csrf_token %}
@@ -86,14 +86,14 @@
 
             <div class="form-group">
                 <label for="password" class="form-label">Password</label>
-                <div style="position: relative; display: flex; align-items: center;">
-                    <input type="password" id="password" name="password" class="form-input" placeholder="••••••••••••" autocomplete="current-password" required style="padding-right: 2.75rem; width: 100%;">
-                    <button type="button" id="toggle-password-btn" aria-label="Toggle password visibility" title="Show/Hide password" style="position: absolute; right: 0.75rem; background: none; border: none; padding: 0.25rem; cursor: pointer; color: var(--color-text-muted); display: flex; align-items: center; justify-content: center; transition: color 0.15s ease;">
+                <div class="s-5df001c8">
+                    <input type="password" id="password" name="password" class="form-input s-e889570e" placeholder="••••••••••••" autocomplete="current-password" required>
+                    <button type="button" id="toggle-password-btn" aria-label="Toggle password visibility" title="Show/Hide password" class="s-209973b1">
                         <svg class="eye-open" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                             <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
                             <circle cx="12" cy="12" r="3"></circle>
                         </svg>
-                        <svg class="eye-closed" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display: none;">
+                        <svg class="eye-closed s-f2892a2e" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                             <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path>
                             <line x1="1" y1="1" x2="23" y2="23"></line>
                         </svg>
@@ -103,19 +103,19 @@
 
             <div class="form-group">
                 <label for="totp_code" class="form-label">Authenticator Code (TOTP or Backup Code)</label>
-                <input type="text" id="totp_code" name="totp_code" class="form-input" placeholder="6-digit TOTP (e.g. 123456) or Backup Code" autocomplete="one-time-code" style="letter-spacing: 2px; font-family: var(--font-mono);">
-                <p style="font-size: 0.75rem; color: var(--color-text-muted); margin-top: 0.25rem; margin-bottom: 0;">
+                <input type="text" id="totp_code" name="totp_code" class="form-input s-27fe45d7" placeholder="6-digit TOTP (e.g. 123456) or Backup Code" autocomplete="one-time-code">
+                <p class="s-cc6c8482">
                     Enter code from your authenticator app (or leave blank if completing step-by-step).
                 </p>
             </div>
 
-            <button type="submit" id="confirm-btn" class="btn btn-primary" style="width: 100%; font-size: 1rem; font-weight: 700; padding: 0.8rem; margin-top: 0.5rem;">
+            <button type="submit" id="confirm-btn" class="btn btn-primary s-bea6f1ff">
                 Confirm
             </button>
 
             <!-- Forgot Password link immediately below Confirm button -->
-            <div style="text-align: center; margin-top: 0.85rem;">
-                <a href="{% url 'accounts:forgot_password' %}" id="forgot-password-link" style="font-size: 0.88rem; color: var(--color-primary-600); text-decoration: none; font-weight: 600;">
+            <div class="s-44b7db74">
+                <a href="{% url 'accounts:forgot_password' %}" id="forgot-password-link" class="s-40acc7fb">
                     Forgot Password?
                 </a>
             </div>

@@ -3,16 +3,16 @@
 {% block title %}Team {{ team.name }} — Salow Workspace{% endblock %}
 
 {% block content %}
-<div class="card" style="max-width: 800px; margin: 0 auto;">
-    <div style="border-bottom: 1px solid var(--color-border); padding-bottom: 1rem; margin-bottom: 1.5rem;">
+<div class="card s-6b0c1363">
+    <div class="s-8a1f36d0">
         <span class="badge badge-info">{{ team.department.name }}</span>
-        <h2 style="margin: 0.5rem 0 0.25rem; font-size: 1.5rem;">{{ team.name }} [{{ team.code }}]</h2>
-        <p style="color: var(--color-text-muted); margin: 0; font-size: 0.95rem;">
+        <h2 class="s-7c90ee5d">{{ team.name }} [{{ team.code }}]</h2>
+        <p class="s-4d16fcdd">
             Lead: {% if team.lead %}<strong>{{ team.lead.full_name }}</strong> ({{ team.lead.employee_id }}){% else %}<em>Unassigned</em>{% endif %}
         </p>
     </div>
 
-    <h3 style="font-size: 1.2rem; margin-bottom: 1rem;">Team Members</h3>
+    <h3 class="s-971b9625">Team Members</h3>
     <div class="table-responsive">
         <table class="table">
             <thead>
@@ -29,11 +29,11 @@
                     <td>{{ membership.user.employee_id }}</td>
                     <td>{{ membership.user.full_name }}</td>
                     <td><span class="badge badge-outline">{{ membership.user.get_role_display }}</span></td>
-                    <td style="color: var(--color-text-muted);">{{ membership.joined_at|date:"d M Y" }}</td>
+                    <td class="s-7326de92">{{ membership.joined_at|date:"d M Y" }}</td>
                 </tr>
                 {% empty %}
                 <tr>
-                    <td colspan="4" style="text-align: center; color: var(--color-text-muted); padding: 1.5rem;">
+                    <td colspan="4" class="s-8321ebd2">
                         No members assigned to this team yet.
                     </td>
                 </tr>

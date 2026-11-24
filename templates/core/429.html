@@ -3,42 +3,42 @@
 {% block title %}429 Too Many Requests — Salowtech Workspace{% endblock %}
 
 {% block content %}
-<div class="card" style="max-width: 480px; margin: 3.5rem auto; text-align: center; border: 1px solid var(--color-border-subtle); box-shadow: 0 4px 16px rgba(42, 36, 31, 0.06);">
-    <div style="margin-bottom: 1.5rem;">
-        <img src="/static/img/logo.jpg" alt="Salowtech Logo" style="height: 64px; width: 64px; object-fit: contain; margin-bottom: 0.75rem; border-radius: 8px;">
-        <div style="display: inline-flex; align-items: center; gap: 0.4rem; background: var(--color-warning-bg); border: 1px solid var(--color-warning-border); padding: 0.35rem 0.75rem; border-radius: 20px; font-size: 0.82rem; color: var(--color-warning-text); font-weight: 600; margin-bottom: 0.75rem;">
+<div class="card s-0f13c5f0">
+    <div class="s-f0b24eea">
+        <img src="/static/img/logo.jpg" alt="Salowtech Logo" class="s-8af35027">
+        <div class="s-bc88276d">
             <span>⏱️</span> Rate Limit Exceeded
         </div>
-        <h2 style="margin: 0; font-size: 1.5rem; color: var(--color-primary-600); font-weight: 700;">Too Many Requests</h2>
-        <p style="color: var(--color-text-muted); font-size: 0.92rem; margin-top: 0.5rem; line-height: 1.5;">
-            Too Many Requests: Rate limit exceeded. For account security, sensitive requests are temporarily throttled. Please retry in <span id="countdown-text" style="font-weight: 700; color: var(--color-primary-700);">{{ retry_after|default:60 }} seconds</span>.
+        <h2 class="s-580e7beb">Too Many Requests</h2>
+        <p class="s-a9af053d">
+            Too Many Requests: Rate limit exceeded. For account security, sensitive requests are temporarily throttled. Please retry in <span id="countdown-text" class="s-11dc9cce">{{ retry_after|default:60 }} seconds</span>.
         </p>
     </div>
 
     <!-- Interactive Countdown Display -->
-    <div style="background: var(--color-bg-base); border: 1px solid var(--color-border-subtle); border-radius: 8px; padding: 1.25rem; margin-bottom: 1.5rem;">
-        <div style="font-size: 2.2rem; font-weight: 800; font-family: var(--font-mono); color: var(--color-primary-700); letter-spacing: 1px;" id="countdown-timer">
+    <div class="s-8edebb46">
+        <div class="s-75a5bca0" id="countdown-timer">
             {{ retry_after|default:60 }}s
         </div>
-        <div style="width: 100%; background: var(--color-border-subtle); height: 6px; border-radius: 3px; overflow: hidden; margin-top: 0.75rem;">
-            <div id="progress-bar" style="background: var(--color-primary-500); height: 100%; width: 100%; transition: width 1s linear;"></div>
+        <div class="s-16471c5f">
+            <div id="progress-bar" class="s-78658350"></div>
         </div>
-        <p id="timer-status" style="font-size: 0.8rem; color: var(--color-text-muted); margin-top: 0.5rem; margin-bottom: 0;">
+        <p id="timer-status" class="s-868f40b2">
             Security window refreshes automatically when the timer reaches 0.
         </p>
     </div>
 
     <!-- Navigation actions -->
-    <div style="display: flex; flex-direction: column; gap: 0.65rem;">
-        <a id="retry-btn" href="{{ path|default:'/auth/login/' }}" class="btn btn-outline" style="width: 100%; font-size: 0.95rem; padding: 0.7rem; pointer-events: none; opacity: 0.5; transition: all 0.2s ease;">
+    <div class="s-e9497157">
+        <a id="retry-btn" href="{{ path|default:'/auth/login/' }}" class="btn btn-outline s-a65fa50d">
             🔄 Retry Request
         </a>
-        <a href="/auth/login/" class="btn btn-primary" style="width: 100%; font-size: 0.95rem; padding: 0.7rem;">
+        <a href="/auth/login/" class="btn btn-primary s-2250dca8">
             🏠 Return to Sign In
         </a>
     </div>
 
-    <div style="margin-top: 1.5rem; padding-top: 1rem; border-top: 1px solid var(--color-border-subtle); font-size: 0.82rem; color: var(--color-text-muted);">
+    <div class="s-7ad86fc6">
         Salowtech Defense-in-Depth Shield • IP throttled for abusive traffic prevention
     </div>
 </div>

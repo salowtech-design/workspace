@@ -7,7 +7,8 @@
   <title>Public Credential Verification — Salow Technologies</title>
   <link rel="stylesheet" href="/static/css/tokens.css">
   <link rel="stylesheet" href="/static/css/components.css">
-  <style>
+  <link rel="stylesheet" href="/static/css/inline-styles.css">
+  <style nonce="{{ csp_nonce }}">
     body {
       background-color: var(--color-bg-base);
       min-height: 100vh;
@@ -24,21 +25,21 @@
 </head>
 <body>
   <div class="verify-container">
-    <div style="text-align: center; margin-bottom: 30px;">
-      <img src="/static/img/logo.jpg" alt="Salow Technologies Logo" style="height: 54px; width: 54px; object-fit: contain; border-radius: 8px; margin-bottom: 12px;">
-      <h1 style="font-size: var(--text-2xl); font-weight: 800; color: var(--color-primary-700);">Salow Technologies</h1>
-      <p style="color: var(--color-text-muted); font-size: var(--text-sm); letter-spacing: 0.5px;">
+    <div class="s-66a036f8">
+      <img src="/static/img/logo.jpg" alt="Salow Technologies Logo" class="s-5735148c">
+      <h1 class="s-c22f3647">Salow Technologies</h1>
+      <p class="s-0c3c3afa">
         Public Certificate & Credential Verification Registry
       </p>
     </div>
 
     <!-- Lookup Form -->
-    <div class="card" style="padding: var(--space-6); margin-bottom: var(--space-6);">
+    <div class="card s-c315d358">
       <form method="get" action="{% url 'public_verify' %}">
-        <label class="form-label" style="font-weight: 600;">Certificate Serial Number / UUID / Hash</label>
-        <div style="display: flex; gap: var(--space-3); margin-top: var(--space-2);">
-          <input type="text" name="id" value="{{ searched_id }}" class="form-control" placeholder="e.g. ST-CERT-2026-ABCDEF" style="font-family: var(--font-mono);" required>
-          <button type="submit" class="btn btn-primary" style="white-space: nowrap;">Verify Credential</button>
+        <label class="form-label s-5c05f4af">Certificate Serial Number / UUID / Hash</label>
+        <div class="s-81163735">
+          <input type="text" name="id" value="{{ searched_id }}" class="form-control s-d5bdeb0f" placeholder="e.g. ST-CERT-2026-ABCDEF" required>
+          <button type="submit" class="btn btn-primary s-93c6e1d4">Verify Credential</button>
         </div>
       </form>
     </div>
@@ -46,108 +47,108 @@
     <!-- Results Section -->
     {% if searched_id %}
       {% if status == 'valid' %}
-        <div class="card" style="padding: var(--space-8); border: 2px solid var(--color-success-border); background-color: var(--color-bg-surface); text-align: center;">
-          <div style="width: 50px; height: 50px; border-radius: 50%; background-color: var(--color-success-bg); color: var(--color-success-text); display: flex; align-items: center; justify-content: center; font-size: 24px; margin: 0 auto 16px auto;">
+        <div class="card s-da1ccaa3">
+          <div class="s-6479e4d0">
             &check;
           </div>
-          <span class="badge badge-success" style="font-size: var(--text-sm); padding: 0.35rem 0.8rem; margin-bottom: 16px;">
+          <span class="badge badge-success s-f5b5eb66">
             VERIFIED AUTHENTIC
           </span>
 
-          <h2 style="font-size: var(--text-xl); font-weight: 700; margin-top: 12px; color: var(--color-text-main);">
+          <h2 class="s-e6f4eb4b">
             {{ cert.title }}
           </h2>
-          <div style="font-size: var(--text-base); color: var(--color-primary-600); font-weight: 600; margin-top: 4px;">
+          <div class="s-f1e5be2e">
             Awarded to: {{ cert.recipient_name }}
           </div>
 
-          <div style="margin-top: 24px; padding-top: 20px; border-top: 1px solid var(--color-border-subtle); text-align: left; font-size: var(--text-sm); display: grid; grid-template-columns: 1fr 1fr; gap: 14px;">
+          <div class="s-59f58b2c">
             <div>
-              <div style="color: var(--color-text-subtle); font-size: var(--text-xs);">Serial Number:</div>
-              <div style="font-family: var(--font-mono); font-weight: 600;">{{ cert.serial_number }}</div>
+              <div class="s-44a96a2c">Serial Number:</div>
+              <div class="s-56337c99">{{ cert.serial_number }}</div>
             </div>
             <div>
-              <div style="color: var(--color-text-subtle); font-size: var(--text-xs);">Date of Issuance:</div>
+              <div class="s-44a96a2c">Date of Issuance:</div>
               <div>{{ cert.issue_date|date:"F d, Y" }}</div>
             </div>
             <div>
-              <div style="color: var(--color-text-subtle); font-size: var(--text-xs);">Designation / Role:</div>
+              <div class="s-44a96a2c">Designation / Role:</div>
               <div>{{ cert.recipient_role|default:"Awardee" }}</div>
             </div>
             <div>
-              <div style="color: var(--color-text-subtle); font-size: var(--text-xs);">Issued By:</div>
+              <div class="s-44a96a2c">Issued By:</div>
               <div>Salow Technologies Verified Authority</div>
             </div>
           </div>
 
-          <div style="margin-top: 20px; padding: 12px; background-color: var(--color-bg-base); border-radius: 4px; text-align: left; font-family: var(--font-mono); font-size: 11px; color: var(--color-text-muted); word-break: break-all;">
+          <div class="s-15dd79a4">
             <strong>Cryptographic Hash (SHA-256):</strong><br>
             {{ cert.verification_hash }}
           </div>
         </div>
 
       {% elif status == 'revoked' %}
-        <div class="card" style="padding: var(--space-8); border: 2px solid var(--color-danger-border); background-color: var(--color-bg-surface); text-align: center;">
-          <div style="width: 50px; height: 50px; border-radius: 50%; background-color: var(--color-danger-bg); color: var(--color-danger-text); display: flex; align-items: center; justify-content: center; font-size: 24px; margin: 0 auto 16px auto;">
+        <div class="card s-445e18e8">
+          <div class="s-ebecadef">
             &times;
           </div>
-          <span class="badge badge-danger" style="font-size: var(--text-sm); padding: 0.35rem 0.8rem; margin-bottom: 16px;">
+          <span class="badge badge-danger s-f5b5eb66">
             CREDENTIAL REVOKED
           </span>
 
-          <h2 style="font-size: var(--text-xl); font-weight: 700; margin-top: 12px; color: var(--color-danger-text);">
+          <h2 class="s-362e4687">
             {{ cert.title }}
           </h2>
-          <div style="font-size: var(--text-sm); color: var(--color-text-muted); margin-top: 8px;">
+          <div class="s-8bc0f5a4">
             This credential was revoked on <strong>{{ cert.revoked_at|date:"F d, Y" }}</strong>.
           </div>
           {% if cert.revocation_reason %}
-            <div style="margin-top: 16px; padding: 12px; background-color: var(--color-danger-bg); color: var(--color-danger-text); border-radius: 4px; font-size: var(--text-sm);">
+            <div class="s-cb706dfa">
               <strong>Revocation Reason:</strong> {{ cert.revocation_reason }}
             </div>
           {% endif %}
         </div>
 
       {% elif status == 'expired' %}
-        <div class="card" style="padding: var(--space-8); border: 2px solid var(--color-warning-border); background-color: var(--color-bg-surface); text-align: center;">
-          <span class="badge badge-warning" style="font-size: var(--text-sm); padding: 0.35rem 0.8rem; margin-bottom: 16px;">
+        <div class="card s-4b10888b">
+          <span class="badge badge-warning s-f5b5eb66">
             CREDENTIAL EXPIRED
           </span>
-          <h2 style="font-size: var(--text-xl); font-weight: 700; margin-top: 12px;">{{ cert.title }}</h2>
-          <p style="color: var(--color-text-muted); font-size: var(--text-sm); margin-top: 8px;">
+          <h2 class="s-0374c2df">{{ cert.title }}</h2>
+          <p class="s-f0e0bea0">
             This credential expired on {{ cert.expiry_date|date:"F d, Y" }}.
           </p>
         </div>
 
       {% elif status == 'tampered' %}
-        <div class="card" style="padding: var(--space-8); border: 2px solid var(--color-danger-border); background-color: var(--color-danger-bg); text-align: center;">
-          <div style="width: 50px; height: 50px; border-radius: 50%; background-color: var(--color-danger-text); color: #fff; display: flex; align-items: center; justify-content: center; font-size: 24px; margin: 0 auto 16px auto; font-weight: 900;">
+        <div class="card s-843bc410">
+          <div class="s-16dd883f">
             !
           </div>
-          <span class="badge badge-danger" style="font-size: var(--text-sm); padding: 0.35rem 0.8rem; margin-bottom: 16px;">
+          <span class="badge badge-danger s-f5b5eb66">
             INTEGRITY VIOLATION / CRYPTOGRAPHIC TAMPERING DETECTED
           </span>
 
-          <h2 style="font-size: var(--text-xl); font-weight: 700; margin-top: 12px; color: var(--color-danger-text);">
+          <h2 class="s-362e4687">
             Cryptographic Verification Failed
           </h2>
-          <p style="color: var(--color-danger-text); font-size: var(--text-sm); margin-top: 8px; line-height: 1.6;">
+          <p class="s-4e7772ec">
             The cryptographic signature for certificate <code>{{ searched_id }}</code> does not match the canonical record data. This credential record has been altered or tampered with and cannot be verified.
           </p>
         </div>
 
       {% else %}
-        <div class="card" style="padding: var(--space-8); text-align: center;">
-          <div style="font-size: 32px; margin-bottom: 12px;">🔍</div>
-          <h2 style="font-size: var(--text-lg); font-weight: 600; color: var(--color-text-main);">No Credential Found</h2>
-          <p style="color: var(--color-text-muted); font-size: var(--text-sm); margin-top: 6px;">
+        <div class="card s-1d461432">
+          <div class="s-c5741601">🔍</div>
+          <h2 class="s-31872ce0">No Credential Found</h2>
+          <p class="s-c65f1c9b">
             No certificate was found matching <code>{{ searched_id }}</code>. Please ensure the serial number or verification hash is entered accurately.
           </p>
         </div>
       {% endif %}
     {% endif %}
 
-    <div style="text-align: center; margin-top: 40px; font-size: var(--text-xs); color: var(--color-text-subtle);">
+    <div class="s-776d98c7">
       &copy; {% now "Y" %} Salow Technologies. Cryptographic verification powered by HMAC-SHA256.
     </div>
   </div>

@@ -3,22 +3,22 @@
 {% block title %}Account Activation / Login — Salowtech Workspace{% endblock %}
 
 {% block content %}
-<div class="card" style="max-width: 440px; margin: 3rem auto; text-align: center; border: 1px solid var(--color-border-subtle); box-shadow: 0 4px 16px rgba(42, 36, 31, 0.06);">
-    <div style="margin-bottom: 1.5rem;">
-        <img src="/static/img/logo.jpg" alt="Salowtech Logo" style="height: 64px; width: 64px; object-fit: contain; margin-bottom: 0.5rem; border-radius: 8px;">
-        <h2 style="margin: 0; font-size: 1.4rem; color: var(--color-primary-600); font-weight: 700;">Account Activation</h2>
-        <p style="color: var(--color-text-muted); font-size: 0.88rem; margin-top: 0.25rem;">
+<div class="card s-2f45d28e">
+    <div class="s-f0b24eea">
+        <img src="/static/img/logo.jpg" alt="Salowtech Logo" class="s-63fdcc73">
+        <h2 class="s-d6fe89d2">Account Activation</h2>
+        <p class="s-84e54f86">
             Enter your Employee ID and password to initiate account onboarding.
         </p>
     </div>
 
     {% if error %}
-    <div class="alert alert-danger" style="margin-bottom: 1.25rem; text-align: left;">
+    <div class="alert alert-danger s-6f11fb3f">
         {{ error }}
     </div>
     {% endif %}
 
-    <form method="post" class="space-y-4" style="text-align: left;">
+    <form method="post" class="space-y-4 s-26cef2c5">
         {% csrf_token %}
         <div class="form-group">
             <label for="employee_id" class="form-label">Employee ID</label>
@@ -27,14 +27,14 @@
 
         <div class="form-group">
             <label for="password" class="form-label">Password</label>
-            <div style="position: relative; display: flex; align-items: center;">
-                <input type="password" id="password" name="password" class="form-input" placeholder="••••••••••••" autocomplete="current-password" required style="padding-right: 2.75rem; width: 100%;">
-                <button type="button" id="toggle-activation-password-btn" aria-label="Toggle password visibility" title="Show/Hide password" style="position: absolute; right: 0.75rem; background: none; border: none; padding: 0.25rem; cursor: pointer; color: var(--color-text-muted); display: flex; align-items: center; justify-content: center; transition: color 0.15s ease;">
+            <div class="s-5df001c8">
+                <input type="password" id="password" name="password" class="form-input s-e889570e" placeholder="••••••••••••" autocomplete="current-password" required>
+                <button type="button" id="toggle-activation-password-btn" aria-label="Toggle password visibility" title="Show/Hide password" class="s-209973b1">
                     <svg id="eye-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                         <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
                         <circle cx="12" cy="12" r="3"></circle>
                     </svg>
-                    <svg id="eye-slash-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display: none;">
+                    <svg id="eye-slash-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="s-f2892a2e">
                         <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path>
                         <line x1="1" y1="1" x2="23" y2="23"></line>
                     </svg>
@@ -42,13 +42,13 @@
             </div>
         </div>
 
-        <button type="submit" class="btn btn-primary" style="width: 100%; font-size: 1rem; font-weight: 700; padding: 0.8rem; margin-top: 0.5rem;">
+        <button type="submit" class="btn btn-primary s-bea6f1ff">
             Login & Continue
         </button>
     </form>
 
-    <div style="margin-top: 1.5rem; font-size: 0.85rem; color: var(--color-text-muted); border-top: 1px solid var(--color-border-subtle); padding-top: 1rem;">
-        Already activated? <a href="{% url 'accounts:login' %}" style="color: var(--color-primary-600); font-weight: 600;">Sign in here</a>
+    <div class="s-5aadea9e">
+        Already activated? <a href="{% url 'accounts:login' %}" class="s-8f573919">Sign in here</a>
     </div>
 </div>
 

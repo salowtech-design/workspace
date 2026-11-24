@@ -299,7 +299,8 @@ def generate_certificate_svg(cert: Certificate) -> str:
     serial_escaped = escape(cert.serial_number)
     hash_prefix = escape(cert.verification_hash[:24])
 
-    svg = f"""<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 842 595" width="842" height="595" style="background:#FFFBE9; font-family:'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">
+    svg = f"""<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 842 595" width="842" height="595" font-family="Segoe UI, Roboto, Helvetica, Arial, sans-serif">
+  <rect width="842" height="595" fill="#FFFBE9" />
   <defs>
     <linearGradient id="goldGrad" x1="0%" y1="0%" x2="100%" y2="100%">
       <stop offset="0%" stop-color="#D1C9B4" />

@@ -3,24 +3,24 @@
 {% block title %}Verify Company Email Address — Salow Workspace{% endblock %}
 
 {% block content %}
-<div class="auth-card" style="max-width: 480px; margin: 3rem auto;">
-  <div style="text-align: center; margin-bottom: 2rem;">
-    <h2 style="font-size: 1.5rem; font-weight: 700; color: var(--color-primary-600); margin: 0 0 0.5rem 0;">
+<div class="auth-card s-16350f02">
+  <div class="s-485c3355">
+    <h2 class="s-c287534f">
       Verify Company Email
     </h2>
-    <p style="color: var(--color-text-muted); font-size: 0.9rem; margin: 0;">
+    <p class="s-59d1160d">
       Confirming ownership for Employee ID: <strong>{{ employee_id }}</strong>
     </p>
   </div>
 
-  <div style="background: var(--color-bg-surface-secondary, #f8fafc); border: 1px solid var(--color-border-subtle, #e2e8f0); border-radius: 6px; padding: 1.25rem; margin-bottom: 1.5rem; font-size: 0.9rem; color: var(--color-text-main, #1e293b); line-height: 1.6;">
-    <p style="margin: 0 0 0.5rem 0;">
+  <div class="s-583c9f6c">
+    <p class="s-85f0c6a7">
       Confirm that you own and have active access to the company email address:
     </p>
-    <div style="background: #ffffff; padding: 0.5rem 0.75rem; border: 1px solid var(--color-border, #cbd5e1); border-radius: 4px; font-weight: 600; color: var(--color-primary-800, #1e40af); margin-bottom: 0.75rem;">
+    <div class="s-60743539">
       {{ email }}
     </div>
-    <p style="margin: 0; font-size: 0.85rem; color: var(--color-text-muted, #64748b);">
+    <p class="s-e10a335e">
       Once verified, this address will be authorized as a trusted recovery channel for self-service password reset and security alerts.
     </p>
   </div>
@@ -31,15 +31,15 @@
 
     <button
       type="submit"
-      class="btn btn-primary"
-      style="width: 100%; padding: 0.75rem 1rem; font-weight: 600; font-size: 1rem; border-radius: 6px; background: var(--color-primary-600, #2563eb); color: #ffffff; border: none; cursor: pointer;"
+      class="btn btn-primary s-0ea74e2b"
+     
     >
       Confirm Email Ownership →
     </button>
   </form>
 
-  <div style="text-align: center; margin-top: 1.5rem;">
-    <a href="{% url 'accounts:login' %}" style="font-size: 0.875rem; color: var(--color-text-muted, #64748b); text-decoration: none;">
+  <div class="s-4a3e9bbe">
+    <a href="{% url 'accounts:login' %}" class="s-d0dd0b27">
       Cancel and Return to Sign In
     </a>
   </div>

@@ -1,21 +1,21 @@
 <!-- HTMX Append-Only Events Fragment with Cursor Tracking -->
 <div id="events-container">
     {% for evt in events %}
-    <div class="event-row" id="evt-{{ evt.id }}" style="padding: 0.65rem 0.85rem; border-bottom: 1px solid var(--color-border-subtle); display: flex; align-items: center; justify-content: space-between; font-size: 0.82rem;">
-        <div style="display: flex; gap: 0.75rem; align-items: center;">
-            <code style="font-size: 0.75rem; color: #64748b;">#{{ evt.id }}</code>
-            <span style="font-family: var(--font-mono); font-size: 0.75rem; color: var(--color-text-muted);">{{ evt.time }}</span>
-            <strong style="color: var(--color-text-heading);">{{ evt.event }}</strong>
-            <span class="badge" style="background: #f1f5f9; color: #475569; font-size: 0.7rem;">{{ evt.code }}</span>
-            <span style="color: var(--color-primary-600); font-weight: 600;">{{ evt.employee_id }}</span>
+    <div class="event-row s-45accc28" id="evt-{{ evt.id }}">
+        <div class="s-19da9de9">
+            <code class="s-98692c33">#{{ evt.id }}</code>
+            <span class="s-0828166a">{{ evt.time }}</span>
+            <strong class="s-c70bb0fc">{{ evt.event }}</strong>
+            <span class="badge s-ef2ec3ba">{{ evt.code }}</span>
+            <span class="s-8f573919">{{ evt.employee_id }}</span>
         </div>
-        <div style="display: flex; gap: 1rem; align-items: center; font-size: 0.78rem; color: var(--color-text-muted);">
+        <div class="s-90142cb3">
             <span>IP: {{ evt.network_address }}</span>
             <span>Ref: <code>{{ evt.reference_id|default:"-" }}</code></span>
         </div>
     </div>
     {% empty %}
-    <div style="padding: 1.5rem; text-align: center; color: var(--color-text-muted); font-size: 0.85rem;">
+    <div class="s-8c23e7d3">
         No new security events available beyond cursor.
     </div>
     {% endfor %}

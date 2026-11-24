@@ -3,21 +3,21 @@
 {% block title %}Verify Authenticator Replacement — Salow Workspace{% endblock %}
 
 {% block content %}
-<div class="auth-card" style="max-width: 480px; margin: 3rem auto;">
-  <div style="text-align: center; margin-bottom: 2rem;">
-    <h2 style="font-size: 1.5rem; font-weight: 700; color: var(--color-primary-600); margin: 0 0 0.5rem 0;">
+<div class="auth-card s-16350f02">
+  <div class="s-485c3355">
+    <h2 class="s-c287534f">
       Authenticator Replacement
     </h2>
-    <p style="color: var(--color-text-muted); font-size: 0.9rem; margin: 0;">
+    <p class="s-59d1160d">
       Replacement authorized for Employee ID: <strong>{{ employee_id }}</strong>
     </p>
   </div>
 
-  <div style="background: var(--color-bg-surface-secondary, #f8fafc); border: 1px solid var(--color-border-subtle, #e2e8f0); border-radius: 6px; padding: 1.25rem; margin-bottom: 1.5rem; font-size: 0.9rem; color: var(--color-text-main, #1e293b); line-height: 1.6;">
-    <p style="margin: 0 0 0.75rem 0;">
+  <div class="s-583c9f6c">
+    <p class="s-7b973ad4">
       You are replacing your registered authenticator device and generating a new set of backup recovery codes (authorization link valid for <strong>30 seconds</strong>).
     </p>
-    <p style="margin: 0; font-size: 0.85rem; color: var(--color-text-muted, #64748b);">
+    <p class="s-e10a335e">
       Click the button below to initialize your new authenticator key and QR code. Your previous authenticator will remain valid until the new code is successfully confirmed.
     </p>
   </div>
@@ -28,15 +28,15 @@
 
     <button
       type="submit"
-      class="btn btn-primary"
-      style="width: 100%; padding: 0.75rem 1rem; font-weight: 600; font-size: 1rem; border-radius: 6px; background: var(--color-primary-600, #2563eb); color: #ffffff; border: none; cursor: pointer;"
+      class="btn btn-primary s-0ea74e2b"
+     
     >
       Configure New Authenticator App →
     </button>
   </form>
 
-  <div style="text-align: center; margin-top: 1.5rem;">
-    <a href="{% url 'accounts:login' %}" style="font-size: 0.875rem; color: var(--color-text-muted, #64748b); text-decoration: none;">
+  <div class="s-4a3e9bbe">
+    <a href="{% url 'accounts:login' %}" class="s-d0dd0b27">
       Cancel and Return to Sign In
     </a>
   </div>

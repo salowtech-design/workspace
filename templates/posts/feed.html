@@ -5,8 +5,8 @@
 {% block content %}
 <div class="topbar">
   <div>
-    <h1 style="font-size: var(--text-2xl); font-weight: 700;">Work Logs & Daily Communication</h1>
-    <p style="color: var(--color-text-muted); font-size: var(--text-sm);">
+    <h1 class="s-f39f281d">Work Logs & Daily Communication</h1>
+    <p class="s-1e0c03d8">
       Team standups, milestone updates, blockers, and manager sign-offs.
     </p>
   </div>
@@ -16,16 +16,16 @@
 </div>
 
 <!-- Filter controls -->
-<div class="card" style="padding: var(--space-4); margin-bottom: var(--space-6);">
-  <form method="get" action="{% url 'posts:feed' %}" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)) auto; gap: var(--space-3); align-items: end;">
-    <div class="form-group" style="margin-bottom: 0;">
-      <label class="form-label" style="font-size: var(--text-xs);">Search Keyword / Author</label>
-      <input type="text" name="q" value="{{ search_query }}" class="form-control" placeholder="Search keywords..." style="padding: 0.4rem 0.6rem; font-size: var(--text-sm);">
+<div class="card s-720eb625">
+  <form method="get" action="{% url 'posts:feed' %}" class="s-d1d3deec">
+    <div class="form-group s-648149ce">
+      <label class="form-label s-0e07f22a">Search Keyword / Author</label>
+      <input type="text" name="q" value="{{ search_query }}" class="form-control s-348ba204" placeholder="Search keywords...">
     </div>
 
-    <div class="form-group" style="margin-bottom: 0;">
-      <label class="form-label" style="font-size: var(--text-xs);">Category</label>
-      <select name="category" class="form-control" style="padding: 0.4rem 0.6rem; font-size: var(--text-sm);">
+    <div class="form-group s-648149ce">
+      <label class="form-label s-0e07f22a">Category</label>
+      <select name="category" class="form-control s-348ba204">
         <option value="">All Categories</option>
         {% for cat_val, cat_label in categories %}
           <option value="{{ cat_val }}" {% if selected_category == cat_val %}selected{% endif %}>{{ cat_label }}</option>
@@ -33,9 +33,9 @@
       </select>
     </div>
 
-    <div class="form-group" style="margin-bottom: 0;">
-      <label class="form-label" style="font-size: var(--text-xs);">Team</label>
-      <select name="team" class="form-control" style="padding: 0.4rem 0.6rem; font-size: var(--text-sm);">
+    <div class="form-group s-648149ce">
+      <label class="form-label s-0e07f22a">Team</label>
+      <select name="team" class="form-control s-348ba204">
         <option value="">All Teams</option>
         {% for t in teams %}
           <option value="{{ t.id }}" {% if selected_team == t.id %}selected{% endif %}>{{ t.name }}</option>
@@ -43,9 +43,9 @@
       </select>
     </div>
 
-    <div class="form-group" style="margin-bottom: 0;">
-      <label class="form-label" style="font-size: var(--text-xs);">Status</label>
-      <select name="status" class="form-control" style="padding: 0.4rem 0.6rem; font-size: var(--text-sm);">
+    <div class="form-group s-648149ce">
+      <label class="form-label s-0e07f22a">Status</label>
+      <select name="status" class="form-control s-348ba204">
         <option value="">All Statuses</option>
         {% for st_val, st_label in statuses %}
           <option value="{{ st_val }}" {% if selected_status == st_val %}selected{% endif %}>{{ st_label }}</option>
@@ -53,10 +53,10 @@
       </select>
     </div>
 
-    <div style="display: flex; gap: var(--space-2);">
-      <button type="submit" class="btn btn-outline" style="padding: 0.4rem 0.9rem; font-size: var(--text-sm);">Filter</button>
+    <div class="s-55f46b0b">
+      <button type="submit" class="btn btn-outline s-8b103f83">Filter</button>
       {% if search_query or selected_category or selected_team or selected_status %}
-        <a href="{% url 'posts:feed' %}" class="btn btn-outline" style="padding: 0.4rem 0.6rem; font-size: var(--text-sm);">Clear</a>
+        <a href="{% url 'posts:feed' %}" class="btn btn-outline s-348ba204">Clear</a>
       {% endif %}
     </div>
   </form>

@@ -5,11 +5,11 @@
 {% block content %}
 <div class="topbar">
   <div>
-    <h1 style="font-size: var(--text-2xl); font-weight: 700;">Attendance</h1>
-    <p style="color: var(--color-text-muted); font-size: var(--text-sm);">Daily work session & face verification portal
+    <h1 class="s-f39f281d">Attendance</h1>
+    <p class="s-1e0c03d8">Daily work session & face verification portal
     </p>
   </div>
-  <div style="display: flex; gap: var(--space-2); align-items: center;">
+  <div class="s-d35c73d4">
     <a href="{% url 'attendance:report' %}" class="btn btn-secondary">View Attendance Report</a>
     {% if dev_verifier_active %}
     <span class="badge badge-dev">DEV STUB VERIFIER ACTIVE</span>
@@ -18,20 +18,20 @@
 </div>
 
 <div class="card">
-  <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem;">
-    <h2 class="card-title" style="margin: 0;">Current Status</h2>
+  <div class="s-5e27577f">
+    <h2 class="card-title s-ff227d06">Current Status</h2>
     {% if workday %}
-    <span class="badge" style="background: #e0f2fe; color: #0369a1; font-size: 0.75rem; font-weight: 600;">
+    <span class="badge s-0d8b54cc">
       📅 {{ workday.work_date_formatted }} ({{ workday.timezone }})
     </span>
     {% endif %}
   </div>
   {% if open_session %}
   <div
-    style="display: flex; justify-content: space-between; align-items: center; background-color: var(--color-success-bg); border: 1px solid var(--color-success-border); border-radius: var(--radius-md); padding: var(--space-4); margin-bottom: var(--space-4);">
+    class="s-36a03042">
     <div>
-      <div style="font-weight: 600; color: var(--color-success-text);">Currently Checked In</div>
-      <div style="font-size: var(--text-sm); color: var(--color-text-muted);">
+      <div class="s-a3cec1c7">Currently Checked In</div>
+      <div class="s-ae80d0ad">
         Started at {{ open_session.check_in_at|date:"Y-m-d H:i:s e" }} (Work Date: {{ open_session.work_date }})
       </div>
     </div>
@@ -41,34 +41,34 @@
     </form>
   </div>
   {% else %}
-  <div style="background-color: var(--color-bg-subtle); border-radius: var(--radius-md); padding: var(--space-4); margin-bottom: var(--space-4);">
-    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: var(--space-3);">
+  <div class="s-c99db545">
+    <div class="s-fabf6fd4">
       <div>
-        <div style="font-weight: 600; color: var(--color-text-main);">Not Checked In</div>
-        <div style="font-size: var(--text-sm); color: var(--color-text-muted);">
+        <div class="s-d240493b">Not Checked In</div>
+        <div class="s-ae80d0ad">
           No active work session recorded for today.
         </div>
       </div>
       <div>
-        <button type="button" id="toggle-camera-btn" class="btn btn-secondary" style="font-size: var(--text-xs);">
+        <button type="button" id="toggle-camera-btn" class="btn btn-secondary s-0e07f22a">
           📷 Live Camera Preview
         </button>
       </div>
     </div>
 
     <!-- WebRTC Live Camera Capture Viewport -->
-    <div id="attendance-camera-box" style="display: none; background: #18181b; border-radius: 8px; height: 260px; max-width: 420px; margin: 0 auto 1rem auto; flex-direction: column; align-items: center; justify-content: center; position: relative; border: 2px solid var(--color-primary-500); overflow: hidden;">
-      <video id="attendance-video" autoplay playsinline muted style="width: 100%; height: 100%; object-fit: cover; display: none;"></video>
-      <div id="attendance-camera-placeholder" style="display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; width: 100%; color: #94a3b8;">
-        <div style="width: 120px; height: 150px; border: 2px dashed #38bdf8; border-radius: 50%; display: flex; align-items: center; justify-content: center;">
-          <span style="font-size: 0.75rem; color: #7dd3fc;">Align Face</span>
+    <div id="attendance-camera-box" class="s-e08369c8">
+      <video id="attendance-video" autoplay playsinline muted class="s-8990d806"></video>
+      <div id="attendance-camera-placeholder" class="s-9d3c774f">
+        <div class="s-6c6cfe11">
+          <span class="s-13cb64e2">Align Face</span>
         </div>
-        <button type="button" id="start-attendance-camera-btn" class="btn btn-secondary" style="margin-top: 0.75rem; font-size: 0.75rem;">
+        <button type="button" id="start-attendance-camera-btn" class="btn btn-secondary s-52d49f76">
           Enable Camera (getUserMedia)
         </button>
       </div>
-      <canvas id="attendance-canvas" style="display: none;"></canvas>
-      <div style="position: absolute; bottom: 6px; font-size: 0.7rem; color: #94a3b8; background: rgba(0,0,0,0.65); padding: 2px 8px; border-radius: 4px;">
+      <canvas id="attendance-canvas" class="s-f2892a2e"></canvas>
+      <div class="s-88a3d461">
         1:1 In-Memory Embedding Match • Zero Image Retention
       </div>
     </div>
@@ -76,7 +76,7 @@
     <form method="post" action="{% url 'attendance:check_in' %}" id="attendance-checkin-form">
       {% csrf_token %}
       <input type="hidden" name="frame_data" id="attendance-frame-input" value="">
-      <button type="submit" class="btn btn-primary" style="width: 100%; font-weight: 600;">
+      <button type="submit" class="btn btn-primary s-3503d5b9">
         {% if dev_verifier_active %}Check In (Dev Stub){% else %}Check In with Face{% endif %}
       </button>
     </form>
@@ -87,28 +87,28 @@
 <!-- Manual Fallback Request Accordion / Form -->
 <div class="card">
   <h2 class="card-title">Manual Attendance Fallback</h2>
-  <p style="color: var(--color-text-muted); font-size: var(--text-sm); margin-bottom: var(--space-4);">
+  <p class="s-f1a3aca1">
     If face verification fails or hardware is unavailable, request a manual entry for manager approval.
   </p>
   <form method="post" action="{% url 'attendance:fallback' %}"
-    style="display: grid; gap: var(--space-3); max-width: 500px;">
+    class="s-fc2d21c2">
     {% csrf_token %}
     <div>
       <label for="id_request_type"
-        style="display: block; font-weight: 500; font-size: var(--text-sm); margin-bottom: var(--space-1);">Action</label>
+        class="s-aeec7239">Action</label>
       <select id="id_request_type" name="request_type"
-        style="width: 100%; padding: var(--space-2); border-radius: var(--radius-sm); border: 1px solid var(--color-border);">
+        class="s-e9ea9a9a">
         <option value="check_in">Manual Check In</option>
         <option value="check_out">Manual Check Out</option>
       </select>
     </div>
     <div>
       <label for="id_reason"
-        style="display: block; font-weight: 500; font-size: var(--text-sm); margin-bottom: var(--space-1);">Reason for
+        class="s-aeec7239">Reason for
         Exception</label>
       <textarea id="id_reason" name="reason" rows="2" required
         placeholder="Describe reason (e.g. camera failure, remote work approval)..."
-        style="width: 100%; padding: var(--space-2); border-radius: var(--radius-sm); border: 1px solid var(--color-border);"></textarea>
+        class="s-e9ea9a9a"></textarea>
     </div>
     <div>
       <button type="submit" class="btn btn-secondary">Submit Fallback Request</button>
@@ -116,7 +116,7 @@
   </form>
 
   {% if my_requests %}
-  <h3 style="font-size: var(--text-md); margin-top: var(--space-6); margin-bottom: var(--space-2);">Your Recent Requests
+  <h3 class="s-0f6d805b">Your Recent Requests
   </h3>
   <div class="table-container">
     <table>
@@ -133,7 +133,7 @@
         <tr>
           <td>{{ r.work_date }}</td>
           <td>{{ r.get_request_type_display }}</td>
-          <td style="max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{ r.reason }}
+          <td class="s-870f2824">{{ r.reason }}
           </td>
           <td>
             <span
@@ -166,7 +166,7 @@
       <tbody>
         {% for session in recent_sessions %}
         <tr>
-          <td style="font-weight: 500;">{{ session.work_date }}</td>
+          <td class="s-af5bb0af">{{ session.work_date }}</td>
           <td>{{ session.check_in_at|date:"H:i:s" }}</td>
           <td>{% if session.check_out_at %}{{ session.check_out_at|date:"H:i:s" }}{% else %}&mdash;{% endif %}</td>
           <td><span class="badge">{{ session.get_verification_method_display }}</span></td>
@@ -181,7 +181,7 @@
     </table>
   </div>
   {% else %}
-  <p style="color: var(--color-text-muted); font-size: var(--text-sm);">No previous attendance sessions found.</p>
+  <p class="s-1e0c03d8">No previous attendance sessions found.</p>
   {% endif %}
 </div>
 

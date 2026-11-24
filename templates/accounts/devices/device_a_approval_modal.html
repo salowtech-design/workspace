@@ -1,47 +1,47 @@
-<div id="device-approval-modal-backdrop" style="position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.6); display: flex; align-items: center; justify-content: center; z-index: 99999; backdrop-filter: blur(4px);">
-    <div style="background: #ffffff; border-radius: 12px; max-width: 480px; width: 90%; padding: 2rem; box-shadow: 0 20px 25px -5px rgba(0,0,0,0.2), 0 10px 10px -5px rgba(0,0,0,0.04); border: 2px solid #f59e0b; text-align: center;">
-        <div style="font-size: 2.5rem; margin-bottom: 0.5rem;">🔐</div>
-        <h3 style="font-size: 1.25rem; font-weight: 700; color: #1e293b; margin: 0 0 0.5rem 0;">
+<div id="device-approval-modal-backdrop" class="s-15d5fab8">
+    <div class="s-2dfae9b2">
+        <div class="s-301831f1">🔐</div>
+        <h3 class="s-d9e33a90">
             Secondary Device Access Request
         </h3>
-        <p style="font-size: 0.88rem; color: #64748b; margin: 0 0 1.25rem 0;">
+        <p class="s-bcb42472">
             A secondary device is attempting to access your Salow Workspace account.
         </p>
 
-        <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 0.75rem 1rem; margin-bottom: 1.25rem; text-align: left; font-size: 0.82rem; color: #334155;">
+        <div class="s-99c992c5">
             <div><strong>Requesting IP:</strong> {{ req.requesting_device_ip|default:"Remote Device" }}</div>
-            <div style="margin-top: 0.25rem;"><strong>Device Profile:</strong> {{ req.requesting_device_agent|truncatechars:60 }}</div>
-            <div style="margin-top: 0.25rem; color: #b45309; font-weight: 600;">Expires in 60 seconds</div>
+            <div class="s-c97152cf"><strong>Device Profile:</strong> {{ req.requesting_device_agent|truncatechars:60 }}</div>
+            <div class="s-0fecb93e">Expires in 60 seconds</div>
         </div>
 
         <!-- Mandatory Number Matching (Section 5.2) -->
-        <div style="background: #fffbeb; border: 2px dashed #f59e0b; border-radius: 8px; padding: 1rem; margin-bottom: 1.5rem;">
-            <div style="font-size: 0.75rem; text-transform: uppercase; font-weight: 700; color: #92400e; letter-spacing: 0.5px;">
+        <div class="s-21ea6374">
+            <div class="s-6dc91d0a">
                 Verification Number Challenge
             </div>
-            <div style="font-size: 2.5rem; font-weight: 800; color: #b45309; letter-spacing: 4px; margin: 0.25rem 0;" id="modal-number-challenge">
+            <div class="s-e860fb72" id="modal-number-challenge">
                 {{ number_challenge }}
             </div>
-            <div style="font-size: 0.78rem; color: #78350f;">
+            <div class="s-0c052c10">
                 Confirm this number matches the number displayed on Device B.
             </div>
         </div>
 
-        <form method="post" action="{% url 'accounts:device_decision' req.request_id %}" style="display: flex; flex-direction: column; gap: 0.75rem;">
+        <form method="post" action="{% url 'accounts:device_decision' req.request_id %}" class="s-571500b7">
             {% csrf_token %}
-            <div style="text-align: left;">
-                <label for="id_matching_number" style="display: block; font-size: 0.82rem; font-weight: 600; color: #334155; margin-bottom: 0.25rem;">
+            <div class="s-26cef2c5">
+                <label for="id_matching_number" class="s-6ca1f9c0">
                     Enter Challenge Number to Confirm Match:
                 </label>
                 <input type="text" id="id_matching_number" name="matching_number" required pattern="[0-9]{2}" maxlength="2" placeholder="{{ number_challenge }}"
-                       style="width: 100%; padding: 0.5rem; font-size: 1.25rem; font-weight: 700; text-align: center; letter-spacing: 4px; border: 1px solid #cbd5e1; border-radius: 6px;">
+                       class="s-bf886150">
             </div>
 
-            <div style="display: flex; gap: 0.75rem; margin-top: 0.5rem;">
-                <button type="submit" name="decision" value="reject" class="btn" style="flex: 1; background: #ef4444; color: white; border: none; padding: 0.65rem 1rem; border-radius: 6px; font-weight: 600; cursor: pointer;">
+            <div class="s-cbebf9c2">
+                <button type="submit" name="decision" value="reject" class="btn s-5a9b4279">
                     Reject
                 </button>
-                <button type="submit" name="decision" value="approve" class="btn" style="flex: 1; background: #16a34a; color: white; border: none; padding: 0.65rem 1rem; border-radius: 6px; font-weight: 600; cursor: pointer;">
+                <button type="submit" name="decision" value="approve" class="btn s-65bfdbfe">
                     Approve Match
                 </button>
             </div>

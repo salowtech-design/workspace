@@ -3,19 +3,19 @@
 {% block title %}Device Request Expired — Salow Workspace{% endblock %}
 
 {% block content %}
-<div style="max-width: 480px; margin: 3rem auto; padding: 2rem; text-align: center;" class="card">
-    <div style="font-size: 3rem; margin-bottom: 0.5rem;">⏱️</div>
-    <h2 style="font-size: 1.4rem; font-weight: 700; color: #b91c1c; margin: 0 0 0.5rem 0;">
+<div class="s-2abd81f8" class="card">
+    <div class="s-953aee25">⏱️</div>
+    <h2 class="s-bde5e57a">
         Device Approval {% if status == 'rejected' %}Rejected{% else %}Expired{% endif %}
     </h2>
-    <p style="font-size: 0.88rem; color: var(--color-text-muted); margin: 0 0 1.5rem 0;">
+    <p class="s-706e47b0">
         {% if status == 'rejected' %}
         The request was rejected from your active session.
         {% else %}
         The one-minute authorization window has expired without confirmation.
         {% endif %}
     </p>
-    <a href="{% url 'accounts:login' %}" class="btn btn-primary" style="display: inline-block;">
+    <a href="{% url 'accounts:login' %}" class="btn btn-primary s-9548f4c5">
         Return to Sign In
     </a>
 </div>

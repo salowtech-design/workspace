@@ -3,34 +3,34 @@
 {% block title %}Biometric Verification Gate — Salow Workspace{% endblock %}
 
 {% block content %}
-<div style="max-width: 540px; margin: 3rem auto; padding: 2rem; text-align: center;" class="card">
-    <div style="font-size: 2.5rem; margin-bottom: 0.5rem;">📷</div>
-    <h2 style="font-size: 1.4rem; font-weight: 700; color: var(--color-primary-600); margin: 0 0 0.5rem 0;">
+<div class="s-284e7b4c" class="card">
+    <div class="s-301831f1">📷</div>
+    <h2 class="s-44d9ccaf">
         Biometric Face Verification
     </h2>
-    <p style="font-size: 0.88rem; color: var(--color-text-muted); margin: 0 0 1.5rem 0;">
+    <p class="s-706e47b0">
         Final security gate for secondary device enrollment. Complete server-side 1:1 facial identity match.
     </p>
 
     {% if error %}
-    <div class="alert alert-error" style="margin-bottom: 1.25rem;">
+    <div class="alert alert-error s-1bd4b9f5">
         {{ error }}
     </div>
     {% endif %}
 
     <!-- Live Browser Camera Viewport (HTTPS getUserMedia) -->
-    <div style="background: #18181b; border-radius: 8px; height: 280px; display: flex; flex-direction: column; align-items: center; justify-content: center; color: #a1a1aa; margin-bottom: 1.5rem; position: relative; border: 2px solid var(--color-primary-500); overflow: hidden;">
-        <video id="camera-stream" autoplay playsinline muted style="width: 100%; height: 100%; object-fit: cover; display: none;"></video>
-        <div id="camera-placeholder" style="display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; width: 100%;">
-            <div style="width: 140px; height: 170px; border: 2px dashed #38bdf8; border-radius: 50%; display: flex; align-items: center; justify-content: center;">
-                <span style="font-size: 0.8rem; color: #7dd3fc;">Align Face Here</span>
+    <div class="s-bc471dde">
+        <video id="camera-stream" autoplay playsinline muted class="s-8990d806"></video>
+        <div id="camera-placeholder" class="s-bdcefa60">
+            <div class="s-1da598a5">
+                <span class="s-dee8c5cf">Align Face Here</span>
             </div>
-            <button type="button" id="start-camera-btn" class="btn btn-secondary" style="margin-top: 1rem; font-size: 0.8rem;">
+            <button type="button" id="start-camera-btn" class="btn btn-secondary s-14dd8b35">
                 Enable Camera (getUserMedia)
             </button>
         </div>
-        <canvas id="capture-canvas" style="display: none;"></canvas>
-        <div style="position: absolute; bottom: 8px; font-size: 0.72rem; color: #94a3b8; background: rgba(0,0,0,0.6); padding: 2px 8px; border-radius: 4px;">
+        <canvas id="capture-canvas" class="s-f2892a2e"></canvas>
+        <div class="s-b6ceda0c">
             Server-side CPU inference • In-memory template matching
         </div>
     </div>
@@ -38,7 +38,7 @@
     <form method="post" id="face-verify-form">
         {% csrf_token %}
         <input type="hidden" name="frame_data" id="frame-data-input" value="">
-        <button type="submit" id="capture-submit-btn" class="btn btn-primary" style="width: 100%; padding: 0.75rem; font-weight: 600;">
+        <button type="submit" id="capture-submit-btn" class="btn btn-primary s-36a98587">
             Capture & Authorize Device Session →
         </button>
     </form>

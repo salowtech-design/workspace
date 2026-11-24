@@ -3,11 +3,11 @@
 {% block title %}Sign In — Salow Workspace{% endblock %}
 
 {% block content %}
-<div style="max-width: 420px; margin: 80px auto;">
+<div class="s-f9c201e1">
   <div class="card">
-    <div style="text-align: center; margin-bottom: var(--space-6);">
-      <h1 class="card-title" style="font-size: var(--text-2xl); margin-bottom: var(--space-2);">Salow Workspace</h1>
-      <p style="color: var(--color-text-muted); font-size: var(--text-sm);">Internal Employee Sign In</p>
+    <div class="s-532fdc32">
+      <h1 class="card-title s-f09b4f58">Salow Workspace</h1>
+      <p class="s-1e0c03d8">Internal Employee Sign In</p>
     </div>
 
     {% if form.non_field_errors %}
@@ -28,7 +28,7 @@
         <label for="{{ form.employee_id.id_for_label }}" class="form-label">Employee ID</label>
         {{ form.employee_id }}
         {% if form.employee_id.errors %}
-          <div style="color: var(--color-danger-text); font-size: var(--text-xs); margin-top: var(--space-1);">
+          <div class="s-dd190471">
             {{ form.employee_id.errors.0 }}
           </div>
         {% endif %}
@@ -38,13 +38,13 @@
         <label for="{{ form.password.id_for_label }}" class="form-label">Password</label>
         {{ form.password }}
         {% if form.password.errors %}
-          <div style="color: var(--color-danger-text); font-size: var(--text-xs); margin-top: var(--space-1);">
+          <div class="s-dd190471">
             {{ form.password.errors.0 }}
           </div>
         {% endif %}
       </div>
 
-      <button type="submit" class="btn btn-primary" style="width: 100%; margin-top: var(--space-4);">
+      <button type="submit" class="btn btn-primary s-3303d915">
         Sign In
       </button>
     </form>
