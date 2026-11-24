@@ -39,6 +39,14 @@
   padding: 30px;
   border-radius: 4px;
 }
+@media screen and (max-width: 640px) {
+  .certificate-frame { padding: 14px; }
+  .certificate-inner-border { padding: 14px; }
+  .certificate-frame div, .certificate-frame p { min-width: 0; overflow-wrap: anywhere; }
+  .certificate-frame .s-56e3ed94 { font-size: 24px !important; min-width: 0 !important; max-width: 100%; }
+  .certificate-frame .s-88520d96 { padding: 0 !important; gap: 8px; }
+  .certificate-frame .s-d2da38db { flex-direction: column; gap: 6px; }
+}
 </style>
 {% endblock %}
 

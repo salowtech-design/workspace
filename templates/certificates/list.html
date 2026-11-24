@@ -2,6 +2,17 @@
 
 {% block title %}Certificates & Credentials — Salow Workspace{% endblock %}
 
+{% block extra_head %}
+<style nonce="{{ csp_nonce }}">
+@media screen and (max-width: 640px) {
+  .certificate-filter-form { flex-wrap: wrap; }
+  .certificate-filter-form .form-group { width: 100% !important; flex: 1 1 100% !important; }
+  .certificate-filter-form .btn { width: 100%; }
+  .card.certificate-table-card { padding: var(--space-3) !important; }
+}
+</style>
+{% endblock %}
+
 {% block content %}
 <div class="topbar">
   <div>
@@ -19,7 +30,7 @@
 
 {% if can_issue %}
 <div class="card s-720eb625">
-  <form method="get" action="{% url 'certificates:list' %}" class="s-69266abe">
+  <form method="get" action="{% url 'certificates:list' %}" class="s-69266abe certificate-filter-form">
     <div class="form-group s-633ee0b4">
       <label class="form-label s-0e07f22a">Search Recipient / Serial / Title</label>
       <input type="text" name="q" value="{{ search_query }}" class="form-control s-348ba204" placeholder="Search...">
@@ -39,7 +50,7 @@
 </div>
 {% endif %}
 
-<div class="card s-9346b6e1">
+<div class="card s-9346b6e1 certificate-table-card">
   <div class="table-container">
     <table class="table">
       <thead>
