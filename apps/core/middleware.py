@@ -205,7 +205,10 @@ class RateLimitMiddleware:
 
         keys_to_check = [f"{client_ip}:{'sensitive' if is_sensitive else 'general'}"]
         if account_id and is_sensitive:
-            keys_to_check.append(f"acc:{account_id}:sensitive")
+            # Account + IP together: one attacker's requests for a victim's ID cannot burn the victim's
+            # own quota from another address. Per-IP is limited separately above; account lockout is
+            # enforced separately by LoginAttempt.
+            keys_to_check.append(f"acc:{account_id}:{client_ip}:sensitive")
 
         try:
             from datetime import timedelta

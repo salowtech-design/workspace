@@ -784,5 +784,5 @@ class TestMultidimensionalRateLimiting:
         assert resp.status_code in (200, 302)
 
         # Account-level record must exist in RateLimitRecord
-        records = RateLimitRecord.objects.filter(key="acc:ST-EMP-2001:sensitive")
+        records = RateLimitRecord.objects.filter(key="acc:ST-EMP-2001:127.0.0.1:sensitive")  # account+IP (policy change)
         assert records.exists()
