@@ -168,15 +168,20 @@ def _lifecycle_actor_denial(actor: CustomUser, target: CustomUser) -> Optional[s
     return "You do not have permission to act on this account."
 
 
+MIN_ACTIVE_SUPER_ADMINS = 2
+
+
 def _would_remove_last_super_admin(target: CustomUser) -> bool:
-    """True when changing this account would leave no other active Super Admin."""
+    """True when taking this account out of the active Super Admin set would leave fewer than
+    the documented standing minimum of two (normal baseline; no succession exception here)."""
     if target.role != CustomUser.Role.SUPER_ADMIN or not target.is_active:
         return False
-    return (
-        not CustomUser.objects.filter(role=CustomUser.Role.SUPER_ADMIN, is_active=True)
+    remaining = (
+        CustomUser.objects.filter(role=CustomUser.Role.SUPER_ADMIN, is_active=True)
         .exclude(id=target.id)
-        .exists()
+        .count()
     )
+    return remaining < MIN_ACTIVE_SUPER_ADMINS
 
 
 _SECRET_KEY_HINTS = ("password", "secret", "token", "totp", "otp", "api_key", "private_key")
@@ -194,6 +199,83 @@ def _describe_pending_change(action_name: str, payload: Any) -> str:
         shown = ", ".join(map(str, val)) if isinstance(val, (list, tuple)) else str(val)
         parts.append(f"{key} = {shown[:80]}")
     return (f"{action_name}: " + "; ".join(parts))[:500]
+
+
+def _clear_stepup(session) -> None:
+    session.stepup_action = ""
+    session.stepup_expires_at = None
+    session.stepup_payload_digest = ""
+    session.assurance_level = 1
+    session.save(
+        update_fields=[
+            "assurance_level",
+            "stepup_action",
+            "stepup_expires_at",
+            "stepup_payload_digest",
+        ]
+    )
+
+
+def _level3_gate(request, session, action_name: str, payload: Any, bound: str):
+    """Level 3: the requester holds a payload-bound Level 2; a DIFFERENT Super Admin must approve
+    the identical request with their own fresh Level 2; the approval is consumed atomically
+    when the requester re-submits the identical change. Returns None to proceed, else a redirect."""
+    from apps.accounts.auth.iam_auth import (
+        consume_dual_approval_request,
+        create_dual_approval_request,
+    )
+    from apps.accounts.models import IAMDualApprovalRequest
+
+    target_id = ""
+    if isinstance(payload, dict):
+        target_id = str(payload.get("target_employee_id", "")) or action_name
+    now = timezone.now()
+    base = IAMDualApprovalRequest.objects.filter(
+        action=action_name,
+        target_id=target_id,
+        payload_digest=bound,
+        requester=session.iam_admin,
+        expires_at__gt=now,
+    )
+    approved = base.filter(
+        status=IAMDualApprovalRequest.Status.APPROVED, consumed_at__isnull=True
+    ).first()
+    if approved:
+        try:
+            consume_dual_approval_request(
+                approved.request_id, action_name, target_id, expected_payload_digest=bound
+            )
+        except (AuthException, PermissionDenied) as exc:
+            messages.error(request, str(exc))
+            return redirect(request.get_full_path())
+        _clear_stepup(session)
+        return None
+    if base.filter(status=IAMDualApprovalRequest.Status.PENDING).exists():
+        messages.info(
+            request,
+            "This change is already waiting for approval from a second Super Administrator.",
+        )
+        _clear_stepup(session)
+        return redirect(request.get_full_path())
+    try:
+        create_dual_approval_request(
+            session,
+            action_name,
+            target_id,
+            reason=_describe_pending_change(action_name, payload),
+            payload_digest=bound,
+        )
+    except AuthException as exc:
+        messages.error(request, str(exc))
+        return redirect(request.get_full_path())
+    _clear_stepup(session)
+    messages.info(
+        request,
+        "Level 3 approval requested. A different Super Administrator must approve it under "
+        "'15. Level 3 Approvals'. After approval, submit the same change again to execute it "
+        "(valid 10 minutes).",
+    )
+    return redirect(request.get_full_path())
 
 
 def enforce_mutation_assurance(
@@ -229,13 +311,16 @@ def enforce_mutation_assurance(
         }
     bound = bound_stepup_digest(session, action_name, form_payload)
     satisfied = check_iam_assurance(
-        request, required_level=required_level, action_name=action_name, payload_digest=digest
+        request,
+        required_level=min(required_level, 2),
+        action_name=action_name,
+        payload_digest=digest,
     )
-    if satisfied and required_level == 2 and bind_payload and request.method == "POST":
+    if satisfied and required_level >= 2 and bind_payload and request.method == "POST":
         # The step-up must have been granted for exactly this actor, action and payload.
         satisfied = bool(session.stepup_payload_digest) and (session.stepup_payload_digest == bound)
     if not satisfied:
-        if required_level == 2:
+        if required_level >= 2:
             session.pending_action = action_name
             session.pending_payload_digest = bound
             session.pending_summary = _describe_pending_change(action_name, form_payload)
@@ -245,12 +330,8 @@ def enforce_mutation_assurance(
             stepup_url = "/iam/stepup/"
             query = urlencode({"action": action_name, "next": request.get_full_path()})
             return redirect(f"{stepup_url}?{query}")
-        elif required_level == 3:
-            messages.error(
-                request,
-                f"Operation '{action_name}' requires independent Level 3 Dual Approval from a second Super Administrator.",
-            )
-            return redirect(request.get_full_path())
+    if required_level == 3:
+        return _level3_gate(request, session, action_name, form_payload, bound)
     if required_level == 2 and consume_stepup and request.method == "POST":
         # A Level 2 step-up covers exactly one mutation: consume it so the same proof
         # cannot be replayed against a different target.
@@ -677,6 +758,51 @@ def admin_iam_dashboard_view(request):  # noqa: C901
                 )
                 return redirect(f"{request.path}?tab=lifecycle")
 
+        elif action in ("approve_dual_request", "reject_dual_request"):
+            active_tab = "l3_approvals"
+            from apps.accounts.auth.iam_auth import approve_dual_approval_request
+            from apps.accounts.models import IAMDualApprovalRequest
+
+            rid = request.POST.get("request_id", "").strip()
+            try:
+                dual = IAMDualApprovalRequest.objects.filter(
+                    request_id=rid, status=IAMDualApprovalRequest.Status.PENDING
+                ).first()
+            except (ValueError, ValidationError):
+                dual = None
+            if actor.role != CustomUser.Role.SUPER_ADMIN or not iam_session:
+                messages.error(request, "Only Super Administrators can decide Level 3 approvals.")
+            elif not dual or dual.expires_at <= timezone.now():
+                messages.error(request, "That approval request is not pending or has expired.")
+            elif iam_admin and dual.requester_id == iam_admin.id:
+                messages.error(request, "You cannot approve your own request.")
+            else:
+                redirect_resp = enforce_mutation_assurance(
+                    request,
+                    dual.action,
+                    required_level=2,
+                    payload={"decide_dual_request": str(dual.request_id), "action": action},
+                    consume_stepup=False,
+                )
+                if redirect_resp:
+                    return redirect_resp
+                if action == "reject_dual_request":
+                    dual.status = IAMDualApprovalRequest.Status.REJECTED
+                    dual.save(update_fields=["status"])
+                    messages.success(request, "Level 3 request rejected.")
+                else:
+                    try:
+                        approve_dual_approval_request(iam_session, dual.request_id)
+                        messages.success(
+                            request,
+                            "Approved. The requesting Super Administrator can now submit the "
+                            "same change to execute it.",
+                        )
+                    except (AuthException, PermissionDenied) as exc:
+                        messages.error(request, str(exc))
+                _clear_stepup(iam_session)
+            return redirect(f"{request.path}?tab=l3_approvals")
+
         elif action == "reactivate_account":
             active_tab = "lifecycle"
             target_emp_id = request.POST.get("target_employee_id", "").strip().upper()
@@ -987,7 +1113,18 @@ def admin_iam_dashboard_view(request):  # noqa: C901
         status=AttendanceFallbackRequest.Status.PENDING
     ).select_related("user")[:25]
 
+    from apps.accounts.models import IAMDualApprovalRequest as _Dual
+
+    pending_dual_requests = []
+    if active_tab == "l3_approvals" and iam_admin:
+        pending_dual_requests = list(
+            _Dual.objects.filter(status=_Dual.Status.PENDING, expires_at__gt=timezone.now())
+            .exclude(requester=iam_admin)
+            .select_related("requester")[:50]
+        )
+
     context = {
+        "pending_dual_requests": pending_dual_requests,
         "actor": actor,
         "active_tab": active_tab,
         "issued_activation": issued_activation,

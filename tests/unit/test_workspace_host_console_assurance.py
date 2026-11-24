@@ -82,6 +82,9 @@ def test_last_active_super_admin_cannot_be_demoted_or_suspended(db):
     only = _user("EMP-WH-SA1", CustomUser.Role.SUPER_ADMIN)
     assert _would_remove_last_super_admin(only) is True
     _user("EMP-WH-SA2B", CustomUser.Role.SUPER_ADMIN)
+    # Standing minimum is two active Super Admins: with one other left, still refused.
+    assert _would_remove_last_super_admin(only) is True
+    _user("EMP-WH-SA3B", CustomUser.Role.SUPER_ADMIN)
     assert _would_remove_last_super_admin(only) is False
 
 
@@ -185,3 +188,96 @@ class TestWorkspacePolicyAndStepUpPage:
         ).content.decode()
         assert "You are approving" in page and "policy_key = policy_a" in page
         assert "once" in page and "elevate assurance for 5 minutes" not in page
+
+
+class TestLevel3TwoPersonFlow:
+    def _sa(self, n):
+        from tests.unit.test_iam_platform_complete import _iam_console_client
+
+        u = CustomUser.objects.create_user(
+            employee_id=f"ST-L3-SA{n}",
+            full_name=f"SA{n}",
+            email=f"st-l3-sa{n}@salowtech.com",
+            password="Xx-pass-2026!ab",
+            role=CustomUser.Role.SUPER_ADMIN,
+            status=CustomUser.Status.ACTIVE,
+            is_active=True,
+        )
+        c, sess = _iam_console_client(u, "suspend_account")
+        return u, c, sess
+
+    def _form(self, eid):
+        return {"action": "suspend_account", "target_employee_id": eid}
+
+    def _decide(self, c, sess, req, verb="approve_dual_request"):
+        from tests.unit.test_iam_platform_complete import _bind_stepup
+
+        data = {"action": verb, "request_id": str(req.request_id), "tab": "l3_approvals"}
+        _bind_stepup(c, sess, data, action=req.action)
+        return c.post("/iam/dashboard/", data, HTTP_HOST="iam.salowtech.com")
+
+    def _request_suspend(self, c, sess, eid):
+        from apps.accounts.models import IAMDualApprovalRequest
+        from tests.unit.test_iam_platform_complete import _bind_stepup
+
+        _bind_stepup(c, sess, self._form(eid))
+        c.post("/iam/dashboard/", self._form(eid), HTTP_HOST="iam.salowtech.com")
+        return (
+            IAMDualApprovalRequest.objects.filter(target_id=eid).order_by("-created_at").first()
+            if hasattr(IAMDualApprovalRequest, "created_at")
+            else IAMDualApprovalRequest.objects.filter(target_id=eid).first()
+        )
+
+    def test_super_admin_suspend_needs_a_different_approver_then_executes_once(self, db):
+        from apps.accounts.models import IAMDualApprovalRequest
+        from tests.unit.test_iam_platform_complete import _bind_stepup
+
+        u1, c1, s1 = self._sa(1)
+        u2, c2, s2 = self._sa(2)
+        u3, _c3, _s3 = self._sa(3)
+        u4, _c4, _s4 = self._sa(4)
+        req = self._request_suspend(c1, s1, u3.employee_id)
+        assert req and req.status == IAMDualApprovalRequest.Status.PENDING
+        u3.refresh_from_db()
+        assert u3.status == CustomUser.Status.ACTIVE  # nothing executed on request
+        # Requester cannot approve their own request
+        c1.post(
+            "/iam/dashboard/",
+            {"action": "approve_dual_request", "request_id": str(req.request_id)},
+            HTTP_HOST="iam.salowtech.com",
+        )
+        req.refresh_from_db()
+        assert req.status == IAMDualApprovalRequest.Status.PENDING
+        # Re-submitting before approval does not execute
+        _bind_stepup(c1, s1, self._form(u3.employee_id))
+        c1.post("/iam/dashboard/", self._form(u3.employee_id), HTTP_HOST="iam.salowtech.com")
+        u3.refresh_from_db()
+        assert u3.status == CustomUser.Status.ACTIVE
+        # A different Super Admin approves with their own step-up
+        self._decide(c2, s2, req)
+        req.refresh_from_db()
+        assert req.status == IAMDualApprovalRequest.Status.APPROVED
+        u3.refresh_from_db()
+        assert u3.status == CustomUser.Status.ACTIVE  # approval alone does not execute
+        # Requester submits the identical change: executes and consumes the approval
+        _bind_stepup(c1, s1, self._form(u3.employee_id))
+        c1.post("/iam/dashboard/", self._form(u3.employee_id), HTTP_HOST="iam.salowtech.com")
+        u3.refresh_from_db()
+        req.refresh_from_db()
+        assert u3.status == CustomUser.Status.SUSPENDED
+        assert req.status == IAMDualApprovalRequest.Status.CONSUMED
+        # Approval cannot be replayed on another Super Admin
+        _bind_stepup(c1, s1, self._form(u4.employee_id))
+        c1.post("/iam/dashboard/", self._form(u4.employee_id), HTTP_HOST="iam.salowtech.com")
+        u4.refresh_from_db()
+        assert u4.status == CustomUser.Status.ACTIVE
+
+    def test_standing_minimum_of_two_super_admins_is_kept(self, db):
+        from apps.accounts.models import IAMDualApprovalRequest
+
+        u1, c1, s1 = self._sa(1)
+        u2, c2, s2 = self._sa(2)
+        c1.post("/iam/dashboard/", self._form(u2.employee_id), HTTP_HOST="iam.salowtech.com")
+        assert not IAMDualApprovalRequest.objects.filter(target_id=u2.employee_id).exists()
+        u2.refresh_from_db()
+        assert u2.status == CustomUser.Status.ACTIVE

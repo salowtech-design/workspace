@@ -126,6 +126,9 @@
     <a href="?tab=threats" class="tab-link tab-dyn {% if active_tab == 'threats' %}tab-on{% endif %}">
         13. Threat Protection & Exceptions
     </a>
+    <a href="?tab=l3_approvals" class="tab-link tab-dyn {% if active_tab == 'l3_approvals' %}tab-on{% endif %}">
+        15. Level 3 Approvals
+    </a>
     <a href="?tab=resilience" class="tab-link tab-dyn {% if active_tab == 'resilience' %}tab-on{% endif %}">
         14. Resilience & Assurance
     </a>
@@ -968,6 +971,26 @@
 <!-- ======================================================================= -->
 <!-- SECTION 5: Recovery Console -->
 <!-- ======================================================================= -->
+{% if active_tab == 'l3_approvals' %}
+<div id="section-l3-approvals">
+    <div class="card">
+        <h4>Level 3 approvals waiting for a second Super Administrator</h4>
+        <p>Approve only a change you have checked. Your approval covers exactly the change shown, is single use, and needs your own fresh step-up. You cannot approve your own request.</p>
+        {% for d in pending_dual_requests %}
+        <form method="post" action="{{ admin_iam_url }}?tab=l3_approvals" class="space-y-3">
+            {% csrf_token %}
+            <input type="hidden" name="request_id" value="{{ d.request_id }}">
+            <p><code>{{ d.reason }}</code> requested by {{ d.requester.admin_id }}, expires {{ d.expires_at|time:"H:i" }}</p>
+            <button type="submit" name="action" value="approve_dual_request" class="btn btn-primary">Approve this change</button>
+            <button type="submit" name="action" value="reject_dual_request" class="btn btn-outline">Reject</button>
+        </form>
+        {% empty %}
+        <p>No Level 3 requests are waiting for you.</p>
+        {% endfor %}
+    </div>
+</div>
+{% endif %}
+
 {% if active_tab == 'recovery' %}
 <div id="section-recovery">
     <!-- Pending Recovery Requests -->
