@@ -182,24 +182,28 @@ def execute_post_restore_security_reconciliation(cursor, table_prefix: str = "")
         cursor.execute(f"UPDATE {t_iamsession} SET is_active = FALSE WHERE is_active = TRUE;")
         reconciled["iam_sessions_revoked"] = cursor.rowcount
     except Exception:
-        pass
+        logger.exception("Post-restore reconciliation failed; restore must be treated as incomplete")
+        raise
 
     try:
         cursor.execute(f"DELETE FROM {t_usersession};")
         reconciled["user_sessions_revoked"] = cursor.rowcount
     except Exception:
-        pass
+        logger.exception("Post-restore reconciliation failed; restore must be treated as incomplete")
+        raise
 
     try:
         cursor.execute(f"UPDATE {t_recovery} SET status = 'rejected' WHERE status = 'pending';")
         reconciled["recovery_requests_expired"] = cursor.rowcount
     except Exception:
-        pass
+        logger.exception("Post-restore reconciliation failed; restore must be treated as incomplete")
+        raise
 
     try:
         cursor.execute(f"UPDATE {t_device} SET status = 'rejected' WHERE status = 'pending';")
         reconciled["device_requests_expired"] = cursor.rowcount
     except Exception:
-        pass
+        logger.exception("Post-restore reconciliation failed; restore must be treated as incomplete")
+        raise
 
     return reconciled

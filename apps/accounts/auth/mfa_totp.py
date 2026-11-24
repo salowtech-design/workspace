@@ -136,6 +136,9 @@ def get_or_create_pending_totp(
     return new_secret, uri, svg
 
 
+TOTP_VERIFY_WINDOW = 1
+
+
 def verify_totp_code(
     user: CustomUser,
     code_str: str,
@@ -145,7 +148,7 @@ def verify_totp_code(
     """
     Verify 6-digit code string against user's encrypted secret.
     Enforces replay protection and logs audit events.
-    Accommodates clock skew between mobile devices and computer (window=4).
+    Accommodates clock skew between mobile devices and computer (window=1).
     """
     kr = key_ring or get_auth_key_ring()
     cleaned_code = code_str.strip().replace(" ", "")
@@ -153,8 +156,8 @@ def verify_totp_code(
     current_time = time.time()
     current_step = int(current_time) // 30
 
-    # Verification window: allow ±4 steps (±120s) to comfortably absorb mobile vs PC clock differences
-    window = 4
+    # Verification window: ±1 step (±30 s), the standard. Wider windows multiply the guess space.
+    window = TOTP_VERIFY_WINDOW
 
     # Atomic pessimistic locking across verification and state update
     with transaction.atomic():
