@@ -212,7 +212,7 @@ class RateLimitMiddleware:
 
         try:
             from datetime import timedelta
-            from django.db import transaction
+            from django.db import IntegrityError, transaction
             from django.utils import timezone
             from apps.core.models import RateLimitBucket, RateLimitRecord
 
@@ -229,11 +229,19 @@ class RateLimitMiddleware:
                         .first()
                     )
                     if not bucket:
-                        bucket = RateLimitBucket.objects.create(
-                            bucket_key=k,
-                            count=1,
-                            reset_at=now_dt + window_delta,
-                        )
+                        # Two first requests can both see "no row" (a row lock cannot lock a missing row):
+                        # the loser hits the unique key. Re-read the winner's row and count against it.
+                        try:
+                            with transaction.atomic():
+                                bucket = RateLimitBucket.objects.create(
+                                    bucket_key=k,
+                                    count=1,
+                                    reset_at=now_dt + window_delta,
+                                )
+                        except IntegrityError:
+                            bucket = RateLimitBucket.objects.select_for_update().get(bucket_key=k)
+                            bucket.count += 1
+                            bucket.save(update_fields=["count", "updated_at"])
                     elif now_dt >= bucket.reset_at:
                         bucket.count = 1
                         bucket.reset_at = now_dt + window_delta
