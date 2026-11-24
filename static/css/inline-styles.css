@@ -515,7 +515,7 @@
 .s-be4f1a6c { display: flex; gap: 0.75rem !important; margin-top: 1.5rem !important; }
 .s-be57afff { margin-top: 0 !important; font-size: 1.5rem !important; }
 .s-bea6f1ff { width: 100%; font-size: 1rem !important; font-weight: 700 !important; padding: 0.8rem !important; margin-top: 0.5rem !important; }
-.s-bef28989 { display: flex; border-bottom: 2px solid var(--color-border-subtle) !important; margin-bottom: 1.5rem !important; overflow-x: auto !important; gap: 0.25rem !important; }
+.s-bef28989 { display: flex; flex-wrap: wrap; border-bottom: 2px solid var(--color-border-subtle) !important; margin-bottom: 1.5rem !important; overflow-x: visible !important; gap: 0.25rem !important; }
 .s-bf018774 { width: 100%; font-size: 0.88rem !important; }
 .s-bf886150 { width: 100%; padding: 0.5rem !important; font-size: 1.25rem !important; font-weight: 700 !important; text-align: center !important; letter-spacing: 4px !important; border: 1px solid #cbd5e1 !important; border-radius: 6px !important; }
 .s-c0b6c1f7 { color: var(--color-text-muted) !important; font-size: 0.8rem !important; }

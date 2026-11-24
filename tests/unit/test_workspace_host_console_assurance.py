@@ -281,3 +281,24 @@ class TestLevel3TwoPersonFlow:
         assert not IAMDualApprovalRequest.objects.filter(target_id=u2.employee_id).exists()
         u2.refresh_from_db()
         assert u2.status == CustomUser.Status.ACTIVE
+
+    def test_approval_is_revalidated_at_execution_if_approver_loses_role(self, db):
+        from apps.accounts.models import IAMAdminIdentity, IAMDualApprovalRequest
+        from tests.unit.test_iam_platform_complete import _bind_stepup
+
+        u1, c1, s1 = self._sa(1)
+        u2, c2, s2 = self._sa(2)
+        u3, _c3, _s3 = self._sa(3)
+        u4, _c4, _s4 = self._sa(4)
+        req = self._request_suspend(c1, s1, u3.employee_id)
+        self._decide(c2, s2, req)
+        req.refresh_from_db()
+        assert req.status == IAMDualApprovalRequest.Status.APPROVED
+        # The approver is demoted after approving, before the requester executes
+        IAMAdminIdentity.objects.filter(user=u2).update(role=IAMAdminIdentity.Role.ADMIN)
+        _bind_stepup(c1, s1, self._form(u3.employee_id))
+        c1.post("/iam/dashboard/", self._form(u3.employee_id), HTTP_HOST="iam.salowtech.com")
+        u3.refresh_from_db()
+        req.refresh_from_db()
+        assert u3.status == CustomUser.Status.ACTIVE
+        assert req.status == IAMDualApprovalRequest.Status.APPROVED

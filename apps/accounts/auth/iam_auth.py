@@ -666,6 +666,15 @@ def consume_dual_approval_request(  # noqa: C901 (refactor deferred, behavior co
                 message_override="Approver administrator account is no longer active.",
             )
 
+        # Both actors must still hold the Super Administrator role at the mutation boundary
+        if (
+            requester.role != IAMAdminIdentity.Role.SUPER_ADMIN
+            or approver.role != IAMAdminIdentity.Role.SUPER_ADMIN
+        ):
+            raise PermissionDenied(
+                "Both the requester and the approver must still be active Super Administrators."
+            )
+
         # Revalidate separation of duties (no self-approval)
         if requester.id == approver.id:
             raise PermissionDenied("Requester and approver must be distinct identities.")
