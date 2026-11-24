@@ -8,12 +8,9 @@ Validates:
 5. Scoped Workspace Security Admin authorization in IAM console.
 """
 
-import uuid
 from datetime import timedelta
 import pytest
 from django.conf import settings
-from django.core.exceptions import PermissionDenied, ValidationError
-from django.test import Client, RequestFactory
 from django.utils import timezone
 
 from apps.accounts.auth.errors import AuthException
@@ -29,7 +26,6 @@ from apps.accounts.auth.offline_recovery import (
     split_secret_2_of_3,
 )
 from apps.accounts.auth.sessions import (
-    create_verified_session,
     synchronize_employee_lifecycle_revocation,
 )
 from apps.accounts.models import (
@@ -37,7 +33,6 @@ from apps.accounts.models import (
     CustomUser,
     DeviceApprovalRequest,
     IAMAdminIdentity,
-    IAMSession,
     RecoveryRequest,
     UserSession,
 )

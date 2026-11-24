@@ -36,7 +36,6 @@ django.setup()
 
 from django.db import connection, transaction
 from django.utils import timezone
-from django.contrib.auth import get_user_model
 import pyotp
 
 from apps.accounts.models import CustomUser, TOTPCredential, RecoveryCode, ActivationCode
@@ -57,7 +56,7 @@ def run_tidb_concurrency_audit():
         version, comment, db = row
         print(f"[*] Connected Database: {db}")
         print(f"[*] Engine Version: {version} ({comment})")
-        
+
         cursor.execute("SHOW VARIABLES LIKE 'tidb_txn_mode';")
         txn_mode = cursor.fetchone()
         print(f"[*] TiDB Txn Mode: {txn_mode[1] if txn_mode else 'default'}")
@@ -92,7 +91,7 @@ def run_tidb_concurrency_audit():
     print("\n--- [TEST 1] Concurrent TOTP Replay Prevention (5 Threads) ---")
     raw_secret = pyotp.random_base32(length=32)
     ciphertext, nonce, key_id = encrypt_secret(raw_secret, kr)
-    
+
     with transaction.atomic():
         TOTPCredential.objects.filter(user=user).delete()
         TOTPCredential.objects.create(
@@ -265,7 +264,6 @@ def run_tidb_concurrency_audit():
     print("\n--- [TEST 5] Concurrent Session Revocation & Verification (5 Threads) ---")
     from apps.accounts.models import UserSession
     from apps.accounts.auth.sessions import revoke_user_sessions
-    from django.contrib.sessions.models import Session
 
     # Seed 5 user sessions
     with transaction.atomic():

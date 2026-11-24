@@ -5,7 +5,6 @@ Unit Tests for Security Remediation Capabilities:
 3. Multi-Window and Subnet Password Spraying Detection (apps.accounts.auth.spraying_detection)
 """
 
-from datetime import timedelta
 import pyotp
 import pytest
 from django.contrib.auth.hashers import make_password
@@ -15,13 +14,11 @@ from django.utils import timezone
 from apps.accounts.auth.crypto import encrypt_totp_secret
 from apps.accounts.auth.device_approval import create_device_approval_request
 from apps.accounts.auth.emergency_access import activate_independent_emergency_access
-from apps.accounts.auth.errors import AuthException
 from apps.accounts.auth.risk_engine import RiskDecision, decide_login_risk
 from apps.accounts.auth.spraying_detection import record_auth_failure_and_check_spray
 from apps.accounts.models import (
     AuthEvent,
     CustomUser,
-    DeviceApprovalRequest,
     IAMAdminIdentity,
     SecurityAlert,
     UserSession,

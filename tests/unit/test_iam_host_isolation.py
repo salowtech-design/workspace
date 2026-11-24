@@ -18,10 +18,9 @@ import pytest
 import pyotp
 from django.contrib.auth.hashers import check_password
 from django.core.exceptions import PermissionDenied, ValidationError
-from django.test import Client, RequestFactory
+from django.test import Client
 from django.utils import timezone
 
-from apps.accounts.auth.crypto import decrypt_totp_secret
 from apps.accounts.auth.errors import AuthException
 from apps.accounts.auth.iam_auth import (
     authenticate_iam_admin,
@@ -31,11 +30,10 @@ from apps.accounts.auth.iam_auth import (
     create_dual_approval_request,
     create_iam_admin_identity,
     create_iam_session,
-    get_iam_session_from_request,
     protect_last_super_admin,
     stepup_iam_assurance,
 )
-from apps.accounts.models import CustomUser, IAMAdminIdentity, IAMSession, WorkspaceSecurityPolicy
+from apps.accounts.models import CustomUser, IAMAdminIdentity
 
 
 @pytest.fixture

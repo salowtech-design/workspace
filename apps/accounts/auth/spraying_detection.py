@@ -12,7 +12,6 @@ import json
 import time
 from typing import Optional, Set
 
-from django.conf import settings
 from django.utils import timezone
 
 from apps.accounts.auth.audit import log_auth_event

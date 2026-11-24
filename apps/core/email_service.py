@@ -14,7 +14,7 @@ from typing import Optional
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from django.conf import settings
 from django.core.mail import EmailMultiAlternatives
-from django.db import IntegrityError, connection, transaction
+from django.db import connection, transaction
 from django.utils import timezone
 
 from apps.accounts.auth.audit import log_auth_event
@@ -28,7 +28,6 @@ logger = logging.getLogger(__name__)
 
 def _get_encryption_key(key_id: Optional[str] = None) -> tuple[bytes, str]:
     """Retrieve active 256-bit AES key for outbox payload encryption."""
-    from apps.accounts.auth.config import get_email_key_ring_dict
 
     keys = get_email_key_ring_dict()
     kid = key_id or os.getenv("EMAIL_PAYLOAD_ACTIVE_KEY_ID", "k1")

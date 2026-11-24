@@ -13,19 +13,16 @@ Provides:
 8. Dedicated IAM Sign In (/auth/sign-in/) and IAM Recovery Portal (/auth/recovery/)
 """
 
-import json
 import logging
-from datetime import timedelta
-from typing import Any, Dict, Optional
 
 from django.conf import settings
 from django.contrib import messages
 from django.core.exceptions import PermissionDenied, ValidationError
-from django.http import HttpResponse, JsonResponse
+from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils import timezone
-from django.views.decorators.http import require_GET, require_http_methods, require_POST
+from django.views.decorators.http import require_POST
 
 from apps.accounts.auth.authentication_centre import (
     approve_iam_recovery_case,
@@ -54,26 +51,19 @@ from apps.accounts.auth.errors import AuthException
 from apps.accounts.auth.iam_auth import (
     IAM_SESSION_COOKIE_NAME,
     authenticate_iam_admin,
-    check_iam_assurance,
     create_iam_session,
     get_iam_session_from_request,
-    stepup_iam_assurance,
 )
 from apps.accounts.models import (
     ApprovedDevice,
     AuthEvent,
     AuthenticationPolicy,
     AuthenticationTransaction,
-    CustomUser,
-    IAMAdminIdentity,
-    IAMAdminPresence,
     IAMRecoveryCase,
     IAMSession,
     SecurityAlert,
-    SecurityIncident,
     UserSession,
 )
-from apps.core.models import AuditLog
 
 logger = logging.getLogger(__name__)
 

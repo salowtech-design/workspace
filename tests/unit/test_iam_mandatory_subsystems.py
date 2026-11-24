@@ -13,7 +13,6 @@ Validates:
 
 from datetime import timedelta
 import pytest
-from django.core.management import call_command
 from django.utils import timezone
 
 from apps.accounts.auth.access_reviews import generate_quarterly_campaign
@@ -27,14 +26,12 @@ from apps.accounts.auth.incidents import (
 from apps.accounts.auth.risk_engine import evaluate_login_risk
 from apps.accounts.auth.spraying_detection import record_auth_failure_and_check_spray
 from apps.accounts.models import (
-    AccessReviewCampaign,
     AccessReviewItem,
     AuditCheckpoint,
     AuthEvent,
     CustomUser,
     SecurityAlert,
     SecurityIncident,
-    TOTPCredential,
 )
 
 

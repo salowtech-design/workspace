@@ -44,7 +44,7 @@ import pyotp
 import pytest
 from django.contrib.auth import get_user_model
 from django.contrib.auth.hashers import check_password, make_password
-from django.core.exceptions import PermissionDenied, ValidationError
+from django.core.exceptions import PermissionDenied
 from django.test import Client, RequestFactory
 from django.urls import reverse
 from django.utils import timezone
@@ -54,8 +54,7 @@ from apps.accounts.auth.activation import (
     verify_and_consume_code,
 )
 from apps.accounts.auth.alert_escalation import ALERT_SLA_MINUTES, escalate_unacknowledged_alerts
-from apps.accounts.auth.audit import log_auth_event
-from apps.accounts.auth.audit_chain import compute_event_hash, sign_hash
+from apps.accounts.auth.audit_chain import compute_event_hash
 from apps.accounts.auth.authentication_centre import (
     approve_iam_recovery_case,
     complete_auth_transaction,
@@ -68,20 +67,13 @@ from apps.accounts.auth.authentication_centre import (
     execute_start_investigation,
     execute_temporary_restriction,
     get_active_policy,
-    get_all_admin_presences,
-    get_auth_overview_metrics,
-    get_live_activity_feed,
     probe_all_dependencies,
-    record_admin_heartbeat,
     record_transaction_stage,
     save_policy_version,
-    search_auth_records,
     start_auth_transaction,
 )
-from apps.accounts.auth.crypto import decrypt_totp_secret, encrypt_totp_secret
 from apps.accounts.auth.device_approval import (
     create_device_approval_request,
-    is_second_device_request,
 )
 from apps.accounts.auth.errors import AuthException
 from apps.accounts.auth.iam_auth import (
@@ -89,33 +81,24 @@ from apps.accounts.auth.iam_auth import (
     authenticate_iam_admin,
     create_iam_admin_identity,
     create_iam_session,
-    get_iam_session_from_request,
 )
 from apps.accounts.auth.recovery_codes import generate_ten_recovery_codes
 from apps.accounts.auth.risk_engine import evaluate_login_risk
-from apps.accounts.auth.sessions import create_verified_session, revoke_user_sessions
 from apps.accounts.auth.spraying_detection import record_auth_failure_and_check_spray
 from apps.accounts.models import (
-    ActivationCode,
     ApprovedDevice,
-    AuditCheckpoint,
     AuthEvent,
-    AuthenticationPolicy,
-    AuthenticationTransaction,
     CustomUser,
     DeviceApprovalRequest,
     IAMAdminIdentity,
-    IAMAdminPresence,
     IAMRecoveryCase,
     IAMSession,
     RecoveryCode,
     SecurityAlert,
-    SecurityIncident,
-    TOTPCredential,
     UserSession,
 )
 from apps.core.middleware import RateLimitMiddleware
-from apps.core.models import EmailOutbox, RateLimitBucket, RateLimitRecord
+from apps.core.models import RateLimitRecord
 
 User = get_user_model()
 

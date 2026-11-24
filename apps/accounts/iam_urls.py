@@ -10,7 +10,6 @@ from apps.accounts.views.authentication_centre import (
     iam_heartbeat_view,
     iam_recovery_case_action_view,
     iam_recovery_portal_view,
-    iam_sign_in_canonical_view,
     sessions_investigation_view,
 )
 from apps.accounts.views.iam_admin import (

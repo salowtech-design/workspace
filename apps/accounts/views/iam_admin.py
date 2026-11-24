@@ -8,15 +8,10 @@ Provides:
 5. Dedicated Workspace Security Administration Tab (Section 11)
 """
 
-from datetime import timedelta
 from django.conf import settings
 from django.contrib import messages
-from django.core.exceptions import PermissionDenied, ValidationError
-from django.http import HttpResponse, JsonResponse
 from django.shortcuts import redirect, render
 from django.urls import reverse
-from django.utils import timezone
-from django.views.decorators.http import require_POST
 
 from apps.accounts.auth.errors import AuthException
 from apps.accounts.auth.iam_auth import (
@@ -27,7 +22,7 @@ from apps.accounts.auth.iam_auth import (
     get_iam_session_from_request,
     stepup_iam_assurance,
 )
-from apps.accounts.models import CustomUser, IAMAdminIdentity, IAMSession, WorkspaceSecurityPolicy
+from apps.accounts.models import WorkspaceSecurityPolicy
 
 
 def iam_login_view(request):

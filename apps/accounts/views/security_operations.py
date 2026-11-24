@@ -9,15 +9,15 @@ Implements:
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied, ValidationError
-from django.http import HttpResponse, JsonResponse
-from django.shortcuts import get_object_or_404, redirect, render
-from django.views.decorators.http import require_GET, require_POST
+from django.http import JsonResponse
+from django.shortcuts import redirect, render
+from django.views.decorators.http import require_POST
 
 from apps.accounts.auth.security_ops import (
     acknowledge_security_alert,
     get_security_events_stream,
 )
-from apps.accounts.models import AuthEvent, CustomUser, SecurityAlert
+from apps.accounts.models import CustomUser, SecurityAlert
 from apps.accounts.permissions import (
     PERM_SECURITY_ALERTS_ACK,
     PERM_SECURITY_EVENTS_READ,

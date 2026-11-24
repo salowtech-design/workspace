@@ -7,7 +7,7 @@ Provides:
 4. Security Reviewer (read-only) and Security Admin permission controls.
 """
 
-from typing import Optional, Tuple
+from typing import Optional
 
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import transaction
@@ -17,7 +17,6 @@ from apps.accounts.auth.audit import log_auth_event
 from apps.accounts.models import AuthEvent, CustomUser, SecurityAlert
 from apps.accounts.permissions import (
     PERM_SECURITY_ALERTS_ACK,
-    PERM_SECURITY_EVENTS_READ,
     has_permission,
 )
 

@@ -9,7 +9,7 @@ Implements auditable risk scoring:
 
 from datetime import timedelta
 from enum import Enum
-from typing import Dict, List, Tuple
+from typing import List, Tuple
 
 from django.utils import timezone
 

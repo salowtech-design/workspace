@@ -34,12 +34,10 @@ import pyotp
 
 from apps.accounts.models import CustomUser, ActivationCode, TOTPCredential, RecoveryCode, UserSession, RecoveryRequest
 from apps.accounts.auth.activation import issue_activation_code
-from apps.accounts.auth.mfa_totp import get_auth_key_ring, verify_totp_code, decrypt_secret
+from apps.accounts.auth.mfa_totp import get_auth_key_ring, decrypt_secret
 from apps.accounts.auth.recovery_codes import generate_ten_recovery_codes
-from apps.accounts.auth.stepup import is_sudo_active, grant_sudo
+from apps.accounts.auth.stepup import grant_sudo
 from apps.attendance.models import WorkSession
-from apps.certificates.models import Certificate
-from apps.posts.models import Post
 from apps.core.middleware import RateLimitMiddleware
 
 call_command("migrate", verbosity=0)

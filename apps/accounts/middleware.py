@@ -1,7 +1,6 @@
 from django.conf import settings
 from django.contrib.auth import logout
-from django.core.exceptions import PermissionDenied
-from django.http import HttpResponseForbidden, HttpResponseNotFound
+from django.http import HttpResponseNotFound
 from django.shortcuts import redirect
 from django.urls import reverse
 

@@ -26,23 +26,16 @@ Security Invariants:
 
 import logging
 import os
-import secrets
 from typing import Any, Optional, Sequence
 
 from django.conf import settings
-from django.utils import timezone
 
 from apps.face.engine.challenge import (
     ActiveChallenge,
-    verify_active_challenge,
 )
 from apps.face.engine.crypto import decrypt_template
-from apps.face.engine.embedder import compute_cosine_similarity
 from apps.face.engine.protocols import VerificationResult
-from apps.face.engine.quality import check_face_quality
 from apps.face.engine.verifier import (
-    MATCH_THRESHOLD,
-    PASSIVE_LIVENESS_THRESHOLD,
     ProductionFaceVerifier,
 )
 

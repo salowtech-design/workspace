@@ -12,7 +12,6 @@ from datetime import datetime, timezone as dt_tz
 from typing import Optional
 
 from django.core.management.base import BaseCommand
-from django.utils import timezone
 
 from apps.accounts.models import SecurityAlert
 

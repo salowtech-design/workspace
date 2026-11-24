@@ -12,15 +12,11 @@ from zoneinfo import ZoneInfo
 
 import pytest
 from django.contrib.auth import get_user_model
-from django.utils import timezone
 
 from apps.accounts.models import CustomUser
 from apps.attendance.models import WorkSession
-from apps.certificates.models import Certificate
-from apps.core.models import AuditLog
 from apps.core.workday import (
     KOLKATA_TZ,
-    get_current_kolkata_datetime,
     get_kolkata_work_date,
     get_workday_boundaries,
     is_session_crossing_midnight,

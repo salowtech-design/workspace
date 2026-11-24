@@ -6,7 +6,7 @@ Enforces:
 3. Daily dashboard context refresh preserving all historical attendance, posts, certificates, and audit logs.
 """
 
-from datetime import date, datetime, time, timedelta
+from datetime import date, datetime, time
 from typing import Any, Optional, Tuple
 from zoneinfo import ZoneInfo
 

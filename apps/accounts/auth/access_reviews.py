@@ -14,7 +14,7 @@ from django.db import transaction
 from django.utils import timezone
 
 from apps.accounts.auth.audit import log_auth_event
-from apps.accounts.models import AccessReviewCampaign, AccessReviewItem, CustomUser, UserSession
+from apps.accounts.models import AccessReviewCampaign, AccessReviewItem, CustomUser
 
 INACTIVITY_THRESHOLD_DAYS = 60
 

@@ -15,10 +15,9 @@ import hmac
 import json
 import secrets
 from datetime import timedelta
-from typing import Optional, Tuple
+from typing import Tuple
 
 import pyotp
-from django.conf import settings
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import transaction
 from django.utils import timezone
@@ -27,7 +26,7 @@ from apps.accounts.auth.audit import log_auth_event
 from apps.accounts.auth.config import get_session_hmac_key
 from apps.accounts.auth.crypto import decrypt_totp_secret
 from apps.accounts.auth.errors import AuthException
-from apps.accounts.models import AuthEvent, IAMAdminIdentity, IAMSession, SecurityAlert
+from apps.accounts.models import IAMAdminIdentity, IAMSession, SecurityAlert
 
 
 MAX_EMERGENCY_WINDOW_MINUTES = 15

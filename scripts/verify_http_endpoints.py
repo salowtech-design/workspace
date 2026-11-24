@@ -39,9 +39,9 @@ def run_http_probe():
     assert "btn-landing-login" in content or "Login" in content
     assert "btn-landing-signin" in content or "Sign In" in content
     has_inputs_initially = '<input type="password"' in content and 'style="display:none"' not in content
-    print(f"    - Landing buttons present: YES")
+    print("    - Landing buttons present: YES")
     print(f"    - Progressive disclosure initial inputs hidden/suppressed: {not has_inputs_initially}")
-    print(f"    - Security Headers:")
+    print("    - Security Headers:")
     for header in ["Content-Security-Policy", "X-Frame-Options", "X-Content-Type-Options", "Referrer-Policy"]:
         print(f"      * {header}: {resp.headers.get(header)}")
 

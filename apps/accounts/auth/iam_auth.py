@@ -15,7 +15,6 @@ import hashlib
 import json
 import hmac
 import secrets
-import time
 import uuid
 from datetime import timedelta
 from typing import Any, Optional, Tuple
@@ -34,7 +33,6 @@ from apps.accounts.auth.crypto import decrypt_totp_secret, encrypt_totp_secret
 from apps.accounts.auth.errors import AuthException
 from apps.accounts.auth.lockout import check_lockout, clear_failed_attempts, record_failed_attempt
 from apps.accounts.models import (
-    AuthEvent,
     CustomUser,
     IAMAdminIdentity,
     IAMDualApprovalRequest,

@@ -1,14 +1,8 @@
 import pytest
 from apps.accounts.models import CustomUser
-from apps.face.engine.challenge import (
-    ActiveChallenge,
-    ChallengeAction,
-    issue_challenge,
-)
 from apps.face.engine.embedder import generate_synthetic_embedding
 from apps.face.engine.pipeline import (
     FaceInferencePipeline,
-    Biometric1ToNForbiddenError,
 )
 from apps.face.services import (
     enroll_face_template,

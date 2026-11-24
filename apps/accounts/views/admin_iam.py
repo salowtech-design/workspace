@@ -67,7 +67,6 @@ from apps.accounts.models import (
     CustomUser,
     DeviceApprovalRequest,
     IAMAdminIdentity,
-    IAMSession,
     PasskeyCredential,
     RecoveryCode,
     RecoveryRequest,

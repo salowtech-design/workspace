@@ -15,7 +15,6 @@ from django.utils.http import url_has_allowed_host_and_scheme
 from apps.accounts.auth.errors import AuthException
 from apps.accounts.auth.login_flow import (
     authenticate_password,
-    complete_mfa_challenge,
 )
 from apps.accounts.auth.sessions import revoke_user_sessions
 from apps.accounts.models import CustomUser, TOTPCredential

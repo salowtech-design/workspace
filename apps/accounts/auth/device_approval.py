@@ -37,7 +37,6 @@ from apps.accounts.models import (
     DeviceApprovalRequest,
     UserSession,
 )
-from apps.core.models import EmailOutbox
 
 DEVICE_APPROVAL_EXPIRY_SECONDS = 60  # Strictly 1 minute per specification
 MAX_CONCURRENT_DEVICES = getattr(settings, "MAX_CONCURRENT_DEVICES", 3)

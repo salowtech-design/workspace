@@ -11,31 +11,25 @@ Provides:
 """
 
 import hashlib
-import hmac
 import json
 import logging
 import secrets
 import time
 import uuid
 from datetime import timedelta
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
 
-from django.conf import settings
-from django.contrib.auth.hashers import get_hasher, identify_hasher
+from django.contrib.auth.hashers import get_hasher
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import connection, models, transaction
-from django.db.models import Q
 from django.utils import timezone
 
 from apps.accounts.auth.audit import log_auth_event
-from apps.accounts.auth.config import get_session_hmac_key
 from apps.accounts.models import (
     ApprovedDevice,
-    AuthEvent,
     AuthenticationPolicy,
     AuthenticationTransaction,
     CustomUser,
-    DeviceApprovalRequest,
     IAMAdminIdentity,
     IAMAdminPresence,
     IAMRecoveryCase,
@@ -45,7 +39,7 @@ from apps.accounts.models import (
     SecurityIncident,
     UserSession,
 )
-from apps.core.models import AuditLog, EmailOutbox, OutboxEvent, RateLimitBucket, RateLimitRecord
+from apps.core.models import AuditLog, OutboxEvent, RateLimitBucket
 
 logger = logging.getLogger(__name__)
 

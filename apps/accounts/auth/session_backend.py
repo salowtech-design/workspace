@@ -4,12 +4,10 @@ Guarantees that raw session cookie bearer values are never stored in the databas
 All database lookups and storage use keyed HMAC-SHA256 verifiers/digests.
 """
 
-import hashlib
 import hmac
 import logging
 from typing import Optional
 
-from django.conf import settings
 from django.contrib.sessions.backends.db import SessionStore as DBSessionStore
 from django.core.exceptions import SuspiciousOperation
 from django.utils import timezone

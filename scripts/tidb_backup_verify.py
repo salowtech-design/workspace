@@ -22,7 +22,7 @@ import json
 import os
 import sys
 import time
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
 
 import certifi
@@ -49,7 +49,6 @@ os.environ.setdefault("DJANGO_SETTINGS_MODULE", "config.settings.dev")
 import django
 django.setup()
 
-from django.conf import settings
 
 
 def _json_serial(obj):

@@ -11,10 +11,7 @@ Usage:
 
 import argparse
 import getpass
-import json
-import os
 import sys
-from datetime import datetime, timezone
 from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -22,7 +19,6 @@ sys.path.insert(0, str(BASE_DIR))
 
 from apps.accounts.auth.offline_recovery import (
     decrypt_offline_backup,
-    execute_post_restore_security_reconciliation,
     parse_share,
     reconstruct_secret_2_of_3,
     split_secret_2_of_3,
