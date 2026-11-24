@@ -90,6 +90,27 @@ def table_fingerprint(serialized_rows) -> str:
     return hashlib.sha256("\n".join(lines).encode("utf-8")).hexdigest()
 
 
+def _derive_key(raw: str, purpose: bytes) -> bytes:
+    """Domain-separated 256-bit key: one configured secret never yields the same key for two purposes."""
+    from cryptography.hazmat.primitives import hashes
+    from cryptography.hazmat.primitives.kdf.hkdf import HKDF
+
+    return HKDF(
+        algorithm=hashes.SHA256(), length=32, salt=None, info=b"salow-backup-v2:" + purpose
+    ).derive(raw.encode("utf-8"))
+
+
+def _get_recovery_public_key():
+    """Raw 32-byte X25519 recovery public key (base64) when envelope mode is configured, else None."""
+    raw = os.getenv("BACKUP_RECOVERY_PUBLIC_KEY")
+    if not raw:
+        return None
+    key = base64.b64decode(raw)
+    if len(key) != 32:
+        raise RuntimeError("BACKUP_RECOVERY_PUBLIC_KEY must be a base64 32-byte X25519 public key.")
+    return key
+
+
 def _get_backup_encryption_key() -> bytes:
     """Derives independent 256-bit AES key for backup encryption."""
     raw = (
@@ -102,7 +123,7 @@ def _get_backup_encryption_key() -> bytes:
             "No backup encryption key configured: set BACKUP_ENCRYPTION_KEY (or AUDIT_HMAC_KEY). "
             "Refusing to use a built-in default key."
         )
-    return hashlib.sha256(raw.encode("utf-8") if isinstance(raw, str) else raw).digest()
+    return _derive_key(raw, b"encryption")
 
 
 def _get_backup_signing_key() -> bytes:
@@ -113,7 +134,7 @@ def _get_backup_signing_key() -> bytes:
             "No backup signing key configured: set BACKUP_SIGNING_KEY (or AUDIT_HMAC_KEY). "
             "Refusing to use a built-in default key."
         )
-    return hashlib.sha256(raw.encode("utf-8") if isinstance(raw, str) else raw).digest()
+    return _derive_key(raw, b"signing")
 
 
 def run_real_backup_and_restore_drill() -> int:
@@ -139,7 +160,8 @@ def run_real_backup_and_restore_drill() -> int:
         return 0
 
     try:  # fail before touching the database if keys are missing
-        _get_backup_encryption_key()
+        if _get_recovery_public_key() is None:
+            _get_backup_encryption_key()
         _get_backup_signing_key()
     except RuntimeError as exc:
         print(f"[FAIL] {exc}")
@@ -232,25 +254,37 @@ def run_real_backup_and_restore_drill() -> int:
         checksum_sha256 = hashlib.sha256(raw_payload_bytes).hexdigest()
 
         # Encrypt with AES-256-GCM
-        enc_key = _get_backup_encryption_key()
-        nonce = os.urandom(12)
-        aesgcm = AESGCM(enc_key)
-        ciphertext = aesgcm.encrypt(
-            nonce, raw_payload_bytes, associated_data=checksum_sha256.encode("utf-8")
-        )
+        recovery_pub = _get_recovery_public_key()
+        if recovery_pub is not None:
+            from apps.accounts.auth.offline_recovery import encrypt_backup_envelope
+
+            envelope, dek = encrypt_backup_envelope(raw_payload_bytes, recovery_pub)
+            aesgcm = AESGCM(dek)
+            nonce = base64.b64decode(envelope["nonce_base64"])
+            ciphertext = base64.b64decode(envelope["ciphertext_base64"])
+        else:
+            enc_key = _get_backup_encryption_key()
+            nonce = os.urandom(12)
+            aesgcm = AESGCM(enc_key)
+            ciphertext = aesgcm.encrypt(
+                nonce, raw_payload_bytes, associated_data=checksum_sha256.encode("utf-8")
+            )
+            envelope = {
+                "format_version": "2.1-env-key-authenticated-encrypted",
+                "nonce_base64": base64.b64encode(nonce).decode("ascii"),
+                "ciphertext_base64": base64.b64encode(ciphertext).decode("ascii"),
+            }
 
         # Sign ciphertext with independent HMAC
         sig_key = _get_backup_signing_key()
         hmac_sig = hmac.new(sig_key, ciphertext, hashlib.sha256).hexdigest()
 
         backup_manifest = {
-            "format_version": "2.0-authenticated-encrypted",
+            **envelope,
             "database": db_name,
             "created_at_utc": datetime.now(timezone.utc).isoformat(),
             "checksum_sha256": checksum_sha256,
             "hmac_signature": hmac_sig,
-            "nonce_base64": base64.b64encode(nonce).decode("ascii"),
-            "ciphertext_base64": base64.b64encode(ciphertext).decode("ascii"),
             "byte_size": len(ciphertext),
             "table_count": len(all_tables),
             "total_rows": total_extracted_rows,

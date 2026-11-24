@@ -21,7 +21,10 @@ import secrets
 from pathlib import Path
 from typing import Dict, List, Tuple
 
+from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey, X25519PublicKey
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 from django.core.exceptions import PermissionDenied
 
 logger = logging.getLogger(__name__)
@@ -117,6 +120,77 @@ def reconstruct_secret_2_of_3(shares: List[Tuple[int, int]]) -> bytes:
     return secret_bytes
 
 
+ENVELOPE_FORMAT = "3.0-envelope-x25519"
+_WRAP_INFO = b"salow-backup-dek-wrap-v1"
+
+
+def recovery_public_key_from_master(master_key: bytes) -> bytes:
+    """Public half of the recovery key pair. It is not secret: the backup job holds only this."""
+    if len(master_key) != 32:
+        raise ValueError("Master key must be exactly 32 bytes.")
+    return (
+        X25519PrivateKey.from_private_bytes(master_key)
+        .public_key()
+        .public_bytes(serialization.Encoding.Raw, serialization.PublicFormat.Raw)
+    )
+
+
+def _wrap_key(shared_secret: bytes, eph_pub: bytes, recipient_pub: bytes) -> bytes:
+    return HKDF(
+        algorithm=hashes.SHA256(), length=32, salt=eph_pub + recipient_pub, info=_WRAP_INFO
+    ).derive(shared_secret)
+
+
+def encrypt_backup_envelope(payload: bytes, recipient_public_key: bytes) -> Tuple[Dict, bytes]:
+    """
+    Envelope-encrypts a backup. A random data key (DEK) encrypts the payload with AES-256-GCM and is
+    wrapped to the recovery public key (ephemeral X25519 + HKDF + AES-GCM). Whoever runs the backup holds
+    only the public key and cannot decrypt old archives; the 2-of-3 custodians can, by rebuilding the
+    private key. Returns (manifest, dek); the caller may keep the DEK in memory for an immediate restore
+    drill and must not store it.
+    """
+    recipient = X25519PublicKey.from_public_bytes(recipient_public_key)
+    eph = X25519PrivateKey.generate()
+    eph_pub = eph.public_key().public_bytes(
+        serialization.Encoding.Raw, serialization.PublicFormat.Raw
+    )
+    checksum = hashlib.sha256(payload).hexdigest()
+    dek = secrets.token_bytes(32)
+    nonce = secrets.token_bytes(12)
+    ciphertext = AESGCM(dek).encrypt(nonce, payload, checksum.encode("utf-8"))
+    wrap_nonce = secrets.token_bytes(12)
+    wrapped = AESGCM(_wrap_key(eph.exchange(recipient), eph_pub, recipient_public_key)).encrypt(
+        wrap_nonce, dek, checksum.encode("utf-8")
+    )
+    manifest = {
+        "format_version": ENVELOPE_FORMAT,
+        "checksum_sha256": checksum,
+        "nonce_base64": base64.b64encode(nonce).decode("ascii"),
+        "ciphertext_base64": base64.b64encode(ciphertext).decode("ascii"),
+        "wrapped_dek_base64": base64.b64encode(wrapped).decode("ascii"),
+        "wrap_nonce_base64": base64.b64encode(wrap_nonce).decode("ascii"),
+        "ephemeral_public_key_base64": base64.b64encode(eph_pub).decode("ascii"),
+        "recovery_public_key_base64": base64.b64encode(recipient_public_key).decode("ascii"),
+    }
+    return manifest, dek
+
+
+def _unwrap_dek(manifest: Dict, master_key: bytes) -> bytes:
+    private = X25519PrivateKey.from_private_bytes(master_key)
+    recipient_pub = recovery_public_key_from_master(master_key)
+    if base64.b64decode(manifest["recovery_public_key_base64"]) != recipient_pub:
+        raise PermissionDenied("Reconstructed key does not match this archive's recovery key.")
+    eph_pub = base64.b64decode(manifest["ephemeral_public_key_base64"])
+    key = _wrap_key(
+        private.exchange(X25519PublicKey.from_public_bytes(eph_pub)), eph_pub, recipient_pub
+    )
+    return AESGCM(key).decrypt(
+        base64.b64decode(manifest["wrap_nonce_base64"]),
+        base64.b64decode(manifest["wrapped_dek_base64"]),
+        manifest["checksum_sha256"].encode("utf-8"),
+    )
+
+
 def decrypt_offline_backup(backup_file_path: Path, reconstructed_key: bytes) -> Dict:
     """
     Decrypts and validates an encrypted backup manifest using the reconstructed offline key.
@@ -131,9 +205,17 @@ def decrypt_offline_backup(backup_file_path: Path, reconstructed_key: bytes) -> 
     # reconstructed key, so it is verified by that script (verify step), not here.
     loaded_cipher = base64.b64decode(manifest["ciphertext_base64"])
 
-    # 2. Decrypt ciphertext with AES-256-GCM
+    # 2. Decrypt ciphertext with AES-256-GCM (envelope archives unwrap their data key first)
     loaded_nonce = base64.b64decode(manifest["nonce_base64"])
-    aesgcm = AESGCM(reconstructed_key)
+    if manifest.get("format_version") == ENVELOPE_FORMAT:
+        try:
+            aesgcm = AESGCM(_unwrap_dek(manifest, reconstructed_key))
+        except PermissionDenied:
+            raise
+        except Exception as exc:
+            raise PermissionDenied(f"Recovery key could not unwrap this archive ({exc})") from exc
+    else:
+        aesgcm = AESGCM(reconstructed_key)
     try:
         decrypted_bytes = aesgcm.decrypt(
             loaded_nonce,

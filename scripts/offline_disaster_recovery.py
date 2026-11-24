@@ -54,7 +54,19 @@ def main():
         print(f"Custodian A (Platform Lead):   {shares[0]}")
         print(f"Custodian B (Security Officer): {shares[1]}")
         print(f"Custodian C (Executive):        {shares[2]}")
+        import base64
+
+        from apps.accounts.auth.offline_recovery import recovery_public_key_from_master
+
+        pub = base64.b64encode(recovery_public_key_from_master(master_key)).decode("ascii")
         print("\nKeep shares strictly segregated in secure hardware/safes.")
+        print(
+            "The master key is never stored; destroy this terminal session's output after distribution."
+        )
+        print(
+            "\nRecovery PUBLIC key (not secret). Set it as BACKUP_RECOVERY_PUBLIC_KEY for the backup job:"
+        )
+        print(pub)
         return 0
 
     print("\nDisaster Recovery requires 2 of 3 authorized custodian key shares.")
