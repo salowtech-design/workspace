@@ -13,3 +13,14 @@ def test_pymysql_declared_because_config_imports_it():
 
 def test_pymysql_present_in_lock_file():
     assert 'name = "pymysql"' in (ROOT / "uv.lock").read_text()
+
+
+def test_compute_payload_digest_serialises_dicts_and_lists():
+    """iam_auth used json without importing it, so dict payloads raised NameError."""
+    from apps.accounts.auth.iam_auth import compute_payload_digest
+
+    a = compute_payload_digest({"b": 1, "a": [1, 2]})
+    b = compute_payload_digest({"a": [1, 2], "b": 1})
+    assert a == b and len(a) == 64
+    assert compute_payload_digest(["x"]) != compute_payload_digest(["y"])
+    assert compute_payload_digest("plain") == compute_payload_digest("plain")

@@ -12,6 +12,7 @@ Implements Non-Negotiable Architecture (Section 3 & 4.1):
 """
 
 import hashlib
+import json
 import hmac
 import secrets
 import time
