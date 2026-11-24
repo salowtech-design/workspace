@@ -25,6 +25,58 @@ from apps.accounts.auth.offline_recovery import (
 )
 
 
+def _restore_to_scratch(payload, scratch_db, keep):
+    """Restore into an empty scratch database only. Refuses anything else."""
+    import os
+
+    from apps.accounts.auth.scratch_restore import ScratchRestoreRefused, restore_to_scratch
+
+    try:
+        import pymysql
+    except ImportError:
+        print("[FAIL] pymysql is required for --restore-to-scratch.")
+        return 1
+    host, user, password = (os.getenv(k) for k in ("TIDB_HOST", "TIDB_USER", "TIDB_PASSWORD"))
+    if not (host and user and password):
+        print("[FAIL] TIDB_HOST, TIDB_USER and TIDB_PASSWORD must point at the scratch server.")
+        return 1
+    ca = os.getenv("TIDB_CA_PATH")
+    try:
+        conn = pymysql.connect(
+            host=host,
+            port=int(os.getenv("TIDB_PORT", "4000")),
+            user=user,
+            password=password,
+            charset="utf8mb4",
+            ssl={"ca": ca} if ca else None,
+            connect_timeout=25,
+        )
+    except pymysql.Error as exc:
+        print(f"[FAIL] Cannot connect to the scratch server: {exc}")
+        return 1
+    try:
+        summary = restore_to_scratch(
+            conn,
+            payload,
+            scratch_db,
+            app_db=os.getenv("TIDB_DB_NAME", ""),
+            keep=keep,
+        )
+    except ScratchRestoreRefused as exc:
+        print(f"[REFUSED] {exc}")
+        return 1
+    except pymysql.Error as exc:
+        print(f"[FAIL] Scratch restore failed: {exc}")
+        return 1
+    finally:
+        conn.close()
+    print(
+        f"[+] Scratch restore verified: {summary['tables']} tables, {summary['rows']} rows compared by content "
+        f"in `{summary['database']}` ({'kept' if summary['kept'] else 'dropped'})."
+    )
+    return 0
+
+
 def main():
     parser = argparse.ArgumentParser(description="Salow Workspace Offline Disaster Recovery CLI")
     parser.add_argument(
@@ -37,6 +89,15 @@ def main():
         "--dry-run",
         action="store_true",
         help="Validate key and decrypt without writing to database",
+    )
+    parser.add_argument(
+        "--restore-to-scratch",
+        metavar="SCRATCH_DB",
+        help="Load the decrypted archive into this empty scratch database (name must start with "
+        "scratch_) using the TIDB_* connection variables, compare every table, then drop it.",
+    )
+    parser.add_argument(
+        "--keep-scratch", action="store_true", help="Keep the scratch database after verification."
     )
     args = parser.parse_args()
 
@@ -120,6 +181,8 @@ def main():
         if args.dry_run:
             print("[+] Dry run complete. Database was not modified.")
             return 0
+        if args.restore_to_scratch:
+            return _restore_to_scratch(payload, args.restore_to_scratch, args.keep_scratch)
     except Exception as exc:
         # Fail closed: a wrong key, a tampered archive or an unreadable file must not look like success.
         print(

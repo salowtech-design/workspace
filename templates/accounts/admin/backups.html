@@ -20,7 +20,7 @@
     <ul class="s-871dd7b0">
       <li><strong>Run backup</strong> queues a request. A separate backup worker runs it. Nothing runs inside this page.</li>
       <li><strong>Check file</strong> only confirms the stored file is present and its recorded size and checksum match. It does not decrypt or restore anything.</li>
-      <li><strong>Restore</strong> is not available in this app. There is no restore function yet, so a backup file cannot be restored from this page or by any button.</li>
+      <li><strong>Restore</strong> is not available in this app. There is no function to restore over the live database. Key holders can load a backup into an empty scratch database with the offline command, to prove it restores. That is verification only.</li>
       <li>Files are kept in <code>{{ storage_dir }}</code> on this server. A server folder is not an off-site copy.</li>
     </ul>
   </div>
