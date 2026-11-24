@@ -961,7 +961,7 @@ def admin_iam_dashboard_view(request):  # noqa: C901
 
                 target_user.is_active = False
                 target_user.status = CustomUser.Status.EXITED
-                target_user.end_date = timezone.now().date()
+                target_user.end_date = timezone.localdate()
                 target_user.save(update_fields=["is_active", "status", "end_date", "updated_at"])
                 synchronize_employee_lifecycle_revocation(target_user)
                 log_auth_event(

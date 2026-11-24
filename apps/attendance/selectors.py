@@ -44,7 +44,7 @@ def get_attendance_report(
     """
     Generates an aggregated attendance report for a specified date range and optional user.
     """
-    end = end_date or timezone.now().date()
+    end = end_date or timezone.localdate()
     start = start_date or (end - timedelta(days=30))
 
     qs = WorkSession.objects.filter(work_date__gte=start, work_date__lte=end)
