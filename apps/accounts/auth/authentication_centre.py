@@ -812,7 +812,7 @@ def execute_start_investigation(
     if not tx:
         raise ValidationError(f"Transaction '{transaction_id}' not found.")
 
-    inc_id = f"INC-{timezone.now().strftime('%Y%m%d')}-{uuid.uuid4().hex[:6].upper()}"
+    inc_id = f"INC-{timezone.localdate().strftime('%Y%m%d')}-{uuid.uuid4().hex[:6].upper()}"
     incident = SecurityIncident.objects.create(
         incident_id=inc_id,
         title=title[:255] or f"Authentication Investigation: {tx.transaction_id[:8]}",

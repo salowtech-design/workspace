@@ -23,7 +23,7 @@ def create_security_incident(
     evidence_references: Optional[List[str]] = None,
 ) -> SecurityIncident:
     """Creates a formal security incident tracking record."""
-    inc_id = f"INC-{timezone.now().strftime('%Y%m%d')}-{uuid.uuid4().hex[:6].upper()}"
+    inc_id = f"INC-{timezone.localdate().strftime('%Y%m%d')}-{uuid.uuid4().hex[:6].upper()}"
 
     incident = SecurityIncident.objects.create(
         incident_id=inc_id,
