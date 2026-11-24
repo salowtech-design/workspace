@@ -20,7 +20,7 @@
     <ul class="s-871dd7b0">
       <li><strong>Run backup</strong> queues a request. A separate backup worker runs it. Nothing runs inside this page.</li>
       <li><strong>Check file</strong> only confirms the stored file is present and its recorded size and checksum match. It does not decrypt or restore anything.</li>
-      <li><strong>Restore</strong> is not available here. Restores are done offline by authorised key holders.</li>
+      <li><strong>Restore</strong> is not available in this app. There is no restore function yet, so a backup file cannot be restored from this page or by any button.</li>
       <li>Files are kept in <code>{{ storage_dir }}</code> on this server. A server folder is not an off-site copy.</li>
     </ul>
   </div>
@@ -49,13 +49,13 @@
         </div>
         {% if run.error_message %}<div class="s-b2f49ed0">{{ run.error_message }}</div>{% endif %}
       </div>
-      {% if run.status == "succeeded" %}
-      <form method="post" action="{% url 'accounts:admin_backup_check' run.id %}">
-        {% csrf_token %}
-        <button type="submit" class="btn btn-outline">Check file</button>
-      </form>
-      {% endif %}
     </div>
+    {% if run.status == "succeeded" %}
+    <form method="post" action="{% url 'accounts:admin_backup_check' run.id %}">
+      {% csrf_token %}
+      <button type="submit" class="btn btn-outline">Check file</button>
+    </form>
+    {% endif %}
   </div>
   {% empty %}
   <p class="s-9ab8d4a3">No backups have been requested yet.</p>

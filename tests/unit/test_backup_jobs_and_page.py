@@ -179,3 +179,11 @@ def test_security_page_links_to_backups_only_for_super_admin(client, sa):
         reverse("accounts:admin_backups")
         in client.get(reverse("accounts:security")).content.decode()
     )
+
+
+def test_page_does_not_claim_a_restore_function_exists(client, sa, storage):
+    client.force_login(sa)
+    grant_sudo(sa)
+    html = client.get(reverse("accounts:admin_backups")).content.decode()
+    assert "There is no restore function yet" in html
+    assert "offline by authorised" not in html

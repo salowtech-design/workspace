@@ -197,7 +197,7 @@ class TestConcurrentReplayProtections:
                 # redemption would still show as more than one success below.
                 from django.db import OperationalError
 
-                for _ in range(40):
+                for _ in range(40):  # bounded: 40 tries, about 2 seconds
                     try:
                         consumed_code, consumed_user = verify_and_consume_code(
                             employee_id=target_employee.employee_id,
@@ -205,7 +205,9 @@ class TestConcurrentReplayProtections:
                             purpose=ActivationCode.Purpose.ACTIVATION,
                         )
                         return bool(consumed_user), worker_id
-                    except OperationalError:
+                    except OperationalError as exc:
+                        if "locked" not in str(exc).lower():
+                            raise
                         time.sleep(0.05)
                 return False, worker_id
             except Exception:
