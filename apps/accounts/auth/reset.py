@@ -665,17 +665,12 @@ def request_authenticator_replacement(
 ) -> bool:
     """
     Method 3: Recover Lost or Replaced Authenticator.
-    Requires Employee ID, valid current password, and verified company email.
+    Requires Employee ID, valid current password, and the matching verified company email.
     Creates pending MFA replacement request, issues single-use token expiring in 30 SECONDS,
     and queues verification email.
     """
     if not employee_id or not current_password:
         return False
-
-    # Handle optional backward compatible argument shifting
-    if email and (email.startswith("http://") or email.startswith("https://")) and not base_url:
-        base_url = email
-        email = ""
 
     normalized_id = employee_id.strip().upper()
     user = CustomUser.objects.filter(employee_id=normalized_id, is_active=True).first()
@@ -700,27 +695,35 @@ def request_authenticator_replacement(
         )
         return False
 
-    # If email was provided, enforce matching and allowed company domain
-    if email:
-        clean_email = email.strip().lower()
-        if not is_allowed_company_email(clean_email):
-            log_auth_event(
-                event="mfa_replacement_invalid_domain",
-                code="AUTH-ACT-001",
-                step="request_mfa_replacement",
-                employee_id=normalized_id,
-                message=f"Email {clean_email} does not belong to allowed company domains",
-            )
-            return False
-        if user.email.strip().lower() != clean_email:
-            log_auth_event(
-                event="mfa_replacement_email_mismatch",
-                code="AUTH-ACT-001",
-                step="request_mfa_replacement",
-                employee_id=normalized_id,
-                message="Submitted company email does not match registered employee email",
-            )
-            return False
+    # The registered company email is part of the proof: it must be submitted and match.
+    clean_email = (email or "").strip().lower()
+    if not clean_email:
+        log_auth_event(
+            event="mfa_replacement_email_missing",
+            code="AUTH-ACT-001",
+            step="request_mfa_replacement",
+            employee_id=normalized_id,
+            message="Authenticator replacement requested without the company email",
+        )
+        return False
+    if not is_allowed_company_email(clean_email):
+        log_auth_event(
+            event="mfa_replacement_invalid_domain",
+            code="AUTH-ACT-001",
+            step="request_mfa_replacement",
+            employee_id=normalized_id,
+            message=f"Email {clean_email} does not belong to allowed company domains",
+        )
+        return False
+    if user.email.strip().lower() != clean_email:
+        log_auth_event(
+            event="mfa_replacement_email_mismatch",
+            code="AUTH-ACT-001",
+            step="request_mfa_replacement",
+            employee_id=normalized_id,
+            message="Submitted company email does not match registered employee email",
+        )
+        return False
 
     with transaction.atomic():
         # Record pending RecoveryRequest

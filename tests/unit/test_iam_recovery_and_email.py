@@ -435,6 +435,7 @@ class TestRecoveryMethod3MfaReplacement:
                 "method": "method3",
                 "employee_id": standard_employee.employee_id,
                 "current_password": "EmployeePassword2026!",
+                "email": standard_employee.email,
             },
         )
         assert resp_ok.status_code == 200
@@ -699,3 +700,38 @@ class TestLegacySingleFactorRecoveryActionsAreGone:
         standard_employee.refresh_from_db()
         assert not standard_employee.check_password(new_pw)
         self._assert_no_side_effects(standard_employee, before)
+
+
+@pytest.mark.django_db
+class TestMethod3RequiresTheRegisteredCompanyEmail:
+    def _post(self, client, user, email):
+        data = {
+            "action": "send_mfa_replacement_email",
+            "employee_id": user.employee_id,
+            "current_password": "EmployeePassword2026!",
+        }
+        if email is not None:
+            data["email"] = email
+        return client.post(reverse("accounts:forgot_password"), data)
+
+    def _no_side_effects(self, user):
+        from apps.accounts.models import RecoveryRequest
+
+        assert not RecoveryRequest.objects.filter(user=user).exists()
+        assert not ActivationCode.objects.filter(user=user).exists()
+        assert EmailOutbox.objects.count() == 0
+
+    def test_missing_wrong_and_foreign_domain_email_are_refused(self, client, standard_employee):
+        for email in (None, "", "someone.else@salowtech.com", "emp2001@gmail.com"):
+            resp = self._post(client, standard_employee, email)
+            assert resp.status_code == 200
+            assert "has been sent" not in resp.content.decode("utf-8")
+            self._no_side_effects(standard_employee)
+
+    def test_matching_registered_email_still_works(self, client, standard_employee):
+        from apps.accounts.models import RecoveryRequest
+
+        resp = self._post(client, standard_employee, standard_employee.email)
+        assert "has been sent" in resp.content.decode("utf-8")
+        assert RecoveryRequest.objects.filter(user=standard_employee).count() == 1
+        assert EmailOutbox.objects.count() == 1
