@@ -66,9 +66,21 @@ def redeem_recovery_code(user: CustomUser, raw_code: str) -> bool:
     input_hash = hash_recovery_code(raw_code)
     now = timezone.now()
 
-    updated = RecoveryCode.objects.filter(
-        user=user, keyed_hash=input_hash, used_at__isnull=True
-    ).update(used_at=now)
+    # The conditional update and the success audit record commit together: if the audit write fails
+    # (for example "database is locked" under contention), the redemption rolls back and the code
+    # stays usable, instead of being consumed while the caller sees an error.
+    with transaction.atomic():
+        updated = RecoveryCode.objects.filter(
+            user=user, keyed_hash=input_hash, used_at__isnull=True
+        ).update(used_at=now)
+        if updated:
+            log_auth_event(
+                event="recovery_code_redeemed",
+                code="INFO",
+                step="redeem_recovery",
+                employee_id=user.employee_id,
+                message=f"Recovery code successfully redeemed for {user.employee_id}",
+            )
 
     if not updated:
         log_auth_event(
@@ -84,13 +96,5 @@ def redeem_recovery_code(user: CustomUser, raw_code: str) -> bool:
             employee_id=user.employee_id,
             message_override="Recovery code is invalid or has already been used.",
         )
-
-    log_auth_event(
-        event="recovery_code_redeemed",
-        code="INFO",
-        step="redeem_recovery",
-        employee_id=user.employee_id,
-        message=f"Recovery code successfully redeemed for {user.employee_id}",
-    )
 
     return True
