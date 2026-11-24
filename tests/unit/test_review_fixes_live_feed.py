@@ -17,8 +17,27 @@ def test_parse_feed_limit(raw, expected):
 
 def test_feed_view_with_non_numeric_limit_does_not_500():
     request = RequestFactory().get("/iam/auth/feed/", {"domain": "workspace", "limit": "abc"})
-    with mock.patch.object(view_mod, "get_live_activity_feed", return_value=[]) as feed, \
+    with mock.patch.object(view_mod, "_require_iam_admin_session", return_value=(object(), None)), \
+            mock.patch.object(view_mod, "get_live_activity_feed", return_value=[]) as feed, \
             mock.patch.object(view_mod, "render") as render:
         view_mod.auth_live_activity_feed_view(request)
     feed.assert_called_once_with("workspace", limit=20)
     assert render.called
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("view_name,path", [
+    ("auth_live_activity_feed_view", "/console/authentication/live-feed/"),
+    ("auth_presence_feed_view", "/console/authentication/presence-feed/"),
+])
+def test_feed_views_redirect_without_iam_session(view_name, path):
+    """The feed views check the IAM session themselves instead of trusting host middleware alone."""
+    request = RequestFactory().get(path)
+    request.session = {}
+    with mock.patch.object(view_mod, "get_iam_session_from_request", return_value=None), \
+            mock.patch.object(view_mod, "get_live_activity_feed") as feed, \
+            mock.patch.object(view_mod, "get_all_admin_presences") as presences:
+        response = getattr(view_mod, view_name)(request)
+    assert response.status_code == 302
+    assert "login" in response["Location"]
+    assert not feed.called and not presences.called

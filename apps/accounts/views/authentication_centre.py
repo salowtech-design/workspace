@@ -272,6 +272,9 @@ def auth_live_activity_feed_view(request):
     Polled every 1 second by the dashboard active monitor.
     Pure read-only endpoint: zero database row creation per poll.
     """
+    _session, redir = _require_iam_admin_session(request)
+    if redir:
+        return redir
     domain = request.GET.get("domain", "workspace").lower().strip()
     limit = _parse_feed_limit(request.GET.get("limit"))
     transactions = get_live_activity_feed(domain, limit=limit)
@@ -287,6 +290,9 @@ def auth_presence_feed_view(request):
     HTMX partial view returning current IAM administrator presences.
     Distinguishes ACTIVE (heartbeat <= 15s), STALE (> 15s), and REVOKED/EXPIRED.
     """
+    _session, redir = _require_iam_admin_session(request)
+    if redir:
+        return redir
     presences = get_all_admin_presences(limit=15)
     return render(
         request,
