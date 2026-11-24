@@ -12,6 +12,7 @@ import logging
 
 from django.conf import settings
 from django.contrib import messages
+from django.http import HttpResponseNotAllowed
 from django.shortcuts import redirect, render
 from django.urls import reverse
 from django.utils.http import url_has_allowed_host_and_scheme
@@ -152,7 +153,9 @@ def iam_login_view(request):  # noqa: C901 (refactor deferred, behavior covered 
 
 
 def iam_logout_view(request):
-    """Logs out IAM administrator and terminates IAM session."""
+    """Logs out IAM administrator and terminates IAM session. POST only (a GET must not change state)."""
+    if request.method != "POST":
+        return HttpResponseNotAllowed(["POST"], "Logout must be requested via POST.")
     session = get_iam_session_from_request(request)
     if session:
         session.is_active = False

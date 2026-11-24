@@ -81,6 +81,15 @@ def check_recovery_authority(  # noqa: C901
                 )
             if approving_admin.role != CustomUser.Role.SUPER_ADMIN:
                 raise PermissionDenied("Second approving account must be a Super Admin.")
+        elif target_user.role == CustomUser.Role.ADMIN:
+            # Same dual-control rule as for an Admin actor: no single administrator, whatever
+            # their role, may recover another Admin account alone.
+            if not approving_admin or approving_admin.id == actor.id:
+                raise ValidationError(
+                    "Admin recovery requires approval from a second administrator."
+                )
+            if approving_admin.role not in (CustomUser.Role.SUPER_ADMIN, CustomUser.Role.ADMIN):
+                raise PermissionDenied("Second approving account must be an administrator.")
         return
 
     if actor.role == CustomUser.Role.ADMIN:
