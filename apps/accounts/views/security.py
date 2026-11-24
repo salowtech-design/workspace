@@ -22,7 +22,11 @@ from django.views.decorators.http import require_POST
 
 from apps.accounts.auth.audit import log_auth_event
 from apps.accounts.auth.errors import AuthException
-from apps.accounts.auth.sessions import end_session_by_key, revoke_user_sessions
+from apps.accounts.auth.sessions import (
+    end_session_by_key,
+    hash_session_bearer,
+    revoke_user_sessions,
+)
 from apps.accounts.auth.stepup import verify_stepup
 from apps.accounts.models import (
     AuthEvent,
@@ -51,7 +55,7 @@ def security_dashboard_view(request):
         {
             "sessions": active_sessions,
             "passkeys": passkeys,
-            "current_session_key": request.session.session_key,
+            "current_session_key": hash_session_bearer(request.session.session_key or ""),
             "recent_events": recent_events,
         },
     )

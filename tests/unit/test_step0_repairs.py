@@ -337,3 +337,39 @@ def test_password_change_keeps_current_session_and_revokes_the_others(db):
     remaining = set(UserSession.objects.filter(user=user).values_list("session_key", flat=True))
     assert "other-device-digest" not in remaining
     assert mine in remaining
+
+
+def test_security_page_marks_this_device_and_offers_revoke_only_for_others(db):
+    """Found live: the page offered Revoke on the user's own session (raw key vs stored digest)."""
+    from apps.accounts.auth.sessions import hash_session_bearer
+    from apps.accounts.models import UserSession
+
+    user = User.objects.create(
+        email="sess.page@salowtech.com",
+        employee_id="EMP-SESSPG-01",
+        full_name="Session Page",
+        password=make_password("OldPasswordForTests2026!#"),
+        role=CustomUser.Role.EMPLOYEE,
+        status=CustomUser.Status.ACTIVE,
+        is_active=True,
+    )
+    client = Client()
+    client.force_login(user)
+    session = client.session
+    session["_salow_mfa_verified"] = True
+    session.save()
+    mine = hash_session_bearer(session.session_key)
+    UserSession.objects.create(
+        session_key=mine, session_digest=mine, user=user, ip_address="10.0.0.1", mfa_verified=True
+    )
+    UserSession.objects.create(
+        session_key="other-device-digest",
+        session_digest="other-device-digest",
+        user=user,
+        ip_address="10.0.0.2",
+        mfa_verified=True,
+    )
+    html = client.get("/auth/security/").content.decode()
+    assert html.count("This Device") == 1
+    assert "/terminate/other-device-digest" in html or "other-device-digest" in html
+    assert mine not in html
