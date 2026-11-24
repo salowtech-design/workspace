@@ -180,7 +180,7 @@ def certificate_svg_view(request, cert_uuid):
     if not is_recipient and not can_manage:
         raise PermissionDenied("You do not have permission to access this certificate asset.")
 
-    svg_content = generate_certificate_svg(cert)
+    svg_content = generate_certificate_svg(cert, base_url=request.build_absolute_uri("/")[:-1])
     response = HttpResponse(svg_content, content_type="image/svg+xml")
     response["Content-Disposition"] = f'inline; filename="{cert.serial_number}.svg"'
     return response

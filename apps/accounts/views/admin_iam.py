@@ -278,6 +278,26 @@ def _level3_gate(request, session, action_name: str, payload: Any, bound: str):
     return redirect(request.get_full_path())
 
 
+def _consumed_approver(request, target_employee_id: str):
+    """The employee account of the second administrator whose Level 3 approval was just
+    consumed for this requester, action and target (None if there is none)."""
+    from apps.accounts.models import IAMDualApprovalRequest
+
+    session = getattr(request, "iam_session", None) or get_iam_session_from_request(request)
+    req = (
+        IAMDualApprovalRequest.objects.filter(
+            action="issue_mfa_reset",
+            target_id=target_employee_id,
+            requester=session.iam_admin,
+            status=IAMDualApprovalRequest.Status.CONSUMED,
+        )
+        .select_related("approver__user")
+        .order_by("-consumed_at")
+        .first()
+    )
+    return req.approver.user if req and req.approver else None
+
+
 def _via_iam_admin(request) -> str:
     """Suffix naming the IAM admin identity when the action came through an IAM session."""
     iam_admin = getattr(request, "iam_admin", None)
@@ -585,17 +605,33 @@ def admin_iam_dashboard_view(request):  # noqa: C901
                 messages.error(request, f"User {target_emp_id} not found.")
             else:
                 try:
-                    check_recovery_authority(actor, target_user)
+                    # An Admin or Super Admin target needs a second administrator: Level 3
+                    # (a different Super Administrator approves under "15. Level 3 Approvals",
+                    # then the same request is submitted again to issue the code).
+                    two_person = target_user.role in (
+                        CustomUser.Role.ADMIN,
+                        CustomUser.Role.SUPER_ADMIN,
+                    )
+                    if not two_person:
+                        check_recovery_authority(actor, target_user)
                     payload = {"target_employee_id": target_emp_id, "action": "issue_mfa_reset"}
                     redirect_resp = enforce_mutation_assurance(
-                        request, "issue_mfa_reset", required_level=2, payload=payload
+                        request,
+                        "issue_mfa_reset",
+                        required_level=3 if two_person else 2,
+                        payload=payload,
                     )
                     if redirect_resp:
                         return redirect_resp
+                    approving_admin = None
+                    if two_person:
+                        approving_admin = _consumed_approver(request, target_emp_id)
+                        check_recovery_authority(actor, target_user, approving_admin)
 
                     _, raw_code = issue_mfa_reset_code(
                         target_user=target_user,
                         issuing_admin=actor,
+                        approving_admin=approving_admin,
                     )
                     request.session["_salow_issued_activation"] = {
                         "employee_id": target_user.employee_id,

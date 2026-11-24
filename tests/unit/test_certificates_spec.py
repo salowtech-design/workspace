@@ -300,6 +300,16 @@ class TestCertificateSVG:
         root = ET.fromstring(svg)
         assert root.tag == "{http://www.w3.org/2000/svg}svg"
 
+    def test_svg_matches_view_design_with_emblem_and_qr(self, recipient_user, admin_user):
+        cert = issue_certificate(
+            recipient=recipient_user, title="Design", description="D", issued_by=admin_user
+        )
+        svg = generate_certificate_svg(cert, base_url="https://x.example")
+        assert "SALOWTECH" in svg
+        assert "OFFICIAL RECOGNITION CREDENTIAL" in svg
+        assert "data:image/png;base64," in svg
+        assert "data:image/svg+xml;base64," in svg
+
     def test_svg_handles_special_xml_characters(self, admin_user):
         """SVG generation cleanly XML-escapes characters like &, <, >, " without crashing parser."""
         tricky_user = CustomUser.objects.create_user(
