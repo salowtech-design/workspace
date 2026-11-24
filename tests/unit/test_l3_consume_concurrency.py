@@ -32,11 +32,11 @@ def _admin(n):
     )
 
 
-def _race(lock):
+def _race(lock, action="create_employee"):
     requester, approver = _admin(1), _admin(2)
     now = timezone.now()
     req = IAMDualApprovalRequest.objects.create(
-        action="create_employee",
+        action=action,
         target_id="CCTARGET",
         reason="race test",
         requester=requester,
@@ -59,7 +59,7 @@ def _race(lock):
         try:
             barrier.wait(5)
             try:
-                consume_dual_approval_request(req.request_id, "create_employee", "CCTARGET")
+                consume_dual_approval_request(req.request_id, action, "CCTARGET")
                 results.append("ok")
             except Exception as err:  # noqa: BLE001
                 results.append(type(err).__name__)
@@ -82,11 +82,15 @@ def _race(lock):
     return sorted(results), req.status
 
 
+L3_ACTIONS = ["create_employee", "suspend_account", "exit_account", "update_role"]
+
+
 @pytest.mark.django_db(transaction=True)
-def test_one_approved_request_is_consumed_by_exactly_one_of_two_concurrent_callers():
+@pytest.mark.parametrize("action", L3_ACTIONS)
+def test_one_approved_request_is_consumed_by_exactly_one_of_two_concurrent_callers(action):
     if connection.vendor == "sqlite":
         pytest.skip("row locks are only meaningful on the TiDB/MySQL backend")
-    results, status = _race(lock=True)
+    results, status = _race(lock=True, action=action)
     assert results.count("ok") == 1, results
     assert status == IAMDualApprovalRequest.Status.CONSUMED
 
