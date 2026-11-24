@@ -28,20 +28,16 @@ from apps.accounts.auth.errors import AuthException
 from apps.accounts.auth.mfa_totp import (
     generate_qr_svg,
     get_or_create_pending_totp,
-    verify_totp_code,
 )
 from apps.accounts.auth.passkeys import verify_passkey_authentication
 from apps.accounts.auth.passwords import set_user_password, validate_employee_password
-from apps.accounts.auth.recovery_codes import redeem_recovery_code
 from apps.accounts.auth.reset import (
     approve_administrator_reset,
     complete_authenticator_replacement,
     reject_administrator_reset,
     request_administrator_reset,
     request_authenticator_replacement,
-    request_email_password_reset,
     request_self_service_password_reset,
-    self_service_reset_password,
     verify_email_reset_token,
     verify_mfa_replacement_token,
     verify_mfa_reset_and_authorize,
@@ -58,6 +54,11 @@ from apps.accounts.permissions import (
 PW_RESET_SESSION_UID = "_salow_pw_reset_user_id"
 MFA_REPLACE_SESSION_UID = "_salow_mfa_replace_uid"
 MFA_REPLACE_CODES_KEY = "_salow_mfa_replace_codes"
+
+
+LEGACY_RECOVERY_ACTIONS = frozenset(
+    {"verify_recovery_code", "verify_totp_code", "send_email_reset_link"}
+)
 
 
 def forgot_password_view(request):  # noqa: C901
@@ -133,73 +134,12 @@ def forgot_password_view(request):  # noqa: C901
             except (ValidationError, AuthException, PermissionDenied) as e:
                 error = e.messages[0] if hasattr(e, "messages") else str(e)
 
-        # -------------------------------------------------------------------
-        # METHOD 2 Route A — Recovery Code Verification (Legacy compatibility)
-        # -------------------------------------------------------------------
-        elif action == "verify_recovery_code":
-            active_method = "method2"
-            sub_route = "recovery_code"
-            code_value = request.POST.get("recovery_code", "").strip()
-
-            if not employee_id:
-                error = "Please enter your Employee ID."
-            elif not code_value:
-                error = "Please enter your one-time backup recovery code."
-            else:
-                user = CustomUser.objects.filter(employee_id=employee_id, is_active=True).first()
-                if not user:
-                    error = "Recovery code is invalid or has already been used."
-                else:
-                    try:
-                        redeem_recovery_code(user, code_value)
-                        # Valid recovery code burned! Store authorized user ID in session
-                        request.session[PW_RESET_SESSION_UID] = user.id
-                        request.session.set_expiry(900)  # 15 minutes
-                        return redirect("accounts:email_set_password")
-                    except AuthException as e:
-                        error = e.user_message
-
-        # -------------------------------------------------------------------
-        # METHOD 2 Route B — TOTP Verification
-        # -------------------------------------------------------------------
-        elif action == "verify_totp_code":
-            active_method = "method2"
-            sub_route = "totp"
-            totp_code = request.POST.get("totp_code", "").strip()
-
-            if not employee_id:
-                error = "Please enter your Employee ID."
-            elif not totp_code:
-                error = "Please enter your current 6-digit authenticator code."
-            else:
-                user = CustomUser.objects.filter(employee_id=employee_id, is_active=True).first()
-                if not user:
-                    error = "Invalid Employee ID or authenticator code."
-                elif user.role == CustomUser.Role.SUPER_ADMIN:
-                    error = "Super Admin recovery requires administrator dual-approval."
-                else:
-                    try:
-                        verify_totp_code(user, totp_code)
-                        request.session[PW_RESET_SESSION_UID] = user.id
-                        request.session.set_expiry(900)
-                        return redirect("accounts:email_set_password")
-                    except AuthException as e:
-                        error = e.user_message
-
-        # -------------------------------------------------------------------
-        # METHOD 2 Route C — Send Email Password Reset Link
-        # -------------------------------------------------------------------
-        elif action == "send_email_reset_link":
-            active_method = "method2"
-            sub_route = "email_link"
-            if not employee_id:
-                error = "Please enter your Employee ID."
-            else:
-                request_email_password_reset(employee_id=employee_id, base_url=base_url)
-                success_msg = (
-                    "If a verified company email address is registered for this Employee ID, "
-                    "a single-use password reset link has been dispatched to your inbox."
-                )
+        # The older single-factor routes (recovery code only, TOTP only, email link only) were
+        # removed: the documented Method 2 needs exactly one proof AND the company email.
+        elif action in LEGACY_RECOVERY_ACTIONS:
+            error = (
+                "This recovery action is not available. Use one of the three options on this page."
+            )
 
         # -------------------------------------------------------------------
         # METHOD 3 — Recover Lost or Replaced Authenticator
@@ -250,25 +190,8 @@ def forgot_password_view(request):  # noqa: C901
                 except Exception:
                     error = "Invalid recovery submission. Please verify your credentials or contact an administrator."
             else:
-                new_pw = request.POST.get("new_password", "")
-                confirm_pw = request.POST.get("confirm_password", "")
-                is_recovery = code_type == "recovery_code"
-                if not employee_id or (new_pw != confirm_pw):
-                    error = "Invalid recovery submission. Please verify your credentials or contact an administrator."
-                else:
-                    try:
-                        self_service_reset_password(
-                            employee_id=employee_id,
-                            credential_token=code_val,
-                            new_password=new_pw,
-                            is_recovery_code=is_recovery,
-                        )
-                        messages.success(
-                            request, "Password has been reset successfully. Please sign in."
-                        )
-                        return redirect("accounts:login")
-                    except Exception:
-                        error = "Invalid recovery submission. Please verify your credentials or contact an administrator."
+                # recovery_code / totp direct password reset skipped the email step: not available.
+                error = "This recovery action is not available. Use one of the three options on this page."
 
     return render(
         request,

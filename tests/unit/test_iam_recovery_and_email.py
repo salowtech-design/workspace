@@ -283,42 +283,48 @@ class TestRecoveryMethod1AdminReset:
 class TestRecoveryMethod2ResetYourself:
     """Verifies Method 2 self-service proof routes and single-use protections."""
 
-    def test_route_b_totp_self_service_reset(self, client, standard_employee):
+    def test_method2_totp_plus_email_then_link_resets_password(self, client, standard_employee):
         cred = TOTPCredential.objects.get(user=standard_employee)
         secret = decrypt_secret(cred.encrypted_secret, cred.nonce, cred.key_id, get_auth_key_ring())
         totp = pyotp.TOTP(secret)
 
-        # Step 1: Submit TOTP code without new password
+        # Step 1: the documented form: employee id + company email + exactly one proof.
         resp1 = client.post(
             reverse("accounts:forgot_password"),
             {
-                "action": "verify_totp_code",
-                "method": "method2",
-                "route": "totp",
+                "action": "reset_password_yourself",
                 "employee_id": standard_employee.employee_id,
+                "email": standard_employee.email,
                 "totp_code": totp.now(),
             },
         )
-        assert resp1.status_code == 302
-        assert resp1.url == reverse("accounts:email_set_password")
+        assert resp1.status_code == 200
+        assert "valid for exactly 30 seconds" in resp1.content.decode("utf-8")
+        assert EmailOutbox.objects.filter(notification_type="email_reset_link").count() == 1
 
-        # Step 2: Set new password
+        # Step 2: the emailed link (raw token is only in the encrypted mail, so re-issue one).
+        _, raw_token = issue_email_token(
+            standard_employee, ActivationCode.Purpose.PASSWORD_RESET, ttl_seconds=30
+        )
+        landing = reverse("accounts:email_reset_landing")
+        assert client.get(f"{landing}?token={raw_token}").status_code == 200
+        resp_post = client.post(landing, {"token": raw_token})
+        assert resp_post.url == reverse("accounts:email_set_password")
+
+        # Step 3: set the new password.
         new_pw = "BrandNewSalowPassword2026!"
         resp2 = client.post(
             reverse("accounts:email_set_password"),
-            {
-                "new_password": new_pw,
-                "confirm_password": new_pw,
-            },
+            {"new_password": new_pw, "confirm_password": new_pw},
         )
         assert resp2.status_code == 302
         assert resp2.url == reverse("accounts:login")
-
-        # Check updated password
         standard_employee.refresh_from_db()
         assert standard_employee.check_password(new_pw)
 
     def test_route_b_totp_denied_for_super_admin(self, client, superadmin_user):
+        superadmin_user.email_verified = True
+        superadmin_user.save()
         secret, _, _ = get_or_create_pending_totp(superadmin_user)
         totp = pyotp.TOTP(secret)
         verify_totp_code(superadmin_user, totp.now(), allow_unconfirmed=True)
@@ -326,39 +332,27 @@ class TestRecoveryMethod2ResetYourself:
         resp = client.post(
             reverse("accounts:forgot_password"),
             {
-                "action": "verify_totp_code",
-                "method": "method2",
-                "route": "totp",
+                "action": "reset_password_yourself",
                 "employee_id": superadmin_user.employee_id,
+                "email": superadmin_user.email,
                 "totp_code": totp.now(),
             },
         )
         assert resp.status_code == 200
         content = resp.content.decode("utf-8")
-        assert "Super Admin recovery requires administrator dual-approval" in content
+        assert "administrator dual-approval" in content
+        assert not EmailOutbox.objects.filter(notification_type="email_reset_link").exists()
 
-    def test_route_c_email_link_crawler_safe_and_single_use(self, client, standard_employee):
-        # 1. Request password reset via company email
+    def test_reset_link_is_crawler_safe_and_single_use(self, client, standard_employee):
+        # 1. The old email-only request is no longer served: no token, no mail.
         resp_req = client.post(
             reverse("accounts:forgot_password"),
-            {
-                "action": "send_email_reset_link",
-                "method": "method2",
-                "route": "email_link",
-                "employee_id": standard_employee.employee_id,
-            },
+            {"action": "send_email_reset_link", "employee_id": standard_employee.employee_id},
         )
         assert resp_req.status_code == 200
-        content = resp_req.content.decode("utf-8")
-        assert "a single-use password reset link has been dispatched" in content
-
-        # Get issued activation token from database
-        code_record = ActivationCode.objects.filter(
-            user=standard_employee,
-            purpose=ActivationCode.Purpose.PASSWORD_RESET,
-            is_live=1,
-        ).first()
-        assert code_record is not None
+        assert "not available" in resp_req.content.decode("utf-8")
+        assert not ActivationCode.objects.filter(user=standard_employee).exists()
+        assert not EmailOutbox.objects.filter(notification_type="email_reset_link").exists()
 
         # Issue raw token to simulate email URL
         rec, raw_token = issue_email_token(standard_employee, ActivationCode.Purpose.PASSWORD_RESET)
@@ -618,3 +612,90 @@ class TestCompanyEmailVerification:
 
         standard_employee.refresh_from_db()
         assert standard_employee.email_verified is True
+
+
+@pytest.mark.django_db
+class TestLegacySingleFactorRecoveryActionsAreGone:
+    """The documented Method 2 needs one proof AND the company email; older direct POSTs skipped that."""
+
+    def _assert_no_side_effects(self, user, before_hash):
+        user.refresh_from_db()
+        assert user.password == before_hash
+        assert not ActivationCode.objects.filter(user=user).exists()
+        assert not EmailOutbox.objects.filter(notification_type="email_reset_link").exists()
+
+    def test_totp_only_action_is_denied(self, client, standard_employee):
+        cred = TOTPCredential.objects.get(user=standard_employee)
+        secret = decrypt_secret(cred.encrypted_secret, cred.nonce, cred.key_id, get_auth_key_ring())
+        before = standard_employee.password
+        resp = client.post(
+            reverse("accounts:forgot_password"),
+            {
+                "action": "verify_totp_code",
+                "employee_id": standard_employee.employee_id,
+                "totp_code": pyotp.TOTP(secret).now(),
+            },
+        )
+        assert resp.status_code == 200
+        assert "not available" in resp.content.decode("utf-8")
+        assert "_salow_pw_reset_uid" not in client.session and not any(
+            k for k in client.session.keys() if "reset" in k
+        )
+        self._assert_no_side_effects(standard_employee, before)
+
+    def test_recovery_code_only_action_is_denied_and_code_not_burned(
+        self, client, standard_employee
+    ):
+        from apps.accounts.models import RecoveryCode
+
+        codes = generate_ten_recovery_codes(standard_employee)
+        before = standard_employee.password
+        live_before = RecoveryCode.objects.filter(
+            user=standard_employee, used_at__isnull=True
+        ).count()
+        for action in ("verify_recovery_code",):
+            resp = client.post(
+                reverse("accounts:forgot_password"),
+                {
+                    "action": action,
+                    "employee_id": standard_employee.employee_id,
+                    "recovery_code": codes[0],
+                },
+            )
+            assert resp.status_code == 200
+            assert "not available" in resp.content.decode("utf-8")
+        assert (
+            RecoveryCode.objects.filter(user=standard_employee, used_at__isnull=True).count()
+            == live_before
+        )
+        self._assert_no_side_effects(standard_employee, before)
+
+    def test_email_only_action_is_denied(self, client, standard_employee):
+        before = standard_employee.password
+        resp = client.post(
+            reverse("accounts:forgot_password"),
+            {"action": "send_email_reset_link", "employee_id": standard_employee.employee_id},
+        )
+        assert "not available" in resp.content.decode("utf-8")
+        self._assert_no_side_effects(standard_employee, before)
+
+    def test_direct_password_reset_with_totp_is_denied(self, client, standard_employee):
+        cred = TOTPCredential.objects.get(user=standard_employee)
+        secret = decrypt_secret(cred.encrypted_secret, cred.nonce, cred.key_id, get_auth_key_ring())
+        before = standard_employee.password
+        new_pw = "DirectBypassPassword2026!"
+        resp = client.post(
+            reverse("accounts:forgot_password"),
+            {
+                "action": "redeem_code",
+                "employee_id": standard_employee.employee_id,
+                "code_type": "totp",
+                "code_value": pyotp.TOTP(secret).now(),
+                "new_password": new_pw,
+                "confirm_password": new_pw,
+            },
+        )
+        assert "not available" in resp.content.decode("utf-8")
+        standard_employee.refresh_from_db()
+        assert not standard_employee.check_password(new_pw)
+        self._assert_no_side_effects(standard_employee, before)

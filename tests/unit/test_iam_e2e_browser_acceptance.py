@@ -296,17 +296,28 @@ class TestFlowCForgotPasswordRecovery:
         codes = generate_ten_recovery_codes(active_user)
         raw_code = codes[0]
 
-        # Step 1: Submit recovery code proof without new password fields
+        # Step 1: documented Method 2 form: recovery code + company email, then the emailed link.
+        active_user.email = "active.user.reset@salowtech.com"
+        active_user.email_verified = True
+        active_user.save()
         resp1 = client.post(
             reverse("accounts:forgot_password"),
             {
-                "action": "verify_recovery_code",
+                "action": "reset_password_yourself",
                 "employee_id": active_user.employee_id,
+                "email": active_user.email,
                 "recovery_code": raw_code,
             },
         )
-        assert resp1.status_code == 302
-        assert resp1.url == reverse("accounts:email_set_password")
+        assert resp1.status_code == 200
+        from apps.accounts.auth.activation import issue_email_token
+        from apps.accounts.models import ActivationCode
+
+        _, raw_token = issue_email_token(
+            active_user, ActivationCode.Purpose.PASSWORD_RESET, ttl_seconds=30
+        )
+        resp_link = client.post(reverse("accounts:email_reset_landing"), {"token": raw_token})
+        assert resp_link.url == reverse("accounts:email_set_password")
 
         # Step 2: Set new password on protected set password screen
         new_password = "ResetSalowPassword2026!"
@@ -328,11 +339,11 @@ class TestFlowCForgotPasswordRecovery:
         resp_replay = client.post(
             reverse("accounts:forgot_password"),
             {
-                "action": "verify_recovery_code",
+                "action": "reset_password_yourself",
                 "employee_id": active_user.employee_id,
+                "email": active_user.email,
                 "recovery_code": raw_code,
             },
         )
         assert resp_replay.status_code == 200
-        content = resp_replay.content.decode("utf-8")
-        assert "invalid or has already been used" in content
+        assert "has been sent" not in resp_replay.content.decode("utf-8")

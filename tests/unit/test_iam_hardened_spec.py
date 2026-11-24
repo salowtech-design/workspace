@@ -337,6 +337,7 @@ class TestDelegatedRecoveryAndDualApproval:
         assert (
             "Invalid employee ID or password." in content
             or "Invalid recovery submission" in content
+            or "not available" in content
         )
 
 
