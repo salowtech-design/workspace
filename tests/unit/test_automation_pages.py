@@ -8,7 +8,7 @@ from apps.core.models import Notification
 
 HOST = "app.salowtech.com"
 pytestmark = pytest.mark.django_db
-EXPECT_INACTIVE = 302
+EXPECT_INACTIVE = 302  # the sign-in redirect for a suspended session, not a 404
 
 
 def _u(eid, status="active"):
@@ -259,7 +259,6 @@ def test_inactive_account_is_refused_on_every_page_and_action():
         c.post(p + "run/", {"token": "f" * 32}).status_code,
         c.post(p + "enable/", {"enabled": "0"}).status_code,
     ]
-    print("inactive codes", got)
     assert set(got) == {EXPECT_INACTIVE} and not WfRun.objects.exists()
     wf.refresh_from_db()
     assert wf.enabled
