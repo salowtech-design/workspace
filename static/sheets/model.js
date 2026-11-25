@@ -195,6 +195,74 @@
   }
   function setActive(meta, id) { if (!meta.tabs.some(function (t) { return t.id === id; }) || meta.active === id) return null; var n = cloneMeta(meta); n.active = id; return n; }
 
-  var api = { loadTabs: loadTabs, addTab: addTab, renameTab: renameTab, deleteTab: deleteTab, setActive: setActive, cleanName: cleanName, MAX_TABS: MAX_TABS, sortRange: sortRange, filterRows: filterRows, toNum: toNum, toCsv: toCsv, clean: clean, History: History, chartPoints: chartPoints, pieSlices: pieSlices, isComposing: isComposing, keyMove: keyMove, copy: copy, same: same };
+
+  // ---- Data validation: rules per tab, checked when a value is typed into a cell. ----
+  // A rule is { range: "A1:A10", kind: "list", items: [...] } or { range, kind: "number", min, max }. Formulas are not checked.
+  var MAX_RULES = 10, MAX_ITEMS = 20, MAX_ITEM_LEN = 40;
+  function parseRange(t, parseAddr) {
+    var m = /^\s*([A-Za-z]{1,2}[0-9]{1,4})\s*:\s*([A-Za-z]{1,2}[0-9]{1,4})\s*$/.exec(String(t)), p1 = m && parseAddr(m[1].toUpperCase()), p2 = m && parseAddr(m[2].toUpperCase());
+    if (!p1 || !p2) return null;
+    return { c1: Math.min(p1.col, p2.col), c2: Math.max(p1.col, p2.col), r1: Math.min(p1.row, p2.row), r2: Math.max(p1.row, p2.row) };
+  }
+  function rangeLabel(g) { return String.fromCharCode(64 + g.c1) + g.r1 + ":" + String.fromCharCode(64 + g.c2) + g.r2; }
+  function overlap(a, b) { return a.c1 <= b.c2 && b.c1 <= a.c2 && a.r1 <= b.r2 && b.r1 <= a.r2; }
+  // Build one rule from form text. Returns { rule } or { error }.
+  function makeRule(rangeText, kind, a, b, parseAddr) {
+    var g = parseRange(rangeText, parseAddr); if (!g) return { error: "Enter a range like A1:A10." };
+    if (kind === "list") {
+      var seen = Object.create(null), items = [];
+      String(a).split(",").forEach(function (x) { var t = x.trim(); if (t && !seen[t]) { seen[t] = true; items.push(t); } });
+      if (!items.length) return { error: "Enter the allowed values, separated by commas." };
+      if (items.length > MAX_ITEMS) return { error: "A list holds up to " + MAX_ITEMS + " values." };
+      if (items.some(function (t) { return Array.from(t).length > MAX_ITEM_LEN || t.charAt(0) === "="; })) return { error: "Each value can be up to " + MAX_ITEM_LEN + " characters and cannot start with =." };
+      return { rule: { range: rangeLabel(g), kind: "list", items: items } };
+    }
+    if (kind === "number") {
+      var lo = toNum(String(a)), hi = toNum(String(b));
+      if (lo === null || hi === null) return { error: "Enter a smallest and a largest number." };
+      if (lo > hi) return { error: "The smallest number is above the largest." };
+      return { rule: { range: rangeLabel(g), kind: "number", min: lo, max: hi } };
+    }
+    return { error: "Choose a rule type." };
+  }
+  function addRule(rules, rule, parseAddr) {
+    if (rules.length >= MAX_RULES) return { error: "A tab holds up to " + MAX_RULES + " rules." };
+    var g = parseRange(rule.range, parseAddr);
+    for (var i = 0; i < rules.length; i++) if (overlap(g, parseRange(rules[i].range, parseAddr))) return { error: "That range overlaps the rule for " + rules[i].range + ". Remove it first." };
+    return { rules: rules.concat([rule]) };
+  }
+  function removeRule(rules, i) { return i >= 0 && i < rules.length ? rules.filter(function (_, k) { return k !== i; }) : null; }
+  // Strict load: anything unexpected is "unreadable", never an empty list.
+  function loadRules(raw, parseAddr) {
+    if (raw === null || raw === undefined || raw === "") return { rules: [], unreadable: false };
+    var v = null; try { v = JSON.parse(raw); } catch (e) { v = null; }
+    var bad = { rules: [], unreadable: true };
+    if (!v || typeof v !== "object" || v.v !== 1 || !Array.isArray(v.rules) || v.rules.length > MAX_RULES) return bad;
+    var out = [];
+    for (var i = 0; i < v.rules.length; i++) {
+      var r = v.rules[i], g = r && typeof r.range === "string" ? parseRange(r.range, parseAddr) : null, ok = null;
+      if (!g) return bad;
+      if (r.kind === "list") { ok = makeRule(r.range, "list", Array.isArray(r.items) ? r.items.join(",") : "", "", parseAddr); if (r.items.some(function (t) { return typeof t !== "string" || t.indexOf(",") >= 0; })) return bad; }
+      else if (r.kind === "number") ok = typeof r.min === "number" && typeof r.max === "number" && isFinite(r.min) && isFinite(r.max) && r.min <= r.max ? { rule: { range: rangeLabel(g), kind: "number", min: r.min, max: r.max } } : { error: "x" };
+      else return bad;
+      if (ok.error) return bad;
+      for (var k = 0; k < out.length; k++) if (overlap(g, parseRange(out[k].range, parseAddr))) return bad;
+      out.push(ok.rule);
+    }
+    return { rules: out, unreadable: false };
+  }
+  function rulesJson(rules) { return JSON.stringify({ v: 1, rules: rules }); }
+  // Typed value for a cell: null when allowed, otherwise the sentence to show. Blank and formulas are allowed.
+  function checkValue(rules, addr, value, parseAddr) {
+    var p = parseAddr(addr); if (!p || value === "" || String(value).charAt(0) === "=") return null;
+    for (var i = 0; i < rules.length; i++) {
+      var g = parseRange(rules[i].range, parseAddr); if (!g || p.col < g.c1 || p.col > g.c2 || p.row < g.r1 || p.row > g.r2) continue;
+      var r = rules[i], t = String(value).trim();
+      if (r.kind === "list") return r.items.indexOf(t) >= 0 ? null : addr + " accepts only: " + r.items.join(", ") + ".";
+      var n = toNum(String(value)); return n !== null && n >= r.min && n <= r.max ? null : addr + " accepts only a number from " + r.min + " to " + r.max + ".";
+    }
+    return null;
+  }
+  var api = { parseRange: parseRange, makeRule: makeRule, addRule: addRule, removeRule: removeRule, loadRules: loadRules, rulesJson: rulesJson, checkValue: checkValue, MAX_RULES: MAX_RULES, loadTabs: loadTabs, addTab: addTab, renameTab: renameTab, deleteTab: deleteTab, setActive: setActive, cleanName: cleanName, MAX_TABS: MAX_TABS, sortRange: sortRange, filterRows: filterRows, toNum: toNum, toCsv: toCsv, clean: clean, History: History, chartPoints: chartPoints, pieSlices: pieSlices, isComposing: isComposing, keyMove: keyMove, copy: copy, same: same };
   if (typeof module !== "undefined" && module.exports) module.exports = api; else root.SalowSheetModel = api;
 })(typeof self !== "undefined" ? self : this);

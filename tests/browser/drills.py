@@ -988,7 +988,8 @@ def slides_layout(ctx):
     )
     check(
         "layouts: the help says a layout is not a master",
-        "no shared master" in pg.inner_text("#sl-layout-help"),
+        "no shared master" in pg.inner_text("#sl-layout-help")
+        and "appear in Present" in pg.inner_text("#sl-layout-help"),
     )
     pg.click("#sl-present")
     pg.wait_for_timeout(300)
@@ -1000,6 +1001,89 @@ def slides_layout(ctx):
     pg.keyboard.press("Escape")
 
 
+def sheets_validation(ctx):
+    pg = fresh(ctx, "/sheets/")
+    KEYJS = "document.getElementById('sheet-root').dataset.storeKey"
+
+    def setc(a, v):
+        pg.click('input[data-addr="%s"]' % a)
+        pg.fill('input[data-addr="%s"]' % a, v)
+        pg.press('input[data-addr="%s"]' % a, "Tab")
+
+    def val(a):
+        return pg.input_value('input[data-addr="%s"]' % a)
+
+    pg.fill("#val-range", "A1:A3")
+    pg.fill("#val-items", "red, green, blue")
+    pg.click("#val-add")
+    check(
+        "validation: a list rule is added and listed",
+        "A1:A3" in pg.inner_text("#val-list") and "red, green, blue" in pg.inner_text("#val-list"),
+        pg.inner_text("#val-list"),
+    )
+    setc("A1", "green")
+    check("validation: an allowed value is accepted", val("A1") == "green", val("A1"))
+    setc("A2", "purple")
+    check("validation: a value outside the list is refused", val("A2") == "", val("A2"))
+    msg = pg.inner_text("#sheet-status")
+    check(
+        "validation: the message says what is accepted and that the edit was not applied",
+        "A2 accepts only: red, green, blue" in msg and "not applied" in msg,
+        msg,
+    )
+    setc("A2", "=1+1")
+    check("validation: a formula is not checked", val("A2") == "2", val("A2"))
+    setc("B1", "anything")
+    check("validation: cells outside the range are free", val("B1") == "anything", val("B1"))
+    pg.select_option("#val-kind", "number")
+    pg.fill("#val-range", "C1:C3")
+    pg.fill("#val-min", "1")
+    pg.fill("#val-max", "10")
+    pg.click("#val-add")
+    setc("C1", "11")
+    check("validation: a number above the range is refused", val("C1") == "", val("C1"))
+    setc("C1", "10")
+    check("validation: the largest number is accepted", val("C1") == "10", val("C1"))
+    pg.fill("#val-range", "A2:A5")
+    pg.click("#val-add")
+    check(
+        "validation: an overlapping rule is refused with a message",
+        "overlaps" in pg.inner_text("#val-status"),
+        pg.inner_text("#val-status"),
+    )
+    if SHOTS:
+        pg.screenshot(path=os.path.join(SHOTS, "sheets-validation-55.png"), full_page=False)
+    pg.reload()
+    pg.wait_for_timeout(400)
+    setc("A3", "pink")
+    check("validation: rules survive a reload", val("A3") == "", val("A3"))
+    pg.click("#val-list li:nth-child(1) button")
+    setc("A3", "pink")
+    check("validation: removing the rule lets the value in", val("A3") == "pink", val("A3"))
+    # Damaged rules are kept as they are and say so.
+    key = pg.evaluate("%s+'.rules'" % KEYJS)
+    pg.evaluate("localStorage.setItem(%s,'{bad')" % json.dumps(key))
+    pg.reload()
+    pg.wait_for_timeout(400)
+    check(
+        "validation: unreadable rules are reported and adding is off",
+        "could not be read" in pg.inner_text("#val-status") and pg.is_disabled("#val-add"),
+        pg.inner_text("#val-status"),
+    )
+    setc("C2", "99")
+    check("validation: with unreadable rules the cell is not blocked", val("C2") == "99", val("C2"))
+    check(
+        "validation: the damaged rules are untouched",
+        pg.evaluate("localStorage.getItem(%s)" % json.dumps(key)) == "{bad",
+    )
+    with pg.expect_download() as dl:
+        pg.click("#val-raw")
+    check(
+        "validation: the damaged rules can be downloaded as stored",
+        open(dl.value.path()).read() == "{bad",
+    )
+
+
 DRILLS = {
     "slides_show": slides_show,
     "slides_edit": slides_edit,
@@ -1009,6 +1093,7 @@ DRILLS = {
     "sheets_sort_filter": sheets_sort_filter,
     "sheets_tabs": sheets_tabs,
     "sheets_chart": sheets_chart,
+    "sheets_validation": sheets_validation,
     "sheets_tabs_stale": sheets_tabs_stale,
     "sheets_tabs_safety": sheets_tabs_safety,
     "selftest_scrub": selftest_scrub,

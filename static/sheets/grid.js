@@ -42,7 +42,16 @@
   function histFor(id) { if (!hist[id]) hist[id] = makeHist(id); return hist[id]; }
   var H = histFor(meta.active);
   var cells = H.cells, chartRange = null;
-  function sync() { cells = H.cells; show(); buttons(); drawChart(); applyFilter(); status.textContent = H.note; }
+  function $(id) { return document.getElementById(id); }
+  // Data validation rules live in their own key per tab, so they never touch the cells. Damaged rules are kept as they are.
+  var rules = [], rulesLocked = false, rulesRaw = null;
+  function rulesKey(id) { return tabKey(id) + ".rules"; }
+  function reloadRules() {
+    var raw = null, ok = true; try { raw = localStorage.getItem(rulesKey(meta.active)); } catch (e) { ok = false; }
+    var r = ok ? M.loadRules(raw, F.parseAddr) : { rules: [], unreadable: true };
+    rules = r.rules; rulesLocked = r.unreadable; rulesRaw = ok ? raw : null; if (typeof renderRules === "function") renderRules();
+  }
+  function sync() { cells = H.cells; reloadRules(); show(); buttons(); drawChart(); applyFilter(); status.textContent = H.note; }
   function buttons() { undoBtn.disabled = !H.past.length; redoBtn.disabled = !H.future.length; }
   function change(next, note) { if (!H.change(next, note)) return false; sync(); return true; }
   function undo() { if (H.undo()) sync(); }
@@ -68,7 +77,10 @@
       var v = sh.get(a); inputs[a].value = F.isErr(v) ? v.code : String(v); inputs[a].title = cells[a] || "";
     });
   }
-  function commit(a, v) { var n = M.copy(cells); if (v === "") delete n[a]; else n[a] = v; change(n); }
+  function commit(a, v) {
+    var why = rulesLocked ? null : M.checkValue(rules, a, v, F.parseAddr);
+    if (why) { status.textContent = why + " The edit was not applied."; return; }
+    var n = M.copy(cells); if (v === "") delete n[a]; else n[a] = v; change(n); }
   function move(dc, dr) {
     if (!cur) return; var p = F.parseAddr(cur), nc = Math.min(COLS, Math.max(1, p.col + dc)), nr = Math.min(ROWS, Math.max(1, p.row + dr));
     while (dr && rowHidden(nr) && nr + (dr > 0 ? 1 : -1) >= 1 && nr + (dr > 0 ? 1 : -1) <= ROWS) nr += dr > 0 ? 1 : -1;
@@ -188,6 +200,39 @@
     chartRange = { c1: c1, c2: c2, r1: r1, r2: r2, label: m[1].toUpperCase() + ":" + m[2].toUpperCase() };
     drawChart();
   });
+  // ---- Data validation ----
+  function renderRules() {
+    var ul = $("val-list"); ul.textContent = "";
+    rules.forEach(function (r, i) {
+      var li = document.createElement("li"), b = document.createElement("button");
+      li.textContent = r.range + ": " + (r.kind === "list" ? "one of " + r.items.join(", ") : "a number from " + r.min + " to " + r.max) + " ";
+      b.type = "button"; b.className = "btn"; b.textContent = "Remove"; b.setAttribute("aria-label", "Remove the rule for " + r.range);
+      b.addEventListener("click", function () { saveRules(M.removeRule(rules, i), "Removed the rule for " + r.range + "."); }); li.appendChild(b); ul.appendChild(li);
+    });
+    $("val-none").hidden = rules.length > 0 || rulesLocked; $("val-add").disabled = rulesLocked;
+    $("val-raw").hidden = !(rulesLocked && rulesRaw !== null);
+    if (rulesLocked) $("val-status").textContent = "This tab's validation rules could not be read, so they are not checked and cannot be changed. They were left untouched.";
+  }
+  function saveRules(next, msg) {
+    if (rulesLocked || !next) return;
+    try { if (next.length) localStorage.setItem(rulesKey(meta.active), M.rulesJson(next)); else localStorage.removeItem(rulesKey(meta.active)); }
+    catch (e) { $("val-status").textContent = "This browser would not store the rules, so nothing was changed."; return; }
+    rules = next; renderRules(); $("val-status").textContent = msg;
+  }
+  function valKind() { var k = $("val-kind").value; $("val-items-wrap").hidden = k !== "list"; $("val-num-wrap").hidden = k !== "number"; }
+  $("val-kind").addEventListener("change", valKind); valKind();
+  $("val-add").addEventListener("click", function () {
+    var k = $("val-kind").value, r = M.makeRule($("val-range").value, k, k === "list" ? $("val-items").value : $("val-min").value, $("val-max").value, F.parseAddr);
+    if (r.error) { $("val-status").textContent = r.error; return; }
+    var a = M.addRule(rules, r.rule, F.parseAddr); if (a.error) { $("val-status").textContent = a.error; return; }
+    saveRules(a.rules, "Added a rule for " + r.rule.range + ". Cells already in that range were not changed or checked.");
+  });
+  $("val-raw").addEventListener("click", function () {
+    if (rulesRaw === null) return;
+    var u = URL.createObjectURL(new Blob([rulesRaw], { type: "text/plain;charset=utf-8" })), l = document.createElement("a");
+    l.href = u; l.download = "unreadable-validation-rules.txt"; document.body.appendChild(l); l.click(); l.remove(); setTimeout(function () { URL.revokeObjectURL(u); }, 4000);
+  });
+  reloadRules();
   // ---- Sort and filter (see model.js) ----
   var $ = function (id) { return document.getElementById(id); }, fstat = $("filter-status"), filt = null;
   function parseRange(str) {
@@ -299,7 +344,7 @@
     var saved = bad ? null : M.copy(H.cells);
     if (!commitMeta(r.meta)) return;
     if (!bad) { try { localStorage.removeItem(tabKey(id)); } catch (e) { /* the tab is out of the list; its id will not be reused while the cells remain */ } }
-    delete hist[id]; delete unreadableTabs[id]; if (!bad) lastDeleted = { name: nm, cells: saved };
+    delete hist[id]; delete unreadableTabs[id]; if (!bad) { var rr = null; try { rr = localStorage.getItem(rulesKey(id)); if (rr !== null && !M.loadRules(rr, F.parseAddr).unreadable) localStorage.removeItem(rulesKey(id)); else rr = null; } catch (e) { rr = null; } lastDeleted = { name: nm, cells: saved, rules: rr }; }
     H = histFor(meta.active); chartRange = null; out.textContent = ""; cur = null; filt = null; sync(); renderTabs();
     tabMsg.textContent = bad ? "Removed the tab " + nm + " from the list. Its unreadable stored cells were not deleted." : "Deleted the tab " + nm + ". Restore deleted tab brings back only this one, until you reload; after a reload it cannot be brought back.";
   });
@@ -310,6 +355,7 @@
     var key = tabKey(next.active);
     try { localStorage.setItem(key, JSON.stringify(lastDeleted.cells)); } catch (e) { tabMsg.textContent = "This browser would not store the restored tab, so nothing was restored. The deleted tab is still kept until you reload."; return; }
     if (!commitMeta(next)) { try { localStorage.removeItem(key); } catch (e) { /* nothing else points at this key */ } return; }
+    if (lastDeleted.rules) { try { localStorage.setItem(rulesKey(meta.active), lastDeleted.rules); } catch (e) { /* the cells are back; the rules are not */ } }
     H = histFor(meta.active); lastDeleted = null;
     chartRange = null; out.textContent = ""; cur = null; filt = null; sync(); renderTabs();
     tabMsg.textContent = "Restored the tab" + (rn.error ? " under a new name, because " + nm + " is in use." : " " + nm + ".");
