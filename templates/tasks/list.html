@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% block title %}Tasks: Salow{% endblock %}
+{% block extra_head %}<link rel="stylesheet" href="/static/css/tasks.css">{% endblock %}
+{% block content %}
+<div class="card tasks">
+  <div class="tasks-head"><h2>Tasks</h2></div>
+  {% include "tasks/_nav.html" %}
+  <div class="tasks-lists">
+    {% for l in lists %}<a href="{% url 'tasks:list' l.public_id %}"{% if tl and l.pk == tl.pk %} class="active"{% endif %}>{{ l.name }}</a>{% endfor %}
+    <form method="post" action="{% url 'tasks:new_list' %}" class="tasks-inline">{% csrf_token %}
+      <input type="text" name="name" maxlength="120" placeholder="New list" aria-label="New list name" required>
+      <button class="btn btn-outline btn-small" type="submit">Add list</button></form>
+  </div>
+  {% if tl %}
+  <form method="post" action="{% url 'tasks:add' tl.public_id %}" class="tasks-inline tasks-add">{% csrf_token %}
+    <input type="text" name="title" maxlength="1024" placeholder="Add a task" aria-label="Task title" required>
+    <input type="date" name="due" aria-label="Due date">
+    <button class="btn btn-small" type="submit">Add</button></form>
+  {% for t, subs in tree %}
+  <div class="task-row{% if t.status == 'completed' %} done{% endif %}">
+    <form method="post" action="{% url 'tasks:toggle' t.public_id %}" class="tasks-inline">{% csrf_token %}
+      <button class="task-check" type="submit" aria-label="{% if t.status == 'completed' %}Mark open{% else %}Mark done{% endif %}">{% if t.status == 'completed' %}&#10003;{% else %}&#9675;{% endif %}</button></form>
+    <span class="task-title">{{ t.title }}</span>
+    {% if t.due_date %}<span class="task-meta">Due {{ t.due_date|date:"j M Y" }}</span>{% endif %}
+    {% if t.assignee %}<span class="task-meta">Given to {{ t.assignee.full_name }}</span>{% endif %}
+    <form method="post" action="{% url 'tasks:delete' t.public_id %}" class="tasks-inline">{% csrf_token %}<button class="btn btn-outline btn-small" type="submit">Delete</button></form>
+    {% if not subs and not t.assignee %}
+    <form method="post" action="{% url 'tasks:assign' t.public_id %}" class="tasks-inline">{% csrf_token %}
+      <input type="text" name="employee_id" placeholder="Employee ID" aria-label="Give to employee ID" required>
+      <button class="btn btn-outline btn-small" type="submit">Give</button></form>
+    {% elif t.assignee %}
+    <form method="post" action="{% url 'tasks:assign' t.public_id %}" class="tasks-inline">{% csrf_token %}<input type="hidden" name="employee_id" value="">
+      <button class="btn btn-outline btn-small" type="submit">Take back</button></form>
+    {% endif %}
+  </div>
+  {% for s in subs %}
+  <div class="task-row sub{% if s.status == 'completed' %} done{% endif %}">
+    <form method="post" action="{% url 'tasks:toggle' s.public_id %}" class="tasks-inline">{% csrf_token %}
+      <button class="task-check" type="submit" aria-label="{% if s.status == 'completed' %}Mark open{% else %}Mark done{% endif %}">{% if s.status == 'completed' %}&#10003;{% else %}&#9675;{% endif %}</button></form>
+    <span class="task-title">{{ s.title }}</span>
+    <form method="post" action="{% url 'tasks:delete' s.public_id %}" class="tasks-inline">{% csrf_token %}<button class="btn btn-outline btn-small" type="submit">Delete</button></form>
+  </div>
+  {% endfor %}
+  {% if not t.assignee %}
+  <form method="post" action="{% url 'tasks:add' tl.public_id %}" class="tasks-inline task-sub-add">{% csrf_token %}
+    <input type="hidden" name="parent" value="{{ t.public_id }}">
+    <input type="text" name="title" maxlength="1024" placeholder="Add a subtask" aria-label="Subtask title" required>
+    <button class="btn btn-outline btn-small" type="submit">Add</button></form>
+  {% endif %}
+  {% empty %}<div class="tasks-empty">No tasks yet.</div>{% endfor %}
+  <form method="post" action="{% url 'tasks:delete_list' tl.public_id %}" class="tasks-foot">{% csrf_token %}<button class="btn btn-outline btn-small" type="submit">Delete this list</button></form>
+  {% else %}<div class="tasks-empty">Create a list to start.</div>{% endif %}
+</div>
+{% endblock %}

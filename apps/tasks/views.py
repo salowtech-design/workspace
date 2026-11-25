@@ -1,0 +1,172 @@
+import datetime
+
+from django.contrib import messages
+from django.contrib.auth.decorators import login_required
+from django.core.exceptions import PermissionDenied, ValidationError
+from django.db.models.functions import Upper
+from django.http import Http404
+from django.shortcuts import get_object_or_404, redirect, render
+from django.views.decorators.http import require_POST
+
+from apps.accounts.models import CustomUser
+from apps.core.foundation.permissions import can
+from apps.tasks import services as svc
+from apps.tasks.models import Task, TaskList
+
+
+def _list_or_404(user, list_id, action="view"):
+    tl = get_object_or_404(TaskList, public_id=list_id)
+    if not can(user, action, "task_list", tl):
+        raise Http404  # unknown and forbidden look the same
+    return tl
+
+
+def _run(request, fn, *args, ok="", **kwargs):
+    try:
+        out = fn(*args, **kwargs)
+        if ok:
+            messages.success(request, ok)
+        return out
+    except ValidationError as exc:
+        messages.error(request, " ".join(exc.messages))
+    except PermissionDenied:
+        messages.error(request, "You do not have permission to do that.")
+    return None
+
+
+def _date(raw):
+    raw = (raw or "").strip()
+    if not raw:
+        return None
+    try:
+        return datetime.date.fromisoformat(raw)
+    except ValueError:
+        raise ValidationError("Use a date like 2026-12-31.") from None
+
+
+@login_required
+def home(request):
+    lists = list(svc.lists_for(request.user))
+    if lists:
+        return redirect("tasks:list", list_id=lists[0].public_id)
+    return render(request, "tasks/list.html", {"lists": [], "tl": None, "tasks": [], "tab": "mine"})
+
+
+@login_required
+def list_view(request, list_id):
+    tl = _list_or_404(request.user, list_id)
+    rows = list(svc.tasks_in(request.user, tl).select_related("assignee"))
+    tops = [t for t in rows if t.parent_id is None]
+    subs = {}
+    for t in rows:
+        if t.parent_id:
+            subs.setdefault(t.parent_id, []).append(t)
+    tree = [(t, subs.get(t.pk, [])) for t in tops]
+    return render(
+        request,
+        "tasks/list.html",
+        {"lists": svc.lists_for(request.user), "tl": tl, "tree": tree, "tab": "mine"},
+    )
+
+
+@login_required
+def assigned_view(request):
+    return render(
+        request,
+        "tasks/assigned.html",
+        {
+            "lists": svc.lists_for(request.user),
+            "tasks": svc.assigned_to(request.user),
+            "tab": "assigned",
+        },
+    )
+
+
+@login_required
+@require_POST
+def new_list(request):
+    tl = _run(
+        request, svc.create_list, request.user, request.POST.get("name", ""), ok="List created."
+    )
+    return redirect("tasks:list", list_id=tl.public_id) if tl else redirect("tasks:home")
+
+
+@login_required
+@require_POST
+def add_task(request, list_id):
+    tl = _list_or_404(request.user, list_id, "add")
+    parent = None
+    pid = request.POST.get("parent", "")
+    if pid:
+        parent = get_object_or_404(Task, public_id=pid, task_list=tl, deleted_at__isnull=True)
+    try:
+        due = _date(request.POST.get("due"))
+    except ValidationError as exc:
+        messages.error(request, " ".join(exc.messages))
+        return redirect("tasks:list", list_id=tl.public_id)
+    _run(request, svc.create_task, request.user, tl, request.POST.get("title", ""),
+         due_date=due, parent=parent, ok="Task added.")  # fmt: skip
+    return redirect("tasks:list", list_id=tl.public_id)
+
+
+@login_required
+@require_POST
+def delete_list(request, list_id):
+    tl = _list_or_404(request.user, list_id, "delete")
+    _run(request, svc.delete_list, request.user, tl, ok="List deleted.")
+    return redirect("tasks:home")
+
+
+def _back(request, task):
+    if task.task_list.owner_id == request.user.pk:
+        return redirect("tasks:list", list_id=task.task_list.public_id)
+    return redirect("tasks:assigned")
+
+
+@login_required
+@require_POST
+def toggle(request, task_id):
+    task = svc.get_task(request.user, task_id, "complete")
+    _run(request, svc.set_status, request.user, task, task.status != Task.DONE)
+    return _back(request, task)
+
+
+@login_required
+@require_POST
+def edit(request, task_id):
+    task = svc.get_task(request.user, task_id, "edit")
+    try:
+        version = int(request.POST.get("version", ""))
+        changes = {"title": request.POST.get("title", ""), "notes": request.POST.get("notes", "")}
+        if "due" in request.POST:
+            changes["due_date"] = _date(request.POST.get("due"))
+    except (ValueError, ValidationError) as exc:
+        messages.error(
+            request, " ".join(getattr(exc, "messages", ["Check the fields and try again."]))
+        )
+        return _back(request, task)
+    _run(request, svc.update_task, request.user, task, version, ok="Saved.", **changes)
+    return _back(request, task)
+
+
+@login_required
+@require_POST
+def assign_task(request, task_id):
+    task = svc.get_task(request.user, task_id, "assign")
+    eid = (request.POST.get("employee_id") or "").strip()
+    person = None
+    if eid:
+        person = CustomUser.objects.annotate(u=Upper("employee_id")).filter(u=eid.upper()).first()
+        if person is None:
+            messages.error(request, "No person with that employee ID.")
+            return _back(request, task)
+    _run(request, svc.assign, request.user, task, person, ok="Assignment saved.")
+    return _back(request, task)
+
+
+@login_required
+@require_POST
+def delete_task(request, task_id):
+    task = svc.get_task(request.user, task_id, "delete")
+    _run(request, svc.delete_task, request.user, task, ok="Task deleted.")
+    return _back(request, task)

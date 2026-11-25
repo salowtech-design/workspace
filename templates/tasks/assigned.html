@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block title %}Assigned to me: Salow Tasks{% endblock %}
+{% block extra_head %}<link rel="stylesheet" href="/static/css/tasks.css">{% endblock %}
+{% block content %}
+<div class="card tasks">
+  <div class="tasks-head"><h2>Tasks</h2></div>
+  {% include "tasks/_nav.html" %}
+  {% for t in tasks %}
+  <div class="task-row{% if t.status == 'completed' %} done{% endif %}">
+    <form method="post" action="{% url 'tasks:toggle' t.public_id %}" class="tasks-inline">{% csrf_token %}
+      <button class="task-check" type="submit" aria-label="{% if t.status == 'completed' %}Mark open{% else %}Mark done{% endif %}">{% if t.status == 'completed' %}&#10003;{% else %}&#9675;{% endif %}</button></form>
+    <span class="task-title">{{ t.title }}</span>
+    {% if t.due_date %}<span class="task-meta">Due {{ t.due_date|date:"j M Y" }}</span>{% endif %}
+    <span class="task-meta">From {{ t.task_list.owner.full_name }}</span>
+  </div>
+  {% empty %}<div class="tasks-empty">Nothing has been given to you.</div>{% endfor %}
+</div>
+{% endblock %}

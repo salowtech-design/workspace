@@ -1,0 +1,18 @@
+/* Salow Tasks: scoped under .tasks */
+.tasks .tasks-head { margin-bottom: 16px; }
+.tasks .tasks-tabs, .tasks .tasks-lists { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 16px; }
+.tasks .tasks-tabs a, .tasks .tasks-lists a { padding: 6px 14px; border-radius: 999px; background: #f4ece6; color: #5c2018; text-decoration: none; font-weight: 600; font-size: 14px; }
+.tasks .tasks-tabs a.active, .tasks .tasks-lists a.active { background: #7a2e22; color: #fff; }
+.tasks .tasks-inline { display: inline-flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 0; }
+.tasks .tasks-add { margin-bottom: 12px; }
+.tasks .task-row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; padding: 10px 0; border-bottom: 1px solid #efe6df; }
+.tasks .task-row.sub { margin-left: 28px; }
+.tasks .task-row.done .task-title { text-decoration: line-through; color: #8a7a72; }
+.tasks .task-title { flex: 1 1 200px; font-weight: 600; color: #3a1d17; word-break: break-word; }
+.tasks .task-meta { font-size: 13px; color: #8a7a72; }
+.tasks .task-check { border: 1px solid #7a2e22; background: #fff; color: #7a2e22; border-radius: 50%; width: 28px; height: 28px; cursor: pointer; }
+.tasks .task-sub-add { margin: 6px 0 0 28px; }
+.tasks .tasks-empty { color: #8a7a72; padding: 18px 0; }
+.tasks .tasks-foot { margin-top: 18px; }
+.tasks .btn-small { padding: 4px 10px; font-size: 13px; }
+.tasks input[type=text] { width: 170px; max-width: 100%; }

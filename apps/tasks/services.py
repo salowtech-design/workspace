@@ -1,3 +1,4 @@
+import datetime
 import logging
 
 from django.core.exceptions import ValidationError
@@ -5,6 +6,7 @@ from django.db import DatabaseError, transaction
 from django.db.models import F, Max
 from django.utils import timezone
 
+from apps.accounts.models import CustomUser
 from apps.core.foundation.audit import audit
 from apps.core.foundation.notify import notify
 from apps.core.foundation.permissions import require
@@ -39,38 +41,92 @@ def create_list(user, name):
     return tl
 
 
+def _pause():
+    """Test hook, called after a mutation has checked its rules and before it writes."""
+
+
+def _lock_list(task_list):
+    """Every mutation takes this first. One lock per list serialises all changes to the list
+    and its tasks, and returns the list as it is NOW so permission is judged on fresh data."""
+    return TaskList.objects.select_for_update().get(pk=task_list.pk)
+
+
+def _fresh(task):
+    return Task.objects.select_related("task_list").get(pk=task.pk)
+
+
+def _locked_task(user, task, action):
+    """Lock the list, re-read the task under the lock, then check permission on the fresh
+    rows. A task or list deleted or reassigned a moment ago is refused, not acted on."""
+    tl = _lock_list(task.task_list)  # list first, always
+    fresh = _fresh(task)
+    fresh.task_list = tl
+    require(user, action, "task", fresh)
+    return fresh
+
+
+def _due(value):
+    if (
+        value is None
+        or isinstance(value, datetime.date)
+        and not isinstance(value, datetime.datetime)
+    ):
+        return value
+    raise ValidationError("A due date must be a date.")
+
+
 @transaction.atomic
 def create_task(user, task_list, title, notes="", due_date=None, parent=None):
-    require(user, "add", "task_list", task_list)
-    title, notes = _clean_title(title), _clean_notes(notes)
+    tl = _lock_list(task_list)
+    require(user, "add", "task_list", tl)
+    title, notes, due_date = _clean_title(title), _clean_notes(notes), _due(due_date)
     if parent is not None:
+        parent = _fresh(parent)
         # one level of subtasks, same list, and a task given to someone else cannot be a parent
-        if parent.task_list_id != task_list.pk or parent.parent_id or parent.assignee_id:
+        if (
+            parent.deleted_at is not None
+            or parent.task_list_id != tl.pk
+            or parent.parent_id
+            or parent.assignee_id
+        ):
             raise ValidationError(
                 "A subtask must sit directly under a task of your own in the same list."
             )
+        parent.task_list = tl  # the list as locked just now
         require(user, "edit", "task", parent)
-    siblings = Task.objects.filter(task_list=task_list, parent=parent, deleted_at__isnull=True)
+    siblings = Task.objects.filter(task_list=tl, parent=parent, deleted_at__isnull=True)
     pos = (siblings.aggregate(m=Max("position"))["m"] or 0) + 1
+    _pause()
     t = Task.objects.create(
-        task_list=task_list, parent=parent, title=title, notes=notes, due_date=due_date,
+        task_list=tl, parent=parent, title=title, notes=notes, due_date=due_date,
         created_by=user, position=pos,
     )  # fmt: skip
+    if parent is not None and parent.status == Task.DONE:
+        # build default (pending the blueprint): a completed task never holds an open subtask
+        Task.objects.filter(pk=parent.pk).update(
+            status=Task.OPEN, completed_at=None, version=F("version") + 1, updated_at=timezone.now()
+        )
     audit(user, "tasks.task.create", "task", t.pk)
     return t
+
+
+_EDITABLE = {"title", "notes", "due_date"}
 
 
 @transaction.atomic
 def update_task(user, task, expected_version, **changes):
     """Edit title, notes or due date. Refuses when someone else changed the task first."""
-    require(user, "edit", "task", task)
+    unknown = set(changes) - _EDITABLE
+    if unknown:
+        raise ValidationError("That field cannot be edited.")
+    task = _locked_task(user, task, "edit")
     fields = {}
     if "title" in changes:
         fields["title"] = _clean_title(changes["title"])
     if "notes" in changes:
         fields["notes"] = _clean_notes(changes["notes"])
     if "due_date" in changes:
-        fields["due_date"] = changes["due_date"]
+        fields["due_date"] = _due(changes["due_date"])
     done = Task.objects.filter(
         pk=task.pk, version=expected_version, deleted_at__isnull=True
     ).update(version=F("version") + 1, updated_at=timezone.now(), **fields)
@@ -83,37 +139,54 @@ def update_task(user, task, expected_version, **changes):
 
 @transaction.atomic
 def set_status(user, task, completed):
-    """Owner or assignee. Completing a parent completes its open subtasks; reopening a parent
-    does not reopen them."""
-    require(user, "complete", "task", task)
+    """Owner or assignee. Build defaults, pending the blueprint: completing a parent completes
+    its open subtasks; reopening a subtask reopens a completed parent; a repeat of the current
+    state changes nothing and writes nothing."""
+    task = _locked_task(user, task, "complete")
+    want = Task.DONE if completed else Task.OPEN
+    if task.status == want:
+        return task
     now = timezone.now()
-    ids = [task.pk]
+    ids, cascaded = [task.pk], 0
     if completed and not task.parent_id:
-        ids += list(
+        kids = list(
             task.subtasks.filter(deleted_at__isnull=True, status=Task.OPEN).values_list(
                 "pk", flat=True
             )
         )
-    Task.objects.filter(pk__in=ids, deleted_at__isnull=True).update(
-        status=Task.DONE if completed else Task.OPEN,
+        ids += kids
+        cascaded = len(kids)
+    if not completed and task.parent_id:
+        ids.append(task.parent_id)
+    _pause()
+    Task.objects.filter(pk__in=ids, deleted_at__isnull=True).exclude(status=want).update(
+        status=want,
         completed_at=now if completed else None,
         version=F("version") + 1,
         updated_at=now,
     )
-    audit(user, "tasks.task.complete" if completed else "tasks.task.reopen", "task", task.pk)
+    audit(
+        user, "tasks.task.complete" if completed else "tasks.task.reopen", "task", task.pk,
+        subtasks_changed=cascaded or None,
+    )  # fmt: skip
     task.refresh_from_db()
     return task
 
 
 @transaction.atomic
 def assign(user, task, person):
-    """Give a top-level task to one active colleague (or pass None to take it back)."""
-    require(user, "assign", "task", task)
+    """Give a top-level task to one active colleague (or pass None to take it back).
+    Giving it to the person who already has it changes nothing and sends no second notice."""
+    task = _locked_task(user, task, "assign")
+    if (getattr(person, "pk", None)) == task.assignee_id:
+        return task
     if person is not None:
         if task.parent_id or task.subtasks.filter(deleted_at__isnull=True).exists():
             raise ValidationError("Only a task without subtasks can be assigned.")
+        person = CustomUser.objects.get(pk=person.pk)  # fresh: status may have changed
         if not person.is_active or person.status != "active":
             raise ValidationError("That person is not active.")
+    _pause()
     Task.objects.filter(pk=task.pk).update(
         assignee=person, version=F("version") + 1, updated_at=timezone.now()
     )
@@ -123,12 +196,9 @@ def assign(user, task, person):
         try:
             with transaction.atomic():
                 notify(
-                    person,
-                    "tasks.assigned",
-                    f"{user.full_name or user.employee_id} gave you a task",
-                    "/tasks/assigned/",
-                    check=("task", task),
-                )
+                    person, "tasks.assigned", f"{user.full_name or user.employee_id} gave you a task",
+                    "/tasks/assigned/", check=("task", task),
+                )  # fmt: skip
         except DatabaseError:
             raise
         except Exception:  # noqa: BLE001 - a failed notice never undoes the assignment
@@ -138,22 +208,24 @@ def assign(user, task, person):
 
 @transaction.atomic
 def delete_task(user, task):
-    require(user, "delete", "task", task)
+    task = _locked_task(user, task, "delete")
     now = timezone.now()
-    Task.objects.filter(pk__in=[task.pk, *task.subtasks.values_list("pk", flat=True)]).update(
+    kids = list(task.subtasks.filter(deleted_at__isnull=True).values_list("pk", flat=True))
+    Task.objects.filter(pk__in=[task.pk, *kids]).update(
         deleted_at=now, updated_at=now, version=F("version") + 1
     )
-    audit(user, "tasks.task.delete", "task", task.pk)
+    audit(user, "tasks.task.delete", "task", task.pk, subtasks_deleted=len(kids) or None)
 
 
 @transaction.atomic
 def delete_list(user, task_list):
-    require(user, "delete", "task_list", task_list)
+    tl = _lock_list(task_list)
+    require(user, "delete", "task_list", tl)
     now = timezone.now()
-    task_list.deleted_at = now
-    task_list.save(update_fields=["deleted_at"])
-    Task.objects.filter(task_list=task_list, deleted_at__isnull=True).update(deleted_at=now)
-    audit(user, "tasks.list.delete", "task_list", task_list.pk)
+    n = Task.objects.filter(task_list=tl, deleted_at__isnull=True).update(deleted_at=now)
+    tl.deleted_at = now
+    tl.save(update_fields=["deleted_at"])
+    audit(user, "tasks.list.delete", "task_list", tl.pk, tasks_deleted=n or None)
 
 
 def lists_for(user):
