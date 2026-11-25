@@ -235,6 +235,7 @@ def approve_device_by_existing_session(
             code="AUTH-DEV-005",
             step="device_approval",
             employee_id=req.user.employee_id,
+            actor_employee_id=approver.employee_id,
             reference_id=str(req.request_id),
             message="Second device approved by primary device; email OTP dispatched",
         )
@@ -318,6 +319,7 @@ def approve_device_by_admin(
             code="AUTH-DEV-007",
             step="device_approval",
             employee_id=req.user.employee_id,
+            actor_employee_id=admin_user.employee_id,
             reference_id=str(req.request_id),
             message=f"Second device approved via admin fallback by {admin_user.employee_id}",
         )
@@ -351,6 +353,7 @@ def reject_device_request(
             code="AUTH-DEV-008",
             step="device_approval",
             employee_id=req.user.employee_id,
+            actor_employee_id=actor.employee_id,
             reference_id=str(req.request_id),
             message=f"Device request rejected by {actor.employee_id}: {reason}",
         )
