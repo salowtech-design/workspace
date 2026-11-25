@@ -61,7 +61,9 @@ def test_share_edit_and_revoke_through_the_pages():
         {"employee_id": "V-C", "role": "viewer"},
     )
     assert Share.objects.filter(folder=top).count() == 1
-    ca.post(reverse("drive:unshare", args=["folder", top.public_id]), {"user_id": b.pk})
+    ca.post(
+        reverse("drive:unshare", args=["folder", top.public_id]), {"employee_id": b.employee_id}
+    )
     assert cb.get(reverse("drive:folder", args=[top.public_id])).status_code == 404
     assert b"Team" not in cb.get(reverse("drive:shared")).content
 
@@ -125,4 +127,25 @@ def test_share_with_unknown_or_inactive_person_and_bad_unshare_id():
     assert msgs[0] == msgs[1] == ["No employee with that ID."]
     assert not Share.objects.exists()
     bad = reverse("drive:unshare", args=["folder", top.public_id])
-    assert ca.post(bad, {"user_id": "abc"}).status_code == 404
+    assert ca.post(bad, {"employee_id": "abc"}).status_code == 404
+    assert ca.post(bad, {}).status_code == 404
+    assert ca.post(bad, {"user_id": "1"}).status_code == 404
+
+
+@pytest.mark.django_db
+def test_share_actions_are_throttled_per_person():
+    from apps.drive import views
+
+    a, b = _u("V-T1"), _u("V-T2")
+    top = svc.create_folder(a, "Busy")
+    ca = _client(a)
+    url = reverse("drive:share", args=["folder", top.public_id])
+    codes = [
+        ca.post(url, {"employee_id": "V-T2", "role": "viewer"}).status_code
+        for _ in range(views.SHARE_LIMIT + 3)
+    ]
+    assert codes[: views.SHARE_LIMIT] == [302] * views.SHARE_LIMIT
+    assert codes[views.SHARE_LIMIT :] == [429] * 3
+    # another person is not affected
+    cb = _client(b)
+    assert cb.get(reverse("drive:home")).status_code == 200

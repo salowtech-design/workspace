@@ -4,7 +4,7 @@ from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db.models.functions import Upper
-from django.http import Http404
+from django.http import Http404, HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.views.decorators.http import require_POST
 
@@ -158,6 +158,45 @@ def restore_item(request, kind, item_id):
     return redirect("drive:trash")
 
 
+SHARE_LIMIT = 30  # share/unshare actions per person per window
+SHARE_WINDOW_SECONDS = 60
+
+
+def _share_throttled(user):
+    """Per-person durable counter on the shared RateLimitBucket table (row-locked, so it holds across workers)."""
+    from datetime import timedelta
+
+    from django.db import IntegrityError, transaction
+    from django.utils import timezone
+
+    from apps.core.models import RateLimitBucket
+
+    key = f"drive-share:{user.pk}"
+    now = timezone.now()
+    for _ in range(2):
+        with transaction.atomic():
+            bucket = RateLimitBucket.objects.select_for_update().filter(bucket_key=key).first()
+            if bucket is None:
+                try:
+                    with transaction.atomic():
+                        RateLimitBucket.objects.create(
+                            bucket_key=key,
+                            count=1,
+                            reset_at=now + timedelta(seconds=SHARE_WINDOW_SECONDS),
+                        )
+                    return False
+                except IntegrityError:
+                    continue
+            if now >= bucket.reset_at:
+                bucket.count = 1
+                bucket.reset_at = now + timedelta(seconds=SHARE_WINDOW_SECONDS)
+            else:
+                bucket.count += 1
+            bucket.save(update_fields=["count", "reset_at", "updated_at"])
+            return bucket.count > SHARE_LIMIT
+    return False
+
+
 def _person(employee_id):
     # Upper() compares the same on every backend; __iexact is case-sensitive on TiDB's binary collation.
     wanted = (employee_id or "").strip().upper()
@@ -174,6 +213,8 @@ def _person(employee_id):
 @require_POST
 def share_item(request, kind, item_id):
     item = _visible_or_404(request.user, _item(kind, item_id))
+    if _share_throttled(request.user):
+        return HttpResponse("Too many sharing changes. Try again in a minute.", status=429)
     person = _person(request.POST.get("employee_id"))
     if person is None:
         messages.error(request, "No employee with that ID.")
@@ -194,9 +235,15 @@ def share_item(request, kind, item_id):
 @require_POST
 def unshare_item(request, kind, item_id):
     item = _visible_or_404(request.user, _item(kind, item_id))
-    try:
-        person = get_object_or_404(CustomUser, pk=int(request.POST.get("user_id") or 0))
-    except ValueError:
-        raise Http404 from None
+    if _share_throttled(request.user):
+        return HttpResponse("Too many sharing changes. Try again in a minute.", status=429)
+    wanted = (request.POST.get("employee_id") or "").strip().upper()
+    person = (
+        CustomUser.objects.annotate(_eid=Upper("employee_id")).filter(_eid=wanted).first()
+        if wanted
+        else None
+    )
+    if person is None:
+        raise Http404
     _run(request, svc.unshare, request.user, item, person, ok="Access removed.")
     return _back(item) if kind == "file" else redirect("drive:folder", folder_id=item.public_id)
