@@ -509,6 +509,7 @@
                 <form method="POST" action="{% url 'iam:auth_control_action' %}" class="space-y-4 font-mono text-xs">
                     {% csrf_token %}
                     <input type="hidden" name="action_type" value="update_policy">
+                    <input type="hidden" name="policy_flags_present" value="1">
                     <input type="hidden" name="domain" value="workspace">
                     <input type="hidden" name="return_url" value="{{ request.get_full_path }}">
 

@@ -492,22 +492,28 @@ def auth_control_action_view(request):  # noqa: C901 (refactor deferred, behavio
 
         elif action_type == "update_policy":
             domain = request.POST.get("domain", "workspace").strip()
-            password_min_length = int(request.POST.get("password_min_length", 12))
-            failed_login_threshold = int(request.POST.get("failed_login_threshold", 5))
-            lockout_window_minutes = int(request.POST.get("lockout_window_minutes", 15))
-            lockout_duration_minutes = int(request.POST.get("lockout_duration_minutes", 15))
-            idle_session_timeout_minutes = int(request.POST.get("idle_session_timeout_minutes", 15))
-            absolute_session_timeout_hours = int(
-                request.POST.get("absolute_session_timeout_hours", 12)
-            )
-            mfa_required = (
-                request.POST.get("mfa_required") == "on"
-                or request.POST.get("mfa_required") == "true"
-            )
-            device_approval_required = (
-                request.POST.get("device_approval_required") == "on"
-                or request.POST.get("device_approval_required") == "true"
-            )
+            # A field the submitted form does not carry keeps the stored value. Before this, the
+            # IAM form (no MFA or device checkboxes, no lockout window) saved a new version with
+            # MFA switched off and the window reset to a default, a change nobody asked for.
+            current = get_active_policy(domain.lower())
+
+            def _num(name):
+                raw = request.POST.get(name)
+                return int(raw) if raw not in (None, "") else getattr(current, name)
+
+            def _flag(name):
+                if "policy_flags_present" not in request.POST:
+                    return getattr(current, name)
+                return request.POST.get(name) in ("on", "true")
+
+            password_min_length = _num("password_min_length")
+            failed_login_threshold = _num("failed_login_threshold")
+            lockout_window_minutes = _num("lockout_window_minutes")
+            lockout_duration_minutes = _num("lockout_duration_minutes")
+            idle_session_timeout_minutes = _num("idle_session_timeout_minutes")
+            absolute_session_timeout_hours = _num("absolute_session_timeout_hours")
+            mfa_required = _flag("mfa_required")
+            device_approval_required = _flag("device_approval_required")
             justification = request.POST.get("justification", "").strip()
 
             new_pol = save_policy_version(
