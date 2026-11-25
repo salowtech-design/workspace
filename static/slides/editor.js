@@ -67,6 +67,7 @@
     });
     $("sl-items-empty").hidden = d.slides[cur].elements.length > 0;
     var e = sel(), props = $("sl-props"); props.disabled = !e; $("sl-del-el").disabled = !e;
+    var pos = e ? d.slides[cur].elements.indexOf(e) : -1; $("sl-back").disabled = pos <= 0; $("sl-fwd").disabled = pos < 0 || pos >= d.slides[cur].elements.length - 1;
     ["text", "size", "x", "y", "w", "h", "fill"].forEach(function (f) { var inp = $("sl-" + f); if (document.activeElement !== inp) inp.value = e ? e[f] : ""; });
     $("sl-theme").value = d.theme; $("sl-undo").disabled = !H.past.length; $("sl-redo").disabled = !H.future.length;
     $("sl-up").disabled = cur === 0; $("sl-down").disabled = cur >= d.slides.length - 1; $("sl-del").disabled = d.slides.length <= 1;
@@ -83,6 +84,9 @@
   });
   fill.addEventListener("change", function () { var e = sel(); if (e) apply(S.ops.updateElement(H.deck, cur, e.id, { fill: fill.value })); });
   ["text", "rect", "ellipse"].forEach(function (t) { $("sl-add-" + t).addEventListener("click", function () { var r = S.ops.addElement(H.deck, cur, t); if (!r) { status.textContent = "A slide holds up to " + S.MAX_EL + " items."; return; } selId = r.id; apply(r.deck); }); });
+  [["sl-back", -1, "Item sent backward."], ["sl-fwd", 1, "Item brought forward."]].forEach(function (c) {
+    $(c[0]).addEventListener("click", function () { var e = sel(); if (e && apply(S.ops.moveElement(H.deck, cur, e.id, c[1]), c[2])) { var b = $(c[0]); if (b.disabled) $("sl-del-el").focus(); else b.focus(); } });
+  });
   $("sl-del-el").addEventListener("click", function () { var e = sel(); if (e) apply(S.ops.deleteElement(H.deck, cur, e.id), "Item deleted."); });
   $("sl-new").addEventListener("click", function () { var n = S.ops.addSlide(H.deck, cur); if (!n) { status.textContent = "A deck holds up to " + S.MAX_SLIDES + " slides."; return; } var prev = cur, prevSel = selId; cur++; selId = null; if (!apply(n)) { cur = prev; selId = prevSel; } });
   $("sl-del").addEventListener("click", function () { if (H.deck.slides[cur].elements.length && !window.confirm("Delete this slide and its items? You can undo until you reload.")) return; var n = S.ops.deleteSlide(H.deck, cur); if (n) { selId = null; apply(n, "Slide deleted."); } });
@@ -122,6 +126,7 @@
     rd.readAsText(f); e.target.value = "";
   });
   document.addEventListener("keydown", function (e) {
+    if (show.open) return; // the slide show is read-only: no editing shortcut runs behind it
     if (!(e.ctrlKey || e.metaKey)) return; var k = e.key.toLowerCase(), t = e.target;
     if ((k !== "z" && k !== "y") || !(t === document.body || t.tagName === "svg")) return;
     e.preventDefault(); if (k === "y" || e.shiftKey) { if (H.redo()) render(); } else if (H.undo()) { cur = Math.min(cur, H.deck.slides.length - 1); render(); }
@@ -153,6 +158,6 @@
     var n = S.showNav(showAt, H.deck.slides.length, ev.key); if (n === null) return; ev.preventDefault(); showGo(n);
   });
   show.addEventListener("close", function () { if (document.fullscreenElement) document.exitFullscreen().catch(function () {}); $("sl-present").focus(); });
-  show.addEventListener("click", function (ev) { if (ev.target === show) show.close(); });
+  show.addEventListener("click", function (ev) { var r = show.getBoundingClientRect(); if (ev.target === show && (ev.clientX < r.left || ev.clientX > r.right || ev.clientY < r.top || ev.clientY > r.bottom)) show.close(); });
   render(); status.textContent = unreadable ? "Your stored deck could not be read, so it was left untouched." : "";
 })();

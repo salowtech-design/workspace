@@ -50,6 +50,12 @@
       ["x", "y", "w", "h", "size", "fill", "text"].forEach(function (f) { if (has(patch, f)) merged[f] = patch[f]; });
       var fixed = fixEl(merged); n.slides[i].elements[k] = fixed; return n;
     },
+    // dir -1 sends the item one step back (drawn earlier, underneath), +1 brings it one step forward. Null at the ends.
+    moveElement: function (d, i, id, dir) {
+      var s = d.slides[i]; if (!s || (dir !== 1 && dir !== -1)) return null; var k = -1; s.elements.forEach(function (e, x) { if (e.id === id) k = x; });
+      if (k < 0 || k + dir < 0 || k + dir >= s.elements.length) return null;
+      var n = copy(d), a = n.slides[i].elements; var t = a[k]; a[k] = a[k + dir]; a[k + dir] = t; return n;
+    },
     deleteElement: function (d, i, id) { var s = d.slides[i]; if (!s) return null; var n = copy(d), l = n.slides[i].elements.length; n.slides[i].elements = n.slides[i].elements.filter(function (e) { return e.id !== id; }); return n.slides[i].elements.length === l ? null : n; },
     setTheme: function (d, name) { if (!has(THEMES, name) || d.theme === name) return null; var n = copy(d); n.theme = name; return n; }
   };

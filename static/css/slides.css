@@ -17,8 +17,9 @@
 @media (max-width: 640px) { .slide-layout { flex-direction: column; } .slide-list { width: 100%; max-height: none; display: flex; gap: 6px; overflow-x: auto; } .slide-list button { width: auto; min-width: 70px; margin: 0; white-space: nowrap; } }
 .slide-items { list-style: none; padding: 0; display: flex; flex-wrap: wrap; gap: 6px; } .slide-items button { font-size: 14px; padding: 6px 8px; border: 1px solid #d9cfc2; border-radius: 6px; background: #fff; } .slide-items button[aria-pressed="true"], .slide-list button[aria-pressed="true"] { border: 2px solid #7a2e22; } #sl-unreadable { border: 2px solid #a4472f; border-radius: 6px; padding: 8px 12px; margin: 8px 0; }
 
-.slide-show { width: min(96vw, 1400px); max-height: 96vh; border: 0; padding: 12px; background: #111; color: #f2f2f2; }
+.slide-show { margin: auto; width: min(96vw, 1400px); max-height: 96vh; border: 0; padding: 12px; background: #111; color: #f2f2f2; }
 .slide-show::backdrop { background: rgba(0, 0, 0, 0.85); }
 .slide-show svg { display: block; width: 100%; height: auto; max-height: 78vh; }
 .slide-show-bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: center; margin: 8px 0 0; }
 .slide-show .cal-meta { color: #cfcfcf; }
+@media (max-height: 560px), (max-width: 480px) { .slide-show { padding: 6px; } .slide-show svg { max-height: 60vh; } .slide-show .cal-meta { display: none; } .slide-show-bar .btn { padding: 6px 10px; } }
