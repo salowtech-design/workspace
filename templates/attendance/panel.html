@@ -10,6 +10,7 @@
     </p>
   </div>
   <div class="s-d35c73d4">
+    <a href="{% url 'attendance:history' %}" class="btn btn-secondary">My attendance by month</a>
     <a href="{% url 'attendance:report' %}" class="btn btn-secondary">View Attendance Report</a>
     {% if dev_verifier_active %}
     <span class="badge badge-dev">DEV STUB VERIFIER ACTIVE</span>

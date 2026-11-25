@@ -153,6 +153,32 @@ def fallback_request_view(request):
 
 
 @login_required
+def history_view(request):
+    """My attendance by month: own sessions only, times in Asia/Kolkata. ?month=YYYY-MM."""
+    import re
+
+    from apps.attendance.selectors import get_month_history
+
+    raw = request.GET.get("month", "")
+    today = get_current_kolkata_date(timezone.now())
+    year, month = today.year, today.month
+    if raw:
+        m = re.fullmatch(r"(\d{4})-(\d{2})", raw)
+        if not m or not (2000 <= int(m.group(1)) <= 2100 and 1 <= int(m.group(2)) <= 12):
+            messages.error(request, "Pick a month like 2026-11.")
+            return render(
+                request,
+                "attendance/history.html",
+                {"h": get_month_history(request.user, year, month)},
+                status=400,
+            )
+        year, month = int(m.group(1)), int(m.group(2))
+    return render(
+        request, "attendance/history.html", {"h": get_month_history(request.user, year, month)}
+    )
+
+
+@login_required
 def report_view(request):
     """
     Aggregated attendance report view for the user.

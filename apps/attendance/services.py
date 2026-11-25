@@ -207,6 +207,12 @@ def create_fallback_request(
         raise ValidationError(f"Invalid request type '{request_type}'.")
     if not reason or not reason.strip():
         raise ValidationError("Reason is required for manual attendance fallback request.")
+    if requested_time is None or requested_time.tzinfo is None:
+        raise ValidationError("The requested time must include a time zone.")
+    if work_date != get_current_kolkata_date(requested_time):
+        # the business date always follows the requested time (Asia/Kolkata); a contradicting
+        # date is refused rather than stored
+        raise ValidationError("The work date does not match the requested time.")
 
     with transaction.atomic():
         req = AttendanceFallbackRequest.objects.create(
@@ -290,7 +296,7 @@ def review_fallback_request(
                     )
                 WorkSession.objects.create(
                     user=req.user,
-                    work_date=req.work_date,
+                    work_date=get_current_kolkata_date(req.requested_time),
                     check_in_at=req.requested_time,
                     verification_method=WorkSession.VerificationMethod.MANUAL_APPROVED,
                     state=WorkSession.State.OPEN,
