@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% block title %}Sheets: Salow{% endblock %}
+{% block content %}
+<div class="card cal"><div class="cal-head"><h2>Sheets</h2></div>
+<p class="cal-meta">This sheet is kept in this browser only, for the person signed in here. It is not sent to the server and is not shared. It stays on this device after you sign out until you clear it. Formulas start with =.</p>
+<p class="cal-meta"><strong>Supported subset only</strong> (this is not full Excel or Google Sheets compatibility): SUM, AVERAGE, MIN, MAX, COUNT, ABS, ROUND, LEN, UPPER, LOWER, CONCAT, IF, AND, OR, NOT. Operators + - * / ^ &amp; % and comparisons. Cells A1 to H20 here. Errors show as #DIV/0!, #VALUE!, #NAME?, #REF!, #CIRC! or #PARSE!. Browser storage can be cleared by the browser and is not a backup or sync, so use Export to keep a copy.</p>
+<p><label>Formula bar <input type="text" id="sheet-bar" maxlength="2000" aria-label="Formula bar" style="width:24em"></label> <span id="sheet-sel" class="cal-meta"></span></p>
+<div id="sheet-root" data-store-key="{{ store_key }}" style="overflow:auto;max-height:70vh"></div>
+<p><button class="btn" type="button" id="sheet-clear">Clear this sheet from this device</button></p>
+<p><button class="btn" type="button" id="sheet-export">Export (.json)</button> <label>Import <input type="file" id="sheet-import" accept=".json,application/json"></label></p>
+<p class="cal-meta" id="sheet-status" role="status"></p>
+</div>
+<script src="/static/sheets/formula.js"></script>
+<script src="/static/sheets/grid.js"></script>
+{% endblock %}

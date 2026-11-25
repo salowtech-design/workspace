@@ -3,7 +3,7 @@
  * parser into a tree, then walked. Errors are values: #DIV/0!, #VALUE!, #NAME?, #REF!, #CIRC!, #PARSE!. */
 (function (root) {
   "use strict";
-  var MAX_LEN = 2000, MAX_DEPTH = 50, MAX_RANGE = 10000, MAX_ROW = 1000, MAX_COL = 26;
+  var MAX_LEN = 2000, MAX_DEPTH = 50, MAX_RANGE = 10000, MAX_ROW = 1000, MAX_COL = 26, MAX_STR = 10000, BUDGET = 500000, MAX_CELL_TEXT = 10000, MAX_DEPTH_EVAL = 400;
 
   function Err(code) { this.code = code; }
   Err.prototype.toString = function () { return this.code; };
@@ -24,7 +24,7 @@
     while (i < src.length) {
       var ch = src[i];
       if (/\s/.test(ch)) { i++; continue; }
-      if ((m = /^[0-9]+(\.[0-9]+)?([eE][+-]?[0-9]+)?|^\.[0-9]+/.exec(src.slice(i)))) { t.push({ k: "num", v: parseFloat(m[0]) }); i += m[0].length; continue; }
+      if ((m = /^[0-9]+(\.[0-9]+)?([eE][+-]?[0-9]+)?|^\.[0-9]+/.exec(src.slice(i)))) { var nv = parseFloat(m[0]); if (!isFinite(nv)) throw new Err("#VALUE!"); t.push({ k: "num", v: nv }); i += m[0].length; continue; }
       if (ch === '"') {
         var j = i + 1, s = "";
         while (j < src.length) {
@@ -101,7 +101,7 @@
     if (typeof v === "boolean") return v ? 1 : 0;
     if (typeof v === "number") return v;
     var s = String(v).trim();
-    if (/^[-+]?([0-9]+\.?[0-9]*|\.[0-9]+)([eE][-+]?[0-9]+)?$/.test(s)) return parseFloat(s);
+    if (/^[-+]?([0-9]+\.?[0-9]*|\.[0-9]+)([eE][-+]?[0-9]+)?$/.test(s) && isFinite(parseFloat(s))) return parseFloat(s);
     return new Err("#VALUE!");
   }
   function text(v) {
@@ -123,6 +123,13 @@
     }
     return nums;
   }
+  function roundHalfAway(x, d) {  // decimal-string shift, so 2.4999999995 -> 2 and 1.005 -> 1.01
+    var ax = Math.abs(x), str = String(ax);
+    if (str.indexOf("e") >= 0) { var f = Math.pow(10, d); return Math.sign(x) * Math.round(ax * f) / f; }
+    var up = Math.round(Number(str + "e" + d));
+    var out = Number(up + "e" + (-d));
+    return x < 0 ? -out : out;
+  }
   var FN = {
     SUM: function (a) { var n = flatten(a); return isErr(n) ? n : n.reduce(function (s, x) { return s + x; }, 0); },
     AVERAGE: function (a) { var n = flatten(a); return isErr(n) ? n : n.length ? n.reduce(function (s, x) { return s + x; }, 0) / n.length : new Err("#DIV/0!"); },
@@ -130,11 +137,11 @@
     MAX: function (a) { var n = flatten(a); return isErr(n) ? n : n.length ? Math.max.apply(null, n) : 0; },
     COUNT: function (a) { var c = 0; a.forEach(function (x) { if (Array.isArray(x)) x.forEach(function (y) { if (typeof y === "number") c++; }); else if (!isErr(num(x))) c++; }); return c; },
     ABS: function (a) { var x = num(a[0]); return isErr(x) ? x : Math.abs(x); },
-    ROUND: function (a) { var x = num(a[0]), d = a.length > 1 ? num(a[1]) : 0; if (isErr(x)) return x; if (isErr(d)) return d; var f = Math.pow(10, Math.trunc(d)); return Math.sign(x) * Math.round(Math.abs(x) * f + 1e-9) / f; },
+    ROUND: function (a) { var x = num(a[0]), d = a.length > 1 ? num(a[1]) : 0; if (isErr(x)) return x; if (isErr(d)) return d; return roundHalfAway(x, Math.max(-15, Math.min(15, Math.trunc(d)))); },
     LEN: function (a) { var s = text(a[0]); return isErr(s) ? s : s.length; },
-    UPPER: function (a) { var s = text(a[0]); return isErr(s) ? s : s.toUpperCase(); },
+    UPPER: function (a) { var s = text(a[0]); return isErr(s) ? s : s.toUpperCase().slice(0, MAX_STR); },
     LOWER: function (a) { var s = text(a[0]); return isErr(s) ? s : s.toLowerCase(); },
-    CONCAT: function (a) { var o = ""; for (var i = 0; i < a.length; i++) { var s = text(a[i]); if (isErr(s)) return s; o += s; } return o; },
+    CONCAT: function (a) { var o = ""; for (var i = 0; i < a.length; i++) { var s = text(a[i]); if (isErr(s)) return s; o += s; if (o.length > MAX_STR) return new Err("#VALUE!"); } return o; },
     NOT: function (a) { var x = truth(a[0]); return isErr(x) ? x : !x; },
     AND: function (a) { for (var i = 0; i < a.length; i++) { var x = truth(a[i]); if (isErr(x)) return x; if (!x) return false; } return true; },
     OR: function (a) { for (var i = 0; i < a.length; i++) { var x = truth(a[i]); if (isErr(x)) return x; if (x) return true; } return false; }
@@ -160,30 +167,35 @@
   }
 
   /* cells: { "A1": "5" | "=A1+2" | "text" }. Returns a function get(addr) -> value (number, string, boolean, Err). */
-  function Sheet(cells) {
-    var cache = {}, stack = {}, trees = {};
-    function raw(a) { var v = cells[a]; return v === undefined ? null : v; }
+  function Sheet(input) {
+    var cells = Object.create(null), cache = Object.create(null), stack = Object.create(null), trees = Object.create(null), work = 0, depth = 0;
+    if (input && typeof input === "object") Object.keys(input).forEach(function (k) {  // own keys only, valid addresses, plain bounded text
+      var v = input[k];
+      if (parseAddr(k) && (typeof v === "string" ? v.length <= MAX_CELL_TEXT : typeof v === "number" ? isFinite(v) : typeof v === "boolean")) cells[k] = v;
+    });
+    function raw(a) { if (typeof a !== "string" || !parseAddr(a)) return null; var v = cells[a]; return v === undefined ? null : v; }
     function literal(s) {
       if (typeof s !== "string") return s;
       if (s === "") return null;
       var n = /^[-+]?([0-9]+\.?[0-9]*|\.[0-9]+)([eE][-+]?[0-9]+)?$/.test(s.trim()) ? parseFloat(s) : NaN;
-      if (!isNaN(n)) return n;
+      if (isFinite(n)) return n;  // 1e999 stays text
       if (s.toUpperCase() === "TRUE") return true;
       if (s.toUpperCase() === "FALSE") return false;
       return s;
     }
     function get(a) {
-      if (Object.prototype.hasOwnProperty.call(cache, a)) return cache[a];
+      if (cache[a] !== undefined) return cache[a];
       var r = raw(a);
       if (typeof r !== "string" || r[0] !== "=") return (cache[a] = literal(r));
       if (stack[a]) return new Err("#CIRC!");      // not cached: every cell on the loop reports it
-      stack[a] = true;
+      if (depth >= MAX_DEPTH_EVAL) return new Err("#LIMIT!");
+      stack[a] = true; depth++;
       var out;
       try {
         if (!trees[a]) trees[a] = parse(r.slice(1));
         out = ev(trees[a]);
       } catch (e) { out = e instanceof Err ? e : new Err("#VALUE!"); }
-      delete stack[a];
+      delete stack[a]; depth--;
       return (cache[a] = out);
     }
     function cellValue(c) { var v = get(addr(c.col, c.row)); return v; }
@@ -195,6 +207,7 @@
         case "range": {
           var c1 = Math.min(n.a.col, n.b.col), c2 = Math.max(n.a.col, n.b.col), r1 = Math.min(n.a.row, n.b.row), r2 = Math.max(n.a.row, n.b.row);
           if ((c2 - c1 + 1) * (r2 - r1 + 1) > MAX_RANGE) return new Err("#REF!");
+          if ((work += (c2 - c1 + 1) * (r2 - r1 + 1)) > BUDGET) return new Err("#LIMIT!");
           var vals = [];
           for (var r = r1; r <= r2; r++) for (var c = c1; c <= c2; c++) vals.push(get(addr(c, r)));
           return vals;
@@ -203,7 +216,7 @@
         case "bin": {
           var l = sc(ev(n.l)); if (isErr(l)) return l;
           var rr = sc(ev(n.r)); if (isErr(rr)) return rr;
-          if (n.o === "&") return text(l) + text(rr);
+          if (n.o === "&") { var tl = text(l), tr = text(rr); if (tl.length + tr.length > MAX_STR) return new Err("#VALUE!"); return tl + tr; }
           if (/^(=|<>|<=|>=|<|>)$/.test(n.o)) return compare(n.o, l, rr);
           var a = num(l), b = num(rr); if (isErr(a)) return a; if (isErr(b)) return b;
           var v;
@@ -220,14 +233,46 @@
             if (cnd) return sc(ev(n.a[1]));
             return n.a.length > 2 ? sc(ev(n.a[2])) : false;
           }
-          var args = n.a.map(ev);
+          var agg = n.f === "SUM" || n.f === "AVERAGE" || n.f === "MIN" || n.f === "MAX" || n.f === "COUNT";
+          // a direct cell reference counts as a reference (text and blanks ignored), like a one-cell range
+          var args = n.a.map(function (x) { var v = ev(x); return agg && x.n === "cell" ? [v] : v; });
           var res = FN[n.f](args);
           return typeof res === "number" && !isFinite(res) ? new Err("#VALUE!") : res;
         }
       }
     }
     function sc(v) { return Array.isArray(v) ? (v.length === 1 ? v[0] : new Err("#VALUE!")) : v; }
-    return { get: function (a) { var v = get(a); return v === null ? "" : v; }, raw: raw };
+    // Dependencies are evaluated first in an explicit-stack post-order, so a long chain never
+    // recurses deeply and the result does not depend on which cell is asked for first.
+    function deps(a) {
+      var r = raw(a), out = [];
+      if (typeof r !== "string" || r[0] !== "=") return out;
+      try { if (!trees[a]) trees[a] = parse(r.slice(1)); } catch (e) { return out; }
+      (function walk(n) {
+        if (!n) return;
+        if (n.n === "cell") out.push(addr(n.a.col, n.a.row));
+        else if (n.n === "range") {
+          var c1 = Math.min(n.a.col, n.b.col), c2 = Math.max(n.a.col, n.b.col), r1 = Math.min(n.a.row, n.b.row), r2 = Math.max(n.a.row, n.b.row);
+          if ((c2 - c1 + 1) * (r2 - r1 + 1) <= MAX_RANGE) for (var rr = r1; rr <= r2; rr++) for (var cc = c1; cc <= c2; cc++) out.push(addr(cc, rr));
+        } else { walk(n.l); walk(n.r); walk(n.e); if (n.a && n.a.length) n.a.forEach(walk); }
+      })(trees[a]);
+      return out;
+    }
+    function resolve(a) {
+      if (!parseAddr(a)) return new Err("#REF!");
+      var path = Object.create(null), st = [[a, null, 0]];
+      path[a] = true;
+      while (st.length) {
+        var f = st[st.length - 1];
+        if (!f[1]) f[1] = deps(f[0]);
+        if (f[2] < f[1].length) {
+          var d = f[1][f[2]++];
+          if (cache[d] === undefined && !path[d] && ++work <= BUDGET) { path[d] = true; st.push([d, null, 0]); }
+        } else { st.pop(); delete path[f[0]]; get(f[0]); }
+      }
+      return get(a);
+    }
+    return { get: function (a) { var v = resolve(a); return v === null ? "" : v; }, raw: raw };
   }
 
   var api = { Sheet: Sheet, parse: parse, Err: Err, isErr: isErr, parseAddr: parseAddr, MAX_LEN: MAX_LEN };

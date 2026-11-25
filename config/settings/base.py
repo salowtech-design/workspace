@@ -32,6 +32,7 @@ LOCAL_APPS = [
     "apps.events.apps.EventsConfig",
     "apps.finder.apps.FinderConfig",
     "apps.chat.apps.ChatConfig",
+    "apps.sheets.apps.SheetsConfig",
     "apps.automation.apps.AutomationConfig",
 ]
 

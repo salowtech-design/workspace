@@ -67,12 +67,47 @@ const T = [
   ["no eval of code text", { A1: "=process.exit(1)" }, "A1", "#NAME?"],
   ["plain text cell", { A1: "hello" }, "A1", "hello"],
   ["empty cell reads empty", {}, "A1", ""],
+  ["unary minus binds before power, as Excel", { A1: "=-2^2" }, "A1", 4],
+  ["SUM of a text cell ref ignores it", { A1: "x", B1: "=SUM(A1)" }, "B1", 0],
+  ["SUM of a blank cell ref", { B1: "=SUM(A1)" }, "B1", 0],
+  ["SUM of text literal errors", { B1: '=SUM("x")' }, "B1", "#VALUE!"],
+  ["COUNT of a text cell ref", { A1: "x", B1: "=COUNT(A1)" }, "B1", 0],
+  ["AVERAGE of a text cell ref is div0", { A1: "x", B1: "=AVERAGE(A1)" }, "B1", "#DIV/0!"],
+  ["one-cell range and ref agree", { A1: "x", B1: "=SUM(A1:A1)", B2: "=SUM(A1)" }, "B2", 0],
+  ["nonfinite literal", { A1: "=1e999" }, "A1", "#VALUE!"],
+  ["nonfinite numeric text stays text", { A1: "1e999", B1: "=A1+1" }, "B1", "#VALUE!"],
+  ["ROUND 2.4999999995", { A1: "=ROUND(2.4999999995)" }, "A1", 2],
+  ["ROUND 1.4999999999", { A1: "=ROUND(1.4999999999)" }, "A1", 1],
+  ["ROUND negative places", { A1: "=ROUND(1250,-2)" }, "A1", 1300],
+  ["ROUND -1.005", { A1: "=ROUND(-1.005,2)" }, "A1", -1.01],
+  ["ROUND tiny exponent", { A1: "=ROUND(0.0000001,3)" }, "A1", 0],
+  ["bad address read", { A1: "1" }, "constructor", "#REF!"],
+  ["prototype address read", { A1: "1" }, "__proto__", "#REF!"],
+];
+const chain = {}; for (let i = 1; i <= 3000; i++) chain["A" + i] = i === 1000 ? "=1" : "=A" + (i + 1) + "+1";
+// long dependency chain: rows are capped at 1000 so only A1..A1000 exist; cells past A1000 are #REF!
+const c2 = {}; for (let i = 1; i <= 1000; i++) c2["A" + i] = i === 1000 ? "1" : "=A" + (i + 1) + "+1";
+const asc = new Sheet(c2).get("A1");
+const sh = new Sheet(c2); const mid = sh.get("A500"); const top = sh.get("A1");
+const sh2 = new Sheet(c2); const top2 = sh2.get("A1");
+const cyc = {}; for (let i = 1; i <= 600; i++) cyc["A" + i] = "=A" + (i % 600 + 1);
+const cy = new Sheet(cyc).get("A1");
+const dbl = {A1: "=\"abcdefghij\""}; for (let i = 2; i <= 40; i++) dbl["A" + i] = "=A" + (i - 1) + "&A" + (i - 1);
+const big = {}; for (let r = 1; r <= 60; r++) big["L" + r] = "=SUM(A1:J1000)+1";
+const extra = [
+  ["1000-cell chain, order independent", asc === 1000 && top === 1000 && mid === 501 && top2 === 1000],
+  ["600-cell cycle reports #CIRC! or the depth limit, never a crash", isErr(cy) && (cy.code === "#CIRC!" || cy.code === "#LIMIT!")],
+  ["doubling strings fail predictably", isErr(new Sheet(dbl).get("A40")) && new Sheet(dbl).get("A40").code === "#VALUE!"],
+  ["many big ranges hit the budget, not a freeze", (() => { const t0 = Date.now(); const s = new Sheet(big); let lim = 0; for (let r = 1; r <= 60; r++) { const v = s.get("L" + r); if (isErr(v) && v.code === "#LIMIT!") lim++; } return lim > 0 && Date.now() - t0 < 20000; })()],
+  ["imported keys cannot reach prototypes", new Sheet({ constructor: "=1", __proto__: "x", A1: "2" }).get("A1") === 2 && new Sheet({ constructor: "5" }).get("constructor").code === "#REF!"],
+  ["non-scalar cell values are dropped", new Sheet({ A1: { x: 1 }, A2: [1], A3: NaN, A4: "ok" }).get("A4") === "ok" && new Sheet({ A1: { x: 1 } }).get("A1") === ""],
 ];
 let bad = 0;
+for (const [d, ok] of extra) if (!ok) { bad++; console.log("FAIL", d); }
 for (const [d, cells, at, want] of T) {
   const got = new Sheet(cells).get(at);
   const g = isErr(got) ? got.code : got;
   if (g !== want) { bad++; console.log("FAIL", d, "got", g, "want", want); }
 }
-console.log(`${T.length - bad}/${T.length} rows passed`);
+console.log(`${T.length + extra.length - bad}/${T.length + extra.length} rows passed`);
 process.exit(bad ? 1 : 0);
