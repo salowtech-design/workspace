@@ -30,6 +30,7 @@ class WfRun(models.Model):
     trigger_key = models.CharField(max_length=64)  # event id, or a fresh id for a manual start
     state = models.CharField(max_length=12, choices=State.choices, default=State.QUEUED)
     next_step = models.PositiveIntegerField(default=0)
+    attempt = models.PositiveIntegerField(default=0)  # fencing token, bumped on every claim
     lease_until = models.DateTimeField(null=True, blank=True)
     error = models.TextField(blank=True)
     started_at = models.DateTimeField(auto_now_add=True)

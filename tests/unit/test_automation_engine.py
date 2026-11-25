@@ -121,3 +121,85 @@ def test_edit_makes_a_new_version_and_started_runs_keep_theirs_and_only_owner_ed
         en.update_definition(other, wf, {"trigger": {"type": "manual"}, "steps": [NOTE]})
     with pytest.raises(PermissionError):
         en.set_enabled(other, wf, True)
+
+
+def test_expired_worker_cannot_write_state_or_apply_effects_after_takeover():
+    me = _u("AU-10")
+    wf = _wf(me, [NOTE, NOTE])
+    run = en.start_run(wf, "k")
+    t0 = timezone.now()
+    _, a_attempt = en._claim(run.pk, t0)  # worker A claims, then stalls
+    later = t0 + en.LEASE + dt.timedelta(seconds=1)
+    assert en.execute(run.pk, now=later) == "succeeded"  # worker B takes over and finishes
+    assert Notification.objects.filter(user=me, kind="automation").count() == 2
+    with pytest.raises(en.Fenced):
+        with en.transaction.atomic():
+            en._own(run.pk, a_attempt, timezone.now())
+    assert en._finish(run.pk, a_attempt, "failed", "late") is False  # cannot overwrite
+    run.refresh_from_db()
+    assert run.state == "succeeded" and run.error == "" and run.attempt == 2
+
+
+def test_disable_during_a_run_stops_the_remaining_steps():
+    from unittest import mock
+
+    me = _u("AU-11")
+    wf = _wf(me, [NOTE, NOTE, NOTE])
+    run = en.start_run(wf, "k")
+    real = en.notify
+
+    def notify_then_disable(*a, **k):
+        real(*a, **k)
+        if Notification.objects.filter(user=me, kind="automation").count() == 1:
+            en.set_enabled(me, wf, False)  # the owner disables while step 0 is in flight
+
+    with mock.patch.object(en, "notify", side_effect=notify_then_disable):
+        assert en.execute(run.pk) is None
+    run.refresh_from_db()
+    assert run.state == "cancelled"
+    assert Notification.objects.filter(user=me, kind="automation").count() == 1  # not 3
+    assert list(run.steps.values_list("step_index", flat=True)) == [0]
+
+
+def test_trigger_keys_are_never_truncated_into_one_another():
+    me = _u("AU-12")
+    wf = _wf(me, [NOTE])
+    base = "e" * 64
+    assert en.start_run(wf, base).pk != en.start_run(wf, base[:-1] + "f").pk
+    with pytest.raises(ValidationError):
+        en.start_run(wf, base + "x")  # over the limit is refused, not cut
+    with pytest.raises(ValidationError):
+        en.start_run(wf, "")
+
+
+def test_scalars_are_bounded_and_nonfinite_numbers_rejected():
+    me = _u("AU-13")
+
+    def mk(v):
+        return en.create_definition(
+            me,
+            "w",
+            {
+                "trigger": {"type": "manual"},
+                "steps": [{"type": "set_value", "key": "a", "value": v}],
+            },
+        )
+
+    for bad in (float("nan"), float("inf"), 2**60, "x" * 201, None, [1]):
+        with pytest.raises(ValidationError):
+            mk(bad)
+    for ok in (True, 0, 1.5, "x" * 200):
+        mk(ok)
+
+
+def test_lifecycle_is_audited_with_ids_and_counts():
+    from apps.core.models import AuditLog
+
+    me = _u("AU-14")
+    wf = _wf(me, [NOTE])
+    run = en.start_run(wf, "k")
+    en.execute(run.pk)
+    actions = set(AuditLog.objects.filter(target_id=str(wf.pk)).values_list("action", flat=True))
+    assert {"automation.create", "automation.enable"} <= actions
+    fin = AuditLog.objects.get(action="automation.finish", target_id=str(run.pk))
+    assert fin.payload_summary["state"] == "succeeded" and fin.payload_summary["steps"] == 1
