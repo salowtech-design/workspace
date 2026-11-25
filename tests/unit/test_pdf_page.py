@@ -26,7 +26,7 @@ def test_pdf_page_is_workspace_host_only_signed_in_only_and_says_what_it_does():
     ca.force_login(a)
     r = ca.get("/pdf/")
     html = r.content.decode()
-    assert r.status_code == 200 and "not uploaded" in html and "not built yet" in html
+    assert r.status_code == 200 and "not uploaded" in html and "No search, selection" in html
     assert "no-store" in r["Cache-Control"]
     assert 'href="/pdf/"' in ca.get("/chat/").content.decode()
     assert ca.get("/pdf/", HTTP_HOST="iam.salowtech.com").status_code == 404

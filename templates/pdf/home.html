@@ -2,10 +2,18 @@
 {% block title %}PDF: Salow{% endblock %}
 {% block extra_head %}<link rel="stylesheet" href="/static/css/pdf.css">{% endblock %}
 {% block content %}
-<div class="card cal">
+<div class="card cal pdf-card">
 <div class="cal-head"><h2>PDF</h2></div>
-<p class="cal-meta">Opens a PDF from this device in this browser only. The file is not uploaded, stored or shared. This page is a first step: it checks the file, but page display, zoom and navigation are not built yet. Files up to 50 MB are accepted by this viewer, which is a browser memory limit and not a storage rule.</p>
-<p><label>Open a PDF <input type="file" id="pdf-open" accept=".pdf,application/pdf"></label></p>
+<p class="cal-meta">Opens a PDF from this device in this browser only. The file is read in this tab, not uploaded, stored or shared, and it is gone when you close it or leave the page. Files up to 50 MB open; that is a browser memory limit, not a storage rule. Password-protected files, some scanned-image formats (JBIG2, JPEG 2000) and some East Asian fonts are not supported yet. No search, selection, annotation or printing yet.</p>
+<p class="pdf-tools"><label>Open a PDF <input type="file" id="pdf-open" accept=".pdf,application/pdf"></label>
+<button class="btn" type="button" id="pdf-prev" disabled>Previous</button>
+<label>Page <input type="number" id="pdf-page" min="1" step="1" disabled></label>
+<button class="btn" type="button" id="pdf-next" disabled>Next</button>
+<button class="btn" type="button" id="pdf-zout" disabled>Zoom out</button>
+<button class="btn" type="button" id="pdf-zin" disabled>Zoom in</button>
+<button class="btn" type="button" id="pdf-close" disabled>Close file</button></p>
+<p class="cal-meta"><span id="pdf-name"></span> <span id="pdf-where" role="status">No file open.</span></p>
+<div id="pdf-stage" class="pdf-stage"><canvas id="pdf-canvas" width="1" height="1" role="img" aria-label="Current PDF page. Text content is not available as text yet."></canvas></div>
 <p class="cal-meta" id="pdf-status" role="status"></p>
 </div>
 <script src="/static/pdf/check.js"></script>

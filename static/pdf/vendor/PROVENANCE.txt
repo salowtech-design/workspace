@@ -1,0 +1,5 @@
+pdf.js (pdfjs-dist) 6.5.438, Apache-2.0, Mozilla.
+Source: https://registry.npmjs.org/pdfjs-dist/-/pdfjs-dist-6.5.438.tgz
+npm integrity: sha512-vg8Pw1x+AFKy4AMDvhuWl5cOYV8d698UoEANoFFhc79hqXDnZQqnOXoxw3HG907WHOg1JYOvLhP756boddFxpA==
+The downloaded tarball matched this registry value. Files copied unmodified: build/pdf.min.mjs, build/pdf.worker.min.mjs, LICENSE, standard_fonts/.
+Not bundled: cmaps, wasm decoders (JBIG2, JPEG 2000), image_decoders, sandbox. Some PDFs that need them will render with missing text or images.
