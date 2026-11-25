@@ -12,6 +12,7 @@
     $("sl-unreadable").hidden = !on;
   }
   var H = new S.History(initial, { save: function (d) { try { localStorage.setItem(KEY, JSON.stringify(d)); return true; } catch (e) { return false; } } });
+  H.blocked = unreadable;
   function el(n, at, tx) { var x = document.createElementNS(NS, n); Object.keys(at || {}).forEach(function (k) { x.setAttribute(k, at[k]); }); if (tx !== undefined) x.textContent = tx; return x; }
   function sel() { var s = H.deck.slides[cur]; if (!s) return null; for (var i = 0; i < s.elements.length; i++) if (s.elements[i].id === selId) return s.elements[i]; return null; }
   function apply(next, note) { if (!next) return false; if (!H.change(next, note)) return false; cur = Math.min(cur, H.deck.slides.length - 1); render(); return true; }
@@ -73,7 +74,7 @@
       var e = sel(); if (!e) return; var p = {}; var asked = this.value; p[f] = asked;
       var ok = apply(S.ops.updateElement(H.deck, cur, e.id, p)), now = sel(); if (now && f !== "text" && isFinite(Number(asked))) this.value = now[f];
       if (now && f !== "text" && String(now[f]) !== String(Math.round(Number(asked)))) { status.textContent = "Adjusted " + f.toUpperCase() + " to " + now[f] + " so the item fits the slide and limits. " + H.note; }
-      else if (!ok && now && f !== "text" && !isFinite(Number(asked))) { status.textContent = "Enter a number for " + f.toUpperCase() + "."; }
+      else if (now && f !== "text" && !isFinite(Number(asked))) { status.textContent = "Enter a number for " + f.toUpperCase() + ". Kept " + now[f] + "."; this.value = now[f]; }
     });
   });
   fill.addEventListener("change", function () { var e = sel(); if (e) apply(S.ops.updateElement(H.deck, cur, e.id, { fill: fill.value })); });
@@ -97,7 +98,7 @@
   });
   $("sl-start-new").addEventListener("click", function () {
     try { localStorage.setItem(KEY + ".backup", rawKept || ""); } catch (e) { status.textContent = "This browser would not keep a backup of the unreadable deck, so I did not replace it."; return; }
-    unreadable = false; rawKept = null; render();
+    unreadable = false; H.blocked = false; rawKept = null; render();
     status.textContent = "Started a new deck. The unreadable data is kept in this browser under a backup key and is replaced only if you start another new deck.";
   });
   $("sl-export").addEventListener("click", function () {

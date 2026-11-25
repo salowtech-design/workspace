@@ -28,7 +28,7 @@
   // returns a clean deck or null; unknown fields are dropped and numbers are clamped
   function validate(d) {
     if (!d || typeof d !== "object" || Array.isArray(d) || (has(d, "v") && d.v !== 1) || !Array.isArray(d.slides) || !d.slides.length || d.slides.length > MAX_SLIDES) return null;
-    var ids = {}, out = { v: 1, theme: has(THEMES, d.theme) ? d.theme : "light", slides: [] };
+    var ids = Object.create(null), out = { v: 1, theme: has(THEMES, d.theme) ? d.theme : "light", slides: [] };
     for (var i = 0; i < d.slides.length; i++) {
       var s = d.slides[i];
       if (!s || typeof s !== "object" || typeof s.id !== "string" || !ID_RE.test(s.id) || !Array.isArray(s.elements) || s.elements.length > MAX_EL || ids[s.id]) return null;
@@ -73,19 +73,22 @@
   }
   // store: { save(deck) -> true|false }
   function History(deck, store, limit) {
-    var h = this; h.deck = deck; h.past = []; h.future = []; h.limit = limit || HIST; h.store = store; h.saveFailed = false; h.note = "";
+    var h = this; h.deck = deck; h.past = []; h.future = []; h.limit = limit || HIST; h.store = store; h.saveFailed = false; h.blocked = false; h.note = "";
+    var BLOCK = "Editing is paused because your stored deck could not be read. Nothing was changed or saved.";
     h.persist = function (note) {
+      if (h.blocked) { h.note = BLOCK; return; }
       var ok = false; try { ok = h.store.save(h.deck) !== false; } catch (e) { ok = false; }
       h.saveFailed = !ok;
       h.note = ok ? (note || "Saved on this device.") : "This browser would not store the deck, so these changes are on screen only and will be lost on reload." + (note ? " " + note : "");
     };
     h.change = function (next, note) {
+      if (h.blocked) { h.note = BLOCK; return false; }
       if (!next || JSON.stringify(next) === JSON.stringify(h.deck)) return false;
       var size = JSON.stringify(h.deck).length, cap = Math.min(h.limit, Math.max(5, Math.floor(MAX_SNAPSHOT_BYTES / Math.max(size, 1))));
       h.past.push(copy(h.deck)); while (h.past.length > cap) h.past.shift(); h.future = []; h.deck = next; h.persist(note); return true;
     };
-    h.undo = function () { if (!h.past.length) return false; h.future.push(copy(h.deck)); h.deck = h.past.pop(); h.persist("Undone."); return true; };
-    h.redo = function () { if (!h.future.length) return false; h.past.push(copy(h.deck)); h.deck = h.future.pop(); h.persist("Redone."); return true; };
+    h.undo = function () { if (h.blocked) { h.note = BLOCK; return false; } if (!h.past.length) return false; h.future.push(copy(h.deck)); h.deck = h.past.pop(); h.persist("Undone."); return true; };
+    h.redo = function () { if (h.blocked) { h.note = BLOCK; return false; } if (!h.future.length) return false; h.past.push(copy(h.deck)); h.deck = h.future.pop(); h.persist("Redone."); return true; };
   }
   var api = { W: W, H: H, THEMES: THEMES, FILLS: FILLS, MAX_SLIDES: MAX_SLIDES, MAX_EL: MAX_EL, newDeck: newDeck, validate: validate, ops: ops, color: color, textColor: textColor, onFill: onFill, contrast: contrast, loadDeck: loadDeck, describe: describe, History: History, copy: copy };
   if (typeof module !== "undefined" && module.exports) module.exports = api; else root.SalowSlides = api;
