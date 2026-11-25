@@ -344,6 +344,10 @@ def reject_device_request(
                 message_override="Approval request not found.",
             )
 
+        # Same rule as approval: only the account's own signed-in session may decide.
+        if req.user_id != actor.id:
+            raise PermissionDenied("You can only reject device requests for your own account.")
+
         req.status = DeviceApprovalRequest.Status.REJECTED
         req.rejection_reason = reason[:255]
         req.save()

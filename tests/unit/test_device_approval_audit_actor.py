@@ -50,3 +50,21 @@ def test_requested_event_has_no_actor_because_nobody_is_authenticated_yet():
     ev = AuthEvent.objects.get(event="device_approval_requested")
     assert ev.employee_id == user.employee_id
     assert ev.actor_employee_id == ""
+
+
+@pytest.mark.django_db
+def test_another_employee_cannot_reject_someone_elses_request():
+    from django.core.exceptions import PermissionDenied
+
+    from apps.accounts.models import DeviceApprovalRequest
+
+    owner, other = _user(4), _user(5)
+    req = create_device_approval_request(user=owner)
+    with pytest.raises(PermissionDenied):
+        reject_device_request(req.request_id, actor=other, reason="not mine")
+    req.refresh_from_db()
+    assert req.status == DeviceApprovalRequest.Status.PENDING
+    assert not AuthEvent.objects.filter(event="device_approval_rejected").exists()
+    reject_device_request(req.request_id, actor=owner, reason="mine")
+    req.refresh_from_db()
+    assert req.status == DeviceApprovalRequest.Status.REJECTED
