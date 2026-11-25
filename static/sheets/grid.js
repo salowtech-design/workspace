@@ -144,7 +144,7 @@
     var y = function (v) { return T + (H2 - T - B) * (hi - v) / (hi - lo); }, bw = (W - L - 10) / ch.bars.length;
     var svg = el("svg", { viewBox: "0 0 " + W + " " + H2, role: "img", "aria-label": (kind === "line" ? "Line" : kind === "pie" ? "Pie" : "Bar") + " chart of " + rg.label });
     var pie = kind === "pie" ? M.pieSlices(ch.pts) : null, legend = null;
-    if (kind === "pie" && !pie) { out.textContent = "A pie chart needs at least one value above zero in " + rg.label + "."; return; }
+    if (kind === "pie" && !pie) { out.textContent = ch.pts.some(function (q) { return q.v > 0; }) ? "The values above zero in " + rg.label + " add up to more than a pie chart can show, so no pie was drawn." : "A pie chart needs at least one value above zero in " + rg.label + "."; return; }
     if (pie) {
       var cx = 130, cy = 130, R = 110, ang = -Math.PI / 2, pal = ["#7a2e22", "#c58b3c", "#4d7a5a", "#3e6f9e", "#8a5a9e", "#b5533c", "#6b6b6b", "#a89a3c"];
       legend = document.createElement("ul"); legend.className = "cal-meta";
@@ -174,7 +174,7 @@
     }
     out.appendChild(svg); if (legend) out.appendChild(legend);
     var note = document.createElement("p"); note.className = "cal-meta";
-    note.textContent = ch.pts.length + " values charted from " + rg.label + (ch.skipped ? ", " + ch.skipped + " cells skipped (blank, text or error)" : "") + (pie && pie.left ? ", " + pie.left + " values at or below zero left out of the pie" : "") + ". The chart follows the sheet as you edit and is not saved.";
+    note.textContent = (pie ? pie.slices.length + " of " + ch.pts.length : ch.pts.length) + " values charted from " + rg.label + (ch.skipped ? ", " + ch.skipped + " cells skipped (blank, text or error)" : "") + (pie && pie.left ? ", " + pie.left + " values at or below zero left out of the pie" : "") + ". The chart follows the sheet as you edit and is not saved.";
     out.appendChild(note);
   }
   document.getElementById("chart-draw").addEventListener("click", function () {

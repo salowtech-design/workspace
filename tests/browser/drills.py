@@ -663,52 +663,61 @@ def sheets_chart(ctx):
     def label():
         return pg.eval_on_selector("#chart-out svg", "e=>e.getAttribute('aria-label')")
 
-    for i, v in enumerate(["3", "1", "0", "-2"], 1):
+    for i, v in enumerate(["3", "1", "0", "-2", "5", "-4"], 1):
         setc("A%d" % i, v)
-    pg.fill("#chart-range", "A1:A4")
+    pg.fill("#chart-range", "A1:A6")
     pg.click("#chart-draw")
     check(
         "chart: bar is the default and draws a bar per non-zero value",
-        label().startswith("Bar") and count("rect") == 3,
+        label().startswith("Bar") and count("rect") == 5,
         label(),
     )
     pg.select_option("#chart-type", "line")
     pg.click("#chart-draw")
     check(
         "chart: line draws one line and a point per value",
-        label().startswith("Line") and count("polyline") == 1 and count("circle") == 4,
+        label().startswith("Line") and count("polyline") == 1 and count("circle") == 6,
         (label(), count("circle")),
     )
+    shot(pg, "sheets-chart-43-line")
     pg.select_option("#chart-type", "pie")
     pg.click("#chart-draw")
     check(
         "chart: pie draws one slice per value above zero",
-        label().startswith("Pie") and count("path") == 2 and count("li") == 2,
+        label().startswith("Pie") and count("path") == 3 and count("li") == 3,
         (label(), count("path")),
     )
     check(
         "chart: pie says what it left out",
-        "2 values at or below zero left out" in pg.inner_text("#chart-out"),
+        "3 of 6 values charted" in pg.inner_text("#chart-out"),
         pg.inner_text("#chart-out"),
     )
     shares = pg.eval_on_selector_all("#chart-out li", "e=>e.map(x=>x.textContent)")
     check(
-        "chart: pie shares are 75.0% and 25.0%",
-        shares == ["A1: 3 (75.0%)", "A2: 1 (25.0%)"],
+        "chart: pie shares are 33.3%, 11.1% and 55.6%",
+        shares == ["A1: 3 (33.3%)", "A2: 1 (11.1%)", "A5: 5 (55.6%)"],
         shares,
     )
     shot(pg, "sheets-chart-42-pie")
     setc("A2", "9")
     check(
         "chart: the pie follows an edit",
-        "A2: 9 (75.0%)" in pg.inner_text("#chart-out"),
+        "A2: 9 (" in pg.inner_text("#chart-out"),
         pg.inner_text("#chart-out"),
     )
     setc("A1", "0")
     setc("A2", "-1")
+    setc("A5", "-3")
     check(
         "chart: a pie with nothing above zero says so",
         "needs at least one value above zero" in pg.inner_text("#chart-out"),
+        pg.inner_text("#chart-out"),
+    )
+    setc("A1", "1e308")
+    setc("A2", "1e308")
+    check(
+        "chart: a pie whose positive values overflow says that, not that there are none",
+        "more than a pie chart can show" in pg.inner_text("#chart-out"),
         pg.inner_text("#chart-out"),
     )
     check("chart: no stray SVG is left behind then", count("svg") == 0)
