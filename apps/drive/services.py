@@ -8,6 +8,7 @@ from django.db import transaction
 from django.utils import timezone
 
 from apps.core.foundation.audit import audit
+from apps.core.foundation.notify import notify
 from apps.core.foundation.permissions import can, require
 from apps.drive import policy  # noqa: F401  (registers the policies)
 from apps.drive.models import DriveChange, DriveFile, Folder, Share
@@ -279,11 +280,21 @@ def share(user, item, person, role):
     if not person.is_active or getattr(person, "status", "active") != "active":
         raise ValidationError("That person's account is not active.")
     target = {"folder": item} if isinstance(item, Folder) else {"file": item}
-    obj, _ = Share.objects.update_or_create(
+    obj, created = Share.objects.update_or_create(
         user=person, **target, defaults={"role": role, "granted_by": user}
     )
     _journal(user, item, "share", subject=person)
     audit(user, "drive.share", kind, item.pk, person=person.pk, role=role)
+    if created:
+        # Title carries the sharer's name only, never the item name; the link is the opaque id.
+        link = f"/drive/folder/{item.public_id}/" if isinstance(item, Folder) else "/drive/shared/"
+        notify(
+            person,
+            "drive.share",
+            f"{user.full_name or user.employee_id} shared a {'folder' if isinstance(item, Folder) else 'file'} with you",
+            link,
+            check=(kind, item),
+        )
     return obj
 
 
@@ -340,3 +351,55 @@ def trash_items(user):
         list(Folder.objects.filter(owner=user, trashed_at__isnull=False)),
         list(DriveFile.objects.filter(owner=user, trashed_at__isnull=False)),
     )
+
+
+MAX_SEARCH_DEPTH = 20
+
+
+def _reachable_folder_ids(user):
+    """Folder ids the user can reach through a direct share on a folder, descendants included."""
+    frontier = list(
+        Share.objects.filter(
+            user=user, folder__isnull=False, folder__trashed_at__isnull=True
+        ).values_list("folder_id", flat=True)
+    )
+    seen = set(frontier)
+    for _ in range(MAX_SEARCH_DEPTH):
+        if not frontier:
+            break
+        frontier = [
+            fid
+            for fid in Folder.objects.filter(
+                parent_id__in=frontier, trashed_at__isnull=True
+            ).values_list("pk", flat=True)
+            if fid not in seen
+        ]
+        seen.update(frontier)
+    return seen
+
+
+def search_items(user, query, limit):
+    """Searcher for the foundation hook: owned plus shared items only, in the query itself.
+
+    can() runs again in the hook as a backstop (for example for an ancestor that was trashed).
+    """
+    from django.db.models import Q
+
+    reach = _reachable_folder_ids(user)
+    folders = (
+        Folder.objects.filter(trashed_at__isnull=True, name__icontains=query)
+        .filter(Q(owner=user) | Q(pk__in=reach))
+        .order_by("name")[:limit]
+    )
+    files = (
+        DriveFile.objects.filter(trashed_at__isnull=True, name__icontains=query)
+        .filter(Q(owner=user) | Q(folder_id__in=reach) | Q(shares__user=user))
+        .distinct()
+        .order_by("name")[:limit]
+    )
+    for f in folders:
+        yield (FOLDER, f, f.name, f"/drive/folder/{f.public_id}/")
+    for f in files:
+        # there is no file detail page yet, so a file hit opens the folder that holds it
+        url = f"/drive/folder/{f.folder.public_id}/" if f.folder_id else "/drive/"
+        yield (FILE, f, f.name, url)

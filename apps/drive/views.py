@@ -196,7 +196,7 @@ def _share_throttled(user):
                 bucket.count += 1
             bucket.save(update_fields=["count", "reset_at", "updated_at"])
             return bucket.count > SHARE_LIMIT
-    return False
+    return True  # could not take a slot twice in a row: refuse rather than skip the limit
 
 
 def _person(employee_id):
@@ -245,7 +245,8 @@ def unshare_item(request, kind, item_id):
         if wanted
         else None
     )
-    if person is None:
-        raise Http404
-    _run(request, svc.unshare, request.user, item, person, ok="Access removed.")
+    if person is not None:
+        _run(request, svc.unshare, request.user, item, person, ok="Access removed.")
+    else:
+        messages.success(request, "Access removed.")  # same outcome as a person who had no share
     return _back(item) if kind == "file" else redirect("drive:folder", folder_id=item.public_id)

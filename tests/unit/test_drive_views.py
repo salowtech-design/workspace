@@ -127,9 +127,12 @@ def test_share_with_unknown_or_inactive_person_and_bad_unshare_id():
     assert msgs[0] == msgs[1] == ["No employee with that ID."]
     assert not Share.objects.exists()
     bad = reverse("drive:unshare", args=["folder", top.public_id])
-    assert ca.post(bad, {"employee_id": "abc"}).status_code == 404
-    assert ca.post(bad, {}).status_code == 404
-    assert ca.post(bad, {"user_id": "1"}).status_code == 404
+    # unknown person and a real person with no share look the same (no existence probe)
+    outs = []
+    for data in ({"employee_id": "abc"}, {}, {"user_id": "1"}, {"employee_id": "V-P"}):
+        r = ca.post(bad, data, follow=True)
+        outs.append((r.redirect_chain[-1][0], [str(m) for m in r.context["messages"]]))
+    assert len({str(o) for o in outs}) == 1
 
 
 @pytest.mark.django_db
@@ -159,3 +162,29 @@ def test_top_level_shared_folder_trail_starts_at_shared_with_me():
     html = _client(b).get(reverse("drive:folder", args=[top.public_id])).content.decode()
     assert "Shared with me" in html and 'class="crumbs"' in html
     assert ">My Drive</a>" not in html.split('class="crumbs"')[1].split("</div>")[0]
+
+
+@pytest.mark.django_db
+def test_search_returns_only_owned_and_shared_items_and_share_notifies():
+    from apps.core.foundation.search import search
+    from apps.core.models import Notification
+
+    a, b, c = _u("V-S1"), _u("V-S2"), _u("V-S3")
+    fin = svc.create_folder(a, "Budget 2026")
+    sub = svc.create_folder(a, "Budget details", fin)
+    other = svc.create_folder(a, "Budget private")
+    mine = svc.create_folder(b, "Budget mine")
+    svc.share(a, fin, b, "viewer")
+    names = {h.title for h in search(b, "budget")}
+    assert names == {"Budget 2026", "Budget details", "Budget mine"}
+    assert search(c, "budget") == []
+    svc.trash(a, sub)
+    assert {h.title for h in search(b, "budget")} == {"Budget 2026", "Budget mine"}
+    import re
+
+    uuid_url = re.compile(r"^/drive/folder/[0-9a-f-]{36}/$")
+    assert all(uuid_url.match(h.url) for h in search(b, "budget"))
+    n = Notification.objects.get(user=b, kind="drive.share")
+    assert n.link == f"/drive/folder/{fin.public_id}/" and "Budget" not in n.title
+    assert not Notification.objects.filter(user=c).exists()
+    assert other.pk and mine.pk
