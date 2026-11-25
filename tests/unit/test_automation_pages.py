@@ -175,6 +175,8 @@ def test_edit_is_refused_for_manual_definitions_the_form_cannot_round_trip():
     shapes = [
         [{"type": "notify_owner", "title": "t", "key": "k"}],
         [{"type": "set_value", "key": "k", "value": 5}],
+        [{"type": "notify_owner", "title": " padded "}],
+        [{"type": "set_value", "key": "k ", "value": "v"}],
         [{"type": "set_value", "key": "k", "value": "v"}] * 11,
     ]
     for i, steps in enumerate(shapes):

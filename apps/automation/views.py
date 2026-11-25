@@ -94,6 +94,9 @@ def _round_trips(definition):
             return False
         if set(st) != FORM_KEYS[st["type"]] or any(not isinstance(v, str) for v in st.values()):
             return False
+        # the form strips title and key, so a stored one with edge spaces would change on save
+        if any(st.get(f, "") != st.get(f, "").strip() for f in ("title", "key")):
+            return False
     return True
 
 
