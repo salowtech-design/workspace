@@ -35,7 +35,7 @@
     var on = !!doc;
     $("pdf-prev").disabled = !on || page <= 1; $("pdf-next").disabled = !on || page >= doc.numPages;
     $("pdf-zin").disabled = !on || zoom >= 3; $("pdf-zout").disabled = !on || zoom <= 0.5;
-    $("pdf-close").disabled = !on; $("pdf-page").disabled = !on; $("pdf-q").disabled = !on; $("pdf-find").disabled = !on || finding;
+    $("pdf-close").disabled = !on; $("pdf-page").disabled = !on; $("pdf-q").disabled = !on; $("pdf-find").disabled = !on || finding; $("pdf-exporttext").disabled = !on || textBusy;
     $("pdf-where").textContent = on ? "Page " + page + " of " + doc.numPages + ", zoom " + Math.round(zoom * 100) + "%" : "No file open.";
     if (on) $("pdf-page").value = page;
   }
@@ -62,6 +62,20 @@
       return task.promise.then(function () { if (my === token) { status.textContent = ""; drawn = pageNo; renderPins(); } });
     }).catch(function (e) { if (my !== token || (e && e.name === "RenderingCancelledException")) return; status.textContent = "This page could not be drawn."; });
   }
+  var textBusy = false;
+  $("pdf-exporttext").addEventListener("click", function () {
+    if (!doc || textBusy) return;
+    var d = doc, p = page, name = $("pdf-name").textContent || "PDF file"; textBusy = true; controls(); fmsg("Reading the text of page " + p + "...");
+    d.getPage(p).then(function (pg) { return pg.getTextContent(); }).then(function (tc) {
+      if (d !== doc) return;
+      var r = C.takeText(tc.items, C.EXPORT_BUDGET);
+      if (!r.text) { fmsg("Page " + p + " has no text the viewer can read (it may be a scanned image), so nothing was downloaded."); return; }
+      var url = URL.createObjectURL(new Blob([C.textFile(name, p, d.numPages, r)], { type: "text/plain;charset=utf-8" })), a = document.createElement("a");
+      a.href = url; a.download = name.replace(/\.pdf$/i, "").replace(/[^A-Za-z0-9._-]+/g, "_").slice(0, 80) + "-page" + p + "-text.txt";
+      document.body.appendChild(a); a.click(); a.remove(); setTimeout(function () { URL.revokeObjectURL(url); }, 4000);
+      fmsg("Downloaded the text of page " + p + " as a text file. It is not OCR, and the PDF was not changed.");
+    }).catch(function () { if (d === doc) fmsg("The text of page " + p + " could not be read, so nothing was downloaded."); }).then(function () { textBusy = false; if (d === doc) controls(); });
+  });
   var fseq = new C.Seq(), finding = false;
   function fmsg(t) { $("pdf-fstatus").textContent = t; }
   function fend() { finding = false; $("pdf-fstop").disabled = true; controls(); }

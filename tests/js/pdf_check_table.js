@@ -23,5 +23,7 @@ ok("split keeps all text and marks matches", (() => { const s = P.splitMatches("
 ok("split treats regex characters as plain text", (() => { const s = P.splitMatches("a.c abc (x)", "a.c"); return s.filter((x) => x.hit).length === 1 && s[0].t === "a.c"; })());
 ok("split bounds marks and handles empty or odd input", (() => { const s = P.splitMatches("ab ".repeat(2000), "ab"); return s.filter((x) => x.hit).length === 500 && P.splitMatches("x", "").length === 1 && P.splitMatches(null, "a")[0].t === ""; })());
 ok("count and marks agree, including the cap", P.countIn("ab ".repeat(2000), "ab") === 500 && P.countIn("Foo bar\nFOO  BAR", "foo bar") === 2 && P.countIn("\u00c9a \u00e9a", "\u00e9a") === 2);
+ok("text file has a header, the page text, and says when it was cut", (() => { const a = P.textFile("a.pdf", 2, 5, { text: "hello", cut: false }), b = P.textFile("a.pdf", 2, 5, { text: "hello", cut: true }); return a.startsWith("Text of page 2 of 5 from a.pdf") && a.includes("not OCR") && a.endsWith("hello\n") && !a.includes("stops early") && b.includes("stops early"); })());
+ok("export budget is well above the on-screen budget and a long page comes out whole", (() => { const r = P.takeText([{ str: "z".repeat(150000), hasEOL: true }], P.EXPORT_BUDGET); return !r.cut && r.text.length === 150000; })());
 console.log(`${n - bad}/${n} pdf check rows passed`);
 process.exit(bad ? 1 : 0);

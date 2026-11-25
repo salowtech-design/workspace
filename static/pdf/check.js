@@ -52,6 +52,15 @@
   }
   // Newest-pick-wins sequence: begin() on each file pick or close, current(n) says whether n is still the newest.
   function Seq() { var n = 0; this.begin = function () { return ++n; }; this.current = function (m) { return m === n; }; }
-  var api = { splitMatches: splitMatches, normQuery: normQuery, countIn: countIn, pageOrder: pageOrder, MAX_SCAN: MAX_SCAN, takeText: takeText, Seq: Seq, MAX_BYTES: MAX_BYTES, check: check, pageIndex: pageIndex, zoomStep: zoomStep };
+  // Plain-text file for one page: a short header says what the text is and is not. EXPORT_BUDGET is far above the
+  // on-screen budget, so a normal page comes out whole; r.cut says when even that was exceeded.
+  var EXPORT_BUDGET = 1000000;
+  function textFile(name, pageNo, total, r) {
+    var h = "Text of page " + pageNo + " of " + total + " from " + String(name).slice(0, 120) + "\n" +
+      "This is the text stored in the PDF for that page, in the order the file lists it. It is not OCR, and the order can differ from what you see.\n" +
+      (r.cut ? "The page had more text than the limit of " + EXPORT_BUDGET + " characters, so it stops early.\n" : "") + "\n";
+    return h + r.text + "\n";
+  }
+  var api = { textFile: textFile, EXPORT_BUDGET: EXPORT_BUDGET, splitMatches: splitMatches, normQuery: normQuery, countIn: countIn, pageOrder: pageOrder, MAX_SCAN: MAX_SCAN, takeText: takeText, Seq: Seq, MAX_BYTES: MAX_BYTES, check: check, pageIndex: pageIndex, zoomStep: zoomStep };
   if (typeof module !== "undefined" && module.exports) module.exports = api; else root.SalowPdfCheck = api;
 })(typeof self !== "undefined" ? self : this);

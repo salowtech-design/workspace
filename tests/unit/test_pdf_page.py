@@ -46,7 +46,7 @@ def test_pdf_check_table_passes_in_node():
         timeout=60,
     )
     assert r.returncode == 0, r.stdout + r.stderr
-    assert "22/22 pdf check rows passed" in r.stdout
+    assert "24/24 pdf check rows passed" in r.stdout
 
 
 def test_pdf_notes_table_passes_in_node():
