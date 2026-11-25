@@ -1653,8 +1653,8 @@ def slides_transition(ctx):
     pg.select_option("#sl-trans", "fade")
     s = stored()
     check(
-        "transition: choosing fade on slide 2 only saves version 2 with the flag on that slide",
-        s["v"] == 2
+        "transition: choosing fade on slide 2 only saves version 3 with the flag on that slide",
+        s["v"] == 3
         and s["slides"][1].get("transition") == "fade"
         and "transition" not in s["slides"][0],
         s,
@@ -1684,6 +1684,18 @@ def slides_transition(ctx):
     )
     check("transition: moving to the fade slide fades it in", cls() == "sl-fade", cls())
     pg.click("#sl-show-prev")
+    if SHOTS:
+        # Frames of the real fade, paused at fixed times so each picture shows the actual rendered opacity.
+        pg.evaluate("document.getElementById('sl-show-next').click();0")
+        pg.evaluate("document.getAnimations().forEach(function(a){a.pause()});0")
+        for n, t in enumerate((0, 100, 200, 300, 400)):
+            pg.evaluate("document.getAnimations().forEach(function(a){a.currentTime=%d});0" % t)
+            pg.wait_for_timeout(60)
+            pg.locator("#sl-show-canvas").screenshot(
+                path=os.path.join(SHOTS, "slides-fade-f%d.png" % n)
+            )
+        pg.evaluate("document.getAnimations().forEach(function(a){a.finish()});0")
+        pg.click("#sl-show-prev")
     check(
         "transition: going back to a slide with no transition does not animate", cls() == "", cls()
     )
@@ -1691,6 +1703,10 @@ def slides_transition(ctx):
     pg.emulate_media(reduced_motion="reduce")
     pg.click("#sl-present")
     pg.click("#sl-show-next")
+    if SHOTS:
+        pg.locator("#sl-show-canvas").screenshot(
+            path=os.path.join(SHOTS, "slides-fade-reduced.png")
+        )
     check("transition: with reduced motion requested no fade runs", cls() == "", cls())
     check(
         "transition: the slide still shows its text",

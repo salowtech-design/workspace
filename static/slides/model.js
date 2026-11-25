@@ -38,8 +38,8 @@
   }
   // returns a clean deck or null; unknown fields are dropped and numbers are clamped
   function validate(d) {
-    if (!d || typeof d !== "object" || Array.isArray(d) || (has(d, "v") && d.v !== 1 && d.v !== 2) || !Array.isArray(d.slides) || !d.slides.length || d.slides.length > MAX_SLIDES) return null;
-    var TRANS = ["none", "fade"], ids = Object.create(null), out = { v: 1, theme: has(THEMES, d.theme) ? d.theme : "light", slides: [] }, masterEls = [], anyHide = false;
+    if (!d || typeof d !== "object" || Array.isArray(d) || (has(d, "v") && d.v !== 1 && d.v !== 2 && d.v !== 3) || !Array.isArray(d.slides) || !d.slides.length || d.slides.length > MAX_SLIDES) return null;
+    var TRANS = ["none", "fade"], ids = Object.create(null), out = { v: 1, theme: has(THEMES, d.theme) ? d.theme : "light", slides: [] }, masterEls = [], anyHide = false, anyTrans = false;
     if (has(d, "master")) {
       var m = d.master; if (!m || typeof m !== "object" || Array.isArray(m) || !Array.isArray(m.elements) || m.elements.length > MAX_MASTER) return null;
       for (var k = 0; k < m.elements.length; k++) { var me = fixEl(m.elements[k]); if (!me || ids[me.id]) return null; ids[me.id] = true; masterEls.push(me); }
@@ -52,12 +52,14 @@
       if (has(s, "hideMaster") && typeof s.hideMaster !== "boolean") return null;
       var ns = { id: s.id, elements: els, notes: typeof s.notes === "string" ? cut(s.notes, MAX_NOTES) : "" };
       if (s.hideMaster === true) { ns.hideMaster = true; anyHide = true; }
-      if (has(s, "transition")) { if (TRANS.indexOf(s.transition) < 0) return null; if (s.transition === "fade") { ns.transition = "fade"; anyHide = true; } }
+      if (has(s, "transition")) { if (TRANS.indexOf(s.transition) < 0) return null; if (s.transition === "fade") { ns.transition = "fade"; anyTrans = true; } }
       out.slides.push(ns);
     }
     // Version 2 only when something needs it, so a deck without a master is still a version 1 deck that older code opens.
     if (masterEls.length) out.master = { elements: masterEls };
+    // Version 3 when a transition is used: the previous (master) version only knows 1 and 2 and refuses 3, so it never drops a transition silently.
     if (masterEls.length || anyHide) out.v = 2;
+    if (anyTrans) out.v = 3;
     return out;
   }
   // how many text fields in a raw (unvalidated) deck are longer than the limits and so will be shortened
@@ -104,9 +106,9 @@
   };
   // The master is edited through the same item operations as a slide, on a one-slide stand-in deck.
   function normVersion(n) {
-    var any = n.slides.some(function (s) { return s.hideMaster === true || s.transition === "fade"; });
+    var any = n.slides.some(function (s) { return s.hideMaster === true; }), trans = n.slides.some(function (s) { return s.transition === "fade"; });
     if (n.master && !n.master.elements.length) delete n.master;
-    n.v = n.master || any ? 2 : 1; return n;
+    n.v = trans ? 3 : (n.master || any ? 2 : 1); return n;
   }
   function viaMaster(d, fn, adding) {
     var els = d.master ? d.master.elements : [];
