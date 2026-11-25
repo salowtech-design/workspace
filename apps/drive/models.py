@@ -60,7 +60,9 @@ class DriveFile(models.Model):
 class FileVersion(models.Model):
     file = models.ForeignKey(DriveFile, on_delete=models.CASCADE, related_name="versions")
     number = models.PositiveIntegerField()
-    storage_key = models.CharField(max_length=64)  # opaque random id, never derived from a name
+    storage_key = models.CharField(
+        max_length=64, unique=True
+    )  # opaque random id, never derived from a name
     size = models.PositiveBigIntegerField(default=0)
     sha256 = models.CharField(max_length=64, blank=True)
     uploaded_by = models.ForeignKey(

@@ -429,26 +429,30 @@ def test_version_compare_and_set_sequential():
     top = svc.create_folder(a, "Docs")
     f = svc.create_file(a, "plan.txt", top)
     assert f.current_version == 0
-    v1 = svc.add_version(a, f, 0, _hex(1), 10, _hex(101))
+    v1 = svc.add_version(a, f, 0, 10, _hex(101))
     assert v1.number == 1
     with pytest.raises(svc.VersionConflict):
-        svc.add_version(a, f, 0, _hex(2), 11, _hex(102))  # stale base
+        svc.add_version(a, f, 0, 11, _hex(102))  # stale base
     with pytest.raises(PermissionDenied):
-        svc.add_version(b, f, 1, _hex(3), 5, _hex(103))  # no access
+        svc.add_version(b, f, 1, 5, _hex(103))  # no access
     svc.share(a, top, b, "viewer")
     with pytest.raises(PermissionDenied):
-        svc.add_version(b, f, 1, _hex(3), 5, _hex(103))  # viewer cannot save
+        svc.add_version(b, f, 1, 5, _hex(103))  # viewer cannot save
     svc.share(a, top, b, "editor")
-    v2 = svc.add_version(b, f, 1, _hex(4), 20, _hex(104))
+    v2 = svc.add_version(b, f, 1, 20, _hex(104))
     assert v2.number == 2 and v2.uploaded_by_id == b.pk
     f.refresh_from_db()
     assert f.current_version == 2 and f.size == 20 and f.owner_id == a.pk
-    for bad in (("zz", _hex(1)), (_hex(5), "short")):
+    for size, digest in ((1, "short"), (True, _hex(5)), (-1, _hex(5)), ("9", _hex(5))):
         with pytest.raises(ValidationError):
-            svc.add_version(a, f, 2, bad[0], 1, bad[1])
+            svc.add_version(a, f, 2, size, digest)
+    keys = list(FileVersion.objects.values_list("storage_key", flat=True))
+    assert len(keys) == len(set(keys)) == 2 and all(len(k) == 64 for k in keys)
+    with pytest.raises(Exception):  # the database refuses a reused key even if code were wrong
+        FileVersion.objects.create(file=f, number=99, storage_key=keys[0], sha256=_hex(7))
     svc.trash(a, f)
     with pytest.raises((ValidationError, PermissionDenied)):
-        svc.add_version(a, f, 2, _hex(6), 1, _hex(106))
+        svc.add_version(a, f, 2, 1, _hex(106))
     assert list(f.versions.values_list("number", flat=True).order_by("number")) == [1, 2]
 
 
@@ -458,11 +462,7 @@ def test_concurrent_saves_from_same_base_exactly_one_wins_and_numbers_stay_uniqu
     a = _u("VV-C")
     f = svc.create_file(a, "race.txt")
     fns = [
-        (
-            lambda i=i: svc.add_version(
-                a, DriveFile.objects.get(pk=f.pk), 0, _hex(10 + i), 1, _hex(200 + i)
-            )
-        )
+        (lambda i=i: svc.add_version(a, DriveFile.objects.get(pk=f.pk), 0, 1, _hex(200 + i)))
         for i in range(6)
     ]
     out = _threads(fns)
@@ -482,9 +482,7 @@ def test_concurrent_saves_chained_from_current_never_duplicate_a_number():
             for _ in range(10):  # retry on conflict, like a client that re-reads
                 cur = DriveFile.objects.get(pk=f.pk).current_version
                 try:
-                    return svc.add_version(
-                        a, DriveFile.objects.get(pk=f.pk), cur, _hex(30 + i), 1, _hex(300 + i)
-                    )
+                    return svc.add_version(a, DriveFile.objects.get(pk=f.pk), cur, 1, _hex(300 + i))
                 except svc.VersionConflict:
                     continue
 
@@ -498,7 +496,7 @@ def test_concurrent_saves_chained_from_current_never_duplicate_a_number():
 
 
 @pytest.mark.django_db(transaction=True)
-def test_control_without_the_lock_losers_do_not_get_a_clean_conflict(monkeypatch):
+def test_control_without_the_lock_the_version_race_is_visible(monkeypatch):
     """Sensitivity control: with the owner lock removed the race shows up, so the passing test
     above is able to fail."""
     _need_mysql()
@@ -511,14 +509,15 @@ def test_control_without_the_lock_losers_do_not_get_a_clean_conflict(monkeypatch
             [
                 (
                     lambda i=i: svc.add_version(
-                        a, DriveFile.objects.get(pk=f.pk), 0, _hex(60 + i), 1, _hex(600 + i)
+                        a, DriveFile.objects.get(pk=f.pk), 0, 1, _hex(600 + i)
                     )
                 )
                 for i in range(6)
             ]
         )
         monkeypatch.undo()
-        if out.count("refused:VersionConflict") != 5:  # losers fail raw, not as a clean conflict
+        # the specific anomaly: more than one save accepted, or a raw unique-constraint failure
+        if out.count("ok") > 1 or any("IntegrityError" in str(o) for o in out):
             seen = True
             break
     assert seen, "no anomaly in 10 unlocked rounds; the control proves nothing"

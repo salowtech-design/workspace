@@ -2,6 +2,7 @@
 
 import logging
 import re
+import secrets
 import uuid
 
 from django.contrib.auth import get_user_model
@@ -159,18 +160,19 @@ _HEX64 = re.compile(r"^[0-9a-f]{64}$")
 
 
 @transaction.atomic
-def add_version(user, file, base_version, storage_key, size, sha256):
+def add_version(user, file, base_version, size, sha256):
     """Record a new version only if the caller saw the current one (compare and set under the
-    owner lock). The caller supplies a random storage key from the storage layer; this only
-    stores it. Nothing here writes or reads bytes."""
+    owner lock). The server mints the opaque storage key (unique across all files); callers
+    never choose it. Nothing here writes or reads bytes. No maximum size is enforced because the
+    product file-size limit has not been chosen."""
     _lock_tree(file.owner_id)
     _fresh(file)
     require(user, "edit", FILE, file)
     if file.trashed_at is not None or (file.folder_id and _in_trash(file.folder)):
         raise ValidationError("Restore the file before saving a new version.")
-    if not _HEX64.match(storage_key or "") or not _HEX64.match(sha256 or ""):
-        raise ValidationError("Invalid storage key or checksum.")
-    if not isinstance(size, int) or size < 0:
+    if not _HEX64.match(sha256 or ""):
+        raise ValidationError("Invalid checksum.")
+    if isinstance(size, bool) or not isinstance(size, int) or size < 0:
         raise ValidationError("Invalid size.")
     if base_version != file.current_version:
         raise VersionConflict(
@@ -180,7 +182,7 @@ def add_version(user, file, base_version, storage_key, size, sha256):
     v = FileVersion.objects.create(
         file=file,
         number=number,
-        storage_key=storage_key,
+        storage_key=secrets.token_hex(32),
         size=size,
         sha256=sha256,
         uploaded_by=user,
