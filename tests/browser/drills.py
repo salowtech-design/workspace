@@ -2238,6 +2238,54 @@ def sheets_fill(ctx):  # noqa: C901
     )
 
 
+def sheets_headers(ctx):  # noqa: C901
+    """Column letters and row numbers stay visible inside the grid box while it scrolls (desktop and 390 px)."""
+    pg = fresh(ctx, "/sheets/")
+    JS = (
+        "(function(){var b=document.querySelector('#sheet-root'),br=b.getBoundingClientRect(),"
+        "c=b.querySelector('tr:nth-child(1) th:nth-child(6)').getBoundingClientRect(),"
+        "r=b.querySelector('tr:nth-child(61) th').getBoundingClientRect();"
+        "return {top:Math.round(c.top-br.top),left:Math.round(r.left-br.left),st:b.scrollTop,sl:b.scrollLeft,txtc:b.querySelector('tr:nth-child(1) th:nth-child(6)').textContent,txtr:b.querySelector('tr:nth-child(61) th').textContent};})()"
+    )
+    for label, size in (
+        ("desktop", {"width": 1100, "height": 900}),
+        ("phone", {"width": 390, "height": 800}),
+    ):
+        pg.set_viewport_size(size)
+        pg.wait_for_timeout(200)
+        pg.evaluate(
+            "document.querySelector('#sheet-root').scrollIntoView();window.scrollBy(0,-document.getElementById('sheet-barrow').offsetHeight)"
+        )
+        pg.evaluate(
+            "(function(){var b=document.querySelector('#sheet-root');b.scrollTop=0;b.scrollLeft=0;b.scrollTop=1500;b.scrollLeft=300;})()"
+        )
+        pg.wait_for_timeout(200)
+        m = pg.evaluate(JS)
+        hit = pg.evaluate(
+            "(function(){var hs=document.querySelectorAll('#sheet-root tr:nth-child(1) th'),n=0,ok=0;for(var i=1;i<hs.length;i++){var r=hs[i].getBoundingClientRect(),x=r.left+r.width/2;if(x<hs[0].getBoundingClientRect().right+8||x>innerWidth-5||x>document.getElementById('sheet-root').getBoundingClientRect().right-5)continue;n++;if(document.elementFromPoint(x,r.top+r.height/2)===hs[i])ok++;}return n>0&&n===ok;})()"
+        )
+        check(
+            "headers: %s, the column letter is not covered by the sticky formula bar" % label,
+            hit is True,
+            str(hit),
+        )
+        check(
+            "headers: %s, after scrolling down and sideways the column letter is at the top and the row number at the left edge"
+            % label,
+            m["st"] > 0
+            and m["sl"] > 0
+            and abs(m["top"]) <= 2
+            and abs(m["left"]) <= 2
+            and m["txtc"] == "E"
+            and m["txtr"] == "60",
+            str(m),
+        )
+        if SHOTS and label == "phone":
+            pg.screenshot(path=os.path.join(SHOTS, "sheets-headers-66-phone.png"), full_page=False)
+        if SHOTS and label == "desktop":
+            pg.screenshot(path=os.path.join(SHOTS, "sheets-headers-66.png"), full_page=False)
+
+
 def slides_master(ctx):  # noqa: C901
     import shutil
     import subprocess
@@ -2974,6 +3022,7 @@ DRILLS = {
     "slides_pdf_theme": slides_pdf_theme,
     "sheets_sort_filter": sheets_sort_filter,
     "sheets_fill": sheets_fill,
+    "sheets_headers": sheets_headers,
     "sheets_tabs": sheets_tabs,
     "sheets_chart": sheets_chart,
     "sheets_validation": sheets_validation,

@@ -1,6 +1,8 @@
 .sheet-card { min-width: 0; max-width: 100%; overflow: hidden; }
 .sheet-scroll { max-width: 100%; overflow: auto; max-height: 70vh; border: 1px solid #d9cfc2; border-radius: 6px; }
 .sheet-scroll table { border-collapse: collapse; width: max-content; }
+/* components.css makes every table display:block with its own scroll at 768px and below, which would make the table, not .sheet-scroll, the scroll box and stop the sticky headers sticking */
+.sheet-scroll table { display: table; overflow: visible; }
 .sheet-scroll th { position: sticky; top: 0; background: #f3ece2; font-size: 14px; padding: 6px 8px; z-index: 1; }
 .sheet-scroll tbody th, .sheet-scroll tr > th:first-child { left: 0; z-index: 2; }
 .sheet-scroll td { padding: 0; border: 1px solid #e6ddd0; }
