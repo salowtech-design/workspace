@@ -1,0 +1,23 @@
+/* First-time activation pages (scoped to .act-v2): cream canvas, rounded card, maroon accents, gentle motion.
+   Fields, forms, IDs, scripts and the approved activation flow are unchanged. */
+.act-v2.card { max-width: 480px; margin: 3rem auto !important; padding: 2.25rem 2rem 2rem !important; border-radius: 18px !important; border: 1px solid var(--color-border-subtle) !important; background: var(--color-bg-surface) !important; box-shadow: 0 22px 44px -26px rgba(94, 34, 25, 0.45), 0 2px 6px rgba(42, 36, 31, 0.05) !important; animation: act-rise 0.5s ease both; }
+.act-v2.card img[alt="Salowtech Logo"] { height: 60px !important; width: auto !important; max-width: 140px; border-radius: 12px !important; animation: act-float 5.5s ease-in-out 0.7s infinite; }
+.act-v2 h2 { line-height: 1.25 !important; font-size: 1.55rem !important; letter-spacing: -0.01em; color: var(--color-primary-700) !important; }
+.act-v2 .badge { border-radius: 9999px !important; padding: 0.25rem 0.8rem !important; background: var(--color-bg-subtle) !important; color: var(--color-primary-700) !important; border: 1px solid var(--color-primary-100) !important; font-weight: 600; }
+.act-v2 .form-input { border-radius: 10px !important; transition: border-color 0.18s ease, box-shadow 0.18s ease; }
+.act-v2 .form-input:focus { border-color: var(--color-primary-600) !important; box-shadow: 0 0 0 4px rgba(125, 48, 36, 0.14) !important; outline: none; }
+.act-v2 .btn { border-radius: 10px !important; transition: transform 0.15s ease, box-shadow 0.15s ease, background-color 0.15s ease; }
+.act-v2 .btn-primary:hover { transform: translateY(-1px); box-shadow: 0 10px 20px -10px rgba(94, 34, 25, 0.6); }
+.act-v2 .btn:active { transform: none; }
+.act-v2 .alert { border-radius: 10px !important; animation: act-rise 0.3s ease both; }
+.act-v2 .recovery-code { border-radius: 8px !important; border: 1px solid var(--color-border-subtle) !important; transition: transform 0.15s ease, box-shadow 0.15s ease; }
+.act-v2 .recovery-code:hover { transform: translateY(-1px); box-shadow: 0 6px 12px -8px rgba(94, 34, 25, 0.5); }
+.act-v2 .secret-text { word-break: break-all; }
+@keyframes act-rise { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: none; } }
+@keyframes act-float { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-4px); } }
+@media (prefers-reduced-motion: reduce) { .act-v2.card, .act-v2.card img[alt="Salowtech Logo"], .act-v2 .alert { animation: none; } .act-v2 .btn-primary:hover, .act-v2 .recovery-code:hover { transform: none; } }
+@media (max-width: 480px) { .act-v2.card { margin: 1.5rem 0.75rem !important; padding: 1.75rem 1.25rem 1.5rem !important; } }
+@media (max-width: 480px) {
+  .act-v2.card { margin: 1.5rem 0.75rem !important; padding: 1.75rem 1.1rem 1.5rem !important; }
+  .act-v2 .recovery-code { font-size: 0.85rem !important; letter-spacing: 0 !important; white-space: nowrap; padding: 0.5rem 0.25rem !important; }
+}
