@@ -427,6 +427,7 @@
                                 <th class="px-3 py-2">Min Pass</th>
                                 <th class="px-3 py-2">Threshold</th>
                                 <th class="px-3 py-2">Idle/Abs</th>
+                                <th class="px-3 py-2">MFA/Dev</th>
                                 <th class="px-3 py-2">Justification</th>
                                 <th class="px-3 py-2">Committed</th>
                             </tr>
@@ -440,6 +441,7 @@
                                 <td class="px-3 py-2 text-gray-300">{{ p.password_min_length }} chars</td>
                                 <td class="px-3 py-2 text-gray-300">{{ p.failed_login_threshold }} failures</td>
                                 <td class="px-3 py-2 text-gray-400">{{ p.effective_idle_session_timeout_minutes }}m / {{ p.absolute_session_timeout_hours }}h</td>
+                                <td class="px-3 py-2 text-gray-400">{{ p.mfa_required|yesno:"MFA,no MFA" }} / {{ p.device_approval_required|yesno:"DEV,no DEV" }}</td>
                                 <td class="px-3 py-2 text-gray-400 max-w-xs truncate">{{ p.justification|default:"Default baseline" }}</td>
                                 <td class="px-3 py-2 text-gray-500">{{ p.created_at|date:"Y-m-d H:i" }}</td>
                             </tr>

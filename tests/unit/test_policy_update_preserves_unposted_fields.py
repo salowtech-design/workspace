@@ -68,3 +68,16 @@ def test_workspace_form_checkboxes_still_control_the_flags():
 def test_workspace_policy_form_carries_the_flags_marker():
     src = open("templates/accounts/admin/auth_dashboard_workspace.html", encoding="utf-8").read()
     assert 'name="policy_flags_present"' in src
+
+
+def test_policy_history_layout_rules_and_columns_exist():
+    css = open("static/css/iam-utilities.css", encoding="utf-8").read()
+    assert ".md\\:col-span-2{grid-column:span 2 / span 2}" in css
+    iam = open("templates/accounts/admin/auth_dashboard_iam.html", encoding="utf-8").read()
+    assert "MFA/Dev" in iam
+
+
+def test_workspace_history_mfa_dev_cell_is_readable_when_on_and_off():
+    src = open("templates/accounts/admin/auth_dashboard_workspace.html", encoding="utf-8").read()
+    assert 'yesno:"MFA,no MFA"' in src and 'yesno:"DEV,no DEV"' in src
+    assert 'yesno:"MFA,"' not in src

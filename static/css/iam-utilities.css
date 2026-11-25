@@ -319,3 +319,4 @@ table{border-collapse:collapse}svg{max-width:100%}
 .main-content .sessions-table th:last-child,.main-content .sessions-table td:last-child{position:sticky;right:0;background:#fff;box-shadow:-8px 0 8px -8px rgba(43,35,26,.25);z-index:1}
 .main-content .sessions-table th,.main-content .sessions-table td{padding-left:.6rem;padding-right:.6rem}
 .main-content .sessions-table > table{display:table;overflow:visible}
+@media (min-width:768px){.md\:col-span-1{grid-column:span 1 / span 1}.md\:col-span-2{grid-column:span 2 / span 2}}
