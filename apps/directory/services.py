@@ -1,9 +1,15 @@
+import re
+from datetime import date
+from decimal import Decimal, InvalidOperation
+
 from django.core.exceptions import PermissionDenied, ValidationError
-from django.db import transaction
+from django.db import IntegrityError, transaction
 
 from apps.accounts.models import CustomUser
 from apps.core.services import record_audit_event
 from apps.directory.models import (
+    CustomFieldDefinition,
+    CustomFieldValue,
     Department,
     EmployeeProfile,
     ReportingRelationship,
@@ -118,7 +124,7 @@ def assign_reporting_manager(
     with transaction.atomic():
         _reporting_lock()
         fresh_actor = CustomUser.objects.filter(
-            pk=actor.pk, status=CustomUser.Status.ACTIVE, role__in=admin_roles
+            pk=actor.pk, status=CustomUser.Status.ACTIVE, is_active=True, role__in=admin_roles
         ).first()
         if fresh_actor is None:  # demoted or deactivated since the caller loaded them
             raise PermissionDenied("Only administrators can configure reporting relationships.")
@@ -192,3 +198,125 @@ def update_employee_profile(
         details={"updated_fields": list(data.keys())},
     )
     return profile
+
+
+_ADMINS = (CustomUser.Role.SUPER_ADMIN, CustomUser.Role.ADMIN)
+_FIELD_KEY = re.compile(r"^[a-z][a-z0-9_]{1,39}$")
+
+
+def _require_admin(actor: CustomUser):
+    """Re-read the actor so a demoted or deactivated admin object is not trusted."""
+    fresh = CustomUser.objects.filter(
+        pk=actor.pk, role__in=_ADMINS, status=CustomUser.Status.ACTIVE, is_active=True
+    ).first()
+    if fresh is None:
+        raise PermissionDenied("Only administrators can manage custom profile fields.")
+    return fresh
+
+
+def create_custom_field(
+    key: str, label: str, field_type: str, actor: CustomUser, required: bool = False
+) -> CustomFieldDefinition:
+    """Define a custom profile field. Administrators only (existing directory authority)."""
+    _require_admin(actor)
+    key, label = (key or "").strip().lower(), (label or "").strip()
+    if not _FIELD_KEY.match(key):
+        raise ValidationError("Key: 2 to 40 characters, lowercase letters, digits, underscore.")
+    if not 1 <= len(label) <= 80:
+        raise ValidationError("Label must be 1 to 80 characters.")
+    if field_type not in CustomFieldDefinition.FieldType.values:
+        raise ValidationError("Unknown field type.")
+    try:
+        with transaction.atomic():
+            d = CustomFieldDefinition.objects.create(
+                key=key, label=label, field_type=field_type, required=bool(required)
+            )
+    except IntegrityError:
+        raise ValidationError("A field with that key already exists.") from None
+    record_audit_event(
+        event_type="directory.custom_field_created",
+        actor=actor,
+        target_entity="CustomFieldDefinition",
+        target_id=str(d.id),
+        details={"key": d.key, "type": d.field_type},
+    )
+    return d
+
+
+def _norm_text(text):
+    if len(text) > 500:
+        raise ValidationError("Text can be at most 500 characters.")
+    return text
+
+
+def _norm_number(text):
+    try:
+        n = Decimal(text)
+    except InvalidOperation:
+        raise ValidationError("Enter a number.") from None
+    if not n.is_finite() or abs(n) >= Decimal("1e15"):
+        raise ValidationError("Enter a number.")
+    return format(n.normalize(), "f")
+
+
+def _norm_date(text):
+    try:
+        return date.fromisoformat(text).isoformat()
+    except ValueError:
+        raise ValidationError("Enter a date as YYYY-MM-DD.") from None
+
+
+def _norm_yes_no(text):
+    answer = {"yes": "yes", "true": "yes", "1": "yes", "no": "no", "false": "no", "0": "no"}
+    if text.lower() not in answer:
+        raise ValidationError("Enter yes or no.")
+    return answer[text.lower()]
+
+
+_NORMALISERS = {
+    "text": _norm_text,
+    "number": _norm_number,
+    "date": _norm_date,
+    "yes_no": _norm_yes_no,
+}
+
+
+def normalise_custom_value(definition: CustomFieldDefinition, raw) -> str:
+    """Return the stored text for a value of the field's type, or raise ValidationError."""
+    text = ("" if raw is None else str(raw)).strip()
+    return _NORMALISERS[definition.field_type](text) if text else ""
+
+
+def set_custom_value(user: CustomUser, key: str, raw, actor: CustomUser):
+    """Set or clear one person's value. Administrators only. A blank clears an optional field
+    and is refused for a required one. The audit row records ids, never the value."""
+    _require_admin(actor)
+    with transaction.atomic():
+        d = CustomFieldDefinition.objects.select_for_update().filter(key=(key or "")).first()
+        if d is None:
+            raise ValidationError("Unknown field.")
+        target = CustomUser.objects.filter(pk=user.pk).first()
+        if target is None:
+            raise ValidationError("Unknown person.")
+        value = normalise_custom_value(d, raw)
+        if not value and d.required:
+            raise ValidationError(f"{d.label} is required.")
+        existing = CustomFieldValue.objects.filter(user=target, definition=d).first()
+        if not value:
+            if existing is not None:
+                existing.delete()
+        elif existing is None:
+            CustomFieldValue.objects.create(user=target, definition=d, value=value)
+        elif existing.value != value:
+            existing.value = value
+            existing.save(update_fields=["value", "updated_at"])
+        else:
+            return value  # unchanged: no write, no audit row
+        record_audit_event(
+            event_type="directory.custom_value_set",
+            actor=actor,
+            target_entity="CustomFieldValue",
+            target_id=f"{target.employee_id}:{d.key}",
+            details={"cleared": not value},
+        )
+        return value

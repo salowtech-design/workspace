@@ -180,3 +180,53 @@ class ReportingLock(models.Model):
 
     class Meta:
         verbose_name = "Reporting lock"
+
+
+class CustomFieldDefinition(models.Model):
+    """An extra profile field an administrator defines (blueprint 9.8, custom fields).
+
+    Build defaults, not user policy: the only audience is administrators (visible_to has one
+    choice), and only administrators can define fields or set values. Who else may see or edit
+    a field is not decided. Values live in CustomFieldValue rows (one row per person and field,
+    unique), not in one JSON blob, so two edits to different fields cannot overwrite each other.
+    """
+
+    class FieldType(models.TextChoices):
+        TEXT = "text", "Text"
+        NUMBER = "number", "Number"
+        DATE = "date", "Date"
+        YES_NO = "yes_no", "Yes or no"
+
+    class Audience(models.TextChoices):
+        ADMINS = "admins", "Administrators only"
+
+    key = models.CharField(max_length=40, unique=True)
+    label = models.CharField(max_length=80)
+    field_type = models.CharField(max_length=10, choices=FieldType.choices)
+    required = models.BooleanField(default=False)
+    visible_to = models.CharField(max_length=10, choices=Audience.choices, default=Audience.ADMINS)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["key"]
+
+    def __str__(self):
+        return self.key
+
+
+class CustomFieldValue(models.Model):
+    """One person's value for one field, stored as normalised text for the field's type."""
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="custom_field_values"
+    )
+    definition = models.ForeignKey(
+        CustomFieldDefinition, on_delete=models.PROTECT, related_name="values"
+    )
+    value = models.CharField(max_length=500)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["user", "definition"], name="custom_value_unique")
+        ]

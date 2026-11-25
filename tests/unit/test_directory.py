@@ -304,3 +304,96 @@ def test_stale_admin_object_is_refused_after_demotion_or_deactivation():
         with pytest.raises(PermissionDenied):
             assign_reporting_manager(a, b, stale)
     assert not ReportingRelationship.objects.filter(subordinate=b).exists()
+
+
+@pytest.mark.django_db
+def test_custom_fields_authority_types_required_and_visibility():
+    from django.core.exceptions import PermissionDenied
+
+    from apps.directory.models import CustomFieldValue
+    from apps.directory.selectors import custom_values_for
+    from apps.directory.services import create_custom_field, set_custom_value
+
+    admin = _emp("CF-ADM", "Field Admin", CustomUser.Role.ADMIN)
+    hr = _emp("CF-HR", "Hr Person", CustomUser.Role.HR)
+    mgr = _emp("CF-MGR", "Mgr Person", CustomUser.Role.MANAGER)
+    emp = _emp("CF-EMP", "Emp Person")
+    for who in (hr, mgr, emp):  # existing authority only: HR and managers are refused
+        with pytest.raises(PermissionDenied):
+            create_custom_field("blood_type", "Blood type", "text", who)
+    with pytest.raises(ValidationError):
+        create_custom_field("Bad Key!", "x", "text", admin)
+    with pytest.raises(ValidationError):
+        create_custom_field("shoe", "Shoe", "weird", admin)
+    create_custom_field("shoe_size", "Shoe size", "number", admin)
+    create_custom_field("joined", "Joined", "date", admin)
+    create_custom_field("remote", "Remote", "yes_no", admin)
+    create_custom_field("badge", "Badge", "text", admin, required=True)
+    with pytest.raises(ValidationError):
+        create_custom_field("SHOE_SIZE", "Again", "text", admin)  # duplicate after normalising
+    assert set_custom_value(emp, "shoe_size", "42.50", admin) == "42.5"
+    assert set_custom_value(emp, "joined", "2026-11-25", admin) == "2026-11-25"
+    assert set_custom_value(emp, "remote", "TRUE", admin) == "yes"
+    for key, bad in (
+        ("shoe_size", "abc"),
+        ("shoe_size", "1e99"),
+        ("shoe_size", "NaN"),
+        ("joined", "25/11/2026"),
+        ("remote", "maybe"),
+    ):
+        with pytest.raises(ValidationError):
+            set_custom_value(emp, key, bad, admin)
+    with pytest.raises(ValidationError):
+        set_custom_value(emp, "badge", "  ", admin)  # required: a blank is refused
+    with pytest.raises(ValidationError):
+        set_custom_value(emp, "nope", "x", admin)
+    for who in (hr, mgr, emp):
+        with pytest.raises(PermissionDenied):
+            set_custom_value(emp, "shoe_size", "1", who)
+    assert dict(custom_values_for(admin, emp)) == {
+        "Shoe size": "42.5",
+        "Joined": "2026-11-25",
+        "Remote": "yes",
+    }
+    for who in (hr, mgr, emp):
+        assert custom_values_for(who, emp) == []  # build default: administrators only
+    set_custom_value(emp, "shoe_size", "", admin)  # blank clears an optional field
+    assert not CustomFieldValue.objects.filter(user=emp, definition__key="shoe_size").exists()
+
+
+@pytest.mark.django_db
+def test_custom_value_audit_has_no_value_and_noop_writes_nothing_and_stale_admin_refused():
+    from django.core.exceptions import PermissionDenied
+
+    from apps.core.models import AuditLog
+    from apps.directory.services import create_custom_field, set_custom_value
+
+    admin = _emp("CA-ADM", "Audit Admin", CustomUser.Role.ADMIN)
+    emp = _emp("CA-EMP", "Audit Emp")
+    create_custom_field("note", "Note", "text", admin)
+    set_custom_value(emp, "note", "TopSecretValue123", admin)
+    n = AuditLog.objects.count()
+    set_custom_value(emp, "note", "TopSecretValue123", admin)  # same value
+    assert AuditLog.objects.count() == n
+    dump = " ".join(str(a.__dict__) for a in AuditLog.objects.all())
+    assert "TopSecretValue123" not in dump and "directory.custom_value_set" in dump
+    stale = CustomUser.objects.get(pk=admin.pk)
+    CustomUser.objects.filter(pk=admin.pk).update(role=CustomUser.Role.EMPLOYEE)
+    with pytest.raises(PermissionDenied):
+        set_custom_value(emp, "note", "other", stale)
+
+
+@pytest.mark.django_db
+def test_reporting_lock_row_is_seeded_by_the_migration_itself():
+    """Checks the migration, not the service: run the seed function against the test database."""
+    from importlib import import_module
+
+    from django.apps import apps as django_apps
+
+    from apps.directory.models import ReportingLock
+
+    mod = import_module("apps.directory.migrations.0002_reporting_lock_and_self_check")
+    ReportingLock.objects.all().delete()
+    mod.seed_lock(django_apps, None)
+    mod.seed_lock(django_apps, None)  # running twice does not duplicate
+    assert ReportingLock.objects.filter(name="reporting").count() == 1

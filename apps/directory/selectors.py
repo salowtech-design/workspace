@@ -109,3 +109,19 @@ def org_tree(actor: CustomUser):
     unreachable = [u for u in live if u.pk not in seen]  # only possible if data had a cycle
     tree += [build(u, 0) for u in unreachable if u.pk not in seen]
     return tree, truncated
+
+
+def custom_values_for(viewer, user):
+    """Custom field values the viewer may see. Today the only audience is administrators, so
+    anyone else (including the person themselves, until the user decides) gets an empty list."""
+    from apps.accounts.models import CustomUser
+
+    if viewer.role not in (CustomUser.Role.SUPER_ADMIN, CustomUser.Role.ADMIN):
+        return []
+    from .models import CustomFieldValue
+
+    return [
+        (v.definition.label, v.value)
+        for v in CustomFieldValue.objects.filter(user=user).select_related("definition")
+        if v.definition.visible_to == "admins"
+    ]
