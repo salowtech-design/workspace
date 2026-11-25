@@ -40,6 +40,16 @@
     }
     return out;
   }
+  // how many text fields in a raw (unvalidated) deck are longer than the limits and so will be shortened
+  function countCut(raw) {
+    var n = 0; if (!raw || !Array.isArray(raw.slides)) return 0;
+    raw.slides.forEach(function (s) {
+      if (!s || typeof s !== "object") return;
+      if (typeof s.notes === "string" && Array.from(s.notes).length > MAX_NOTES) n++;
+      (Array.isArray(s.elements) ? s.elements : []).forEach(function (e) { if (e && typeof e.text === "string" && Array.from(e.text).length > MAX_TEXT) n++; });
+    });
+    return n;
+  }
   function copy(d) { return JSON.parse(JSON.stringify(d)); }
   var ops = {
     addSlide: function (d, at) { if (d.slides.length >= MAX_SLIDES) return null; var n = copy(d), s = newSlide(); n.slides.splice(at === undefined ? n.slides.length : at + 1, 0, s); return n; },
@@ -136,6 +146,6 @@
     return out;
   }
   function textHeight(lines, size) { return Math.ceil(lines.length * size * 1.2); }
-  var api = { cut: cut, MAX_NOTES: MAX_NOTES, fmtClock: fmtClock, wrapLines: wrapLines, textHeight: textHeight, showNav: showNav, W: W, H: H, THEMES: THEMES, FILLS: FILLS, MAX_SLIDES: MAX_SLIDES, MAX_EL: MAX_EL, newDeck: newDeck, validate: validate, ops: ops, color: color, textColor: textColor, onFill: onFill, contrast: contrast, loadDeck: loadDeck, describe: describe, History: History, copy: copy };
+  var api = { countCut: countCut, cut: cut, MAX_NOTES: MAX_NOTES, fmtClock: fmtClock, wrapLines: wrapLines, textHeight: textHeight, showNav: showNav, W: W, H: H, THEMES: THEMES, FILLS: FILLS, MAX_SLIDES: MAX_SLIDES, MAX_EL: MAX_EL, newDeck: newDeck, validate: validate, ops: ops, color: color, textColor: textColor, onFill: onFill, contrast: contrast, loadDeck: loadDeck, describe: describe, History: History, copy: copy };
   if (typeof module !== "undefined" && module.exports) module.exports = api; else root.SalowSlides = api;
 })(typeof self !== "undefined" ? self : this);

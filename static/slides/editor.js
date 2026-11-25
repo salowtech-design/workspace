@@ -128,10 +128,10 @@
     if (f.size > 1000000) { status.textContent = "That file is too large. Your deck was not changed."; return; }
     var rd = new FileReader();
     rd.onload = function () {
-      var d = null; try { d = S.validate(JSON.parse(String(rd.result))); } catch (x) { d = null; }
+      var d = null, cutN = 0; try { var rawObj = JSON.parse(String(rd.result)); d = S.validate(rawObj); cutN = S.countCut(rawObj); } catch (x) { d = null; }
       if (!d) { status.textContent = "That file is not a usable deck. Your deck was not changed."; return; }
       if (!window.confirm("Replace this deck with the " + d.slides.length + " slides in this file? You can undo it until you reload.")) { status.textContent = "Import cancelled. Your deck was not changed."; return; }
-      var prev = cur, prevSel = selId; cur = 0; selId = null; if (!apply(d, "Imported " + d.slides.length + " slides. You can undo this import.")) { cur = prev; selId = prevSel; status.textContent = H.blocked ? H.note : "That deck is the same as the current one. Nothing changed."; }
+      var prev = cur, prevSel = selId; cur = 0; selId = null; if (!apply(d, "Imported " + d.slides.length + " slides." + (cutN ? " " + cutN + " text " + (cutN === 1 ? "field was" : "fields were") + " shortened to fit the limits." : "") + " You can undo this import.")) { cur = prev; selId = prevSel; status.textContent = H.blocked ? H.note : "That deck is the same as the current one. Nothing changed."; }
     };
     rd.readAsText(f); e.target.value = "";
   });
@@ -159,13 +159,13 @@
   var clock = null, t0 = 0;
   function tick() { $("sl-show-timer").textContent = "Time " + S.fmtClock((Date.now() - t0) / 1000); }
   function showNotes(on) {
-    $("sl-show-notes-wrap").hidden = !on; if (clock) { clearInterval(clock); clock = null; }
+    $("sl-show-notes-wrap").hidden = !on; show.classList.toggle("with-notes", on); if (clock) { clearInterval(clock); clock = null; }
     if (on) { tick(); clock = setInterval(tick, 1000); }
   }
   $("sl-show-notes-on").addEventListener("change", function () { showNotes(this.checked); });
   $("sl-present").addEventListener("click", function () {
     if (unreadable || H.blocked || typeof show.showModal !== "function") { status.textContent = "The slide show is not available here."; return; }
-    showAt = Math.min(cur, H.deck.slides.length - 1); t0 = Date.now(); showDraw(); show.showModal(); showNotes($("sl-show-notes-on").checked); $("sl-show-next").focus();
+    showAt = Math.min(cur, H.deck.slides.length - 1); t0 = Date.now(); $("sl-show-notes-on").checked = false; showDraw(); show.showModal(); showNotes(false); $("sl-show-next").focus();
   });
   $("sl-show-prev").addEventListener("click", function () { showGo(S.showNav(showAt, H.deck.slides.length, "ArrowLeft")); });
   $("sl-show-next").addEventListener("click", function () { showGo(S.showNav(showAt, H.deck.slides.length, "ArrowRight")); });

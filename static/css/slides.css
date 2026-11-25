@@ -27,3 +27,7 @@
 .slide-notes-label textarea { display: block; width: 100%; box-sizing: border-box; }
 #sl-show-notes-wrap { margin: 8px 0 0; max-height: 18vh; overflow: auto; white-space: pre-wrap; }
 #sl-show-timer { font-variant-numeric: tabular-nums; font-weight: bold; margin-right: 8px; }
+.slide-show-warn { display: block; flex-basis: 100%; font-size: 13px; color: #f0d9a0; text-align: center; }
+@media (max-height: 560px), (max-width: 480px) { .slide-show .slide-show-warn { font-size: 12px; } }
+.slide-show { overflow: auto; }
+@media (max-height: 560px), (max-width: 480px) { .slide-show.with-notes svg { max-height: 30vh; } .slide-show.with-notes #sl-show-notes-wrap { max-height: 14vh; } }
