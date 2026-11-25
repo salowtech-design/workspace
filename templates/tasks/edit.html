@@ -4,11 +4,14 @@
 {% block content %}
 <div class="card tasks">
   <div class="tasks-head"><h2>Edit task</h2></div>
+  {% if sent %}<div class="tasks-conflict"><p>Your changes were not saved. The fields below keep what you typed. The saved version is:</p>
+    <p><strong>{{ task.title }}</strong>{% if task.notes %}<br>{{ task.notes|truncatechars:300 }}{% endif %}{% if task.due_date %}<br>Due {{ task.due_date|date:"j M Y" }}{% endif %}</p>
+    <p>Saving again replaces the saved version with what is in the form.</p></div>{% endif %}
   <form method="post" action="{% url 'tasks:edit' task.public_id %}" class="tasks-form">{% csrf_token %}
     <input type="hidden" name="version" value="{{ task.version }}">
-    <label>Title<input type="text" name="title" maxlength="1024" value="{{ task.title }}" required></label>
-    <label>Notes<textarea name="notes" maxlength="8192" rows="5">{{ task.notes }}</textarea></label>
-    <label>Due date<input type="date" name="due" value="{{ task.due_date|date:'Y-m-d' }}"></label>
+    <label>Title<input type="text" name="title" maxlength="1024" value="{% if sent %}{{ sent.title }}{% else %}{{ task.title }}{% endif %}" required></label>
+    <label>Notes<textarea name="notes" maxlength="8192" rows="5">{% if sent %}{{ sent.notes }}{% else %}{{ task.notes }}{% endif %}</textarea></label>
+    <label>Due date<input type="date" name="due" value="{% if sent %}{{ sent.due }}{% else %}{{ task.due_date|date:'Y-m-d' }}{% endif %}"></label>
     <div class="tasks-inline"><button class="btn btn-small" type="submit">Save</button>
       <a class="btn btn-outline btn-small" href="{% url 'tasks:list' task.task_list.public_id %}">Cancel</a></div>
   </form>

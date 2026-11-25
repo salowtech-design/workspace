@@ -22,3 +22,6 @@
 .tasks .tasks-form { display: flex; flex-direction: column; gap: 12px; max-width: 520px; }
 .tasks .tasks-form label { display: flex; flex-direction: column; gap: 4px; font-size: 14px; font-weight: 600; }
 .tasks .tasks-form input[type=text], .tasks .tasks-form textarea { width: 100%; }
+
+.tasks-conflict{border:1px solid #d9b38c;background:#fdf3e7;border-radius:8px;padding:10px 14px;margin:0 0 14px;font-size:.9rem}
+.tasks-conflict p{margin:4px 0}

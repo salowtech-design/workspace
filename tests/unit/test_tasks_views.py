@@ -196,17 +196,60 @@ def test_edit_page_saves_and_a_stale_form_is_refused():
     t.refresh_from_db()
     assert (t.title, t.notes, str(t.due_date)) == ("New", "<b>n</b>", "2026-12-01")
     r = ca.post(
-        reverse("tasks:edit", args=[t.public_id]), {"version": 1, "title": "Stale"}, follow=True
+        reverse("tasks:edit", args=[t.public_id]),
+        {"version": 1, "title": "Stale typed", "notes": "typed notes"},
     )
     t.refresh_from_db()
-    assert t.title == "New" and any(
-        "changed while you were editing" in str(m) for m in r.context["messages"]
-    )
+    assert t.title == "New" and r.status_code == 409
+    body = r.content.decode()
+    assert "changed while you were editing" in body
+    assert 'value="Stale typed"' in body and "typed notes" in body  # typed work kept
+    assert "The saved version is" in body and "<strong>New</strong>" in body
+    assert 'name="version" value="2"' in body  # saving again is an explicit overwrite
     assert (
         b"&lt;b&gt;n&lt;/b&gt;" in ca.get(reverse("tasks:list", args=[tl.public_id])).content
     )  # notes escaped
     b = _u("E-B")
     assert _c(b).get(reverse("tasks:edit", args=[t.public_id])).status_code == 404
+
+
+@pytest.mark.django_db
+def test_an_assignee_cannot_open_or_post_the_edit_page():
+    a, b = _u("AE-A"), _u("AE-B")
+    tl = svc.create_list(a, "L")
+    t = svc.create_task(a, tl, "x")
+    svc.assign(a, t, b)
+    cb = _c(b)
+    url = reverse("tasks:edit", args=[t.public_id])
+    assert cb.get(url).status_code == 404
+    assert cb.post(url, {"version": t.version, "title": "hijack"}).status_code == 404
+    t.refresh_from_db()
+    assert t.title == "x"
+
+
+@pytest.mark.django_db
+def test_shared_throttle_counts_resets_and_fails_closed(monkeypatch):
+    from datetime import timedelta
+
+    from django.utils import timezone
+
+    from apps.core.foundation.throttle import throttled
+    from apps.core.models import RateLimitBucket
+
+    u = _u("TH-A")
+    assert [throttled(u, "t", 2, 60) for _ in range(4)] == [False, False, True, True]
+    RateLimitBucket.objects.filter(bucket_key=f"t:{u.pk}").update(
+        reset_at=timezone.now() - timedelta(seconds=1)
+    )
+    assert throttled(u, "t", 2, 60) is False  # window over: counting restarts
+    assert throttled(u, "other", 2, 60) is False  # separate prefix, separate counter
+    import apps.core.foundation.throttle as th
+
+    def boom(*a, **k):
+        raise th.IntegrityError("x")
+
+    monkeypatch.setattr(RateLimitBucket.objects, "create", boom)
+    assert throttled(_u("TH-B"), "t", 5, 60) is True  # cannot take a slot: refuse
 
 
 @pytest.mark.django_db
@@ -224,8 +267,6 @@ def test_every_sidebar_link_resolves_on_the_workspace_host_urlconf():
         try:
             rev(name, urlconf="config.urls_workspace")
         except Exception as exc:  # noqa: BLE001
-            if name.startswith(("accounts:admin", "attendance:admin")):
-                continue  # role-only links outside this check's scope are still reversed below
             raise AssertionError(f"{name} does not resolve on the workspace host: {exc}") from exc
 
 
@@ -244,9 +285,8 @@ def test_every_main_page_renders_with_the_tasks_link_on_the_workspace_host():
         "/auth/security/",
     ):
         r = c.get(url, HTTP_HOST="app.salowtech.com")
-        assert r.status_code in (200, 302), (url, r.status_code)
-        if r.status_code == 200:
-            assert b'href="/tasks/"' in r.content, url
+        assert r.status_code == 200, (url, r.status_code)
+        assert b'href="/tasks/"' in r.content, url
 
 
 @pytest.mark.django_db

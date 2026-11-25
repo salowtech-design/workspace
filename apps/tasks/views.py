@@ -155,10 +155,22 @@ def edit(request, task_id):
         messages.error(
             request, " ".join(getattr(exc, "messages", ["Check the fields and try again."]))
         )
-        return redirect("tasks:edit", task_id=task.public_id)
+        task.refresh_from_db()
+        sent = {k: request.POST.get(k, "") for k in ("title", "notes", "due")}
+        return render(
+            request, "tasks/edit.html", {"task": task, "tab": "mine", "sent": sent}, status=400
+        )
     done = _run(request, svc.update_task, request.user, task, version, ok="Saved.", **changes)
-    if done is None:  # refused or stale: stay on the form with the message
-        return redirect("tasks:edit", task_id=task.public_id)
+    if done is None:  # refused or stale: keep what was typed, show what is saved now
+        task.refresh_from_db()
+        sent = {
+            "title": request.POST.get("title", task.title),
+            "notes": request.POST.get("notes", task.notes),
+            "due": request.POST.get("due", task.due_date.isoformat() if task.due_date else ""),
+        }
+        return render(
+            request, "tasks/edit.html", {"task": task, "tab": "mine", "sent": sent}, status=409
+        )
     return _back(request, task)
 
 
