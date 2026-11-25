@@ -128,4 +128,5 @@ ok("master: with the previous version, history stays blocked on that deck so a s
 ok("master: the new code also refuses a stored deck with an unknown version and keeps the text", (() => { const raw = JSON.stringify({ v: 9, slides: [{ id: "s", elements: [] }] }); const r = S.loadDeck(raw); return r.unreadable && r.raw === raw; })());
 ok("master: duplicating a slide keeps its hide flag", S.ops.duplicateSlide(S.ops.setHideMaster(S.newDeck(), 0, true), 0).slides[1].hideMaster === true);
 ok("master: describeEls lists items like describe", S.describeEls([mel("a", "Hello")]).join() === "1. Text: Hello" && S.describe({ slides: [{ elements: [mel("a", "Hello")] }] }, 0).join() === "1. Text: Hello");
+ok("master: import counts master text over 1000 characters as cut", S.countCut(MK([mel("m1", "x".repeat(1500))])) === 1 && S.countCut(MK([mel("m1", "x".repeat(10))])) === 0);
 console.log(`${n - bad}/${n} slides model rows passed`); process.exit(bad ? 1 : 0);

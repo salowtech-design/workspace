@@ -62,6 +62,7 @@
   // how many text fields in a raw (unvalidated) deck are longer than the limits and so will be shortened
   function countCut(raw) {
     var n = 0; if (!raw || !Array.isArray(raw.slides)) return 0;
+    if (raw.master && Array.isArray(raw.master.elements)) raw.master.elements.forEach(function (e) { if (e && typeof e.text === "string" && Array.from(e.text).length > MAX_TEXT) n++; });
     raw.slides.forEach(function (s) {
       if (!s || typeof s !== "object") return;
       if (typeof s.notes === "string" && Array.from(s.notes).length > MAX_NOTES) n++;

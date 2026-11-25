@@ -45,4 +45,4 @@ def test_slides_model_table_passes_in_node():
         timeout=60,
     )
     assert r.returncode == 0, r.stdout + r.stderr
-    assert "99/99 slides model rows passed" in r.stdout
+    assert "100/100 slides model rows passed" in r.stdout

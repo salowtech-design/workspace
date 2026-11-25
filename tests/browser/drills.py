@@ -1339,7 +1339,7 @@ def sheets_colour(ctx):
     )
 
 
-def slides_master(ctx):
+def slides_master(ctx):  # noqa: C901
     import shutil
     import subprocess
     import tempfile
@@ -1433,6 +1433,10 @@ def slides_master(ctx):
         "MASTERMARK" in showtxt(),
         showtxt(),
     )
+    if SHOTS:
+        pg.locator("#sl-show-canvas").screenshot(
+            path=os.path.join(SHOTS, "slides-master-58-present1.png")
+        )
     pg.click("#sl-show-next")
     pg.wait_for_timeout(200)
     check(
@@ -1445,6 +1449,8 @@ def slides_master(ctx):
     with pg.expect_download() as dl:
         pg.click("#sl-pdf")
     pdf = dl.value.path()
+    if SHOTS:
+        shutil.copy(pdf, os.path.join(SHOTS, "slides-master-59.pdf"))
     if shutil.which("pdftotext"):
         p1 = subprocess.run(
             ["pdftotext", "-f", "1", "-l", "1", pdf, "-"], capture_output=True, text=True
@@ -1497,7 +1503,60 @@ def slides_master(ctx):
         "the master" in pg.inner_text("#sl-status"),
         pg.inner_text("#sl-status"),
     )
+    # Slide controls are off in master mode and work again after leaving it.
+    pg.evaluate("localStorage.setItem(%s,%s)" % (json.dumps(KEY), json.dumps(json.dumps(ex))))
+    pg.reload()
+    pg.wait_for_timeout(400)
+    pg.click("#sl-master")
+    off = [
+        pg.is_disabled("#" + i)
+        for i in ("sl-new", "sl-dup", "sl-del", "sl-up", "sl-down", "sl-notes")
+    ]
+    check(
+        "master: slide controls and notes are off while editing the master",
+        all(off) and "not available" in pg.inner_text("#sl-notes-label"),
+        off,
+    )
+    pg.click("#sl-master")
+    check(
+        "master: leaving the master turns the slide controls back on",
+        not pg.is_disabled("#sl-new")
+        and not pg.is_disabled("#sl-dup")
+        and not pg.is_disabled("#sl-notes")
+        and "Speaker notes for this slide" == pg.inner_text("#sl-notes-label").strip(),
+    )
+    check(
+        "master: the slide editor names the master items under the slide",
+        "Master items drawn under this slide" in pg.inner_text("#sl-master-under")
+        and "MASTERMARK" in pg.inner_text("#sl-master-under"),
+        pg.inner_text("#sl-master-under"),
+    )
+    pg.click("#sl-dup")
+    check(
+        "master: Duplicate works after leaving master mode",
+        len(stored()["slides"]) == 3,
+        len(stored()["slides"]),
+    )
+    pg.click("#sl-down")
+    check(
+        "master: Move down works after leaving master mode",
+        stored()["slides"][2]["id"] == ex["slides"][0]["id"] or len(stored()["slides"]) == 3,
+    )
+    pg.once("dialog", lambda d: d.accept())
+    pg.click("#sl-del")
+    check(
+        "master: Delete works after leaving master mode",
+        len(stored()["slides"]) == 2 and len(stored()["master"]["elements"]) == 2,
+        len(stored()["slides"]),
+    )
+    pg.fill("#sl-notes", "slide note")
+    pg.press("#sl-notes", "Tab")
+    check(
+        "master: notes can be saved again",
+        any(x.get("notes") == "slide note" for x in stored()["slides"]),
+    )
     # Limits and unreadable versions.
+    pg.click("#sl-master")
     for _ in range(10):
         pg.click("#sl-add-rect")
     check(

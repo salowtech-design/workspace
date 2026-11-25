@@ -21,7 +21,7 @@
 <label>X <input type="number" id="sl-x" min="0" max="960"></label><label>Y <input type="number" id="sl-y" min="0" max="540"></label>
 <label>Width <input type="number" id="sl-w" min="10" max="960"></label><label>Height <input type="number" id="sl-h" min="10" max="540"></label>
 <label>Color <select id="sl-fill"></select></label></fieldset>
-<label class="slide-notes-label">Speaker notes for this slide <textarea id="sl-notes" rows="3" maxlength="2000"></textarea></label>
+<label class="slide-notes-label"><span id="sl-notes-label">Speaker notes for this slide</span> <textarea id="sl-notes" rows="3" maxlength="2000"></textarea></label>
 <h3>Items on this slide</h3><ul id="sl-items" class="slide-items"></ul><p class="cal-meta" id="sl-items-empty">No items yet.</p>
 <p class="cal-meta">Click an item or choose it from the list to select it. With an item selected and focus on the slide, arrow keys move it by 10 and Delete removes it. Items higher in the list are drawn underneath later ones; use Send backward and Bring forward to change that. Text wrapping is approximate: it works by character, not by joined emoji or accent sequences, so those can split across lines.</p></div></div>
 <p class="slide-tools"><label>Layout <select id="sl-layout" aria-describedby="sl-layout-help"><option value="blank">Blank</option><option value="title">Title</option><option value="content">Title and content</option></select></label> <button class="btn" type="button" id="sl-new">New slide</button> <button class="btn" type="button" id="sl-dup">Duplicate slide</button> <button class="btn" type="button" id="sl-up">Move up</button> <button class="btn" type="button" id="sl-down">Move down</button> <button class="btn" type="button" id="sl-del">Delete slide</button>
@@ -36,6 +36,7 @@
 <h3>Master</h3>
 <p class="slide-tools"><button class="btn" type="button" id="sl-master" aria-pressed="false">Edit master</button> <label><input type="checkbox" id="sl-master-on" checked> Show the master on this slide</label></p>
 <p class="cal-meta" id="sl-master-state"></p>
+<p class="cal-meta" id="sl-master-under"></p>
 <p class="cal-meta" id="sl-master-help">The master holds up to 10 text items and shapes that are drawn under every slide that shows it, in the editor, in Present and in the PDF. Placeholder words in the master are ordinary text too. Master items cannot be selected on a slide: choose Edit master to change them. A deck with a master is saved in a newer deck format (Export includes the master). An older copy of this page cannot read such a deck: it leaves it untouched and pauses editing instead of dropping the master. Clear deck also removes the master. Master text is also checked for PDF characters.</p>
 <p class="cal-meta" id="sl-layout-help">A layout only places ordinary text items on the new slide. The placeholder words (Title, Subtitle, Content) are ordinary text: replace or delete them, or they appear in Present and in the PDF. Editing a layout later does not change slides already made. A layout is not the master: items that should repeat on every slide belong in the master below.</p>
 <p class="cal-meta" id="sl-status" role="status"></p>

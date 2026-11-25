@@ -45,7 +45,7 @@
     var wrap = $("sl-canvas-wrap"); wrap.textContent = "";
     var svg = el("svg", { viewBox: "0 0 " + S.W + " " + S.H, tabindex: "0", role: "img", "aria-label": "Slide " + (cur + 1) + " of " + d.slides.length });
     svg.appendChild(el("title", {}, "Slide " + (cur + 1) + " of " + d.slides.length));
-    svg.appendChild(el("desc", {}, S.describe(d, cur).join("; ") || "Empty slide"));
+    svg.appendChild(el("desc", {}, (editMaster ? "Master items: " + (S.describeEls(tgt()).join("; ") || "none") : (S.masterOf(d, cur).length ? "Master items: " + S.describeEls(S.masterOf(d, cur)).join("; ") + ". Slide items: " : "") + (S.describe(d, cur).join("; ") || "Empty slide"))));
     svg.appendChild(el("rect", { x: 0, y: 0, width: S.W, height: S.H, fill: th.bg }));
     if (!editMaster) S.masterOf(d, cur).forEach(function (e) { var g = el("g", {}); drawEl(g, d, e); svg.appendChild(g); });
     tgt().forEach(function (e) {
@@ -82,6 +82,8 @@
     $("sl-master-state").textContent = editMaster ? "Editing the master: its items appear on every slide that shows the master (" + tgt().length + " of " + S.MAX_MASTER + " items)." : (d.master ? "This deck has a master with " + d.master.elements.length + " item" + (d.master.elements.length === 1 ? "" : "s") + ". Its items are drawn under this slide's items" + (d.slides[cur].hideMaster ? ", but this slide hides them." : ".") : "This deck has no master.");
     ["sl-new", "sl-dup", "sl-del", "sl-up", "sl-down", "sl-layout"].forEach(function (id) { if (editMaster) $(id).disabled = true; else if (id === "sl-layout" || id === "sl-new") $(id).disabled = false; });
     $("sl-notes").disabled = editMaster;
+    $("sl-notes-label").textContent = editMaster ? "Speaker notes (not available while editing the master; leave the master to edit this slide's notes)" : "Speaker notes for this slide";
+    var mu = editMaster ? [] : S.masterOf(d, cur); $("sl-master-under").textContent = mu.length ? "Master items drawn under this slide (not selectable here): " + S.describeEls(mu).join("; ") : "";
     status.textContent = H.note;
     var cs = sel(); if (cs && cs.text) { var ln = S.wrapLines(cs.text, cs.size, cs.type === "text" ? cs.w : cs.w - 8); if (S.textHeight(ln, cs.size) > cs.h) status.textContent += " The text is estimated to run past the item's edges."; }
   }
