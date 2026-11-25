@@ -80,7 +80,7 @@
   fill.addEventListener("change", function () { var e = sel(); if (e) apply(S.ops.updateElement(H.deck, cur, e.id, { fill: fill.value })); });
   ["text", "rect", "ellipse"].forEach(function (t) { $("sl-add-" + t).addEventListener("click", function () { var r = S.ops.addElement(H.deck, cur, t); if (!r) { status.textContent = "A slide holds up to " + S.MAX_EL + " items."; return; } selId = r.id; apply(r.deck); }); });
   $("sl-del-el").addEventListener("click", function () { var e = sel(); if (e) apply(S.ops.deleteElement(H.deck, cur, e.id), "Item deleted."); });
-  $("sl-new").addEventListener("click", function () { var n = S.ops.addSlide(H.deck, cur); if (!n) { status.textContent = "A deck holds up to " + S.MAX_SLIDES + " slides."; return; } cur++; selId = null; apply(n); });
+  $("sl-new").addEventListener("click", function () { var n = S.ops.addSlide(H.deck, cur); if (!n) { status.textContent = "A deck holds up to " + S.MAX_SLIDES + " slides."; return; } var prev = cur, prevSel = selId; cur++; selId = null; if (!apply(n)) { cur = prev; selId = prevSel; } });
   $("sl-del").addEventListener("click", function () { if (H.deck.slides[cur].elements.length && !window.confirm("Delete this slide and its items? You can undo until you reload.")) return; var n = S.ops.deleteSlide(H.deck, cur); if (n) { selId = null; apply(n, "Slide deleted."); } });
   $("sl-up").addEventListener("click", function () { if (apply(S.ops.moveSlide(H.deck, cur, cur - 1))) { cur--; render(); } });
   $("sl-down").addEventListener("click", function () { if (apply(S.ops.moveSlide(H.deck, cur, cur + 1))) { cur++; render(); } });
@@ -89,8 +89,8 @@
   $("sl-redo").addEventListener("click", function () { if (H.redo()) { cur = Math.min(cur, H.deck.slides.length - 1); render(); } });
   $("sl-clear").addEventListener("click", function () {
     if (!window.confirm("Clear the whole deck? It becomes one empty slide. You can undo until you reload this page; after a reload the cleared deck cannot be brought back.")) return;
-    cur = 0; selId = null;
-    if (!apply(S.newDeck(), "Deck cleared. Undo works until you reload this page.")) status.textContent = "Nothing to clear.";
+    var prev = cur, prevSel = selId; cur = 0; selId = null;
+    if (!apply(S.newDeck(), "Deck cleared. Undo works until you reload this page.")) { cur = prev; selId = prevSel; status.textContent = H.blocked ? H.note : "Nothing to clear."; }
   });
   $("sl-dl-raw").addEventListener("click", function () {
     var u = URL.createObjectURL(new Blob([rawKept || ""], { type: "application/json" })), l = document.createElement("a");
@@ -113,7 +113,7 @@
       var d = null; try { d = S.validate(JSON.parse(String(rd.result))); } catch (x) { d = null; }
       if (!d) { status.textContent = "That file is not a usable deck. Your deck was not changed."; return; }
       if (!window.confirm("Replace this deck with the " + d.slides.length + " slides in this file? You can undo it until you reload.")) { status.textContent = "Import cancelled. Your deck was not changed."; return; }
-      cur = 0; selId = null; apply(d, "Imported " + d.slides.length + " slides. You can undo this import.");
+      var prev = cur, prevSel = selId; cur = 0; selId = null; if (!apply(d, "Imported " + d.slides.length + " slides. You can undo this import.")) { cur = prev; selId = prevSel; status.textContent = H.blocked ? H.note : "That deck is the same as the current one. Nothing changed."; }
     };
     rd.readAsText(f); e.target.value = "";
   });
