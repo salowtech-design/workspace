@@ -157,7 +157,7 @@ class TestManualFallbackWorkflow:
             create_fallback_request(
                 user=employee,
                 request_type=AttendanceFallbackRequest.RequestType.CHECK_IN,
-                work_date=timezone.now().date(),
+                work_date=timezone.now().astimezone(KOLKATA_TZ).date(),
                 requested_time=timezone.now(),
                 reason="",
             )
@@ -194,7 +194,7 @@ class TestManualFallbackWorkflow:
         req = create_fallback_request(
             user=employee,
             request_type=AttendanceFallbackRequest.RequestType.CHECK_IN,
-            work_date=timezone.now().date(),
+            work_date=timezone.now().astimezone(KOLKATA_TZ).date(),
             requested_time=timezone.now(),
             reason="Test reason",
         )
@@ -207,7 +207,7 @@ class TestManualFallbackWorkflow:
         req = create_fallback_request(
             user=employee,
             request_type=AttendanceFallbackRequest.RequestType.CHECK_IN,
-            work_date=timezone.now().date(),
+            work_date=timezone.now().astimezone(KOLKATA_TZ).date(),
             requested_time=timezone.now(),
             reason="Unsubstantiated request",
         )
@@ -222,7 +222,7 @@ class TestManualFallbackWorkflow:
         req = create_fallback_request(
             user=employee,
             request_type=AttendanceFallbackRequest.RequestType.CHECK_IN,
-            work_date=timezone.now().date(),
+            work_date=timezone.now().astimezone(KOLKATA_TZ).date(),
             requested_time=timezone.now(),
             reason="Not my report",
         )
@@ -236,7 +236,7 @@ class TestManualFallbackWorkflow:
         req = create_fallback_request(
             user=manager,
             request_type=AttendanceFallbackRequest.RequestType.CHECK_IN,
-            work_date=timezone.now().date(),
+            work_date=timezone.now().astimezone(KOLKATA_TZ).date(),
             requested_time=timezone.now(),
             reason="Self approval attempt",
         )
