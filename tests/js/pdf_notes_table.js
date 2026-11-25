@@ -11,5 +11,11 @@ ok("duplicate ids are unreadable", (() => { const a = { id: "abcdef12", page: 1,
 ok("remove and forPage", (() => { let l = N.add([], 1, 0, 0, "a", () => 0.1).notes; l = N.add(l, 2, 0, 0, "b", () => 0.7).notes; return N.forPage(l, 2).length === 1 && N.remove(l, l[0].id).length === 1 && N.remove(l, "nope").length === 2; })());
 ok("text export is sorted by page and says it is not inside the PDF", (() => { let l = N.add([], 5, 0, 0, "late", () => 0.1).notes; l = N.add(l, 2, 0, 0, "early", () => 0.7).notes; const t = N.toText(l, "a.pdf"); return t.indexOf("Page 2: early") < t.indexOf("Page 5: late") && /not inside the PDF/.test(t); })());
 ok("markup in note text stays plain text", N.add([], 1, 0, 0, "<img src=x onerror=1>", r).notes[0].text === "<img src=x onerror=1>");
+const crypto = require("crypto");
+ok("plain sha256 matches node for many lengths, including block edges", [0, 1, 3, 55, 56, 57, 63, 64, 65, 119, 120, 1000, 100000].every((len) => { const b = new Uint8Array(len).map((_, i) => (i * 7 + len) & 255); return N.sha256Plain(b) === crypto.createHash("sha256").update(b).digest("hex"); }));
+ok("two files with the same first bytes get different keys", (() => { const a = new Uint8Array(2000).fill(65), b = new Uint8Array(2000).fill(65); b[1999] = 66; return N.sha256Plain(a) !== N.sha256Plain(b); })());
+ok("sha256Hex resolves to the same value", N.sha256Hex(new Uint8Array([1, 2, 3])).then((h) => h === crypto.createHash("sha256").update(Buffer.from([1, 2, 3])).digest("hex")).then((v) => { if (!v) { console.log("FAIL async sha256Hex"); process.exitCode = 1; } return true; }) instanceof Promise);
+ok("save plan: stale, none, remove, limit, set", N.plan("a", "b", 1, 0) === "stale" && N.plan(null, null, 0, 0) === "none" && N.plan("a", "a", 0, 5) === "remove" && N.plan(null, null, 1, N.MAX_FILES) === "limit" && N.plan("a", "a", 1, N.MAX_FILES) === "set" && N.plan(null, null, 1, N.MAX_FILES - 1) === "set");
+ok("page-level notes have no position and still round trip", (() => { const a = N.add([], 4, null, null, "whole page", () => 0.3); const l = N.load(N.dump(a.notes)); return !a.error && l.notes[0].x === null && l.notes[0].y === null && !l.unreadable && N.load(N.dump([{ id: "abcdef12", page: 1, x: null, y: 0.5, text: "t" }])).unreadable; })());
 console.log(`${n - bad}/${n} pdf notes rows passed`);
 process.exit(bad ? 1 : 0);

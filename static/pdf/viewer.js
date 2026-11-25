@@ -100,14 +100,16 @@
   $("pdf-find").addEventListener("click", find);
   $("pdf-q").addEventListener("keydown", function (e) { if (e.key === "Enter") { e.preventDefault(); find(); } });
   $("pdf-fstop").addEventListener("click", function () { if (!finding) return; fseq.begin(); fmsg("Find stopped."); fend(); });
-  // ---- Notes: pinned text labels kept in this browser for this file only; never written into the PDF.
-  var drawn = 0, nDoc = null, nKey = "", notes = [], nState = "off", pending = null, adding = false, clearArmed = false;
+  // ---- Notes: pinned or page-level text kept in this browser for this file only; never written into the PDF.
+  // The key is a SHA-256 of the file's bytes, so a file cannot claim another file's notes.
+  var drawn = 0, nDoc = null, nKey = "", notes = [], nState = "off", pending = null, adding = false, clearArmed = false, clearTimer = null, lastRaw = null, saving = false;
   var prefix = $("pdf-notes").getAttribute("data-prefix") || "salow.pdfnotes.";
   function nmsg(t) { $("pdf-notestatus").textContent = t; }
-  function sorted() { return notes.slice().sort(function (a, b) { return a.page - b.page || a.y - b.y || a.x - b.x; }); }
+  function sorted() { return notes.slice().sort(function (a, b) { return a.page - b.page || (a.y || 0) - (b.y || 0) || (a.x || 0) - (b.x || 0); }); }
+  function disarm() { clearArmed = false; if (clearTimer) { clearTimeout(clearTimer); clearTimer = null; } }
   function nControls() {
     var on = nState === "ok" && !!doc;
-    $("pdf-addnote").disabled = !on; $("pdf-exportnotes").disabled = !on || !notes.length;
+    $("pdf-addnote").disabled = !on; $("pdf-addpagenote").disabled = !on; $("pdf-exportnotes").disabled = !on || !notes.length;
     $("pdf-clearnotes").disabled = !(nState === "ok" || nState === "bad") || !doc;
     $("pdf-addnote").setAttribute("aria-pressed", adding ? "true" : "false");
     $("pdf-stage").classList.toggle("pdf-adding", adding);
@@ -115,13 +117,12 @@
   function renderPins() {
     var layer = $("pdf-pins"); layer.textContent = "";
     if (!doc || nState !== "ok" || drawn !== page) return;
-    var all = sorted();
-    all.forEach(function (n, i) {
-      if (n.page !== page) return;
+    sorted().forEach(function (n, i) {
+      if (n.page !== page || n.x === null) return;
       var b = document.createElement("button"); b.type = "button"; b.className = "pdf-pin";
       b.style.left = (n.x * 100) + "%"; b.style.top = (n.y * 100) + "%"; b.textContent = String(i + 1);
       b.title = n.text; b.setAttribute("aria-label", "Note " + (i + 1) + " on page " + n.page + ": " + n.text);
-      b.addEventListener("click", function () { var li = document.getElementById("pdf-note-" + n.id); if (li) li.scrollIntoView({ block: "nearest" }); });
+      b.addEventListener("click", function (e) { e.stopPropagation(); var li = document.getElementById("pdf-note-" + n.id); if (li) li.scrollIntoView({ block: "nearest" }); });
       layer.appendChild(b);
     });
   }
@@ -129,7 +130,7 @@
     var ol = $("pdf-notelist"); ol.textContent = "";
     sorted().forEach(function (n, i) {
       var li = document.createElement("li"); li.id = "pdf-note-" + n.id;
-      li.appendChild(document.createTextNode("Page " + n.page + ": " + n.text + " "));
+      li.appendChild(document.createTextNode("Page " + n.page + (n.x === null ? " (whole page)" : "") + ": " + n.text + " "));
       var del = document.createElement("button"); del.type = "button"; del.className = "btn"; del.textContent = "Delete";
       del.setAttribute("aria-label", "Delete note " + (i + 1) + " on page " + n.page);
       del.addEventListener("click", function () { removeNote(n.id); });
@@ -137,52 +138,91 @@
     });
     nControls(); renderPins();
   }
-  function persist(next) {
-    try { localStorage.setItem(nKey, N.dump(next)); return true; } catch (e) { return false; }
+  function fileCount() {
+    var c = 0; try { for (var i = 0; i < localStorage.length; i++) if ((localStorage.key(i) || "").indexOf(prefix) === 0) c++; } catch (e) { return 0; }
+    return c;
+  }
+  // Shows what is stored now (another tab changed it) and keeps any draft the person was typing.
+  function adopt(raw, why) {
+    var l = N.load(raw); lastRaw = raw;
+    if (l.unreadable) { notes = []; nState = "bad"; adding = false; pending = null; $("pdf-noteform").hidden = true; nmsg(why + " The saved notes could not be read, so notes are off for this file."); }
+    else { notes = l.notes; nState = "ok"; nmsg(why); }
+    renderNotes();
+  }
+  // One save: re-reads the stored value first and refuses if it is not what this tab last saw. Where the browser
+  // offers Web Locks the check and write run one at a time across tabs (one lock for all notes, so the file limit is
+  // serialized too). Without Web Locks nothing is saved, so two tabs can never silently overwrite each other.
+  function commit(next, done) {
+    var myDoc = doc, myKey = nKey;
+    var run = function () {
+      var cur; try { cur = localStorage.getItem(myKey); } catch (e) { return { err: "This browser would not read the saved notes, so nothing was changed." }; }
+      var act = N.plan(lastRaw, cur, next.length, cur === null ? fileCount() : 0);
+      if (act === "stale") return { stale: true, raw: cur };
+      if (act === "limit") return { err: "Notes are kept for up to " + N.MAX_FILES + " files on this device. Delete the notes of a file you no longer need first." };
+      try {
+        if (act === "remove") localStorage.removeItem(myKey); else if (act === "set") localStorage.setItem(myKey, N.dump(next));
+      } catch (e) { return { err: "This browser would not save that change, so nothing was changed." }; }
+      lastRaw = act === "set" ? N.dump(next) : null; return { ok: true };
+    };
+    if (!(navigator.locks && navigator.locks.request)) { saving = false; nmsg("This browser or connection cannot make saving safe when the same notes are open in two tabs, so notes cannot be saved here. Open the site over a secure (https) connection to save notes."); return; }
+    var p = navigator.locks.request("salow-pdfnotes", function () { return run(); });
+    p.then(function (r) { if (myDoc !== doc || myDoc !== nDoc) return; done(r); }, function () { if (myDoc === doc) { saving = false; nmsg("The change could not be saved."); } });
   }
   function removeNote(id) {
-    if (!doc || doc !== nDoc || nState !== "ok") return;
-    var next = N.remove(notes, id);
-    if (!persist(next)) { nmsg("This browser would not save that change, so the note was not deleted."); return; }
-    notes = next; nmsg("Note deleted."); renderNotes();
+    if (!doc || doc !== nDoc || nState !== "ok" || saving) return;
+    var next = N.remove(notes, id); saving = true;
+    commit(next, function (r) {
+      saving = false;
+      if (r.stale) { adopt(r.raw, "Notes for this file changed in another tab, so the delete was not applied. Showing the saved notes."); return; }
+      if (r.err) { nmsg(r.err); return; }
+      notes = next; nmsg(next.length ? "Note deleted." : "Note deleted. No notes are kept for this file now."); renderNotes();
+    });
   }
   function notesClose() {
-    nDoc = null; nKey = ""; notes = []; nState = "off"; pending = null; adding = false; clearArmed = false;
+    nDoc = null; nKey = ""; notes = []; nState = "off"; pending = null; adding = false; disarm(); lastRaw = null; saving = false;
     $("pdf-noteform").hidden = true; $("pdf-notetext").value = ""; nmsg(""); renderNotes();
   }
-  function notesOpen(d) {
+  function notesOpen(d, hash) {
     notesClose(); nDoc = d;
-    var fp = d.fingerprints && d.fingerprints[0];
-    if (typeof fp !== "string" || !/^[0-9a-f]{16,64}$/.test(fp)) { nmsg("Notes are not available for this file because the viewer could not identify it."); return; }
-    nKey = prefix + fp;
+    if (typeof hash !== "string" || !/^[0-9a-f]{64}$/.test(hash)) { nmsg("Notes are not available for this file because the viewer could not identify it."); return; }
+    nKey = prefix + hash;
     var raw; try { raw = localStorage.getItem(nKey); } catch (e) { nmsg("This browser will not keep notes, so notes are off."); return; }
-    if (raw === null) {
-      var count = 0; try { for (var i = 0; i < localStorage.length; i++) if ((localStorage.key(i) || "").indexOf(prefix) === 0) count++; } catch (e) { /* counted as zero */ }
-      if (count >= N.MAX_FILES) { nmsg("Notes are kept for up to " + N.MAX_FILES + " files on this device. Open a file you no longer need and use Delete all notes for this file first."); return; }
-    }
-    var l = N.load(raw);
+    if (raw === null && fileCount() >= N.MAX_FILES) { nmsg("Notes are kept for up to " + N.MAX_FILES + " files on this device. Delete the notes of a file you no longer need first, then open this file again."); return; }
+    var l = N.load(raw); lastRaw = raw;
     if (l.unreadable) { nState = "bad"; nmsg("The saved notes for this file could not be read. They were left as they are and notes are off for this file. Delete all notes for this file to start again."); nControls(); return; }
     notes = l.notes; nState = "ok"; nmsg(notes.length ? notes.length + " saved note(s) for this file on this device." : "No notes yet for this file."); renderNotes();
   }
+  function openForm(p, x, y) {
+    pending = { page: p, x: x, y: y, doc: doc };
+    $("pdf-noteformpage").textContent = String(p); $("pdf-noteform").hidden = false; $("pdf-notetext").focus(); nmsg("");
+  }
   $("pdf-addnote").addEventListener("click", function () {
     if (nState !== "ok") return; adding = !adding; pending = null; $("pdf-noteform").hidden = true;
-    nmsg(adding ? "Click the page where the note belongs." : ""); nControls();
+    nmsg(adding ? "Click the page where the note belongs. To add a note without choosing a spot, use Add a note to this page." : ""); nControls();
+  });
+  $("pdf-addpagenote").addEventListener("click", function () {
+    if (nState !== "ok" || !doc || doc !== nDoc) return; adding = false; nControls(); openForm(page, null, null);
   });
   $("pdf-pagewrap").addEventListener("click", function (e) {
     if (!adding || nState !== "ok" || !doc || doc !== nDoc) return;
     if (drawn !== page) { nmsg("Wait for the page to finish drawing, then click again."); return; }
     var r = canvas.getBoundingClientRect(); if (!(r.width > 0 && r.height > 0)) return;
-    pending = { page: page, x: (e.clientX - r.left) / r.width, y: (e.clientY - r.top) / r.height, doc: doc };
-    $("pdf-noteformpage").textContent = String(page); $("pdf-noteform").hidden = false; $("pdf-notetext").focus(); nmsg("");
+    openForm(page, (e.clientX - r.left) / r.width, (e.clientY - r.top) / r.height);
   });
   $("pdf-noteform").addEventListener("submit", function (e) {
     e.preventDefault();
-    if (!pending || pending.doc !== doc || doc !== nDoc || nState !== "ok") { nmsg("That page changed. Click the page again."); return; }
+    if (saving) return;
+    if (!pending || pending.doc !== doc || doc !== nDoc || nState !== "ok") { nmsg("That page changed. Start the note again."); return; }
     var res = N.add(notes, pending.page, pending.x, pending.y, $("pdf-notetext").value);
     if (res.error) { nmsg(res.error); return; }
-    if (!persist(res.notes)) { nmsg("This browser would not save the note, so it was not added."); return; }
-    notes = res.notes; pending = null; adding = false; $("pdf-noteform").hidden = true; $("pdf-notetext").value = "";
-    nmsg("Note saved on this device."); renderNotes();
+    saving = true;
+    commit(res.notes, function (r) {
+      saving = false;
+      if (r.stale) { adopt(r.raw, "Notes for this file changed in another tab, so your note was not saved. Your text is still in the box; save it again to add it to the current notes."); return; }
+      if (r.err) { nmsg(r.err); return; }
+      notes = res.notes; pending = null; adding = false; $("pdf-noteform").hidden = true; $("pdf-notetext").value = "";
+      nmsg("Note saved on this device."); renderNotes();
+    });
   });
   $("pdf-notecancel").addEventListener("click", function () { pending = null; adding = false; $("pdf-noteform").hidden = true; $("pdf-notetext").value = ""; nmsg(""); nControls(); });
   $("pdf-exportnotes").addEventListener("click", function () {
@@ -194,11 +234,19 @@
     nmsg("Notes downloaded as a text file. The PDF itself was not changed.");
   });
   $("pdf-clearnotes").addEventListener("click", function () {
-    if (!doc || doc !== nDoc || !(nState === "ok" || nState === "bad")) return;
-    if (!clearArmed) { clearArmed = true; nmsg("Press Delete all notes for this file again to remove them from this device."); return; }
-    clearArmed = false;
+    if (!doc || doc !== nDoc || !(nState === "ok" || nState === "bad") || saving) return;
+    if (!clearArmed) {
+      clearArmed = true; clearTimer = setTimeout(function () { disarm(); nmsg("Delete all notes was cancelled."); }, 6000);
+      nmsg("Press Delete all notes for this file again within 6 seconds to remove them from this device."); return;
+    }
+    disarm();
     try { localStorage.removeItem(nKey); } catch (x) { nmsg("This browser would not remove them."); return; }
-    notes = []; nState = "ok"; nmsg("All notes for this file were deleted from this device."); renderNotes();
+    notes = []; nState = "ok"; lastRaw = null; nmsg("All notes for this file were deleted from this device."); renderNotes();
+  });
+  // Another tab of this browser changed this file's notes: show what is stored now.
+  window.addEventListener("storage", function (e) {
+    if (!doc || doc !== nDoc || !nKey || e.key !== nKey || e.storageArea !== localStorage) return;
+    adopt(e.newValue, "Notes for this file were changed in another tab. Showing the saved notes.");
   });
   function go(p) { if (!doc) return; page = C.pageIndex(p, 0, doc.numPages); controls(); draw(); }
   function closeDoc(msg) {
@@ -209,12 +257,13 @@
     controls(); status.textContent = msg || "";
   }
   function open(buf, name, mine) {
+    var hashed = N.sha256Hex(buf).catch(function () { return ""; }); // taken before the reader can take the bytes
     loadLib().then(function (m) {
       var t = m.getDocument({ data: new Uint8Array(buf), isEvalSupported: false, disableAutoFetch: true, disableStream: true, standardFontDataUrl: BASE + "standard_fonts/" });
       return t.promise.then(function (d) { return { d: d, t: t }; }, function (e) { try { t.destroy(); } catch (x) { /* gone */ } throw e; });
-    }).then(function (r) {
+    }).then(function (r) { return hashed.then(function (h) { r.h = h; return r; }); }).then(function (r) {
       if (!seq.current(mine)) { try { r.t.destroy(); } catch (x) { /* superseded by a newer open */ } return; }
-      var d = r.d; closeDoc(""); doc = d; loadTask = r.t; page = 1; zoom = 1; $("pdf-name").textContent = name; notesOpen(d); controls(); draw();
+      var d = r.d; closeDoc(""); doc = d; loadTask = r.t; page = 1; zoom = 1; $("pdf-name").textContent = name; notesOpen(d, r.h); controls(); draw();
     }).catch(function (e) {
       if (!seq.current(mine)) return;
       status.textContent = e && e.name === "PasswordException" ? "This PDF is password protected. Password files are not supported yet." : e && e.name === "InvalidPDFException" ? "That PDF is damaged or not readable." : "The viewer could not open that file.";
