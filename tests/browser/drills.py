@@ -2310,32 +2310,41 @@ def sheets_grid(ctx):  # noqa: C901
         )
         return r[1] >= r[0] - 1 and r[2] <= r[3], r
 
-    pg.locator('input[data-addr="A90"]').scroll_into_view_if_needed()
-    pg.click('input[data-addr="A90"]')
-    worst = []
-    for _ in range(12):
-        pg.keyboard.press("ArrowUp")
-        pg.wait_for_timeout(80)
-        okv, r = visible_below_bar(pg)
-        if not okv:
-            worst.append(r)
+    def from_top_edge(pgx, addr, key):
+        # Put the cell at the top visible edge (just below the bar), focus it without scrolling, then cross to the row above.
+        pgx.evaluate(
+            "(function(a){var e=document.querySelector('input[data-addr='+a+']');e.scrollIntoView({block:'start'});e.focus({preventScroll:true});})(%s)"
+            % json.dumps(addr)
+        )
+        pgx.wait_for_timeout(120)
+        before_ok, r0 = visible_below_bar(pgx)
+        pgx.keyboard.press(key)
+        pgx.wait_for_timeout(120)
+        after_ok, r1 = visible_below_bar(pgx)
+        return before_ok, after_ok, r0, r1
+
+    bad_up, bad_tab = [], []
+    for a in ("A85", "A70", "A55"):
+        b_ok, a_ok, r0, r1 = from_top_edge(pg, a, "ArrowUp")
+        if not (b_ok and a_ok and r1[4] != r0[4]):
+            bad_up.append((a, r0, r1))
+        b_ok, a_ok, r0, r1 = from_top_edge(pg, a, "Shift+Tab")
+        if not (b_ok and a_ok and r1[4] != r0[4]):
+            bad_tab.append((a, r0, r1))
+    if SHOTS:
+        from_top_edge(pg, "A40", "Shift+Tab")
+        pg.screenshot(
+            path=os.path.join(SHOTS, "sheets-sticky-63-phone-shifttab.png"), full_page=False
+        )
     check(
-        "grid: at 390 px ArrowUp keeps each focused cell below the formula bar",
-        not worst,
-        str(worst[:2]),
+        "grid: at 390 px ArrowUp from the top visible row crosses up and stays below the bar",
+        not bad_up,
+        str(bad_up[:1]),
     )
-    worst = []
-    pg.click('input[data-addr="A80"]')
-    for _ in range(5):
-        pg.keyboard.press("Shift+Tab")
-        pg.wait_for_timeout(80)
-        okv, r = visible_below_bar(pg)
-        if not okv:
-            worst.append(r)
     check(
-        "grid: at 390 px Shift+Tab keeps the focused cell below the formula bar",
-        not worst,
-        str(worst[:2]),
+        "grid: at 390 px Shift+Tab from column A at the top visible row crosses up and stays below the bar",
+        not bad_tab,
+        str(bad_tab[:1]),
     )
     check(
         "grid: the formula bar height is measured, not fixed",
