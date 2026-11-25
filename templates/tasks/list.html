@@ -23,7 +23,7 @@
     <span class="task-title">{{ t.title }}</span>
     {% if t.due_date %}<span class="task-meta">Due {{ t.due_date|date:"j M Y" }}</span>{% endif %}
     {% if t.assignee %}<span class="task-meta">Given to {{ t.assignee.full_name }}</span>{% endif %}
-    <form method="post" action="{% url 'tasks:delete' t.public_id %}" class="tasks-inline">{% csrf_token %}<button class="btn btn-outline btn-small" type="submit">Delete</button></form>
+    <a class="btn btn-outline btn-small" href="{% url 'tasks:delete' t.public_id %}">Delete</a>
     {% if not subs and not t.assignee %}
     <form method="post" action="{% url 'tasks:assign' t.public_id %}" class="tasks-inline">{% csrf_token %}
       <input type="text" name="employee_id" placeholder="Employee ID" aria-label="Give to employee ID" required>
@@ -38,7 +38,7 @@
     <form method="post" action="{% url 'tasks:toggle' s.public_id %}" class="tasks-inline">{% csrf_token %}
       <button class="task-check" type="submit" aria-label="{% if s.status == 'completed' %}Mark open{% else %}Mark done{% endif %}">{% if s.status == 'completed' %}&#10003;{% else %}&#9675;{% endif %}</button></form>
     <span class="task-title">{{ s.title }}</span>
-    <form method="post" action="{% url 'tasks:delete' s.public_id %}" class="tasks-inline">{% csrf_token %}<button class="btn btn-outline btn-small" type="submit">Delete</button></form>
+    <a class="btn btn-outline btn-small" href="{% url 'tasks:delete' s.public_id %}">Delete</a>
   </div>
   {% endfor %}
   {% if not t.assignee %}
@@ -48,7 +48,7 @@
     <button class="btn btn-outline btn-small" type="submit">Add</button></form>
   {% endif %}
   {% empty %}<div class="tasks-empty">No tasks yet.</div>{% endfor %}
-  <form method="post" action="{% url 'tasks:delete_list' tl.public_id %}" class="tasks-foot">{% csrf_token %}<button class="btn btn-outline btn-small" type="submit">Delete this list</button></form>
+  <div class="tasks-foot"><a class="btn btn-outline btn-small" href="{% url 'tasks:delete_list' tl.public_id %}">Delete this list</a></div>
   {% else %}<div class="tasks-empty">Create a list to start.</div>{% endif %}
 </div>
 {% endblock %}

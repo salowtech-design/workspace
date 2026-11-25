@@ -54,6 +54,7 @@ urlpatterns = [
     path("auth/", include("apps.accounts.urls", namespace="accounts")),
     path("directory/", include("apps.directory.urls", namespace="directory")),
     path("drive/", include("apps.drive.urls", namespace="drive")),
+    path("tasks/", include("apps.tasks.urls", namespace="tasks")),
     path("attendance/", include("apps.attendance.urls", namespace="attendance")),
     path("posts/", include("apps.posts.urls", namespace="posts")),
     path("certificates/", include("apps.certificates.urls", namespace="certificates")),

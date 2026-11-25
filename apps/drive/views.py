@@ -164,7 +164,7 @@ SHARE_LIMIT = 30  # share/unshare actions per person per window
 SHARE_WINDOW_SECONDS = 60
 
 
-def _share_throttled(user):
+def _share_throttled(user, prefix="drive-share"):
     """Per-person durable counter on the shared RateLimitBucket table (row-locked, so it holds across workers)."""
     from datetime import timedelta
 
@@ -173,7 +173,7 @@ def _share_throttled(user):
 
     from apps.core.models import RateLimitBucket
 
-    key = f"drive-share:{user.pk}"
+    key = f"{prefix}:{user.pk}"
     now = timezone.now()
     for _ in range(2):
         with transaction.atomic():

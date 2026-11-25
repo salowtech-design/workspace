@@ -57,7 +57,14 @@ class HostSecurityIsolationMiddleware:
             request.iam_admin = iam_session.iam_admin if iam_session else None
 
             # Workspace application modules are strictly prohibited on iam.salowtech.com
-            workspace_prefixes = ("/attendance", "/posts", "/directory", "/certificates", "/drive")
+            workspace_prefixes = (
+                "/attendance",
+                "/posts",
+                "/directory",
+                "/certificates",
+                "/drive",
+                "/tasks",
+            )
             if any(path.startswith(prefix) for prefix in workspace_prefixes):
                 return HttpResponseNotFound(
                     "Workspace applications are not accessible on iam.salowtech.com."

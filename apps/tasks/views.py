@@ -1,4 +1,5 @@
 import datetime
+import uuid
 
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
@@ -6,7 +7,7 @@ from django.core.exceptions import PermissionDenied, ValidationError
 from django.db.models.functions import Upper
 from django.http import Http404
 from django.shortcuts import get_object_or_404, redirect, render
-from django.views.decorators.http import require_POST
+from django.views.decorators.http import require_http_methods, require_POST
 
 from apps.accounts.models import CustomUser
 from apps.core.foundation.permissions import can
@@ -98,6 +99,10 @@ def add_task(request, list_id):
     parent = None
     pid = request.POST.get("parent", "")
     if pid:
+        try:
+            pid = uuid.UUID(pid)
+        except ValueError:
+            raise Http404 from None
         parent = get_object_or_404(Task, public_id=pid, task_list=tl, deleted_at__isnull=True)
     try:
         due = _date(request.POST.get("due"))
@@ -110,9 +115,13 @@ def add_task(request, list_id):
 
 
 @login_required
-@require_POST
+@require_http_methods(["GET", "POST"])
 def delete_list(request, list_id):
     tl = _list_or_404(request.user, list_id, "delete")
+    if request.method == "GET" or request.POST.get("confirm") != "yes":
+        n = Task.objects.filter(task_list=tl, deleted_at__isnull=True).count()
+        return render(request, "tasks/confirm.html", {"what": "list", "name": tl.name, "extra": n,
+                      "post_url": request.path, "back": redirect("tasks:list", list_id=tl.public_id).url, "tab": "mine"})  # fmt: skip
     _run(request, svc.delete_list, request.user, tl, ok="List deleted.")
     return redirect("tasks:home")
 
@@ -137,7 +146,7 @@ def edit(request, task_id):
     task = svc.get_task(request.user, task_id, "edit")
     try:
         version = int(request.POST.get("version", ""))
-        changes = {"title": request.POST.get("title", ""), "notes": request.POST.get("notes", "")}
+        changes = {k: request.POST[k] for k in ("title", "notes") if k in request.POST}
         if "due" in request.POST:
             changes["due_date"] = _date(request.POST.get("due"))
     except (ValueError, ValidationError) as exc:
@@ -149,24 +158,48 @@ def edit(request, task_id):
     return _back(request, task)
 
 
+ASSIGN_LIMIT = 30  # give actions per person per minute (shares the Drive limiter)
+NEUTRAL = "That person cannot be given tasks. Check the employee ID."
+
+
 @login_required
 @require_POST
 def assign_task(request, task_id):
+    from apps.drive.views import _share_throttled
+
     task = svc.get_task(request.user, task_id, "assign")
+    if _share_throttled(request.user, prefix="tasks-assign"):
+        messages.error(request, "Too many changes in a minute. Wait and try again.")
+        return _back(request, task)
     eid = (request.POST.get("employee_id") or "").strip()
     person = None
     if eid:
-        person = CustomUser.objects.annotate(u=Upper("employee_id")).filter(u=eid.upper()).first()
+        person = (
+            CustomUser.objects.annotate(u=Upper("employee_id"))
+            .filter(u=eid.upper(), is_active=True, status="active")
+            .first()
+        )
         if person is None:
-            messages.error(request, "No person with that employee ID.")
+            messages.error(request, NEUTRAL)  # same words for unknown, inactive and refused
             return _back(request, task)
-    _run(request, svc.assign, request.user, task, person, ok="Assignment saved.")
+    try:
+        svc.assign(request.user, task, person)
+        messages.success(request, "Assignment saved.")
+    except ValidationError as exc:
+        text = " ".join(exc.messages)
+        messages.error(request, NEUTRAL if "not active" in text else text)
+    except PermissionDenied:
+        messages.error(request, "You do not have permission to do that.")
     return _back(request, task)
 
 
 @login_required
-@require_POST
+@require_http_methods(["GET", "POST"])
 def delete_task(request, task_id):
     task = svc.get_task(request.user, task_id, "delete")
+    kids = task.subtasks.filter(deleted_at__isnull=True).count()
+    if request.method == "GET" or request.POST.get("confirm") != "yes":
+        return render(request, "tasks/confirm.html", {"what": "task", "name": task.title, "extra": kids,
+                      "post_url": request.path, "back": _back(request, task).url, "tab": "mine"})  # fmt: skip
     _run(request, svc.delete_task, request.user, task, ok="Task deleted.")
     return _back(request, task)
