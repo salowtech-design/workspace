@@ -2,7 +2,7 @@
 Unit Tests for Attendance Tracking, Fallback Workflows, Corrections, and Reports.
 """
 
-from datetime import timedelta
+from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -150,6 +150,39 @@ class TestManualFallbackWorkflow:
         )
         assert req.status == AttendanceFallbackRequest.Status.PENDING
         assert req.user == employee
+
+    @pytest.mark.parametrize(
+        ("instant_utc", "kolkata_date"),
+        [
+            # 00:30 IST on 26 Nov is still 25 Nov in UTC: the business date is the IST one
+            (datetime(2026, 11, 25, 19, 0, tzinfo=ZoneInfo("UTC")), date(2026, 11, 26)),
+            # 23:59 IST on 25 Nov
+            (datetime(2026, 11, 25, 18, 29, tzinfo=ZoneInfo("UTC")), date(2026, 11, 25)),
+            # 12:00 IST, UTC and IST agree
+            (datetime(2026, 11, 26, 6, 30, tzinfo=ZoneInfo("UTC")), date(2026, 11, 26)),
+        ],
+    )
+    def test_fallback_date_follows_kolkata_at_fixed_instants(
+        self, employee, instant_utc, kolkata_date
+    ):
+        """Fixed instants, so the result does not depend on when the suite runs."""
+        wrong_date = kolkata_date + timedelta(days=1)
+        with pytest.raises(ValidationError, match="does not match"):
+            create_fallback_request(
+                user=employee,
+                request_type=AttendanceFallbackRequest.RequestType.CHECK_IN,
+                work_date=wrong_date,
+                requested_time=instant_utc,
+                reason="Boundary check",
+            )
+        req = create_fallback_request(
+            user=employee,
+            request_type=AttendanceFallbackRequest.RequestType.CHECK_IN,
+            work_date=kolkata_date,
+            requested_time=instant_utc,
+            reason="Boundary check",
+        )
+        assert req.work_date == kolkata_date
 
     def test_fallback_request_requires_reason(self, employee):
         """Empty reason is rejected."""
