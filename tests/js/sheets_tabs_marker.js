@@ -1,0 +1,21 @@
+// The previous tab-list reader (saved copy of model.js at 3d0df75) must refuse a version 2 list, and the new reader keeps v1 working.
+const Old = require("./fixtures/sheets_model_grid8x20.js");
+const M = require("../../static/sheets/model.js");
+let fails = 0, n = 0;
+const ok = (d, c) => { n++; if (!c) { fails++; console.log("FAIL", d); } };
+let m = M.addTab(M.loadTabs(null).meta); m = M.addTab(m);
+ok("a formatless list stays version 1", m.v === 1 && JSON.parse(JSON.stringify(m)).v === 1);
+const marked = M.markFmt(m);
+ok("marking gives version 2 and keeps tabs and active", marked.v === 2 && marked.active === m.active && JSON.stringify(marked.tabs) === JSON.stringify(m.tabs));
+ok("the marker survives add, rename, delete and active change", [M.addTab(marked), M.renameTab(marked, marked.tabs[0].id, "Zed").meta, M.deleteTab(marked, marked.tabs[1].id).meta, M.setActive(marked, marked.tabs[0].id)].every((x) => x.v === 2));
+const raw = JSON.stringify(marked);
+const rn = M.loadTabs(raw);
+ok("new reader reads version 2", !rn.unreadable && rn.meta.v === 2 && rn.meta.tabs.length === 3);
+ok("new reader reads a stored version 1 list", !M.loadTabs(JSON.stringify(m)).unreadable && M.loadTabs(JSON.stringify(m)).meta.v === 1);
+const ro = Old.loadTabs(raw);
+ok("previous reader refuses version 2 as unreadable", ro.unreadable === true);
+ok("the previous reader's fallback is only the default tab list (it never rewrites the stored record)", ro.meta.tabs.length === 1 && ro.meta.tabs[0].id === "t0");
+ok("previous reader reads version 1 as before", !Old.loadTabs(JSON.stringify(m)).unreadable);
+ok("new reader still refuses version 3", M.loadTabs(JSON.stringify(Object.assign({}, marked, { v: 3 }))).unreadable);
+console.log(n - fails + "/" + n + " tab marker rows passed");
+process.exit(fails ? 1 : 0);

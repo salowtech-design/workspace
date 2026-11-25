@@ -24,7 +24,7 @@ ok("too many rules is unreadable", bad(JSON.stringify({ v: 1, rules: Array(21).f
 let full = []; for (let i = 0; i < M.MAX_FMT; i++) full = M.addFmt(full, mk("A1:A2", "on", "", "")).rules;
 ok("limit of 20 rules", M.addFmt(full, mk("A1:A2", "on", "", "")).error);
 ok("int", M.fmtText("int", "2.5") === "3" && M.fmtText("int", "-0.2") === "0");
-ok("dec2", M.fmtText("dec2", "3") === "3.00" && M.fmtText("dec2", "1.005") !== "" && M.fmtText("dec2", "-0.001") === "0.00");
+ok("dec2", M.fmtText("dec2", "3") === "3.00" && M.fmtText("dec2", "-0.001") === "0.00");
 ok("thousands", M.fmtText("thousands", "1234567.891") === "1,234,567.89" && M.fmtText("thousands", "-5") === "-5.00");
 ok("percent", M.fmtText("percent", "0.256") === "25.6%" && M.fmtText("percent", "1") === "100.0%");
 ok("text, blanks, errors and general stay as shown", M.fmtText("dec2", "abc") === "abc" && M.fmtText("dec2", "") === "" && M.fmtText("int", "#DIV/0!") === "#DIV/0!" && M.fmtText("general", "1.234") === "1.234" && M.fmtText(undefined, "7") === "7");

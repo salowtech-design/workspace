@@ -154,21 +154,25 @@
   var MAX_TABS = 10, NAME_MAX = 30, TAB_ID = /^t[0-9]{1,6}$/;
   function cleanName(n) { if (typeof n !== "string") return ""; var t = n.replace(/\s+/g, " ").trim(); return t.length <= NAME_MAX ? t : Array.from(t).slice(0, NAME_MAX).join("").trim(); }
   function defaultTabs() { return { v: 1, active: "t0", tabs: [{ id: "t0", name: "Sheet 1" }] }; }
-  function cloneMeta(m) { return { v: 1, active: m.active, tabs: m.tabs.map(function (t) { return { id: t.id, name: t.name }; }) }; }
+  function cloneMeta(m) { return { v: m.v === 2 ? 2 : 1, active: m.active, tabs: m.tabs.map(function (t) { return { id: t.id, name: t.name }; }) }; }
   // raw is the stored string or null. A stored value that cannot be read is reported, never treated as empty.
   function loadTabs(raw) {
     if (raw === null || raw === undefined || raw === "") return { meta: defaultTabs(), unreadable: false };
     var m = null; try { m = JSON.parse(raw); } catch (e) { m = null; }
     var bad = { meta: defaultTabs(), unreadable: true };
-    if (!m || typeof m !== "object" || m.v !== 1 || !Array.isArray(m.tabs) || !m.tabs.length || m.tabs.length > MAX_TABS) return bad;
+    if (!m || typeof m !== "object" || (m.v !== 1 && m.v !== 2) || !Array.isArray(m.tabs) || !m.tabs.length || m.tabs.length > MAX_TABS) return bad;
     var seen = Object.create(null), names = Object.create(null), out = [];
     for (var i = 0; i < m.tabs.length; i++) {
       var t = m.tabs[i], nm = t && cleanName(t.name);
       if (!t || typeof t.id !== "string" || !TAB_ID.test(t.id) || seen[t.id] || !nm || names[nm.toLowerCase()]) return bad;
       seen[t.id] = true; names[nm.toLowerCase()] = true; out.push({ id: t.id, name: nm });
     }
-    return { meta: { v: 1, active: seen[m.active] ? m.active : out[0].id, tabs: out }, unreadable: false };
+    return { meta: { v: m.v, active: seen[m.active] ? m.active : out[0].id, tabs: out }, unreadable: false };
   }
+  // Version 2 of the tab list means "this file uses cell formats". Code from before formats existed only reads version 1, so it
+  // refuses a version 2 list (tab changes off, nothing rewritten) instead of reusing ids whose format rules it cannot see.
+  // The marker is set the first time a format rule is saved and is never lowered.
+  function markFmt(m) { var n = cloneMeta(m); n.v = 2; return n; }
   function nameTaken(meta, name, exceptId) { var l = name.toLowerCase(); return meta.tabs.some(function (t) { return t.id !== exceptId && t.name.toLowerCase() === l; }); }
   // inUse(id) is optional: ids whose stored cells still exist (for example after a failed removal) are never handed out again.
   function addTab(meta, inUse) {
@@ -400,6 +404,6 @@
     });
     return { groups: out, skipped: skipped, rows: rows };
   }
-  var api = { parseRange: parseRange, makeRule: makeRule, addRule: addRule, removeRule: removeRule, loadRules: loadRules, rulesJson: rulesJson, checkValue: checkValue, makePivot: makePivot, pivot: pivot, MAX_GROUPS: MAX_GROUPS, makeCf: makeCf, addCf: addCf, loadCf: loadCf, cfJson: cfJson, cfColor: cfColor, makeFmt: makeFmt, addFmt: addFmt, loadFmt: loadFmt, fmtJson: fmtJson, fmtFor: fmtFor, fmtText: fmtText, MAX_FMT: MAX_FMT, MAX_RULES: MAX_RULES, loadTabs: loadTabs, addTab: addTab, renameTab: renameTab, deleteTab: deleteTab, setActive: setActive, cleanName: cleanName, MAX_TABS: MAX_TABS, sortRange: sortRange, filterRows: filterRows, toNum: toNum, toCsv: toCsv, clean: clean, History: History, chartPoints: chartPoints, pieSlices: pieSlices, isComposing: isComposing, keyMove: keyMove, copy: copy, same: same };
+  var api = { parseRange: parseRange, makeRule: makeRule, addRule: addRule, removeRule: removeRule, loadRules: loadRules, rulesJson: rulesJson, checkValue: checkValue, makePivot: makePivot, pivot: pivot, MAX_GROUPS: MAX_GROUPS, makeCf: makeCf, addCf: addCf, loadCf: loadCf, cfJson: cfJson, cfColor: cfColor, makeFmt: makeFmt, addFmt: addFmt, loadFmt: loadFmt, fmtJson: fmtJson, fmtFor: fmtFor, fmtText: fmtText, MAX_FMT: MAX_FMT, MAX_RULES: MAX_RULES, loadTabs: loadTabs, addTab: addTab, markFmt: markFmt, renameTab: renameTab, deleteTab: deleteTab, setActive: setActive, cleanName: cleanName, MAX_TABS: MAX_TABS, sortRange: sortRange, filterRows: filterRows, toNum: toNum, toCsv: toCsv, clean: clean, History: History, chartPoints: chartPoints, pieSlices: pieSlices, isComposing: isComposing, keyMove: keyMove, copy: copy, same: same };
   if (typeof module !== "undefined" && module.exports) module.exports = api; else root.SalowSheetModel = api;
 })(typeof self !== "undefined" ? self : this);

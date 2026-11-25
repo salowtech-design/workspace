@@ -1366,12 +1366,44 @@ def sheets_format(ctx):  # noqa: C901
         pgx.select_option("#fmt-nf", nf)
         pgx.click("#fmt-add")
 
+    ver = "(JSON.parse(localStorage.getItem(%s+'.tabs')||'{\"v\":1}')).v" % KEYJS
+    setc(pg, "A1", "1234.5")
+    check(
+        "format: a sheet without formats keeps a version 1 tab list",
+        pg.evaluate(ver) == 1,
+        str(pg.evaluate(ver)),
+    )
+    # First use is failure-safe: if the tab list cannot be marked, no format rule is stored.
+    pg.click("#tab-add")
+    pg.wait_for_timeout(100)
+    pg.evaluate(
+        "(function(){var o=Storage.prototype.setItem;window.__o=o;Storage.prototype.setItem=function(k,v){if(/[.]tabs$/.test(k))throw new Error('full');return o.call(this,k,v);};})();0"
+    )
+    addfmt(pg, "A1:A2", "on", "", "")
+    check(
+        "format: if the tab list cannot be marked, no format rule is stored",
+        pg.evaluate(
+            "Object.keys(localStorage).filter(function(k){return /[.]fmt$/.test(k)}).length"
+        )
+        == 0
+        and "not saved" in pg.inner_text("#fmt-status")
+        and pg.evaluate(ver) == 1,
+        pg.inner_text("#fmt-status"),
+    )
+    pg.evaluate("Storage.prototype.setItem=window.__o;0")
+    pg.click("#tab-del") if False else None
+    pg = fresh(ctx, "/sheets/")
     setc(pg, "A1", "1234.5")
     setc(pg, "A2", "0.256")
     setc(pg, "A3", "=A1*2")
     setc(pg, "A4", "text")
     setc(pg, "Z100", "9")
     addfmt(pg, "A1:A4", "on", "right", "thousands")
+    check(
+        "format: first use marks the tab list version 2",
+        pg.evaluate(ver) == 2,
+        str(pg.evaluate(ver)),
+    )
     check(
         "format: a number shows with the thousands format",
         shown(pg, "A1") == "1,234.50" and shown(pg, "A3") == "2,469.00",
@@ -1416,6 +1448,26 @@ def sheets_format(ctx):  # noqa: C901
         pg.inner_text("#fmt-status"),
     )
     pg.click("#fmt-add")
+    with pg.expect_download() as dj:
+        pg.click("#sheet-export")
+    exp = open(dj.value.path()).read()
+    check(
+        "format: the JSON export holds the typed values and no format",
+        '"1234.5"' in exp
+        and "1,234" not in exp
+        and "25.6" not in exp
+        and "bold" not in exp
+        and "thousands" not in exp,
+        exp[:160],
+    )
+    with pg.expect_download() as dc:
+        pg.click("#sheet-csv")
+    csv = open(dc.value.path()).read()
+    check(
+        "format: the CSV holds the unformatted values",
+        "1234.5" in csv and "2469" in csv and "1,234" not in csv and "%" not in csv,
+        csv[:160],
+    )
     stored = pg.evaluate(
         "JSON.parse(localStorage.getItem(%s+'.tab.t0')||localStorage.getItem(%s))" % (KEYJS, KEYJS)
     )
@@ -1459,6 +1511,38 @@ def sheets_format(ctx):  # noqa: C901
     with pg.expect_download() as dl:
         pg.click("#fmt-raw")
     check("format: damaged rules download as stored", open(dl.value.path()).read() == "{bad")
+    # A window opened before the marker was set must not lower it when it later changes the tab list.
+    pg = fresh(ctx, "/sheets/")
+    pg.reload()
+    pg.wait_for_timeout(300)
+    pg.evaluate("localStorage.removeItem(%s+'.fmt'); 0" % KEYJS)
+    pg.evaluate(
+        '(function(){var k=%s+\'.tabs\';var m=JSON.parse(localStorage.getItem(k)||\'{"v":1,"active":"t0","tabs":[{"id":"t0","name":"Sheet 1"}]}\');m.v=1;localStorage.setItem(k,JSON.stringify(m));})();0'
+        % KEYJS
+    )
+    pg.reload()
+    pg.wait_for_timeout(300)
+    check(
+        "format: the stale-window setup starts at version 1",
+        pg.evaluate(ver) == 1,
+        str(pg.evaluate(ver)),
+    )
+    p3 = ctx.new_page()
+    p3.goto(APP + "/sheets/")
+    p3.wait_for_timeout(400)
+    addfmt(p3, "A1:A2", "on", "", "")
+    check("format: the second window marked the list", p3.evaluate(ver) == 2, str(p3.evaluate(ver)))
+    p3.close()
+    pg.click("#tab-rename")
+    pg.wait_for_timeout(100)
+    msg_stale = pg.inner_text("#tab-status")
+    pg.click("#tab-add")
+    pg.wait_for_timeout(200)
+    check(
+        "format: a window that still thinks the list is version 1 never lowers the marker",
+        pg.evaluate(ver) == 2,
+        str(pg.evaluate(ver)) + " " + msg_stale + " " + pg.inner_text("#tab-status"),
+    )
     # Tab paths.
     pg = fresh(ctx, "/sheets/")
     pg.click("#tab-add")

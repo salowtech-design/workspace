@@ -304,6 +304,8 @@
     if (fmtLocked || !next) return;
     var lt = null; try { lt = M.loadTabs(localStorage.getItem(KEY + ".tabs")); } catch (e) { lt = null; }
     if (!lt || lt.unreadable || !lt.meta.tabs.some(function (t) { return t.id === meta.active; })) { $("fmt-status").textContent = "This tab was deleted or changed in another window, or the tab list cannot be read, so the format rules were not changed. Reload this page."; return; }
+    // First use: mark the tab list (version 2) before any format rule is stored, so a failure here leaves no format rule behind.
+    if (next.length && meta.v !== 2) { var mk = M.markFmt(meta); if (!commitMeta(mk)) { $("fmt-status").textContent = "The tab list could not be marked for formats, so the format rule was not saved. " + tabMsg.textContent; return; } }
     try { if (next.length) localStorage.setItem(fmtKey(meta.active), M.fmtJson(next)); else localStorage.removeItem(fmtKey(meta.active)); }
     catch (e) { $("fmt-status").textContent = "This browser would not store the format rules, so nothing was changed."; return; }
     fmtRules = next; renderFmt(); show(); $("fmt-status").textContent = msg;
@@ -402,6 +404,7 @@
     var curRaw = null, readOk = true; try { curRaw = localStorage.getItem(KEY + ".tabs"); } catch (e) { readOk = false; }
     var other = readOk ? M.loadTabs(curRaw) : null;
     if (!other || other.unreadable || JSON.stringify(other.meta.tabs) !== JSON.stringify(meta.tabs)) { tabMsg.textContent = "The tab list was changed in another window or tab of this browser. Reload this page to continue. Nothing was changed here."; return false; }
+    if (other.meta.v === 2 && next.v !== 2) next = M.markFmt(next);  // a window opened before the marker was set must not lower it
     if (!saveMeta(next)) { tabMsg.textContent = "This browser would not store the tab list, so nothing was changed."; return false; }
     meta = next; return true;
   }
@@ -466,6 +469,7 @@
     var nm = lastDeleted.name, rn = M.renameTab(next, next.active, nm); if (!rn.error) next = rn.meta;
     var key = tabKey(next.active);
     try { localStorage.setItem(key, JSON.stringify(lastDeleted.cells)); } catch (e) { tabMsg.textContent = "This browser would not store the restored tab, so nothing was restored. The deleted tab is still kept until you reload."; return; }
+    if (lastDeleted.extras[2] && next.v !== 2) next = M.markFmt(next);
     var done = [key];
     function undoAll() { try { done.forEach(function (k) { localStorage.removeItem(k); }); } catch (e2) { /* nothing else points at these keys */ } }
     for (var xi = 0; xi < EXTRAS.length; xi++) {
