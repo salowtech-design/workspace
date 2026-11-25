@@ -853,6 +853,18 @@ def slides_pdf(ctx):
             False,
             "pdfinfo/pdftotext missing",
         )
+    # A failure while handing the file to the browser must not leave the button stuck.
+    pg.evaluate(
+        "window.__cou=URL.createObjectURL;URL.createObjectURL=function(){throw new Error('blocked')};0"
+    )
+    pg.click("#sl-pdf")
+    pg.wait_for_timeout(500)
+    check(
+        "slides pdf: a failed download hand-off says so and re-enables the button",
+        "nothing was downloaded" in pg.inner_text("#sl-status") and not pg.is_disabled("#sl-pdf"),
+        pg.inner_text("#sl-status"),
+    )
+    pg.evaluate("URL.createObjectURL=window.__cou;0")
     before = len(got)
     pg.click("#sl-list button:nth-child(1)")
     pg.click("#sl-add-text")
@@ -874,10 +886,74 @@ def slides_pdf(ctx):
     check("slides pdf: the button works again after a refusal", not pg.is_disabled("#sl-pdf"))
 
 
+def slides_pdf_theme(ctx):
+    import shutil
+    import subprocess
+
+    pg = fresh(ctx, "/slides/")
+    pg.select_option("#sl-theme", "dark")
+    pg.click("#sl-add-text")
+    pg.fill("#sl-text", "Quarterly results were strong across every region this year and next")
+    pg.press("#sl-text", "Tab")
+    pg.fill("#sl-w", "420")
+    pg.press("#sl-w", "Tab")
+    pg.fill("#sl-h", "120")
+    pg.press("#sl-h", "Tab")
+    pg.click("#sl-add-ellipse")
+    pg.fill("#sl-text", "Long label inside a round shape that wraps")
+    pg.press("#sl-text", "Tab")
+    pg.fill("#sl-x", "520")
+    pg.press("#sl-x", "Tab")
+    pg.fill("#sl-y", "280")
+    pg.press("#sl-y", "Tab")
+    pg.fill("#sl-w", "320")
+    pg.press("#sl-w", "Tab")
+    pg.fill("#sl-h", "200")
+    pg.press("#sl-h", "Tab")
+    pg.fill("#sl-size", "24")
+    pg.press("#sl-size", "Tab")
+    if SHOTS:
+        pg.locator("#sl-canvas-wrap").screenshot(
+            path=os.path.join(SHOTS, "slides-pdf-53-dark-screen.png")
+        )
+    with pg.expect_download() as dl:
+        pg.click("#sl-pdf")
+    path = dl.value.path()
+    if not (shutil.which("pdftotext") and shutil.which("pdftoppm")):
+        check("slides pdf theme: poppler tools available", False, "missing")
+        return
+    txt = subprocess.run(["pdftotext", path, "-"], capture_output=True, text=True).stdout
+    words = " ".join(txt.split())
+    check(
+        "slides pdf theme: all the wrapped text is in the file",
+        "Quarterly results were strong across every region this year and next"
+        in words.replace(" \n", " ")
+        or all(w in words for w in "Quarterly results region next Long label round wraps".split()),
+        words,
+    )
+    if SHOTS:
+        subprocess.run(
+            [
+                "pdftoppm",
+                "-png",
+                "-r",
+                "60",
+                "-f",
+                "1",
+                "-l",
+                "1",
+                path,
+                os.path.join(SHOTS, "slides-pdf-52-dark"),
+            ],
+            check=False,
+        )
+
+
 DRILLS = {
     "slides_show": slides_show,
     "slides_edit": slides_edit,
     "slides_pdf": slides_pdf,
+    "slides_pdf_theme": slides_pdf_theme,
     "sheets_sort_filter": sheets_sort_filter,
     "sheets_tabs": sheets_tabs,
     "sheets_chart": sheets_chart,

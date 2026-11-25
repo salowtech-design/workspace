@@ -127,11 +127,17 @@
     var btn = $("sl-pdf"), deck = H.deck;
     if (!window.PDFLib || !window.SalowSlidesPdf) { status.textContent = "The PDF maker did not load, so no PDF was made."; return; }
     btn.disabled = true; status.textContent = "Making the PDF on this device...";
-    window.SalowSlidesPdf.build(window.PDFLib, S, deck).then(function (bytes) {
-      var u = URL.createObjectURL(new Blob([bytes], { type: "application/pdf" })), l = document.createElement("a");
-      l.href = u; l.download = "slides.pdf"; document.body.appendChild(l); l.click(); l.remove(); setTimeout(function () { URL.revokeObjectURL(u); }, 4000);
+    Promise.resolve().then(function () { return window.SalowSlidesPdf.build(window.PDFLib, S, deck); }).then(function (bytes) {
+      var u = null;
+      try {
+        u = URL.createObjectURL(new Blob([bytes], { type: "application/pdf" }));
+        var l = document.createElement("a"); l.href = u; l.download = "slides.pdf"; document.body.appendChild(l); l.click(); l.remove();
+      } catch (e) { if (u) URL.revokeObjectURL(u); throw e; }
+      setTimeout(function () { URL.revokeObjectURL(u); }, 4000);
       status.textContent = "Downloaded slides.pdf: " + deck.slides.length + " pages, one per slide. Speaker notes are not in the PDF. Line breaks follow the screen estimate, so text may sit a little differently than in the editor.";
-    }, function (err) { status.textContent = err && err.code === "chars" ? err.message : "The PDF could not be made, so nothing was downloaded."; }).then(function () { btn.disabled = false; });
+    }).catch(function (err) {
+      status.textContent = err && err.code === "chars" ? err.message : "The PDF could not be made or saved, so nothing was downloaded.";
+    }).then(function () { btn.disabled = false; }, function () { btn.disabled = false; });
   });
   $("sl-import").addEventListener("change", function (e) {
     var f = e.target.files[0]; if (!f) return;
