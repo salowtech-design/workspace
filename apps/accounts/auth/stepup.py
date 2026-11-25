@@ -131,6 +131,8 @@ def grant_sudo(request_or_user, user: Optional[CustomUser] = None) -> None:
             code="INFO",
             step="stepup",
             employee_id=target_user.employee_id,
+            # Only a request carries an authenticated session; a bare user object does not.
+            actor_employee_id=target_user.employee_id if hasattr(request_or_user, "META") else "",
             network_address=remote_ip,
             message=f"Sudo mode granted for {SUDO_WINDOW_MINUTES} minutes",
         )
@@ -174,6 +176,7 @@ def verify_stepup(request, password: str, totp_code: str = None) -> bool:
             code="AUTH-STP-001",
             step="stepup",
             employee_id=user.employee_id,
+            actor_employee_id=user.employee_id,
             network_address=request.META.get("REMOTE_ADDR"),
             message="Invalid password during step-up elevation",
         )

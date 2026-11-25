@@ -55,6 +55,7 @@ def admin_backup_run_view(request):
             code="INFO",
             step="backup_queue",
             employee_id=request.user.employee_id,
+            actor_employee_id=request.user.employee_id,
             reference_id=str(run.pk),
             message="Database backup queued",
         )
