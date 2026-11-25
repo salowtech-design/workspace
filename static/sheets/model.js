@@ -54,6 +54,35 @@
     return null;
   }
 
-  var api = { clean: clean, History: History, chartPoints: chartPoints, isComposing: isComposing, keyMove: keyMove, copy: copy, same: same };
+  // CSV of what the sheet shows (formula results, not formulas), over the box that holds every filled cell. get(addr) returns
+  // a number, boolean, string or error. Text that starts with = + - @ tab or CR gets a leading apostrophe so a spreadsheet
+  // program opening the file does not run it as a formula; numbers are written as they are.
+  var RISKY = /^[=+\-@\t\r]/;
+  function csvField(v, isErr) {
+    var t;
+    if (isErr(v)) t = String(v.code);
+    else if (typeof v === "boolean") t = v ? "TRUE" : "FALSE";
+    else if (typeof v === "number") t = Object.is(v, -0) ? "0" : String(v);
+    else { t = String(v); if (typeof v === "string" && RISKY.test(t)) t = "'" + t; }
+    return /[",\r\n]/.test(t) ? '"' + t.replace(/"/g, '""') + '"' : t;
+  }
+  function toCsv(cells, parseAddr, get, isErr) {
+    var maxC = 0, maxR = 0, any = false, guarded = 0;
+    Object.keys(cells).forEach(function (k) { var p = parseAddr(k); if (!p) return; any = true; if (p.col > maxC) maxC = p.col; if (p.row > maxR) maxR = p.row; });
+    if (!any) return null;
+    var lines = [];
+    for (var r = 1; r <= maxR; r++) {
+      var row = [];
+      for (var c = 1; c <= maxC; c++) {
+        var a = String.fromCharCode(64 + c) + r, v = has(cells, a) ? get(a) : "";
+        var f = csvField(v, isErr); if (typeof v === "string" && RISKY.test(v)) guarded++;
+        row.push(f);
+      }
+      lines.push(row.join(","));
+    }
+    return { text: lines.join("\r\n") + "\r\n", rows: maxR, cols: maxC, guarded: guarded };
+  }
+
+  var api = { toCsv: toCsv, clean: clean, History: History, chartPoints: chartPoints, isComposing: isComposing, keyMove: keyMove, copy: copy, same: same };
   if (typeof module !== "undefined" && module.exports) module.exports = api; else root.SalowSheetModel = api;
 })(typeof self !== "undefined" ? self : this);

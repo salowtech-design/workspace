@@ -12,7 +12,7 @@
 <p class="sheet-tools"><label>Formula bar <input type="text" id="sheet-bar" maxlength="2000" aria-label="Formula bar"></label> <span id="sheet-sel" class="cal-meta"></span></p>
 <p class="sheet-tools"><button class="btn" type="button" id="sheet-undo" disabled>Undo</button> <button class="btn" type="button" id="sheet-redo" disabled>Redo</button> <span class="cal-meta">Arrow keys move, Enter moves down, Esc cancels an edit, Ctrl+Z and Ctrl+Y undo and redo.</span></p>
 <div id="sheet-root" class="sheet-scroll" data-store-key="{{ store_key }}"></div>
-<p class="sheet-tools"><button class="btn" type="button" id="sheet-clear">Clear sheet (undo until reload)</button> <button class="btn" type="button" id="sheet-export">Export (.json)</button> <label>Import <input type="file" id="sheet-import" accept=".json,application/json"></label></p>
+<p class="sheet-tools"><button class="btn" type="button" id="sheet-clear">Clear sheet (undo until reload)</button> <button class="btn" type="button" id="sheet-export">Export (.json)</button> <button class="btn" type="button" id="sheet-csv">Download values (.csv)</button> <label>Import <input type="file" id="sheet-import" accept=".json,application/json"></label></p>
 <p class="cal-meta" id="sheet-status" role="status"></p>
 <h3>Chart</h3>
 <p class="sheet-tools"><label>Range of numbers (one row or column, up to 50 cells, e.g. A1:A8) <input type="text" id="chart-range" maxlength="20" value="A1:A8"></label> <button class="btn" type="button" id="chart-draw">Draw bar chart</button></p>

@@ -44,5 +44,16 @@ ok("keys: Enter and Shift+Enter", M.keyMove("Enter", false)[1] === 1 && M.keyMov
 ok("keys: up and down always move", M.keyMove("ArrowUp", false)[1] === -1 && M.keyMove("ArrowDown", false, false, false)[1] === 1);
 ok("keys: left and right only at the edge", M.keyMove("ArrowLeft", false, false, false) === null && M.keyMove("ArrowLeft", false, true, false)[0] === -1 && M.keyMove("ArrowRight", false, false, false) === null && M.keyMove("ArrowRight", false, false, true)[0] === 1);
 ok("keys: other keys do nothing", M.keyMove("a", false, true, true) === null);
+{
+  const F = require("../../static/sheets/formula.js");
+  const csv = (obj) => { const c = Object.create(null); Object.keys(obj).forEach((k) => { c[k] = obj[k]; }); const sh = new F.Sheet(c); return M.toCsv(c, F.parseAddr, (a) => sh.get(a), F.isErr); };
+  ok("csv: empty sheet gives nothing", csv({}) === null);
+  ok("csv: values not formulas, over the box that holds the cells, CRLF lines", (() => { const r = csv({ A1: "1", B1: "2", A2: "=A1+B1", C2: "x" }); return r && r.text === "1,2,\r\n3,,x\r\n" && r.rows === 2 && r.cols === 3; })());
+  ok("csv: numbers that are negative are not touched", csv({ A1: "-5", B1: "=0-2" }).text === "-5,-2\r\n");
+  ok("csv: text starting with = + - @ tab or CR gets an apostrophe, and is counted", (() => { const r = csv({ A1: "-note", B1: "+1x", C1: "@sum", D1: "\tx", E1: '=CONCAT("=","HYPERLINK")' }); return r.text === "'-note,'+1x,'@sum,'\tx,'=HYPERLINK\r\n" && r.guarded === 5; })());
+  ok("csv: commas, quotes and newlines are quoted and escaped", csv({ A1: 'a,b', B1: 'say "hi"', C1: "l1\nl2" }).text === '"a,b","say ""hi""","l1\nl2"\r\n');
+  ok("csv: an error shows its code and is not guarded", (() => { const r = csv({ A1: "=1/0" }); return /^#[A-Z/0!]+\r\n$/.test(r.text) && r.guarded === 0; })());
+  ok("csv: ordinary text is unchanged and booleans are TRUE or FALSE", csv({ A1: "hello", B1: "TRUE", C1: "=1=2" }).text === "hello,TRUE,FALSE\r\n");
+}
 console.log(`${n - fails}/${n} model rows passed`);
 process.exit(fails ? 1 : 0);
