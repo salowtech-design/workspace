@@ -19,7 +19,16 @@
     if (type === "text") e.text = "Text";
     return e;
   }
-  function newSlide() { return { id: uid(), elements: [], notes: "" }; }
+  // Layouts only place ordinary items on a new slide. They are not a master: later edits to a layout change nothing already made.
+  var LAYOUTS = {
+    blank: { label: "Blank", items: [] },
+    title: { label: "Title", items: [{ text: "Title", x: 80, y: 170, w: 800, h: 100, size: 54 }, { text: "Subtitle", x: 80, y: 290, w: 800, h: 60, size: 28 }] },
+    content: { label: "Title and content", items: [{ text: "Title", x: 60, y: 40, w: 840, h: 80, size: 44 }, { text: "Content", x: 60, y: 150, w: 840, h: 330, size: 28 }] }
+  };
+  function newSlide(layout) {
+    var L = has(LAYOUTS, layout) ? LAYOUTS[layout] : LAYOUTS.blank;
+    return { id: uid(), elements: L.items.map(function (it) { var e = newEl("text"); ["text", "x", "y", "w", "h", "size"].forEach(function (k) { e[k] = it[k]; }); return e; }), notes: "" };
+  }
   function newDeck() { return { v: 1, theme: "light", slides: [newSlide()] }; }
   function fixEl(e) {
     if (!e || typeof e !== "object" || TYPES.indexOf(e.type) < 0 || typeof e.id !== "string" || !ID_RE.test(e.id)) return null;
@@ -52,7 +61,7 @@
   }
   function copy(d) { return JSON.parse(JSON.stringify(d)); }
   var ops = {
-    addSlide: function (d, at) { if (d.slides.length >= MAX_SLIDES) return null; var n = copy(d), s = newSlide(); n.slides.splice(at === undefined ? n.slides.length : at + 1, 0, s); return n; },
+    addSlide: function (d, at, layout) { if (d.slides.length >= MAX_SLIDES) return null; var n = copy(d), s = newSlide(layout); n.slides.splice(at === undefined ? n.slides.length : at + 1, 0, s); return n; },
     deleteSlide: function (d, i) { if (d.slides.length <= 1 || !d.slides[i]) return null; var n = copy(d); n.slides.splice(i, 1); return n; },
     // copy of slide i placed right after it, with fresh ids so ids stay unique; null at the slide or item caps
     duplicateSlide: function (d, i) {
@@ -146,6 +155,6 @@
     return out;
   }
   function textHeight(lines, size) { return Math.ceil(lines.length * size * 1.2); }
-  var api = { countCut: countCut, cut: cut, MAX_NOTES: MAX_NOTES, fmtClock: fmtClock, wrapLines: wrapLines, textHeight: textHeight, showNav: showNav, W: W, H: H, THEMES: THEMES, FILLS: FILLS, MAX_SLIDES: MAX_SLIDES, MAX_EL: MAX_EL, newDeck: newDeck, validate: validate, ops: ops, color: color, textColor: textColor, onFill: onFill, contrast: contrast, loadDeck: loadDeck, describe: describe, History: History, copy: copy };
+  var api = { LAYOUTS: LAYOUTS, countCut: countCut, cut: cut, MAX_NOTES: MAX_NOTES, fmtClock: fmtClock, wrapLines: wrapLines, textHeight: textHeight, showNav: showNav, W: W, H: H, THEMES: THEMES, FILLS: FILLS, MAX_SLIDES: MAX_SLIDES, MAX_EL: MAX_EL, newDeck: newDeck, validate: validate, ops: ops, color: color, textColor: textColor, onFill: onFill, contrast: contrast, loadDeck: loadDeck, describe: describe, History: History, copy: copy };
   if (typeof module !== "undefined" && module.exports) module.exports = api; else root.SalowSlides = api;
 })(typeof self !== "undefined" ? self : this);

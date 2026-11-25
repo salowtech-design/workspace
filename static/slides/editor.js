@@ -93,7 +93,7 @@
     $(c[0]).addEventListener("click", function () { var e = sel(); if (e && apply(S.ops.moveElement(H.deck, cur, e.id, c[1]), c[2])) { var b = $(c[0]); if (b.disabled) $("sl-del-el").focus(); else b.focus(); } });
   });
   $("sl-del-el").addEventListener("click", function () { var e = sel(); if (e) apply(S.ops.deleteElement(H.deck, cur, e.id), "Item deleted."); });
-  $("sl-new").addEventListener("click", function () { var n = S.ops.addSlide(H.deck, cur); if (!n) { status.textContent = "A deck holds up to " + S.MAX_SLIDES + " slides."; return; } var prev = cur, prevSel = selId; cur++; selId = null; if (!apply(n)) { cur = prev; selId = prevSel; } });
+  $("sl-new").addEventListener("click", function () { var n = S.ops.addSlide(H.deck, cur, $("sl-layout").value); if (!n) { status.textContent = "A deck holds up to " + S.MAX_SLIDES + " slides."; return; } var prev = cur, prevSel = selId; cur++; selId = null; if (!apply(n)) { cur = prev; selId = prevSel; } });
   $("sl-del").addEventListener("click", function () { if (H.deck.slides[cur].elements.length && !window.confirm("Delete this slide and its items? You can undo until you reload.")) return; var n = S.ops.deleteSlide(H.deck, cur); if (n) { selId = null; apply(n, "Slide deleted."); } });
   $("sl-dup").addEventListener("click", function () {
     var n = S.ops.duplicateSlide(H.deck, cur); if (!n) { status.textContent = "A deck holds up to " + S.MAX_SLIDES + " slides."; return; }

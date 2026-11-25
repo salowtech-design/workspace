@@ -949,10 +949,62 @@ def slides_pdf_theme(ctx):
         )
 
 
+def slides_layout(ctx):
+    pg = fresh(ctx, "/slides/")
+
+    def items():
+        return pg.eval_on_selector_all("#sl-items li", "e=>e.map(x=>x.textContent)")
+
+    check("layouts: a new deck has one blank slide", items() == [], items())
+    pg.select_option("#sl-layout", "title")
+    pg.click("#sl-new")
+    check(
+        "layouts: Title makes a title and a subtitle item",
+        len(items()) == 2 and "Title" in items()[0] and "Subtitle" in items()[1],
+        items(),
+    )
+    pg.select_option("#sl-layout", "content")
+    pg.click("#sl-new")
+    check(
+        "layouts: Title and content makes two items",
+        len(items()) == 2 and "Content" in items()[1],
+        items(),
+    )
+    pg.select_option("#sl-layout", "blank")
+    pg.click("#sl-new")
+    check("layouts: Blank makes an empty slide", items() == [], items())
+    n = pg.eval_on_selector_all("#sl-list button", "e=>e.length")
+    check("layouts: four slides now", n == 4, n)
+    pg.click("#sl-list button:nth-child(3)")
+    if SHOTS:
+        pg.locator("#sl-canvas-wrap").screenshot(path=os.path.join(SHOTS, "slides-layout-54.png"))
+    pg.reload()
+    pg.wait_for_timeout(400)
+    pg.click("#sl-list button:nth-child(2)")
+    check(
+        "layouts: the layout items are saved like any others",
+        len(items()) == 2 and "Subtitle" in items()[1],
+        items(),
+    )
+    check(
+        "layouts: the help says a layout is not a master",
+        "no shared master" in pg.inner_text("#sl-layout-help"),
+    )
+    pg.click("#sl-present")
+    pg.wait_for_timeout(300)
+    check(
+        "layouts: the slide show shows the layout text",
+        "Subtitle" in pg.inner_text("#sl-show-canvas"),
+        pg.inner_text("#sl-show-canvas"),
+    )
+    pg.keyboard.press("Escape")
+
+
 DRILLS = {
     "slides_show": slides_show,
     "slides_edit": slides_edit,
     "slides_pdf": slides_pdf,
+    "slides_layout": slides_layout,
     "slides_pdf_theme": slides_pdf_theme,
     "sheets_sort_filter": sheets_sort_filter,
     "sheets_tabs": sheets_tabs,
