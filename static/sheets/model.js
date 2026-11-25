@@ -69,9 +69,11 @@
     else { t = String(v); if (typeof v === "string" && RISKY.test(t)) t = "'" + t; }
     return /[",\r\n]/.test(t) ? '"' + t.replace(/"/g, '""') + '"' : t;
   }
+  // Addresses here are single letters A to Z (the engine rejects AA and beyond), so a wider cell is skipped, not mis-addressed.
+  var CSV_COLS = 26, CSV_ROWS = 1000;
   function toCsv(cells, parseAddr, get, isErr) {
     var maxC = 0, maxR = 0, any = false, guarded = 0;
-    Object.keys(cells).forEach(function (k) { var p = parseAddr(k); if (!p) return; any = true; if (p.col > maxC) maxC = p.col; if (p.row > maxR) maxR = p.row; });
+    Object.keys(cells).forEach(function (k) { var p = parseAddr(k); if (!p || p.col > CSV_COLS || p.row > CSV_ROWS) return; any = true; if (p.col > maxC) maxC = p.col; if (p.row > maxR) maxR = p.row; });
     if (!any) return null;
     var lines = [];
     for (var r = 1; r <= maxR; r++) {
