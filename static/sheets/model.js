@@ -316,6 +316,8 @@
     var r1 = g.r1 + (header ? 1 : 0); if (r1 > g.r2) return { error: "The range has no rows below the header." };
     return { spec: { r1: r1, r2: g.r2, kc: kc, vc: vc, agg: agg, label: rangeLabel(g), header: !!header } };
   }
+  // A blank group cell is its own group (blank: true); typing the words "(blank)" makes a different group. A sum or average that
+  // overflows is marked tooLarge with no value, never shown as Infinity.
   // pairs: [{ k: shown text of the group cell, v: the value cell's value }]. Groups keep first-seen order. Only real numbers are
   // added, averaged or compared; other values in a group are counted in "skipped". Count counts rows, not numbers.
   function pivot(pairs, agg) {
@@ -324,8 +326,8 @@
       var k = String(pairs[i].k).trim(), v = pairs[i].v, blankV = v === "" || v === null || v === undefined;
       if (k === "" && blankV) continue;
       rows++;
-      var key = k === "" ? "(blank)" : k, gi = idx[key];
-      if (gi === undefined) { if (groups.length >= MAX_GROUPS) return { error: "There are more than " + MAX_GROUPS + " different groups, so no pivot was made. Use a smaller range." }; gi = groups.length; idx[key] = gi; groups.push({ key: key, rows: 0, nums: [] }); }
+      var key = k === "" ? "b" : "t" + k, gi = idx[key];
+      if (gi === undefined) { if (groups.length >= MAX_GROUPS) return { error: "There are more than " + MAX_GROUPS + " different groups, so no pivot was made. Use a smaller range." }; gi = groups.length; idx[key] = gi; groups.push({ key: k, blank: k === "", rows: 0, nums: [] }); }
       groups[gi].rows++;
       if (typeof v === "number" && isFinite(v)) groups[gi].nums.push(v); else if (!blankV) skipped++;
     }
@@ -334,10 +336,11 @@
       if (agg === "count") val = g.rows;
       else if (!n.length) val = null;
       else if (agg === "sum") val = n.reduce(function (a, b) { return a + b; }, 0);
-      else if (agg === "average") val = n.reduce(function (a, b) { return a + b; }, 0) / n.length;
+      else if (agg === "average") { val = 0; n.forEach(function (x, q) { val += (x - val) / (q + 1); }); }
       else if (agg === "min") val = Math.min.apply(null, n);
       else val = Math.max.apply(null, n);
-      return { key: g.key, rows: g.rows, numbers: n.length, value: val === null ? null : +val.toPrecision(12) };
+      var big = val !== null && !isFinite(val);
+      return { key: g.key, blank: g.blank, rows: g.rows, numbers: n.length, value: val === null || big ? null : +val.toPrecision(12), tooLarge: big };
     });
     return { groups: out, skipped: skipped, rows: rows };
   }

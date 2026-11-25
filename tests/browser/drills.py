@@ -1745,7 +1745,6 @@ def sheets_pivot(ctx):
         setc("A%d" % i, k)
         if v:
             setc("B%d" % i, v)
-    before = pg.evaluate("localStorage.getItem(%s)" % KEYJS)
 
     def table():
         return pg.evaluate(
@@ -1760,10 +1759,10 @@ def sheets_pivot(ctx):
         table(),
     )
     check(
-        "pivot: the status counts rows, names the skipped text and says it does not update",
+        "pivot: the status counts rows, names the skipped text and says it is cleared if cells change",
         "6 rows" in pg.inner_text("#pivot-status")
         and "1 non-number value was not added" in pg.inner_text("#pivot-status")
-        and "does not update" in pg.inner_text("#pivot-status"),
+        and "cleared if a cell or the tab changes" in pg.inner_text("#pivot-status"),
         pg.inner_text("#pivot-status"),
     )
     check(
@@ -1790,17 +1789,17 @@ def sheets_pivot(ctx):
     )
     setc("B2", "20")
     check(
-        "pivot: the table does not change when a cell changes",
-        "Average" in table() and "a=8.5" in table(),
-        table(),
+        "pivot: changing a cell clears the table and says so, never leaving stale numbers",
+        table() == "" and "cleared" in pg.inner_text("#pivot-status"),
+        (table(), pg.inner_text("#pivot-status")),
     )
     pg.click("#pivot-build")
     check("pivot: rebuilding reads the new value", "a=13.5" in table(), table())
+    pre = pg.evaluate("localStorage.getItem(%s)" % KEYJS)
+    pg.click("#pivot-build")
     check(
-        "pivot: building wrote nothing to the sheet",
-        pg.evaluate("JSON.parse(localStorage.getItem(%s))" % KEYJS)["B2"] == "20"
-        and len(pg.evaluate("JSON.parse(localStorage.getItem(%s))" % KEYJS))
-        == len(json.loads(before)),
+        "pivot: building left the stored sheet exactly as it was (same stored string)",
+        pg.evaluate("localStorage.getItem(%s)" % KEYJS) == pre and pre.count("B2") == 1,
     )
     pg.fill("#pivot-key", "D")
     pg.click("#pivot-build")
@@ -1823,6 +1822,67 @@ def sheets_pivot(ctx):
     pg.fill("#pivot-key", "A")
     pg.fill("#pivot-val", "B")
     pg.click("#pivot-build")
+    # Header text is the evaluated value, a blank group is separate from the words (blank), huge sums say too large.
+    setc("A1", "=1+1")
+    setc("A8", "(blank)")
+    setc("B8", "100")
+    setc("B9", "1")
+    pg.fill("#pivot-range", "A1:B9")
+    pg.select_option("#pivot-agg", "sum")
+    pg.click("#pivot-build")
+    check(
+        "pivot: the header shows the evaluated text, not the formula",
+        table().startswith("2=Sum (Pts)"),
+        table(),
+    )
+    check(
+        "pivot: an empty group cell and the typed words (blank) are two rows",
+        "(blank)=100" in table()
+        and pg.locator("#pivot-out td.pivot-blank").count() == 1
+        and pg.inner_text("#pivot-out td.pivot-blank") == "(blank)"
+        and pg.evaluate(
+            "document.querySelectorAll('#pivot-out td.pivot-blank')[0].parentNode.children[1].textContent"
+        )
+        == "1",
+        table(),
+    )
+    setc("A10", "big")
+    setc("A11", "big")
+    setc("B10", "1.7e308")
+    setc("B11", "1.7e308")
+    pg.fill("#pivot-range", "A1:B11")
+    pg.click("#pivot-build")
+    check(
+        "pivot: a sum too large to hold says too large, not Infinity",
+        "big=too large" in table() and "Infinity" not in table(),
+        table(),
+    )
+    pg.select_option("#pivot-agg", "max")
+    pg.click("#pivot-build")
+    check(
+        "pivot: the largest of the same values is still shown",
+        "big=1.7e+308" in table() or "big=1.7e308" in table(),
+        table(),
+    )
+    # The table describes the tab it was built from.
+    pg.click("#tab-add")
+    pg.wait_for_timeout(150)
+    check(
+        "pivot: adding a tab clears the table and says why",
+        table() == "" and "cleared" in pg.inner_text("#pivot-status"),
+        pg.inner_text("#pivot-status"),
+    )
+    pg.click("#sheet-tabs button:nth-child(1)")
+    pg.fill("#pivot-range", "A1:B7")
+    pg.click("#pivot-build")
+    check("pivot: it builds again on the first tab", table() != "")
+    pg.click("#sheet-tabs button:nth-child(2)")
+    check(
+        "pivot: switching tabs clears it",
+        table() == "" and "cleared" in pg.inner_text("#pivot-status"),
+        pg.inner_text("#pivot-status"),
+    )
+    pg.click("#sheet-tabs button:nth-child(1)")
     pg.reload()
     pg.wait_for_timeout(400)
     check("pivot: nothing is kept after a reload", table() == "")

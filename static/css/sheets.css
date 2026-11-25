@@ -21,3 +21,4 @@
 .sheet-scroll input[data-cf]:focus { background: #fff; color: inherit; }
 #pivot-out table { border-collapse: collapse; } #pivot-out caption { text-align: left; padding: 4px 0; font-size: 14px; } #pivot-out td, #pivot-out th { border: 1px solid #e6ddd0; padding: 6px 10px; text-align: left; }
 #pivot-out th { text-transform: none; position: static; } #pivot-out caption { white-space: nowrap; }
+#pivot-out .pivot-blank { font-style: italic; }
