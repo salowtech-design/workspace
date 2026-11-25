@@ -90,3 +90,26 @@ def test_denied_actor_writes_no_event(client):
         },
     )
     assert not AuthEvent.objects.filter(event="team_membership_added").exists()
+
+
+@pytest.mark.django_db
+def test_lifecycle_actions_store_the_acting_admin_as_actor(client, monkeypatch):
+    # The assurance gate has its own browser and unit proof; here only the audit row is checked.
+    monkeypatch.setattr(
+        "apps.accounts.views.admin_iam.enforce_mutation_assurance", lambda *a, **k: None
+    )
+    admin = _user(1, CustomUser.Role.ADMIN)
+    target = _user(2, CustomUser.Role.EMPLOYEE)
+    client.force_login(admin)
+    for action, event in (
+        ("suspend_account", "account_suspended_by_admin"),
+        ("reactivate_account", "account_reactivated_by_admin"),
+    ):
+        client.post(
+            reverse("accounts:admin_iam"),
+            {"action": action, "target_employee_id": target.employee_id},
+        )
+        ev = AuthEvent.objects.filter(event=event).first()
+        assert ev is not None, event
+        assert ev.employee_id == target.employee_id
+        assert ev.actor_employee_id == admin.employee_id

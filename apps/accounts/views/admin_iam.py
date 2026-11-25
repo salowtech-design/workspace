@@ -544,6 +544,7 @@ def admin_iam_dashboard_view(request):  # noqa: C901
                             event="employee_created_by_admin",
                             code="INFO",
                             step="admin_create_employee",
+                            actor_employee_id=actor.employee_id,
                             employee_id=new_user.employee_id,
                             message=f"Created by {actor.employee_id} ({actor.role}); activation code issued",
                         )
@@ -617,6 +618,7 @@ def admin_iam_dashboard_view(request):  # noqa: C901
                     event="role_updated_by_admin",
                     code="INFO",
                     step="admin_update_role",
+                    actor_employee_id=actor.employee_id,
                     employee_id=target_user.employee_id,
                     message=f"Role changed from {old_role} to {new_role} by {actor.employee_id}; sessions revoked",
                 )
@@ -843,6 +845,7 @@ def admin_iam_dashboard_view(request):  # noqa: C901
                     event="account_suspended_by_admin",
                     code="WARN",
                     step="admin_lifecycle",
+                    actor_employee_id=actor.employee_id,
                     employee_id=target_user.employee_id,
                     message=f"Suspended by {actor.employee_id}; all workspace and IAM sessions revoked",
                 )
@@ -938,6 +941,7 @@ def admin_iam_dashboard_view(request):  # noqa: C901
                     event="account_reactivated_by_admin",
                     code="INFO",
                     step="admin_lifecycle",
+                    actor_employee_id=actor.employee_id,
                     employee_id=target_user.employee_id,
                     message=f"Reactivated by {actor.employee_id}",
                 )
@@ -982,6 +986,7 @@ def admin_iam_dashboard_view(request):  # noqa: C901
                     event="account_exited_by_admin",
                     code="WARN",
                     step="admin_lifecycle",
+                    actor_employee_id=actor.employee_id,
                     employee_id=target_user.employee_id,
                     message=f"Marked as exited by {actor.employee_id}; all active sessions terminated",
                 )
