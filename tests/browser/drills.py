@@ -1831,6 +1831,14 @@ def sheets_paste(ctx):  # noqa: C901
         or "6 cells filled" in pg.inner_text("#sheet-status"),
         pg.inner_text("#sheet-status"),
     )
+    if SHOTS:
+        pg.locator('input[data-addr="B2"]').scroll_into_view_if_needed()
+        pg.screenshot(path=os.path.join(SHOTS, "sheets-paste-64.png"), full_page=False)
+        pg.set_viewport_size({"width": 390, "height": 800})
+        pg.wait_for_timeout(200)
+        pg.locator('input[data-addr="B2"]').scroll_into_view_if_needed()
+        pg.screenshot(path=os.path.join(SHOTS, "sheets-paste-64-phone.png"), full_page=False)
+        pg.set_viewport_size({"width": 1100, "height": 900})
     pg.click("#sheet-undo")
     check(
         "paste: one Undo takes the whole block back",
@@ -1861,6 +1869,26 @@ def sheets_paste(ctx):  # noqa: C901
     check(
         "paste: blank pasted cells clear existing ones",
         val("E1") == "" and val("F2") == "" or val("F2") == "y",
+    )
+    # The browser's own clipboard and a real Ctrl+V (headless Chromium's clipboard, not a desktop OS clipboard).
+    copied = pg.evaluate(
+        "(function(t){var a=document.createElement('textarea');a.value=t;document.body.appendChild(a);a.select();var ok=document.execCommand('copy');a.remove();return ok;})(%s)"
+        % json.dumps("r1\tr2\nr3\tr4")
+    )
+    print("note: execCommand copy to the browser clipboard returned", copied, flush=True)
+    pg.click('input[data-addr="P5"]')
+    pg.keyboard.press("Control+V")
+    pg.wait_for_timeout(250)
+    check(
+        "paste: a real Ctrl+V from the browser clipboard fills the block",
+        val("P5") == "r1" and val("Q5") == "r2" and val("P6") == "r3" and val("Q6") == "r4",
+        val("P5") + val("Q5") + val("P6") + val("Q6"),
+    )
+    check(
+        "paste: the always-visible help is short and the detail sits in a closed expander",
+        len(pg.inner_text("#paste-help")) < 260
+        and not pg.evaluate("document.getElementById('paste-more').open"),
+        str(len(pg.inner_text("#paste-help"))),
     )
     # a quoted field with a tab and a line break stays one cell
     paste("H1", '"p\tq"\t"r\ns"')
@@ -1904,14 +1932,117 @@ def sheets_paste(ctx):  # noqa: C901
         val("A20") == "" and "2600" in pg.inner_text("#sheet-status"),
         pg.inner_text("#sheet-status"),
     )
-    if SHOTS:
-        pg.locator('input[data-addr="B2"]').scroll_into_view_if_needed()
-        pg.screenshot(path=os.path.join(SHOTS, "sheets-paste-64.png"), full_page=False)
-        pg.set_viewport_size({"width": 390, "height": 800})
-        pg.wait_for_timeout(200)
-        pg.locator('input[data-addr="B2"]').scroll_into_view_if_needed()
-        pg.screenshot(path=os.path.join(SHOTS, "sheets-paste-64-phone.png"), full_page=False)
-        pg.set_viewport_size({"width": 1100, "height": 900})
+    # text after a closing quote refuses the whole paste; currency, percent and formula text are kept literally
+    paste("A30", '"hello" she said\tb')
+    check(
+        "paste: text after a closing quote refuses the paste",
+        val("A30") == "" and "nothing was pasted" in pg.inner_text("#sheet-status"),
+        pg.inner_text("#sheet-status"),
+    )
+    paste("A32", "$1,200\t15%\t=A1+B2")
+    check("paste: currency and percent stay text", val("A32") == "$1,200" and val("B32") == "15%")
+    pg.click('input[data-addr="C32"]')
+    check(
+        "paste: the pasted formula source is exactly as written",
+        pg.input_value("#sheet-bar") == "=A1+B2",
+        pg.input_value("#sheet-bar"),
+    )
+    # an active filter refuses the paste and changes nothing
+    before = pg.evaluate(
+        "localStorage.getItem(document.getElementById('sheet-root').dataset.storeKey)"
+    )
+    pg.fill("#filter-col", "B")
+    pg.fill("#filter-val", "bolt")
+    pg.click("#filter-go")
+    paste("B3", "f1\tf2\nf3\tf4")
+    check(
+        "paste: with a filter on nothing is pasted and the status says why",
+        val("B3") == "bolt"
+        and val("C3") == "5"
+        and "A filter is on" in pg.inner_text("#sheet-status")
+        and pg.evaluate(
+            "localStorage.getItem(document.getElementById('sheet-root').dataset.storeKey)"
+        )
+        == before,
+        pg.inner_text("#sheet-status"),
+    )
+    pg.click("#filter-clear")
+    paste("E40", "f1\tf2\nf3\tf4")
+    check(
+        "paste: after clearing the filter the same paste works",
+        val("E40") == "f1" and val("F41") == "f4",
+    )
+    # unreadable validation rules: the paste is refused and the rules are untouched
+    rk = pg.evaluate("document.getElementById('sheet-root').dataset.storeKey+'.rules'")
+    pg.evaluate("localStorage.setItem(%s,'{bad')" % json.dumps(rk))
+    pg.reload()
+    pg.wait_for_timeout(400)
+    sb = pg.evaluate("localStorage.getItem(document.getElementById('sheet-root').dataset.storeKey)")
+    paste("H40", "u1\tu2")
+    check(
+        "paste: with unreadable validation rules nothing is pasted, cells and rules are untouched",
+        val("H40") == ""
+        and "could not be read" in pg.inner_text("#sheet-status")
+        and pg.evaluate(
+            "localStorage.getItem(document.getElementById('sheet-root').dataset.storeKey)"
+        )
+        == sb
+        and pg.evaluate("localStorage.getItem(%s)" % json.dumps(rk)) == "{bad",
+        pg.inner_text("#sheet-status"),
+    )
+    pg.click('input[data-addr="H41"]')
+    pg.fill('input[data-addr="H41"]', "typed")
+    pg.press('input[data-addr="H41"]', "Tab")
+    print(
+        "note: existing behaviour with unreadable rules, a typed edit is saved unchecked:",
+        val("H41") == "typed",
+        flush=True,
+    )
+    pg.evaluate("localStorage.removeItem(%s)" % json.dumps(rk))
+    pg.reload()
+    pg.wait_for_timeout(400)
+    # storage failure: the paste stays on screen and the status says it was not stored
+    pg.evaluate(
+        "(function(){var o=Storage.prototype.setItem;window.__o=o;Storage.prototype.setItem=function(k,v){if(k===document.getElementById('sheet-root').dataset.storeKey)throw new Error('full');return o.call(this,k,v);};})();0"
+    )
+    paste("J40", "s1\ts2")
+    check(
+        "paste: if the browser will not store it, it stays on screen and the status says so",
+        val("J40") == "s1" and "would not store the sheet" in pg.inner_text("#sheet-status"),
+        pg.inner_text("#sheet-status"),
+    )
+    pg.evaluate("Storage.prototype.setItem=window.__o;0")
+    # a second tab keeps its own pasted cells, and a stale (deleted elsewhere) tab is not written
+    pg.click("#tab-add")
+    pg.wait_for_timeout(150)
+    paste("A1", "t2a\tt2b")
+    tk = pg.evaluate("document.getElementById('sheet-root').dataset.storeKey")
+    t2key = pg.evaluate(
+        "(function(k){var m=JSON.parse(localStorage.getItem(k+'.tabs'));return k+'.tab.'+m.active;})(%s)"
+        % json.dumps(tk)
+    )
+    check(
+        "paste: a second tab stores its own pasted cells under its own key",
+        "t2a" in (pg.evaluate("localStorage.getItem(%s)" % json.dumps(t2key)) or "")
+        and val("A1") == "t2a",
+        t2key,
+    )
+    p2 = ctx.new_page()
+    p2.goto(APP + "/sheets/")
+    p2.wait_for_timeout(400)
+    tid = pg.evaluate("JSON.parse(localStorage.getItem(%s+'.tabs')).active" % json.dumps(tk))
+    p2.click('#sheet-tabs button[data-tab="%s"]' % tid)
+    p2.once("dialog", lambda d: d.accept())
+    p2.click("#tab-del")
+    p2.wait_for_timeout(200)
+    paste("A5", "stale1\tstale2")
+    check(
+        "paste: in a tab deleted from another window nothing is written",
+        pg.evaluate("localStorage.getItem(%s)" % json.dumps(t2key)) is None
+        and ("deleted or changed in another window" in pg.inner_text("#sheet-status")),
+        pg.inner_text("#sheet-status"),
+    )
+    p2.close()
 
 
 def slides_master(ctx):  # noqa: C901

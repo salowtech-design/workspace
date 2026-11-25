@@ -122,9 +122,11 @@
     var t = e.target, a = t.dataset && t.dataset.addr; if (!a) return;
     var text = e.clipboardData ? e.clipboardData.getData("text/plain") : ""; if (!M.isBlock(text)) return;
     e.preventDefault();
+    if (filt) { status.textContent = "A filter is on, so nothing was pasted (it would also fill rows you cannot see). Clear the filter first."; return; }
+    if (rulesLocked) { status.textContent = "This tab's validation rules could not be read, so a block cannot be checked and nothing was pasted. The rules were left untouched."; return; }
     var parsed = M.parsePaste(text, F.parseAddr); if (parsed.error) { status.textContent = parsed.error; return; }
     var p = F.parseAddr(a);
-    var res = M.applyPaste(cells, parsed, p.col, p.row, COLS, ROWS, MAXCELL, function (addr, v) { return rulesLocked ? null : M.checkValue(rules, addr, v, F.parseAddr); }, function (c, r) { return String.fromCharCode(64 + c) + r; });
+    var res = M.applyPaste(cells, parsed, p.col, p.row, COLS, ROWS, MAXCELL, function (addr, v) { return M.checkValue(rules, addr, v, F.parseAddr); }, function (c, r) { return String.fromCharCode(64 + c) + r; });
     var bits = [res.set + " cells filled"]; if (res.cleared) bits.push(res.cleared + " cleared"); if (res.clipped) bits.push(res.clipped + " outside Z100 left out"); if (res.refused) bits.push(res.refused + " refused by validation rules"); if (res.tooLong) bits.push(res.tooLong + " too long (over " + MAXCELL + " characters) left out"); if (res.breaks) bits.push(res.breaks + " with a line break inside, shown with a space instead"); if (res.formulas) bits.push(res.formulas + " start with = and are formulas");
     if (!res.set && !res.cleared) { status.textContent = "Nothing was pasted: " + bits.slice(1).join(", ") + "."; return; }
     if (!change(res.cells, "Pasted " + parsed.rows + " rows by " + parsed.cols + " columns at " + a + ": " + bits.join(", ") + ". Undo works.")) return;

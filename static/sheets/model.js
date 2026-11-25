@@ -371,7 +371,15 @@
     var rows = [], row = [], f = "", i = 0, q = false, n = text.length, c;
     while (i < n) {
       c = text.charAt(i);
-      if (q) { if (c === '"') { if (text.charAt(i + 1) === '"') { f += '"'; i += 2; continue; } q = false; i++; continue; } f += c; i++; continue; }
+      if (q) {
+        if (c === '"') {
+          if (text.charAt(i + 1) === '"') { f += '"'; i += 2; continue; }
+          var nx = text.charAt(i + 1);
+          if (nx !== "" && nx !== "\t" && nx !== "\r" && nx !== "\n") return null;  // text after a closing quote: refuse, never drop the quotes silently
+          q = false; i++; continue;
+        }
+        f += c; i++; continue;
+      }
       if (c === '"' && f === "") { q = true; i++; continue; }
       if (c === "\t") { row.push(f); f = ""; i++; continue; }
       if (c === "\r" || c === "\n") { row.push(f); rows.push(row); row = []; f = ""; if (c === "\r" && text.charAt(i + 1) === "\n") i++; i++; continue; }
@@ -383,7 +391,7 @@
   }
   function parsePaste(text, parseAddr) {
     if (typeof text !== "string" || text.length > MAX_PASTE_CHARS) return { error: "That is more than " + MAX_PASTE_CHARS + " characters, so nothing was pasted." };
-    var rows = parseTsv(text); if (!rows) return { error: "The pasted text has a quote that never closes, so nothing was pasted." };
+    var rows = parseTsv(text); if (!rows) return { error: "The pasted text has a quoted cell that does not close or is followed by more text, so nothing was pasted." };
     var cols = rows.reduce(function (m, r) { return Math.max(m, r.length); }, 0);
     if (rows.length * cols > MAX_PASTE_CELLS) return { error: "That is more than " + MAX_PASTE_CELLS + " cells, so nothing was pasted." };
     return { rows: rows.length, cols: cols, items: rows };
