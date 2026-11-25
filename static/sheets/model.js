@@ -413,6 +413,21 @@
     }
     return { cells: n, set: set, cleared: cleared, clipped: clipped, refused: refused, tooLong: tooLong, formulas: formulas, breaks: breaks };
   }
+  // Copy the first row of a range down over the rest (dir "down") or its first column right over the rest ("right").
+  // Text is copied exactly as written: a formula keeps its references (nothing shifts). Empty source cells clear the targets.
+  function fillRange(cells, rg, dir, check, addrOf, maxCell) {
+    var n = copy(cells), set = 0, cleared = 0, refused = 0, tooLong = 0, formulas = 0, down = dir === "down";
+    var rows = rg.r2 - rg.r1 + 1, cols = rg.c2 - rg.c1 + 1;
+    if (down ? rows < 2 : cols < 2) return { error: down ? "Pick a range with at least two rows. The first row is copied down." : "Pick a range with at least two columns. The first column is copied right." };
+    for (var r = rg.r1; r <= rg.r2; r++) for (var c = rg.c1; c <= rg.c2; c++) {
+      if (down ? r === rg.r1 : c === rg.c1) continue;
+      var v = cells[addrOf(down ? c : rg.c1, down ? rg.r1 : r)] || "", a = addrOf(c, r);
+      if (v.length > maxCell) { tooLong++; continue; }
+      if (check && check(a, v)) { refused++; continue; }
+      if (v === "") { if (a in n) { delete n[a]; cleared++; } } else { if (n[a] !== v) set++; n[a] = v; if (v.charAt(0) === "=") formulas++; }
+    }
+    return { cells: n, set: set, cleared: cleared, refused: refused, tooLong: tooLong, formulas: formulas };
+  }
   // ---- Pivot: group rows of a range by one column and total another. Read only: it never writes to cells. ----
   var PIVOT_AGGS = ["count", "sum", "average", "min", "max"], MAX_GROUPS = 20;
   function colNo(t) { var m = /^\s*([A-Za-z])\s*$/.exec(String(t)); return m ? m[1].toUpperCase().charCodeAt(0) - 64 : null; }
@@ -454,6 +469,6 @@
     });
     return { groups: out, skipped: skipped, rows: rows };
   }
-  var api = { parseRange: parseRange, makeRule: makeRule, addRule: addRule, removeRule: removeRule, loadRules: loadRules, rulesJson: rulesJson, checkValue: checkValue, makePivot: makePivot, pivot: pivot, MAX_GROUPS: MAX_GROUPS, makeCf: makeCf, addCf: addCf, loadCf: loadCf, cfJson: cfJson, cfColor: cfColor, parsePaste: parsePaste, isBlock: isBlock, applyPaste: applyPaste, MAX_PASTE_CELLS: MAX_PASTE_CELLS, makeFmt: makeFmt, addFmt: addFmt, loadFmt: loadFmt, fmtJson: fmtJson, fmtFor: fmtFor, fmtText: fmtText, MAX_FMT: MAX_FMT, MAX_RULES: MAX_RULES, loadTabs: loadTabs, addTab: addTab, markFmt: markFmt, renameTab: renameTab, deleteTab: deleteTab, setActive: setActive, cleanName: cleanName, MAX_TABS: MAX_TABS, sortRange: sortRange, filterRows: filterRows, toNum: toNum, toCsv: toCsv, clean: clean, History: History, chartPoints: chartPoints, pieSlices: pieSlices, isComposing: isComposing, keyMove: keyMove, copy: copy, same: same };
+  var api = { fillRange: fillRange, parseRange: parseRange, makeRule: makeRule, addRule: addRule, removeRule: removeRule, loadRules: loadRules, rulesJson: rulesJson, checkValue: checkValue, makePivot: makePivot, pivot: pivot, MAX_GROUPS: MAX_GROUPS, makeCf: makeCf, addCf: addCf, loadCf: loadCf, cfJson: cfJson, cfColor: cfColor, parsePaste: parsePaste, isBlock: isBlock, applyPaste: applyPaste, MAX_PASTE_CELLS: MAX_PASTE_CELLS, makeFmt: makeFmt, addFmt: addFmt, loadFmt: loadFmt, fmtJson: fmtJson, fmtFor: fmtFor, fmtText: fmtText, MAX_FMT: MAX_FMT, MAX_RULES: MAX_RULES, loadTabs: loadTabs, addTab: addTab, markFmt: markFmt, renameTab: renameTab, deleteTab: deleteTab, setActive: setActive, cleanName: cleanName, MAX_TABS: MAX_TABS, sortRange: sortRange, filterRows: filterRows, toNum: toNum, toCsv: toCsv, clean: clean, History: History, chartPoints: chartPoints, pieSlices: pieSlices, isComposing: isComposing, keyMove: keyMove, copy: copy, same: same };
   if (typeof module !== "undefined" && module.exports) module.exports = api; else root.SalowSheetModel = api;
 })(typeof self !== "undefined" ? self : this);

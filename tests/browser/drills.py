@@ -2060,6 +2060,145 @@ def sheets_paste(ctx):  # noqa: C901
     p2.close()
 
 
+def sheets_fill(ctx):  # noqa: C901
+    """Copy the first row down or the first column right over a range."""
+    pg = fresh(ctx, "/sheets/")
+    KEYJS = "document.getElementById('sheet-root').dataset.storeKey"
+
+    def val(a):
+        return pg.input_value('input[data-addr="%s"]' % a)
+
+    def setc(a, v):
+        pg.click('input[data-addr="%s"]' % a)
+        pg.fill('input[data-addr="%s"]' % a, v)
+        pg.press('input[data-addr="%s"]' % a, "Tab")
+
+    def stored():
+        return pg.evaluate("localStorage.getItem(%s)" % KEYJS)
+
+    def status():
+        return pg.inner_text("#sheet-status")
+
+    setc("A1", "bolt")
+    setc("B1", "5")
+    setc("C1", "=B1*2")
+    setc("A3", "old")
+    pg.fill("#fill-range", "A1:C4")
+    pg.click("#fill-down")
+    check(
+        "fill: the first row is copied down over every row, old values replaced",
+        val("A2") == "bolt" and val("A3") == "bolt" and val("B4") == "5" and val("C4") == "10",
+        val("A3") + val("C4"),
+    )
+    pg.click('input[data-addr="C3"]')
+    check(
+        "fill: a formula keeps its source (no shifting)",
+        pg.input_value("#sheet-bar") == "=B1*2",
+        pg.input_value("#sheet-bar"),
+    )
+    check(
+        "fill: the status line counts and mentions formulas",
+        "formulas copied with their references unchanged" in status(),
+        status(),
+    )
+    pg.click("#sheet-undo")
+    check(
+        "fill: one Undo takes the whole fill back",
+        val("A2") == "" and val("A3") == "old" and val("C4") == "",
+    )
+    pg.click("#sheet-redo")
+    pg.reload()
+    pg.wait_for_timeout(400)
+    check("fill: the filled cells are stored", val("A4") == "bolt" and val("C2") == "10")
+    if SHOTS:
+        pg.fill("#fill-range", "A1:C4")
+        pg.evaluate("document.getElementById('fill-range').scrollIntoView({block: 'center'})")
+        pg.screenshot(path=os.path.join(SHOTS, "sheets-fill-65.png"), full_page=False)
+        pg.set_viewport_size({"width": 390, "height": 800})
+        pg.wait_for_timeout(200)
+        pg.evaluate("document.getElementById('fill-range').scrollIntoView({block: 'center'})")
+        pg.screenshot(path=os.path.join(SHOTS, "sheets-fill-65-phone.png"), full_page=False)
+        pg.set_viewport_size({"width": 1100, "height": 900})
+    pg.fill("#fill-range", "A1:A2")
+    pg.click("#fill-right")
+    check("fill: one column cannot be copied right", "at least two columns" in status(), status())
+    pg.fill("#fill-range", "D1:E1")
+    pg.click("#fill-right")
+    check(
+        "fill: a column copied right clears empty targets and is stored",
+        val("E1") == "" and "Nothing changed" in status(),
+        status(),
+    )
+    setc("D5", "left")
+    setc("E5", "gone")
+    pg.fill("#fill-range", "D5:F6")
+    pg.click("#fill-right")
+    check(
+        "fill: first column copied right",
+        val("E5") == "left" and val("F5") == "left" and val("E6") == "",
+        val("E5") + val("F5"),
+    )
+    pg.fill("#fill-range", "A1:A101")
+    pg.click("#fill-down")
+    check("fill: a range outside A1:Z100 is refused", "A1:Z100" in status(), status())
+    # validation: refused cells are counted and left alone
+    pg.fill("#val-range", "A6:A8")
+    pg.fill("#val-items", "red, blue")
+    pg.click("#val-add")
+    setc("A5", "green")
+    pg.fill("#fill-range", "A5:A8")
+    pg.click("#fill-down")
+    check(
+        "fill: values a validation rule refuses are not written and are counted",
+        val("A6") == "" and "refused by validation rules" in status(),
+        status(),
+    )
+    # filter on: refused, stored cells unchanged
+    pg.fill("#filter-col", "A")
+    pg.fill("#filter-val", "bolt")
+    pg.click("#filter-go")
+    before = stored()
+    pg.fill("#fill-range", "A1:A3")
+    pg.click("#fill-down")
+    check(
+        "fill: with a filter on nothing is filled and the status says why",
+        "A filter is on" in status() and stored() == before,
+        status(),
+    )
+    pg.click("#filter-clear")
+    # unreadable rules: refused
+    rk = pg.evaluate("%s+'.rules'" % KEYJS)
+    pg.evaluate("localStorage.setItem(%s,'{bad')" % json.dumps(rk))
+    pg.reload()
+    pg.wait_for_timeout(400)
+    before = stored()
+    pg.fill("#fill-range", "A1:A3")
+    pg.click("#fill-down")
+    check(
+        "fill: with unreadable rules nothing is filled, cells and rules bytes are untouched",
+        "could not be read" in status()
+        and stored() == before
+        and pg.evaluate("localStorage.getItem(%s)" % json.dumps(rk)) == "{bad",
+        status(),
+    )
+    # storage failure keeps the fill visible
+    pg.evaluate("localStorage.removeItem(%s)" % json.dumps(rk))
+    pg.reload()
+    pg.wait_for_timeout(400)
+    setc("A2", "zzz")
+    pg.evaluate(
+        "(function(k){var o=Storage.prototype.setItem;Storage.prototype.setItem=function(a,b){if(a===k)throw new Error('full');return o.call(this,a,b);};})(%s)"
+        % KEYJS
+    )
+    pg.fill("#fill-range", "A1:A2")
+    pg.click("#fill-down")
+    check(
+        "fill: if the browser will not store it, the status says so",
+        "would not store" in status(),
+        status(),
+    )
+
+
 def slides_master(ctx):  # noqa: C901
     import shutil
     import subprocess
@@ -2795,6 +2934,7 @@ DRILLS = {
     "slides_layout": slides_layout,
     "slides_pdf_theme": slides_pdf_theme,
     "sheets_sort_filter": sheets_sort_filter,
+    "sheets_fill": sheets_fill,
     "sheets_tabs": sheets_tabs,
     "sheets_chart": sheets_chart,
     "sheets_validation": sheets_validation,
