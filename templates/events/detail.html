@@ -1,7 +1,9 @@
 {% extends "base.html" %}
+{% load tz %}
 {% block extra_head %}<link rel="stylesheet" href="/static/css/events.css">{% endblock %}
 {% block title %}{{ e.title }}: Salow Calendar{% endblock %}
 {% block content %}
+{% localtime off %}
 <div class="card cal{% if e.status == 'cancelled' %} cal-cancelled{% endif %}"><div class="cal-head"><h2>{{ e.title }}</h2></div>
 <div class="cal-tabs"><a href="{% url 'events:home' %}">Agenda</a><a href="{% url 'events:new' %}">New event</a><a href="{% url 'events:busy' %}">Free or busy</a></div>
 {% if e.status == 'cancelled' %}<p><strong>Cancelled</strong></p>{% endif %}
@@ -18,4 +20,5 @@
 {% if is_organizer %}<div class="cal-actions"><a class="btn btn-outline btn-small" href="{% url 'events:edit' e.public_id %}">Edit</a><a class="btn btn-outline btn-small" href="{% url 'events:cancel' e.public_id %}">Cancel event</a></div>{% endif %}
 {% endif %}
 </div>
+{% endlocaltime %}
 {% endblock %}

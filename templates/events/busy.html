@@ -1,7 +1,9 @@
 {% extends "base.html" %}
+{% load tz %}
 {% block extra_head %}<link rel="stylesheet" href="/static/css/events.css">{% endblock %}
 {% block title %}Free or busy: Salow Calendar{% endblock %}
 {% block content %}
+{% localtime off %}
 <div class="card cal"><div class="cal-head"><h2>Free or busy</h2></div>
 <div class="cal-tabs"><a href="{% url 'events:home' %}">Agenda</a><a href="{% url 'events:new' %}">New event</a><a href="{% url 'events:busy' %}">Free or busy</a></div>
 <form method="get" class="cal-form"><label>Date<input type="date" name="date" value="{{ date }}" required></label>
@@ -11,4 +13,5 @@
 {% if result %}{% for who, spans in result %}<div class="cal-row"><span class="cal-title">{{ who }}</span>
 <span class="cal-meta">{% for s, e in spans %}{{ s|date:"H:i" }} to {{ e|date:"H:i" }}{% if not forloop.last %}, {% endif %}{% empty %}Free all day{% endfor %}</span></div>{% endfor %}{% endif %}
 </div>
+{% endlocaltime %}
 {% endblock %}

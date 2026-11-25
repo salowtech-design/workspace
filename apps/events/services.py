@@ -17,6 +17,7 @@ from django.http import Http404
 from apps.core.foundation.audit import audit
 from apps.events.models import TITLE_MAX, Event, Guest
 
+GUEST_ERROR = "Some guests could not be added. Check the employee IDs."  # same for every cause
 MAX_GUESTS = 50  # build default
 MAX_DURATION = datetime.timedelta(days=14)  # build default
 MAX_RANGE = datetime.timedelta(days=62)  # longest window one read may ask for
@@ -66,7 +67,7 @@ def _live_people(ids, exclude=None):
     ids.discard(exclude)
     found = list(User.objects.filter(pk__in=ids, is_active=True, status="active"))
     if len(found) != len(ids):
-        raise ValidationError("Every guest must be an active person.")
+        raise ValidationError(GUEST_ERROR)
     return found
 
 
@@ -94,9 +95,17 @@ def create_event(actor, title, local_start, local_end, tz_name, guest_ids=()):
     return ev
 
 
+def _lock_event(public_id):
+    return Event.objects.select_for_update().filter(public_id=public_id).first()
+
+
+def _pause():
+    """Test hook, called after the checks and before the write. A no-op."""
+
+
 def _locked(event_public_id, actor):
     """Lock the event row first, re-read the actor, return the live event or raise 404."""
-    ev = Event.objects.select_for_update().filter(public_id=event_public_id).first()
+    ev = _lock_event(event_public_id)
     me = get_user_model().objects.filter(pk=actor.pk, is_active=True, status="active").first()
     if ev is None or me is None:
         raise Http404
@@ -109,6 +118,10 @@ def _visible(ev, me):
 
 def update_event(actor, public_id, expected_version, title, local_start, local_end, tz_name):
     """Organiser only. A guest or stranger gets 404 (existence is not revealed)."""
+    try:
+        version = int(str(expected_version).strip())
+    except ValueError:
+        raise ValidationError("The form is out of date. Reload the event and try again.") from None
     title = _title(title)
     start, end = _utc(local_start, local_end, tz_name)
     with transaction.atomic():
@@ -120,8 +133,9 @@ def update_event(actor, public_id, expected_version, title, local_start, local_e
         same = (ev.title, ev.start_utc, ev.end_utc, ev.tz) == (title, start, end, tz_name.strip())
         if same:
             return ev  # nothing changes: no version bump, no audit row
-        if ev.version != int(expected_version):
+        if ev.version != version:
             raise StaleEvent("The event changed since you opened it.")
+        _pause()
         ev.title, ev.start_utc, ev.end_utc, ev.tz = title, start, end, tz_name.strip()
         ev.version += 1
         ev.save()

@@ -37,7 +37,7 @@ def _ids_to_pks(raw):
     )
     missing = [i for i in ids if i not in found]
     if missing:
-        raise ValidationError("No active person with that employee ID was found.")
+        raise ValidationError(es.GUEST_ERROR)
     return [found[i] for i in ids]
 
 
@@ -146,7 +146,7 @@ def edit(request, event_id):
             es.update_event(
                 request.user,
                 event_id,
-                int(request.POST.get("version", "0") or 0),
+                request.POST.get("version", ""),
                 request.POST.get("title"),
                 _dt(request.POST.get("start")),
                 _dt(request.POST.get("end")),

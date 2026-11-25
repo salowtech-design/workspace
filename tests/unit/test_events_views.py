@@ -143,3 +143,75 @@ def test_hosts_anonymous_csrf_and_nav():
         assert anon.post(u, {}).status_code == 302
     ev.refresh_from_db()
     assert ev.status == "confirmed" and ev.version == 1 and Event.objects.count() == 1
+
+
+@pytest.mark.django_db
+def test_event_in_another_zone_shows_that_zones_clock_time_everywhere():
+    org, g = _u("Z-ORG"), _u("Z-G")
+    c, cg = _c(org), _c(g)
+    c.post(reverse("events:new"), {**FORM, "tz": "America/New_York", "guests": "Z-G"})
+    ev = Event.objects.get()  # 10:00 to 11:00 New York on 2026-12-01
+    page = c.get(reverse("events:detail", args=[ev.public_id])).content.decode()
+    assert "10:00 to 11:00 (America/New_York)" in page
+    edit = c.get(reverse("events:edit", args=[ev.public_id])).content.decode()
+    assert 'value="2026-12-01T10:00"' in edit and 'value="2026-12-01T11:00"' in edit
+    import datetime as _dt
+
+    from apps.events import views
+
+    class _Fixed:
+        @staticmethod
+        def now():
+            return _dt.datetime(2026, 11, 30, tzinfo=_dt.timezone.utc)
+
+    views_timezone = views.timezone
+    views.timezone = _Fixed
+    try:
+        agenda = c.get(reverse("events:home")).content.decode()
+    finally:
+        views.timezone = views_timezone
+    assert "10:00 to 11:00" in agenda
+    # agenda uses a window around now, so check the same formatting through the busy page too
+    # (busy always shows the site zone, Asia/Kolkata: 10:00 New York is 20:30 in Kolkata)
+    r = cg.get(reverse("events:busy"), {"date": "2026-12-01", "people": "Z-ORG"}).content.decode()
+    assert "20:30 to 21:30" in r
+
+
+@pytest.mark.django_db
+def test_bad_version_is_a_400_and_guest_errors_do_not_reveal_existence_and_throttle_shows(
+    monkeypatch,
+):
+    org, g, off = _u("M-ORG"), _u("M-G"), _u("M-OFF")
+    CustomUser.objects.filter(pk=off.pk).update(status="suspended")
+    c = _c(org)
+    c.post(reverse("events:new"), FORM)
+    ev = Event.objects.get()
+    u = reverse("events:edit", args=[ev.public_id])
+    for bad in ("abc", "", "1.5", "-1", "9" * 40):
+        r = c.post(
+            u, {**FORM, "title": "Changed", "version": bad}
+        )  # a real change, so it is checked
+        want = 409 if bad in ("-1", "9" * 40) else 400
+        assert r.status_code == want, (bad, r.status_code)
+    assert c.post(u, {**FORM, "version": "abc"}).status_code == 400
+    msgs = set()
+    for guests in ("M-OFF", "NOBODY-9"):
+        r = c.post(reverse("events:new"), {**FORM, "guests": guests})
+        assert r.status_code == 400
+        msgs.add(
+            r.content.decode().split("Some guests")[1][:60]
+            if "Some guests" in r.content.decode()
+            else r.content.decode()
+        )
+    assert len(msgs) == 1  # same wording for suspended and for unknown
+    from apps.events import views
+
+    monkeypatch.setattr(views, "throttled", lambda *a, **k: True)
+    cg = _c(g)
+    for name, data in (("respond", {"response": "accepted"}), ("cancel", {"confirm": "yes"})):
+        who = cg if name == "respond" else c
+        Guest.objects.get_or_create(event=ev, person=g)
+        r = who.post(reverse(f"events:{name}", args=[ev.public_id]), data, follow=True)
+        assert b"Too many changes" in r.content
+    ev.refresh_from_db()
+    assert ev.status == "confirmed"
