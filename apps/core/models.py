@@ -215,3 +215,20 @@ class EmailOutbox(models.Model):
 
     def __str__(self):
         return f"Email [{self.notification_type}] to {self.recipient} ({self.status})"
+
+
+class Notification(models.Model):
+    """In-app notification. Delivery is the Notifications view only; nothing is emailed or pushed."""
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="notifications"
+    )
+    kind = models.CharField(max_length=64, db_index=True)
+    title = models.CharField(max_length=200)
+    link = models.CharField(max_length=300, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+    read_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["-created_at", "-id"]
+        indexes = [models.Index(fields=["user", "read_at"])]
