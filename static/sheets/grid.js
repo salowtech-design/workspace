@@ -2,7 +2,7 @@
   "use strict";
   var root = document.getElementById("sheet-root");
   if (!root || !window.SalowFormula) return;
-  var F = SalowFormula, KEY = root.getAttribute("data-store-key"), COLS = 8, ROWS = 20, MAXCELL = 2000, HIST = 100;
+  var F = SalowFormula, KEY = root.getAttribute("data-store-key"), COLS = 26, ROWS = 100, MAXCELL = 2000, HIST = 100;
   var status = document.getElementById("sheet-status"), bar = document.getElementById("sheet-bar"), sel = document.getElementById("sheet-sel");
   var undoBtn = document.getElementById("sheet-undo"), redoBtn = document.getElementById("sheet-redo");
   var M = SalowSheetModel, has = function (o, k) { return Object.prototype.hasOwnProperty.call(o, k); };

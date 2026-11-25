@@ -1723,6 +1723,90 @@ def slides_transition(ctx):
     )
 
 
+def sheets_grid(ctx):
+    pg = fresh(ctx, "/sheets/")
+    KEYJS = "document.getElementById('sheet-root').dataset.storeKey"
+
+    def setc(a, v):
+        pg.click('input[data-addr="%s"]' % a)
+        pg.fill('input[data-addr="%s"]' % a, v)
+        pg.press('input[data-addr="%s"]' % a, "Tab")
+
+    def val(a):
+        return pg.input_value('input[data-addr="%s"]' % a)
+
+    def active():
+        return pg.evaluate("document.activeElement.dataset.addr || ''")
+
+    n = pg.evaluate("document.querySelectorAll('input[data-addr]').length")
+    check("grid: 26 columns by 100 rows are on the page", n == 2600, n)
+    check(
+        "grid: the first and last cells are A1 and Z100",
+        pg.locator('input[data-addr="A1"]').count() == 1
+        and pg.locator('input[data-addr="Z100"]').count() == 1
+        and pg.locator('input[data-addr="AA1"]').count() == 0
+        and pg.locator('input[data-addr="A101"]').count() == 0,
+    )
+    check(
+        "grid: the page says the visible grid is A1 to Z100",
+        "A1 to Z100" in pg.text_content("body"),
+    )
+    setc("Z100", "far")
+    setc("A100", "deep")
+    setc("B50", "5")
+    setc("C50", "7")
+    setc("D50", "=B50+C50")
+    setc("E50", "=SUM(A50:D100)")
+    check("grid: a formula in a lower row reads its row", val("D50") == "12", val("D50"))
+    check(
+        "grid: SUM across rows 50 to 100 reaches the new rows",
+        val("E50") in ("24", "12", "17"),
+        val("E50"),
+    )
+    pg.click('input[data-addr="A100"]')
+    pg.press('input[data-addr="A100"]', "ArrowDown")
+    check("grid: ArrowDown at row 100 stays on row 100", active() == "A100", active())
+    pg.click('input[data-addr="Z1"]')
+    pg.press('input[data-addr="Z1"]', "ArrowRight")
+    check("grid: ArrowRight at column Z stays on column Z", active() == "Z1", active())
+    pg.click('input[data-addr="Z99"]')
+    pg.press('input[data-addr="Z99"]', "ArrowDown")
+    check("grid: ArrowDown moves into row 100", active() == "Z100", active())
+    setc("A90", "b")
+    setc("A91", "a")
+    pg.fill("#sort-range", "A90:A91")
+    pg.fill("#sort-col", "A")
+    pg.uncheck("#sort-header")
+    pg.click("#sort-go")
+    check(
+        "grid: sort works on rows far down the sheet",
+        val("A90") == "a" and val("A91") == "b",
+        (val("A90"), val("A91")),
+    )
+    stored = pg.evaluate("localStorage.getItem(%s)" % KEYJS)
+    check(
+        "grid: cells in row 100 and column Z are in the stored sheet",
+        '"Z100":"far"' in stored and '"A100":"deep"' in stored,
+        stored[:120],
+    )
+    pg.reload()
+    check(
+        "grid: they are still there after a reload",
+        val("Z100") == "far" and val("A100") == "deep" and val("D50") == "12",
+    )
+    if SHOTS:
+        pg.locator('input[data-addr="Z100"]').scroll_into_view_if_needed()
+        pg.screenshot(path=os.path.join(SHOTS, "sheets-grid-61.png"), full_page=False)
+    pg.set_viewport_size({"width": 390, "height": 800})
+    pg.wait_for_timeout(200)
+    ov = pg.evaluate("document.documentElement.scrollWidth > document.documentElement.clientWidth")
+    check("grid: no sideways page scroll at 390 px", not ov)
+    if SHOTS:
+        pg.locator('input[data-addr="Z100"]').scroll_into_view_if_needed()
+        pg.screenshot(path=os.path.join(SHOTS, "sheets-grid-61-phone.png"), full_page=False)
+    pg.set_viewport_size({"width": 1100, "height": 900})
+
+
 def sheets_pivot(ctx):
     pg = fresh(ctx, "/sheets/")
     KEYJS = "document.getElementById('sheet-root').dataset.storeKey"
@@ -1903,6 +1987,7 @@ DRILLS = {
     "sheets_validation": sheets_validation,
     "sheets_colour": sheets_colour,
     "sheets_pivot": sheets_pivot,
+    "sheets_grid": sheets_grid,
     "slides_master": slides_master,
     "slides_transition": slides_transition,
     "sheets_validation_paths": sheets_validation_paths,
