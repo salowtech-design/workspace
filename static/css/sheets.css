@@ -10,3 +10,6 @@
 /* the page shell is a flex row: let the main column shrink so the grid scrolls inside its card */
 .app-shell > .main-content, .app-shell > main { min-width: 0; }
 [hidden] { display: none !important; }
+.sheet-tools { margin: 8px 0; }
+#chart-out svg { max-width: 100%; height: auto; border: 1px solid #d9cfc2; border-radius: 6px; background: #fff; }
+#chart-range { width: 8em; font-size: 16px; padding: 6px; }
