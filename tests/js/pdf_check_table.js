@@ -22,5 +22,6 @@ ok("page order is bounded", P.pageOrder(1, 100000).length === P.MAX_SCAN);
 ok("split keeps all text and marks matches", (() => { const s = P.splitMatches("Foo bar\nFOO  BAR baz", "foo bar"); return s.map((x) => x.t).join("") === "Foo bar\nFOO  BAR baz" && s.filter((x) => x.hit).length === 2; })());
 ok("split treats regex characters as plain text", (() => { const s = P.splitMatches("a.c abc (x)", "a.c"); return s.filter((x) => x.hit).length === 1 && s[0].t === "a.c"; })());
 ok("split bounds marks and handles empty or odd input", (() => { const s = P.splitMatches("ab ".repeat(2000), "ab"); return s.filter((x) => x.hit).length === 500 && P.splitMatches("x", "").length === 1 && P.splitMatches(null, "a")[0].t === ""; })());
+ok("count and marks agree, including the cap", P.countIn("ab ".repeat(2000), "ab") === 500 && P.countIn("Foo bar\nFOO  BAR", "foo bar") === 2 && P.countIn("\u00c9a \u00e9a", "\u00e9a") === 2);
 console.log(`${n - bad}/${n} pdf check rows passed`);
 process.exit(bad ? 1 : 0);

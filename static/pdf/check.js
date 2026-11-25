@@ -25,12 +25,10 @@
   // Find helpers. Plain text only: no OCR, no fuzzy match. A query is 2 to 100 characters after trimming.
   var MAX_QUERY = 100, MAX_SCAN = 300;
   function normQuery(q) { if (typeof q !== "string") return null; q = q.replace(/\s+/g, " ").trim(); return q.length < 2 || q.length > MAX_QUERY ? null : q; }
-  // Case-insensitive count of non-overlapping matches of query in text.
+  // Number of marked matches (same rule and cap of 500 as splitMatches, so count and marks agree).
   function countIn(text, q) {
-    if (typeof text !== "string" || typeof q !== "string" || !q) return 0;
-    var t = text.replace(/\s+/g, " ").toLowerCase(), k = q.toLowerCase(), n = 0, i = 0;
-    while ((i = t.indexOf(k, i)) >= 0) { n++; i += k.length; }
-    return n;
+    if (typeof text !== "string" || typeof q !== "string" || !q.trim()) return 0;
+    return splitMatches(text, q).filter(function (s) { return s.hit; }).length;
   }
   // Splits text into [{t, hit}] segments around matches of q (case-insensitive, any run of whitespace in q
   // matches any run of whitespace in text). At most 500 matches are marked. Segments joined equal text.

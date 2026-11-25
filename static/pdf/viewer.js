@@ -5,6 +5,19 @@
   var BASE = "/static/pdf/vendor/";
   var lib = null, doc = null, loadTask = null, seq = new C.Seq(), page = 1, zoom = 1, task = null, token = 0, settle = Promise.resolve();
   var mark = ""; // the query whose matches are marked in the page text, set by a successful find
+  var shown = "", shownCut = false;
+  // Draws the current page text, marking matches of `mark` with real elements built from text nodes.
+  function paintText() {
+    var tx = $("pdf-text");
+    if (shown === null) return; // the page text is still being read
+    if (!shown) { tx.textContent = "This page has no text the viewer can read. It may be a scanned image."; return; }
+    tx.textContent = "";
+    C.splitMatches(shown, mark).forEach(function (s) {
+      if (!s.hit) { tx.appendChild(document.createTextNode(s.t)); return; }
+      var m = document.createElement("mark"); m.textContent = s.t; tx.appendChild(m);
+    });
+    if (shownCut) tx.appendChild(document.createTextNode("\n[Shortened at 20000 characters.]"));
+  }
   function nop() {}
   // Cancel the running render, and remember its settlement for every later draw and close.
   function cancelCurrent() {
@@ -39,18 +52,11 @@
       if (shrink < 1) vp = pg.getViewport({ scale: css * dpr * shrink });
       canvas.width = Math.floor(vp.width); canvas.height = Math.floor(vp.height);
       canvas.style.width = Math.floor(v1.width * css) + "px"; canvas.style.height = Math.floor(v1.height * css) + "px";
-      var tx = $("pdf-text"); tx.textContent = "Reading the text of this page...";
+      var tx = $("pdf-text"); shown = null; tx.textContent = "Reading the text of this page...";
       pg.getTextContent().then(function (tc) {
         if (my !== token) return;
         var r = C.takeText(tc.items, 20000), t = r.text;
-        if (!t) { tx.textContent = "This page has no text the viewer can read. It may be a scanned image."; return; }
-        tx.textContent = "";
-        // matches are marked with real elements built from text nodes, never markup from the file
-        C.splitMatches(t, mark).forEach(function (s) {
-          if (!s.hit) { tx.appendChild(document.createTextNode(s.t)); return; }
-          var m = document.createElement("mark"); m.textContent = s.t; tx.appendChild(m);
-        });
-        if (r.cut) tx.appendChild(document.createTextNode("\n[Shortened at 20000 characters.]"));
+        shown = t; shownCut = r.cut; paintText();
       }, function () { if (my === token) tx.textContent = "The text of this page could not be read."; });
       task = pg.render({ canvasContext: ctx, viewport: vp });
       return task.promise.then(function () { if (my === token) status.textContent = ""; });
@@ -65,6 +71,7 @@
     if (!doc || finding) return;
     var q = C.normQuery($("pdf-q").value);
     if (!q) { fmsg("Type 2 to 100 characters to find."); return; }
+    if (mark) { mark = ""; if (shown !== null) paintText(); } // old marks never stay beside a new query
     var d = doc, mine = fseq.begin(), order = C.pageOrder(page, d.numPages), i = 0, partial = 0, unread = 0, failed = 0;
     finding = true; $("pdf-fstop").disabled = false; $("pdf-find").disabled = true;
     var live = function () { return fseq.current(mine) && doc === d; };
@@ -84,7 +91,7 @@
         if (!live()) return;
         var r = C.takeText(tc.items, 20000); if (r.cut) partial++; if (!r.text) unread++;
         var n = C.countIn(r.text, q);
-        if (n > 0) { fmsg("Found \"" + q + "\" on page " + p + ": " + n + " match(es)" + (r.cut ? " in the first 20000 characters" : "") + ". Press Find again for the next page."); fend(); mark = q; go(p); return; }
+        if (n > 0) { fmsg("Found \"" + q + "\" on page " + p + ": " + (n >= 500 ? "500 or more" : n) + " match(es)" + (r.cut ? " in the first 20000 characters" : "") + ". Press Find again for the next page."); fend(); mark = q; go(p); return; }
         setTimeout(step, 0);
       }, function () { if (held) { try { held.cleanup(); } catch (x) { /* already released */ } } if (!live()) return; failed++; setTimeout(step, 0); });
     }
@@ -96,7 +103,7 @@
   function go(p) { if (!doc) return; page = C.pageIndex(p, 0, doc.numPages); controls(); draw(); }
   function closeDoc(msg) {
     token++; cancelCurrent(); fseq.begin(); finding = false; mark = ""; $("pdf-fstop").disabled = true; fmsg(""); $("pdf-q").value = "";
-    var d = doc; doc = null; page = 1; zoom = 1; $("pdf-text").textContent = "";
+    var d = doc; doc = null; page = 1; zoom = 1; $("pdf-text").textContent = ""; shown = "";
     settle.then(function () { if (doc) return; canvas.width = 1; canvas.height = 1; canvas.style.width = "0"; canvas.style.height = "0"; });
     var lt = loadTask; loadTask = null; if (lt) { try { lt.destroy(); } catch (e) { /* already gone */ } }
     controls(); status.textContent = msg || "";
