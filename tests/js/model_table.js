@@ -96,5 +96,24 @@ ok("sort treats numbers like 1e3, -2 and .5 as numbers but not 12abc or Infinity
 }
 ok("sort treats a cell as a formula exactly when the engine does (first character =, no trimming)", (() => { const c = mk({ A1: " =1+1", A2: "b", A3: "a" }); const r = M.sortRange(c, parseAddr, { c1: 1, c2: 1, r1: 1, r2: 3 }, 1, false, false); const sh = new F.Sheet({ A1: " =1+1" }); return !r.error && typeof sh.get("A1") === "string" && M.sortRange(mk({ A1: "=1", A2: "b" }), parseAddr, { c1: 1, c2: 1, r1: 1, r2: 2 }, 1, false, false).error !== undefined; })());
 ok("sort and the engine agree on which typed values are numbers", ["1", " 2 ", "-3", "+4", ".5", "6.", "1e3", "1E3", "1e999", "12abc", "Infinity", "NaN", "0x10", "1,5", "TRUE", "", " "].every((t) => { const v = new F.Sheet({ A1: t }).get("A1"); return (M.toNum(t) !== null) === (typeof v === "number"); }));
+{
+  const L = (m) => JSON.stringify(m.tabs.map((t) => t.name));
+  const d0 = M.loadTabs(null);
+  ok("tabs: no stored value gives one default tab, readable", !d0.unreadable && d0.meta.tabs.length === 1 && d0.meta.active === "t0" && d0.meta.tabs[0].name === "Sheet 1");
+  ok("tabs: damaged or wrong-shape stored values are reported as unreadable, never empty", ["{", "[]", "{\"v\":2,\"tabs\":[]}", "{\"v\":1,\"tabs\":[]}", JSON.stringify({ v: 1, tabs: [{ id: "x", name: "a" }] }), JSON.stringify({ v: 1, tabs: [{ id: "t1", name: "A" }, { id: "t2", name: "a" }] }), JSON.stringify({ v: 1, tabs: [{ id: "t1", name: "A" }, { id: "t1", name: "B" }] }), JSON.stringify({ v: 1, tabs: [{ id: "t1", name: "  " }] })].every((r) => M.loadTabs(r).unreadable === true));
+  ok("tabs: a stored active id that does not exist falls back to the first tab", M.loadTabs(JSON.stringify({ v: 1, active: "t9", tabs: [{ id: "t1", name: "A" }, { id: "t2", name: "B" }] })).meta.active === "t1");
+  const a1 = M.addTab(d0.meta);
+  ok("tabs: add makes a new active tab with a free name and does not change the input", a1.tabs.length === 2 && a1.active === "t1" && a1.tabs[1].name === "Sheet 2" && d0.meta.tabs.length === 1);
+  let m10 = d0.meta; for (let i = 0; i < 9; i++) m10 = M.addTab(m10);
+  ok("tabs: ten tabs at most, unique ids and names", m10.tabs.length === 10 && M.addTab(m10) === null && new Set(m10.tabs.map((t) => t.id)).size === 10 && new Set(m10.tabs.map((t) => t.name.toLowerCase())).size === 10);
+  ok("tabs: add skips a name that is taken", (() => { const m = M.renameTab(a1, "t1", "Sheet 3").meta; const n = M.addTab(m); return n.tabs[2].name !== "Sheet 3" && new Set(n.tabs.map((t) => t.name)).size === 3; })());
+  ok("tabs: rename trims, collapses blanks, refuses empty and duplicates (ignoring case)", (() => { const r = M.renameTab(a1, "t1", "  Q1   Totals "); return r.name === "Q1 Totals" && M.renameTab(a1, "t1", "  ").error !== undefined && M.renameTab(a1, "t1", "sheet 1").error !== undefined && M.renameTab(a1, "t1", "SHEET 2").meta.tabs[1].name === "SHEET 2" && M.renameTab(a1, "zz", "x").error !== undefined; })());
+  ok("tabs: rename cuts a long name by code point and says it was cut", (() => { const r = M.renameTab(a1, "t1", "\u{1F600}".repeat(40)); return Array.from(r.name).length === 30 && r.cut === true && !/[\ud800-\udbff]$/.test(r.name); })());
+  ok("tabs: delete refuses the last tab, returns the removed tab, moves active to a neighbour", (() => { const r = M.deleteTab(a1, "t1"); return M.deleteTab(d0.meta, "t0").error !== undefined && r.removed.id === "t1" && r.meta.active === "t0" && r.meta.tabs.length === 1 && M.deleteTab(a1, "t5").error !== undefined; })());
+  ok("tabs: deleting the first tab keeps the rest and a valid active tab", (() => { const r = M.deleteTab(a1, "t0"); return r.meta.active === "t1" && L(r.meta) === JSON.stringify(["Sheet 2"]); })());
+  ok("tabs: a new tab never reuses the id of a deleted first tab", (() => { const r = M.deleteTab(a1, "t0").meta; const n = M.addTab(r); return n.tabs.every((t) => t.id !== "t0") && new Set(n.tabs.map((t) => t.id)).size === 2; })());
+  ok("tabs: setActive switches only to an existing, different tab", M.setActive(a1, "t0").active === "t0" && M.setActive(a1, "t1") === null && M.setActive(a1, "nope") === null);
+  ok("tabs: saved meta round-trips through loadTabs", (() => { const m = M.renameTab(a1, "t0", "Budget").meta; const r = M.loadTabs(JSON.stringify(m)); return !r.unreadable && JSON.stringify(r.meta) === JSON.stringify(m); })());
+}
 console.log(`${n - fails}/${n} model rows passed`);
 process.exit(fails ? 1 : 0);

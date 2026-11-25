@@ -7,9 +7,17 @@
   var undoBtn = document.getElementById("sheet-undo"), redoBtn = document.getElementById("sheet-redo");
   var M = SalowSheetModel, has = function (o, k) { return Object.prototype.hasOwnProperty.call(o, k); };
   var clean = function (o) { return M.clean(o, F.parseAddr, MAXCELL); };
-  var initial = Object.create(null);
-  try { var st0 = clean(JSON.parse(localStorage.getItem(KEY) || "{}")); if (st0) initial = st0.cells; } catch (e) { initial = Object.create(null); }
-  var H = new M.History(initial, { save: function (c) { try { localStorage.setItem(KEY, JSON.stringify(c)); return true; } catch (e) { return false; } } }, HIST);
+  // Tabs: the first tab keeps the original storage key, so a sheet saved before tabs existed opens as "Sheet 1".
+  var tabsRaw = null, tabsRead = true; try { tabsRaw = localStorage.getItem(KEY + ".tabs"); } catch (e) { tabsRead = false; }
+  var tl = M.loadTabs(tabsRaw), meta = tl.meta, tabsLocked = tl.unreadable || !tabsRead, hist = Object.create(null), lastDeleted = null;
+  function tabKey(id) { return id === "t0" ? KEY : KEY + ".tab." + id; }
+  function makeHist(id) {
+    var init = Object.create(null);
+    try { var st0 = clean(JSON.parse(localStorage.getItem(tabKey(id)) || "{}")); if (st0) init = st0.cells; } catch (e) { init = Object.create(null); }
+    return new M.History(init, { save: function (c) { try { localStorage.setItem(tabKey(id), JSON.stringify(c)); return true; } catch (e) { return false; } } }, HIST);
+  }
+  function histFor(id) { if (!hist[id]) hist[id] = makeHist(id); return hist[id]; }
+  var H = histFor(meta.active);
   var cells = H.cells, chartRange = null;
   function sync() { cells = H.cells; show(); buttons(); drawChart(); applyFilter(); status.textContent = H.note; }
   function buttons() { undoBtn.disabled = !H.past.length; redoBtn.disabled = !H.future.length; }
@@ -90,7 +98,7 @@
     rd.onload = function () {
       var p = null; try { p = clean(JSON.parse(String(rd.result))); } catch (x) { p = null; }
       if (!p || !p.count) { status.textContent = "That file has no usable cells. Your sheet was not changed."; return; }
-      if (Object.keys(cells).length && !window.confirm("Replace the " + Object.keys(cells).length + " cells in this sheet with the " + p.count + " cells in this file? You can undo it afterwards.")) { status.textContent = "Import cancelled. Your sheet was not changed."; return; }
+      if (Object.keys(cells).length && !window.confirm("Replace the " + Object.keys(cells).length + " cells in this tab with the " + p.count + " cells in this file? You can undo it afterwards.")) { status.textContent = "Import cancelled. Your sheet was not changed."; return; }
       var o = outside(p.cells);
       change(p.cells, "Imported " + p.count + " cells" + (p.skipped ? ", skipped " + p.skipped + " entries that were not valid cells" : "") + (o ? ". " + o + " cells are outside the visible grid (A1 to H20): they are kept, used by formulas and exported, but not shown" : "") + ". You can undo this import.");
     };
@@ -186,5 +194,65 @@
     var note = "Sorted " + r.rows + " rows by column " + String.fromCharCode(64 + key) + "; " + r.moved + " moved. Undo restores the old order." + (filt ? " The filter is still on." : "") + outsideFormulas(rg);
     if (!change(r.cells, note)) status.textContent = "Already in that order. Nothing changed.";
   });
+  // ---- Tabs UI (model in model.js). Export, CSV, chart, sort and filter work on the tab you are on. ----
+  var tabBar = $("sheet-tabs"), tabName = $("tab-name"), tabMsg = $("tab-status");
+  function saveMeta(m) { try { localStorage.setItem(KEY + ".tabs", JSON.stringify(m)); return true; } catch (e) { return false; } }
+  function commitMeta(next) {
+    if (tabsLocked) { tabMsg.textContent = "The stored tab list could not be read, so tab changes are off. Your cells were not touched."; return false; }
+    if (!saveMeta(next)) { tabMsg.textContent = "This browser would not store the tab list, so nothing was changed."; return false; }
+    meta = next; return true;
+  }
+  function renderTabs() {
+    tabBar.textContent = "";
+    meta.tabs.forEach(function (t) {
+      var b = document.createElement("button"); b.type = "button"; b.className = "btn"; b.textContent = t.name; b.dataset.tab = t.id;
+      b.setAttribute("aria-pressed", t.id === meta.active ? "true" : "false"); if (t.id === meta.active) b.setAttribute("aria-current", "true");
+      b.addEventListener("click", function () { switchTo(t.id, b); }); tabBar.appendChild(b);
+    });
+    var ct = meta.tabs.filter(function (t) { return t.id === meta.active; })[0]; if (document.activeElement !== tabName) tabName.value = ct.name;
+    $("tab-add").disabled = tabsLocked || meta.tabs.length >= M.MAX_TABS; $("tab-rename").disabled = tabsLocked; $("tab-del").disabled = tabsLocked || meta.tabs.length <= 1;
+    $("tab-restore").disabled = tabsLocked || !lastDeleted || meta.tabs.length >= M.MAX_TABS;
+  }
+  function switchTo(id, keep) {
+    var next = M.setActive(meta, id); if (!next) return;
+    if (!commitMeta(next)) return;
+    H = histFor(id); chartRange = null; out.textContent = ""; cur = null; bar.value = ""; sel.textContent = "";
+    var hadFilter = !!filt; filt = null; sync(); renderTabs();
+    tabMsg.textContent = "Now on " + meta.tabs.filter(function (t) { return t.id === id; })[0].name + ". Undo history is kept for each tab until you reload." + (hadFilter ? " The filter was cleared." : "");
+    var again = keep && tabBar.querySelector('button[data-tab="' + id + '"]'); if (again) again.focus();
+  }
+  $("tab-add").addEventListener("click", function () {
+    var next = M.addTab(meta); if (!next) { tabMsg.textContent = "A file holds up to " + M.MAX_TABS + " tabs."; return; }
+    if (!commitMeta(next)) return;
+    H = histFor(meta.active); chartRange = null; out.textContent = ""; cur = null; filt = null; sync(); renderTabs();
+    tabMsg.textContent = "Added a tab. Formulas read only cells on their own tab."; tabName.focus(); tabName.select();
+  });
+  $("tab-rename").addEventListener("click", function () {
+    var r = M.renameTab(meta, meta.active, tabName.value); if (r.error) { tabMsg.textContent = r.error; return; }
+    if (!commitMeta(r.meta)) return; renderTabs(); tabMsg.textContent = "Renamed to " + r.name + "." + (r.cut ? " The name was shortened to 30 characters." : "");
+  });
+  tabName.addEventListener("keydown", function (e) { if (e.key === "Enter") { e.preventDefault(); $("tab-rename").click(); } });
+  $("tab-del").addEventListener("click", function () {
+    var id = meta.active, n = Object.keys(H.cells).length, nm = meta.tabs.filter(function (t) { return t.id === id; })[0].name;
+    var r = M.deleteTab(meta, id); if (r.error) { tabMsg.textContent = r.error; return; }
+    if (n && !window.confirm("Delete the tab " + nm + " and its " + n + " cells? You can bring it back with Restore deleted tab until you reload this page. After a reload it cannot be brought back.")) { tabMsg.textContent = "Delete cancelled."; return; }
+    var saved = M.copy(H.cells);
+    if (!commitMeta(r.meta)) return;
+    try { localStorage.removeItem(tabKey(id)); } catch (e) { /* the tab is already out of the list; the stored cells are unreachable */ }
+    delete hist[id]; lastDeleted = { name: nm, cells: saved };
+    H = histFor(meta.active); chartRange = null; out.textContent = ""; cur = null; filt = null; sync(); renderTabs();
+    tabMsg.textContent = "Deleted the tab " + nm + ". Restore deleted tab brings it back until you reload; after a reload it cannot be brought back.";
+  });
+  $("tab-restore").addEventListener("click", function () {
+    if (!lastDeleted) return;
+    var next = M.addTab(meta); if (!next) { tabMsg.textContent = "A file holds up to " + M.MAX_TABS + " tabs."; return; }
+    var nm = lastDeleted.name, rn = M.renameTab(next, next.active, nm); if (!rn.error) next = rn.meta;
+    if (!commitMeta(next)) return;
+    H = histFor(meta.active); H.change(lastDeleted.cells, "Restored the deleted tab."); lastDeleted = null;
+    chartRange = null; out.textContent = ""; cur = null; filt = null; sync(); renderTabs();
+    tabMsg.textContent = "Restored the tab" + (rn.error ? " under a new name, because " + nm + " is in use." : " " + nm + ".");
+  });
+  if (tabsLocked) tabMsg.textContent = "The stored tab list could not be read, so tab changes are off. Your cells were not touched.";
+  renderTabs();
   show(); buttons(); status.textContent = "";
 })();

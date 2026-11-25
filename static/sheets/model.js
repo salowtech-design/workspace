@@ -143,6 +143,49 @@
     return { vis: vis, shown: shown, total: total };
   }
 
-  var api = { sortRange: sortRange, filterRows: filterRows, toNum: toNum, toCsv: toCsv, clean: clean, History: History, chartPoints: chartPoints, isComposing: isComposing, keyMove: keyMove, copy: copy, same: same };
+  // ---- Tabs: several sheets in one file. meta = { v: 1, active: id, tabs: [{ id, name }] }. Each tab keeps its own cells. ----
+  var MAX_TABS = 10, NAME_MAX = 30, TAB_ID = /^t[0-9]{1,6}$/;
+  function cleanName(n) { if (typeof n !== "string") return ""; var t = n.replace(/\s+/g, " ").trim(); return t.length <= NAME_MAX ? t : Array.from(t).slice(0, NAME_MAX).join("").trim(); }
+  function defaultTabs() { return { v: 1, active: "t0", tabs: [{ id: "t0", name: "Sheet 1" }] }; }
+  function cloneMeta(m) { return { v: 1, active: m.active, tabs: m.tabs.map(function (t) { return { id: t.id, name: t.name }; }) }; }
+  // raw is the stored string or null. A stored value that cannot be read is reported, never treated as empty.
+  function loadTabs(raw) {
+    if (raw === null || raw === undefined || raw === "") return { meta: defaultTabs(), unreadable: false };
+    var m = null; try { m = JSON.parse(raw); } catch (e) { m = null; }
+    var bad = { meta: defaultTabs(), unreadable: true };
+    if (!m || typeof m !== "object" || m.v !== 1 || !Array.isArray(m.tabs) || !m.tabs.length || m.tabs.length > MAX_TABS) return bad;
+    var seen = Object.create(null), names = Object.create(null), out = [];
+    for (var i = 0; i < m.tabs.length; i++) {
+      var t = m.tabs[i], nm = t && cleanName(t.name);
+      if (!t || typeof t.id !== "string" || !TAB_ID.test(t.id) || seen[t.id] || !nm || names[nm.toLowerCase()]) return bad;
+      seen[t.id] = true; names[nm.toLowerCase()] = true; out.push({ id: t.id, name: nm });
+    }
+    return { meta: { v: 1, active: seen[m.active] ? m.active : out[0].id, tabs: out }, unreadable: false };
+  }
+  function nameTaken(meta, name, exceptId) { var l = name.toLowerCase(); return meta.tabs.some(function (t) { return t.id !== exceptId && t.name.toLowerCase() === l; }); }
+  function addTab(meta) {
+    if (meta.tabs.length >= MAX_TABS) return null;
+    var n = meta.tabs.reduce(function (mx, t) { return Math.max(mx, Number(t.id.slice(1))); }, 0) + 1, k = meta.tabs.length + 1, name;
+    do { name = "Sheet " + k++; } while (nameTaken(meta, name));
+    var next = cloneMeta(meta); next.tabs.push({ id: "t" + n, name: name }); next.active = "t" + n; return next;
+  }
+  function renameTab(meta, id, name) {
+    var nm = cleanName(name), i = meta.tabs.findIndex(function (t) { return t.id === id; });
+    if (i < 0) return { error: "That tab does not exist." };
+    if (!nm) return { error: "Enter a name for the tab." };
+    if (nameTaken(meta, nm, id)) return { error: "Another tab already has that name." };
+    var next = cloneMeta(meta); next.tabs[i].name = nm; return { meta: next, name: nm, cut: typeof name === "string" && name.replace(/\s+/g, " ").trim().length > NAME_MAX };
+  }
+  function deleteTab(meta, id) {
+    var i = meta.tabs.findIndex(function (t) { return t.id === id; });
+    if (i < 0) return { error: "That tab does not exist." };
+    if (meta.tabs.length <= 1) return { error: "A file keeps at least one tab." };
+    var next = cloneMeta(meta); next.tabs.splice(i, 1);
+    if (next.active === id) next.active = next.tabs[Math.min(i, next.tabs.length - 1)].id;
+    return { meta: next, removed: meta.tabs[i] };
+  }
+  function setActive(meta, id) { if (!meta.tabs.some(function (t) { return t.id === id; }) || meta.active === id) return null; var n = cloneMeta(meta); n.active = id; return n; }
+
+  var api = { loadTabs: loadTabs, addTab: addTab, renameTab: renameTab, deleteTab: deleteTab, setActive: setActive, cleanName: cleanName, MAX_TABS: MAX_TABS, sortRange: sortRange, filterRows: filterRows, toNum: toNum, toCsv: toCsv, clean: clean, History: History, chartPoints: chartPoints, isComposing: isComposing, keyMove: keyMove, copy: copy, same: same };
   if (typeof module !== "undefined" && module.exports) module.exports = api; else root.SalowSheetModel = api;
 })(typeof self !== "undefined" ? self : this);

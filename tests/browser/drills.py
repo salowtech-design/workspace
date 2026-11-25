@@ -346,10 +346,94 @@ def selftest_scrub(ctx):
     raise RuntimeError("boom " + SECRETS["emp"] + " " + SECRETS["emp_pw"])
 
 
+def sheets_tabs(ctx):
+    pg = fresh(ctx, "/sheets/")
+
+    def names():
+        return pg.eval_on_selector_all("#sheet-tabs button", "bs=>bs.map(b=>b.textContent)")
+
+    def setc(a, v):
+        pg.click('input[data-addr="%s"]' % a)
+        pg.fill('input[data-addr="%s"]' % a, v)
+        pg.press('input[data-addr="%s"]' % a, "Tab")
+
+    def val(a):
+        return pg.input_value('input[data-addr="%s"]' % a)
+
+    check("tabs: a new sheet starts with one tab", names() == ["Sheet 1"], names())
+    setc("A1", "one")
+    pg.click("#tab-add")
+    check(
+        "tabs: Add tab makes a second, empty tab",
+        names() == ["Sheet 1", "Sheet 2"] and val("A1") == "",
+        names(),
+    )
+    setc("A1", "two")
+    pg.fill("#tab-name", "  Costs  ")
+    pg.click("#tab-rename")
+    check("tabs: rename trims the name", names() == ["Sheet 1", "Costs"], names())
+    pg.fill("#tab-name", "sheet 1")
+    pg.click("#tab-rename")
+    check("tabs: a name already in use is refused", names() == ["Sheet 1", "Costs"], names())
+    pg.click('#sheet-tabs button[data-tab="t0"]')
+    check("tabs: switching keeps each tab's data", val("A1") == "one", val("A1"))
+    setc("A2", '=A1&"x"')
+    pg.click("#sheet-tabs button:nth-child(2)")
+    check(
+        "tabs: the other tab is unchanged",
+        val("A1") == "two" and val("A2") == "",
+        (val("A1"), val("A2")),
+    )
+    shot(pg, "sheets-tabs-40")
+    pg.reload()
+    pg.wait_for_timeout(400)
+    check(
+        "tabs: tabs and data survive reload",
+        names() == ["Sheet 1", "Costs"] and val("A1") == "two",
+        names(),
+    )
+    pg.once("dialog", lambda d: d.accept())
+    pg.click("#tab-del")
+    check(
+        "tabs: Delete tab removes it and moves to the other",
+        names() == ["Sheet 1"] and val("A1") == "one",
+        names(),
+    )
+    check("tabs: the last tab cannot be deleted", pg.is_disabled("#tab-del"))
+    pg.click("#tab-restore")
+    check(
+        "tabs: Restore deleted tab brings it back with its data",
+        names() == ["Sheet 1", "Costs"] and val("A1") == "two",
+        names(),
+    )
+    stored_meta = pg.evaluate(
+        "localStorage.getItem(document.getElementById('sheet-root').dataset.storeKey+'.tabs')"
+    )
+    check("tabs: the tab list is stored", stored_meta is not None)
+    pg.evaluate(
+        "localStorage.setItem(document.getElementById('sheet-root').dataset.storeKey+'.tabs','{broken')"
+    )
+    pg.reload()
+    pg.wait_for_timeout(400)
+    check(
+        "tabs: an unreadable tab list turns tab changes off",
+        pg.is_disabled("#tab-add") and pg.is_disabled("#tab-rename"),
+    )
+    check("tabs: ...and says so", "could not be read" in pg.inner_text("#tab-status"))
+    check(
+        "tabs: ...and the stored value is left as it was",
+        pg.evaluate(
+            "localStorage.getItem(document.getElementById('sheet-root').dataset.storeKey+'.tabs')"
+        )
+        == "{broken",
+    )
+
+
 DRILLS = {
     "slides_show": slides_show,
     "slides_edit": slides_edit,
     "sheets_sort_filter": sheets_sort_filter,
+    "sheets_tabs": sheets_tabs,
     "selftest_scrub": selftest_scrub,
 }
 
