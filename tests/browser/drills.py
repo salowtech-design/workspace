@@ -2141,6 +2141,45 @@ def sheets_fill(ctx):  # noqa: C901
     pg.fill("#fill-range", "A1:A101")
     pg.click("#fill-down")
     check("fill: a range outside A1:Z100 is refused", "A1:Z100" in status(), status())
+    # a reversed range means the same as the forward one, and junk is rejected
+    setc("A20", "r1")
+    setc("B20", "r2")
+    pg.fill("#fill-range", "B21:A20")
+    pg.click("#fill-down")
+    check(
+        "fill: a reversed range B21:A20 works like A20:B21",
+        val("A21") == "r1" and val("B21") == "r2",
+        val("A21") + val("B21"),
+    )
+    for junk in ("A1", "A1:", "foo", "A1:B2:C3", "1:2", "A1;B2"):
+        pg.fill("#fill-range", junk)
+        before = stored()
+        pg.click("#fill-down")
+        check(
+            "fill: junk range %r is rejected, nothing written" % junk,
+            "Enter a range like" in status() and stored() == before,
+            status(),
+        )
+    # partly accepted: only some targets are allowed by the rules
+    setc("A30", "x")
+    setc("B30", "y")
+    pg.fill("#val-range", "B31:B32")
+    pg.fill("#val-items", "ok")
+    pg.click("#val-add")
+    pg.fill("#fill-range", "A30:B32")
+    pg.click("#fill-down")
+    check(
+        "fill: a partly refused fill writes the allowed targets and leaves the refused ones empty",
+        val("A31") == "x" and val("A32") == "x" and val("B31") == "" and val("B32") == "",
+        val("A31") + val("B31"),
+    )
+    check(
+        "fill: the status counts both",
+        "2 cells filled" in status() and "2 refused by validation rules" in status(),
+        status(),
+    )
+    pg.click("#sheet-undo")
+    check("fill: one Undo takes back the accepted part", val("A31") == "" and val("A32") == "")
     # validation: refused cells are counted and left alone
     pg.fill("#val-range", "A6:A8")
     pg.fill("#val-items", "red, blue")
@@ -2193,9 +2232,9 @@ def sheets_fill(ctx):  # noqa: C901
     pg.fill("#fill-range", "A1:A2")
     pg.click("#fill-down")
     check(
-        "fill: if the browser will not store it, the status says so",
-        "would not store" in status(),
-        status(),
+        "fill: if the browser will not store it, the status says so and the fill stays on screen",
+        "would not store" in status() and val("A2") == "bolt",
+        status() + " | " + val("A2"),
     )
 
 
