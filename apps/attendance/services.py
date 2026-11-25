@@ -90,6 +90,17 @@ def validate_network_and_device(
     return True, None
 
 
+def _lock_person(user_pk):
+    """The person's own row is the guard: it exists even when they have no open session, so
+    concurrent check-ins, check-outs, approvals and corrections for one person queue up here
+    (locking only 'the open session' locks nothing when there is none)."""
+    return CustomUser.objects.select_for_update().filter(pk=user_pk).first()
+
+
+def _pause():
+    """Test hook after the open-session check. A no-op."""
+
+
 def check_in(
     user: CustomUser,
     verification: VerificationResult,
@@ -110,7 +121,7 @@ def check_in(
     work_date = get_current_kolkata_date(now)
 
     with transaction.atomic():
-        # Concurrency guard: select_for_update blocks concurrent check-ins
+        _lock_person(user.pk)  # the guard row: held until commit
         existing_open = (
             WorkSession.objects.select_for_update()
             .filter(user=user, state=WorkSession.State.OPEN)
@@ -118,7 +129,7 @@ def check_in(
         )
         if existing_open:
             raise ValidationError("An open attendance session is already active for this account.")
-
+        _pause()
         session = WorkSession.objects.create(
             user=user,
             work_date=work_date,
@@ -154,6 +165,7 @@ def check_out(
     now = instant or timezone.now()
 
     with transaction.atomic():
+        _lock_person(user.pk)
         session = (
             WorkSession.objects.select_for_update()
             .filter(user=user, state=WorkSession.State.OPEN)
@@ -264,31 +276,42 @@ def review_fallback_request(
             req.status = AttendanceFallbackRequest.Status.APPROVED
             req.save()
 
+            _lock_person(req.user_id)  # after the request row; check-in locks only the person
+            open_session = (
+                WorkSession.objects.select_for_update()
+                .filter(user=req.user, state=WorkSession.State.OPEN)
+                .first()
+            )
             if req.request_type == AttendanceFallbackRequest.RequestType.CHECK_IN:
-                existing = WorkSession.objects.filter(
-                    user=req.user, state=WorkSession.State.OPEN
-                ).first()
-                if not existing:
-                    WorkSession.objects.create(
-                        user=req.user,
-                        work_date=req.work_date,
-                        check_in_at=req.requested_time,
-                        verification_method=WorkSession.VerificationMethod.MANUAL_APPROVED,
-                        state=WorkSession.State.OPEN,
-                        notes=f"Approved manual check-in by {reviewer.employee_id}: {req.reason}",
-                    )
-            elif req.request_type == AttendanceFallbackRequest.RequestType.CHECK_OUT:
-                open_session = WorkSession.objects.filter(
-                    user=req.user, state=WorkSession.State.OPEN
-                ).first()
                 if open_session:
-                    open_session.check_out_at = req.requested_time
-                    open_session.state = WorkSession.State.COMPLETED
-                    open_session.notes = (
-                        open_session.notes
-                        + f" | Approved manual check-out by {reviewer.employee_id}"
-                    ).strip(" |")
-                    open_session.save()
+                    raise ValidationError(
+                        "This person already has an open session, so a manual check-in cannot "
+                        "be approved. Nothing was changed."
+                    )
+                WorkSession.objects.create(
+                    user=req.user,
+                    work_date=req.work_date,
+                    check_in_at=req.requested_time,
+                    verification_method=WorkSession.VerificationMethod.MANUAL_APPROVED,
+                    state=WorkSession.State.OPEN,
+                    notes=f"Approved manual check-in by {reviewer.employee_id}: {req.reason}",
+                )
+            elif req.request_type == AttendanceFallbackRequest.RequestType.CHECK_OUT:
+                if open_session is None:
+                    raise ValidationError(
+                        "This person has no open session, so a manual check-out cannot be "
+                        "approved. Nothing was changed."
+                    )
+                if req.requested_time < open_session.check_in_at:
+                    raise ValidationError(
+                        "The requested check-out is before the check-in. Nothing was changed."
+                    )
+                open_session.check_out_at = req.requested_time
+                open_session.state = WorkSession.State.COMPLETED
+                open_session.notes = (
+                    open_session.notes + f" | Approved manual check-out by {reviewer.employee_id}"
+                ).strip(" |")
+                open_session.save()
         else:
             req.status = AttendanceFallbackRequest.Status.REJECTED
             req.save()
@@ -330,10 +353,20 @@ def correct_work_session(
     if corrected_check_out and corrected_check_out < corrected_check_in:
         raise ValidationError("Corrected check-out cannot precede check-in time.")
 
+    if corrected_check_in.tzinfo is None or (
+        corrected_check_out is not None and corrected_check_out.tzinfo is None
+    ):
+        raise ValidationError("Corrected times must include a time zone.")
+
     with transaction.atomic():
-        session = WorkSession.objects.select_for_update().filter(id=session_id).first()
-        if not session:
+        found = WorkSession.objects.filter(id=session_id).first()
+        if not found:
             raise ValidationError("Work session not found.")
+        _lock_person(found.user_id)  # the person's guard row first, then the session
+        session = WorkSession.objects.select_for_update().filter(id=session_id).first()
+        final_out = corrected_check_out or session.check_out_at
+        if final_out is not None and final_out < corrected_check_in:
+            raise ValidationError("The corrected check-in would fall after the check-out.")
 
         correction = AttendanceCorrection.objects.create(
             session=session,
@@ -346,6 +379,7 @@ def correct_work_session(
         )
 
         session.check_in_at = corrected_check_in
+        session.work_date = get_current_kolkata_date(corrected_check_in)
         if corrected_check_out:
             session.check_out_at = corrected_check_out
             session.state = WorkSession.State.COMPLETED

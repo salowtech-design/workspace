@@ -201,7 +201,7 @@ def attendance_admin_panel_view(request):
                     request, f"Fallback request #{request_id} successfully {decision}d."
                 )
             except (ValidationError, PermissionDenied, ValueError, TypeError) as exc:
-                messages.error(request, str(exc))
+                messages.error(request, " ".join(getattr(exc, "messages", None) or [str(exc)]))
             return redirect("attendance:admin_panel")
 
     # Business attendance metrics
