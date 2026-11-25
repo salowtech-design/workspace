@@ -137,7 +137,7 @@ def update_task(user, task, expected_version, **changes):
         pk=task.pk, version=expected_version, deleted_at__isnull=True
     ).update(version=F("version") + 1, updated_at=timezone.now(), **fields)
     if not done:
-        raise StaleVersion("This task changed while you were editing. Reload and try again.")
+        raise StaleVersion("This task changed while you were editing.")
     audit(user, "tasks.task.update", "task", task.pk, fields=sorted(fields))
     task.refresh_from_db()
     return task
