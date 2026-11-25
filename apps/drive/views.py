@@ -31,9 +31,12 @@ def _visible_or_404(user, item, action="view"):
     return item
 
 
-def _crumbs(folder):
+def _crumbs(user, folder):
+    """Trail up to the highest ancestor the viewer can open; never names an ancestor they cannot."""
     out = []
     while folder is not None and len(out) < 25:
+        if not can(user, "view", "drive.folder", folder):
+            break
         out.append(folder)
         folder = folder.parent
     return list(reversed(out))
@@ -80,7 +83,8 @@ def folder_view(request, folder_id):
             "folder": folder,
             "folders": folders,
             "files": files,
-            "crumbs": _crumbs(folder),
+            "crumbs": (crumbs := _crumbs(request.user, folder)),
+            "shared_root": bool(crumbs and crumbs[0].parent_id),
             "can_edit": can(request.user, "edit", "drive.folder", folder),
             "is_owner": owner,
             "shares": shares,
@@ -154,7 +158,9 @@ def restore_item(request, kind, item_id):
 
 
 def _person(employee_id):
-    return CustomUser.objects.filter(employee_id__iexact=(employee_id or "").strip()).first()
+    return CustomUser.objects.filter(
+        employee_id__iexact=(employee_id or "").strip(), is_active=True, status="active"
+    ).first()
 
 
 @login_required
@@ -181,6 +187,9 @@ def share_item(request, kind, item_id):
 @require_POST
 def unshare_item(request, kind, item_id):
     item = _visible_or_404(request.user, _item(kind, item_id))
-    person = get_object_or_404(CustomUser, pk=request.POST.get("user_id") or 0)
+    try:
+        person = get_object_or_404(CustomUser, pk=int(request.POST.get("user_id") or 0))
+    except ValueError:
+        raise Http404 from None
     _run(request, svc.unshare, request.user, item, person, ok="Access removed.")
     return _back(item) if kind == "file" else redirect("drive:folder", folder_id=item.public_id)

@@ -6,7 +6,7 @@
   <div class="drive-head"><h2>Drive</h2></div>
   {% include "drive/_nav.html" with tab="mine" %}
   <div class="crumbs">
-    <a href="{% url 'drive:home' %}">My Drive</a>
+    {% if shared_root %}<a href="{% url 'drive:shared' %}">Shared with me</a>{% else %}<a href="{% url 'drive:home' %}">My Drive</a>{% endif %}
     {% for c in crumbs %} / <a href="{% url 'drive:folder' c.public_id %}">{{ c.name }}</a>{% endfor %}
   </div>
   {% if can_edit %}

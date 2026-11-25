@@ -92,3 +92,37 @@ def test_trash_and_restore_pages_and_csrf_and_login_required():
         ca.post(f"/drive/folder/{top.pk}/rename/").status_code == 404
     )  # integer ids are not routes
     assert ca.get(f"/drive/folder/{top.pk}/").status_code == 404
+
+
+@pytest.mark.django_db
+def test_breadcrumb_never_names_ancestors_the_viewer_cannot_open():
+    a, b = _u("V-O"), _u("V-S")
+    fin = svc.create_folder(a, "Finance")
+    y = svc.create_folder(a, "2026", fin)
+    q3 = svc.create_folder(a, "Q3", y)
+    svc.share(a, q3, b, "viewer")
+    cb = _client(b)
+    html = cb.get(reverse("drive:folder", args=[q3.public_id])).content.decode()
+    assert "Q3" in html and "Finance" not in html and "2026" not in html
+    assert "Shared with me" in html
+    assert cb.get(reverse("drive:folder", args=[y.public_id])).status_code == 404
+    own = _client(a).get(reverse("drive:folder", args=[q3.public_id])).content.decode()
+    assert "Finance" in own and "2026" in own
+
+
+@pytest.mark.django_db
+def test_share_with_unknown_or_inactive_person_and_bad_unshare_id():
+    a, b = _u("V-P"), _u("V-Q")
+    top = svc.create_folder(a, "Plans")
+    ca = _client(a)
+    url = reverse("drive:share", args=["folder", top.public_id])
+    msgs = []
+    for eid in ("NOPE-1", "V-Q"):
+        if eid == "V-Q":
+            CustomUser.objects.filter(pk=b.pk).update(is_active=False, status="inactive")
+        r = ca.post(url, {"employee_id": eid, "role": "viewer"}, follow=True)
+        msgs.append([str(m) for m in r.context["messages"]])
+    assert msgs[0] == msgs[1] == ["No employee with that ID."]
+    assert not Share.objects.exists()
+    bad = reverse("drive:unshare", args=["folder", top.public_id])
+    assert ca.post(bad, {"user_id": "abc"}).status_code == 404
