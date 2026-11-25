@@ -195,12 +195,15 @@ def test_reconcile_flags_without_locks_and_corrects_under_locks():
 @pytest.mark.django_db
 def test_manifest_since_reads_epoch_first_and_flags_new_people():
     a, b = _u("R-N"), _u("R-O")
-    assert svc.manifest_since(b) == {"epoch": 0, "full_list_required": True, "changes": []}
+    first = svc.manifest_since(b)
+    assert first["full_list_required"] is True and first["changes"] == [] and first["epoch"] == 0
     top = svc.create_folder(a, "Feed")
     svc.share(a, top, b, "viewer")
     out = svc.manifest_since(b, since=0)
     assert out["epoch"] == 1 and out["full_list_required"] is False and len(out["changes"]) == 1
+    assert out["next_since"] == 1 and out["has_more"] is False
     assert svc.manifest_since(b, since=1)["changes"] == []
+    assert svc.manifest_since(b, since=99)["full_list_required"] is True  # cursor ahead of server
 
 
 # ---- concurrency (TiDB/MySQL only) ----
@@ -273,12 +276,18 @@ def test_epoch_writer_with_the_account_lock_is_gap_free_and_without_it_collides(
     _need_mysql()
     a = _u("C-X")
     folders = [svc.create_folder(a, f"P{i}") for i in range(4)]
-    locked, unlocked = _u("C-L"), _u("C-U")
+    locked = _u("C-L")
     assert _bump_in_threads(locked, folders, True) == ["ok"] * 4
     assert _epochs(locked) == [1, 2, 3, 4]
-    _bump_in_threads(unlocked, folders, False)
-    ep = _epochs(unlocked)
-    assert ep != [1, 2, 3, 4], f"control showed no collision: {ep}"
+    dup = False
+    for i in range(5):
+        u = _u(f"C-V{i}")
+        _bump_in_threads(u, folders, False)
+        ep = _epochs(u)
+        if len(set(ep)) < len(ep):  # the specific anomaly: two writers took the same epoch
+            dup = True
+            break
+    assert dup, "no duplicate epoch without the lock in 5 rounds; the control proves nothing"
 
 
 @pytest.mark.django_db(transaction=True)
@@ -370,3 +379,70 @@ def test_a_permanent_operational_error_is_not_retried(monkeypatch):
     with pytest.raises(OperationalError):
         svc.trash(a, top)
     assert calls["n"] == 1
+
+
+@pytest.mark.django_db
+def test_reader_pages_by_epoch_and_refuses_inactive_accounts():
+    a, b = _u("P-A"), _u("P-B")
+    top = svc.create_folder(a, "Page")
+    for _ in range(3):
+        svc.share(a, top, b, "viewer")
+        svc.unshare(a, top, b)
+    total = svc.manifest_since(b, limit=1000)
+    assert [c.epoch for c in total["changes"]] == [1, 2, 3, 4, 5, 6]
+    p1 = svc.manifest_since(b, since=0, limit=4)
+    assert (
+        [c.epoch for c in p1["changes"]] == [1, 2, 3, 4]
+        and p1["has_more"]
+        and p1["next_since"] == 4
+    )
+    p2 = svc.manifest_since(b, since=p1["next_since"], limit=4)
+    assert [c.epoch for c in p2["changes"]] == [5, 6] and not p2["has_more"]
+    CustomUser.objects.filter(pk=b.pk).update(is_active=False, status="inactive")
+    b.refresh_from_db()
+    gone = svc.manifest_since(b)
+    assert gone["changes"] == [] and gone["full_list_required"] is True
+
+
+@pytest.mark.django_db
+def test_reconcile_finds_a_grant_written_straight_into_the_database():
+    from apps.drive.models import Share
+
+    a, b = _u("D-X"), _u("D-Y")
+    top = svc.create_folder(a, "Direct")
+    Share.objects.create(folder=top, user=b, role="editor", granted_by=a)  # no manifest row
+    assert svc.reconcile_user(b) == [("folder", top.public_id)]
+    assert svc.reconcile_user(b, fix=True) == [("folder", top.public_id)]
+    assert _rows(b)[-1][3:6] == ("active", "editor", "reconcile")
+    assert svc.reconcile_user(b) == []
+
+
+@pytest.mark.django_db
+def test_notification_value_errors_skip_but_database_errors_propagate(monkeypatch):
+    from django.db import OperationalError
+
+    from apps.drive.models import Share
+
+    a, b, c = _u("N-A"), _u("N-B"), _u("N-C")
+    top = svc.create_folder(a, "Notif")
+
+    def bad_link(*args, **kwargs):
+        raise ValueError("bad link")
+
+    monkeypatch.setattr(svc, "notify", bad_link)
+    svc.share(a, top, b, "viewer")
+    assert Share.objects.filter(folder=top, user=b).exists()
+
+    def db_down(*args, **kwargs):
+        raise OperationalError(1213, "Deadlock found")
+
+    monkeypatch.setattr(svc, "notify", db_down)
+    with pytest.raises(OperationalError):
+        svc.share(a, top, c, "viewer")
+
+
+def test_relock_does_not_retry_inside_a_caller_transaction_and_skips_commit_errors():
+    from django.db import OperationalError
+
+    assert svc._commit_failed(OperationalError(1105, "commit failed: write conflict"))
+    assert not svc._commit_failed(OperationalError(1105, "pessimistic lock retry limit reached"))

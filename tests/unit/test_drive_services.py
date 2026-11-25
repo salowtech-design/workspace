@@ -531,7 +531,7 @@ def test_share_survives_a_notification_failure(monkeypatch):
     top = svc.create_folder(a, "Keep")
 
     def boom(*args, **kwargs):
-        raise RuntimeError("notify down")
+        raise ValueError("notify down")
 
     monkeypatch.setattr(svc, "notify", boom)
     svc.share(a, top, b, "viewer")

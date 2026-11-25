@@ -176,6 +176,12 @@ def _is_lock_contention(exc):
     return code == 1105 and "pessimistic lock retry limit" in msg.lower()
 
 
+def _commit_failed(exc):
+    """Errors raised while committing leave the outcome unknown, so they are never retried.
+    Lock contention errors in this module come from statements inside the transaction."""
+    return "commit" in str(exc).lower() and "retry limit" not in str(exc).lower()
+
+
 class LockSetGrew(Exception):
     """The set of people grew between reading it and locking it. The whole transaction is
     rolled back (releasing every lock) and re-run, so locks are never taken out of order."""
@@ -192,18 +198,32 @@ def _relock(fn):
 
     @functools.wraps(fn)
     def wrapper(*args, **kwargs):
-        for attempt in range(5):
+        from django.db import connection
+
+        if connection.in_atomic_block:
+            # A caller already owns a transaction (ATOMIC_REQUESTS is off in this project, so
+            # this is a nested call or a test wrapper). Retrying here would re-run work inside
+            # a transaction that may already be dead or hold locks in the wrong order, so run
+            # once and let the caller see the error.
             try:
                 return fn(*args, **kwargs)
             except LockSetGrew:
+                raise ValidationError("Access changed while this ran. Try again.") from None
+        last = None
+        for attempt in range(5):
+            try:
+                return fn(*args, **kwargs)
+            except LockSetGrew as exc:
+                last = exc
                 continue
             except OperationalError as exc:
-                # Retry only lock contention. 1205 lock wait timeout and 1213 deadlock are
-                # MySQL codes; TiDB reports its pessimistic retry limit as the generic 1105, so
-                # that code counts only with its exact message. Any other 1105 is a real fault.
-                if not _is_lock_contention(exc):
+                # Retry only lock contention (see _is_lock_contention). A transaction that
+                # fails at COMMIT is not retried here: the commit outcome could be unknown.
+                if not _is_lock_contention(exc) or _commit_failed(exc):
                     raise
-                time.sleep(random.uniform(0.02, 0.1) * (attempt + 1))  # noqa: S311 (backoff jitter, not security)
+                last = exc
+                time.sleep(random.uniform(0.02, 0.1) * (attempt + 1))  # noqa: S311
+        logger.error("drive operation gave up after retries: %r", last)
         raise ValidationError("Busy right now. Try again.")
 
     return wrapper
@@ -261,24 +281,59 @@ def _record(item, reason, people, nested=()):
         _bump(pid, root, reason)
 
 
-def manifest_since(user, since=0):
-    """Changes after `since`, capped at the epoch read FIRST. Rows carry absolute state, so a
-    client that takes the epoch before listing and then applies later rows converges."""
+MANIFEST_PAGE_EPOCHS = 200
+
+
+def manifest_since(user, since=0, limit=MANIFEST_PAGE_EPOCHS):
+    """One page of changes in (since, next_since]. The epoch is read FIRST and the page is cut
+    by epoch number (epochs are gap free per person), so a page is never split mid-epoch.
+    Rows carry absolute state, so replay over a newer listing converges. A cursor ahead of the
+    server (since > epoch) or no epoch row means the client must relist. Inactive accounts get
+    nothing. Authorization is not taken from this: every list and transfer re-checks live."""
+    if not user.is_active or getattr(user, "status", "active") != "active":
+        return {
+            "epoch": 0,
+            "next_since": 0,
+            "has_more": False,
+            "full_list_required": True,
+            "changes": [],
+        }
     ep = ManifestEpoch.objects.filter(user=user).first()
     top = ep.epoch if ep else 0
-    rows = ManifestChange.objects.filter(user=user, epoch__gt=since, epoch__lte=top).order_by(
-        "epoch"
+    if ep is None or since > top or since < 0:
+        return {
+            "epoch": top,
+            "next_since": 0,
+            "has_more": False,
+            "full_list_required": True,
+            "changes": [],
+        }
+    last = min(top, since + max(1, int(limit)))
+    rows = ManifestChange.objects.filter(user=user, epoch__gt=since, epoch__lte=last).order_by(
+        "epoch", "id"
     )
-    return {"epoch": top, "full_list_required": ep is None, "changes": list(rows)}
+    return {
+        "epoch": top,
+        "next_since": last,
+        "has_more": last < top,
+        "full_list_required": False,
+        "changes": list(rows),
+    }
 
 
-def reconcile_user(user, fix=False):
+def reconcile_user(user, fix=False):  # noqa: C901 (one linear scan then one locked fix pass)
     """Compare the last recorded state for each root with live truth. Without fix this only
     flags candidates. With fix it takes the ordered locks, recomputes fresh under them, and
     only then writes a correction, so a stale read can never overwrite current truth."""
     latest = {}
     for row in ManifestChange.objects.filter(user=user).order_by("epoch"):
         latest[(row.item_type, row.item_public_id)] = row
+    # also every root the person holds a share on right now, so a grant that never got a row
+    # (for example written directly in the database) is found, not only roots already recorded
+    for sh in Share.objects.filter(user=user).select_related("folder", "file"):
+        root = sh.folder or sh.file
+        key = ("folder" if sh.folder_id else "file", root.public_id)
+        latest.setdefault(key, None)
     flagged = []
     for (kind, pid), row in latest.items():
         model = Folder if kind == "folder" else DriveFile
@@ -287,7 +342,10 @@ def reconcile_user(user, fix=False):
             continue
         live = mf.effective_entry(user, item)
         want = {mf.ACTIVE: "active", mf.TRASHED: "trashed", mf.NONE: "revoked"}[live.state]
-        if want != row.state or (live.role or "") != row.role:
+        if row is None:
+            if want != "revoked":
+                flagged.append((kind, pid))  # live access with no manifest row at all
+        elif want != row.state or (live.role or "") != row.role:
             flagged.append((kind, pid))
     if not fix:
         return flagged
@@ -309,7 +367,9 @@ def reconcile_user(user, fix=False):
             )
             live = mf.effective_entry(user, item)
             want = {mf.ACTIVE: "active", mf.TRASHED: "trashed", mf.NONE: "revoked"}[live.state]
-            if last is None or want != last.state or (live.role or "") != last.role:
+            if (last is None and want != "revoked") or (
+                last is not None and (want != last.state or (live.role or "") != last.role)
+            ):
                 _bump(user.pk, item, "reconcile")
                 corrected.append((kind, pid))
     return corrected
@@ -579,7 +639,9 @@ def share(user, item, person, role):
                     link,
                     check=(kind, item),
                 )
-        except Exception:  # noqa: BLE001
+        except (PermissionError, ValueError):
+            # an invalid link or a refused view check: skip the notice, keep the share.
+            # Database errors are NOT caught: they must roll back and retry the whole operation.
             logger.exception("drive share notification skipped")
     return obj
 
