@@ -340,3 +340,33 @@ def test_stale_reconcile_cannot_overwrite_a_concurrent_unshare():
         assert (live, last) in ((m.NONE, "revoked"), (m.ACTIVE, "active"))
         svc.share(a, top, b, "viewer")
     assert _epochs(b) == list(range(1, len(_epochs(b)) + 1))
+
+
+def test_only_lock_contention_errors_are_retried():
+    from django.db import OperationalError
+
+    ok = svc._is_lock_contention
+    assert ok(OperationalError(1213, "Deadlock found"))
+    assert ok(OperationalError(1205, "Lock wait timeout exceeded"))
+    assert ok(OperationalError(1105, "pessimistic lock retry limit reached"))
+    assert not ok(OperationalError(1105, "unknown column"))  # generic TiDB error: a real fault
+    assert not ok(OperationalError(2006, "server has gone away"))
+    assert not ok(OperationalError("no code"))
+
+
+@pytest.mark.django_db
+def test_a_permanent_operational_error_is_not_retried(monkeypatch):
+    from django.db import OperationalError
+
+    a = _u("E-A")
+    calls = {"n": 0}
+
+    def boom(*args, **kwargs):
+        calls["n"] += 1
+        raise OperationalError(1105, "unknown column 'x'")
+
+    monkeypatch.setattr(svc, "_lock_affected", boom)
+    top = svc.create_folder(a, "Err")
+    with pytest.raises(OperationalError):
+        svc.trash(a, top)
+    assert calls["n"] == 1

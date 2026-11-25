@@ -168,6 +168,14 @@ def _nested(item):
     return out
 
 
+def _is_lock_contention(exc):
+    code = exc.args[0] if exc.args else None
+    msg = str(exc.args[1]) if len(exc.args) > 1 else ""
+    if code in (1205, 1213):
+        return True
+    return code == 1105 and "pessimistic lock retry limit" in msg.lower()
+
+
 class LockSetGrew(Exception):
     """The set of people grew between reading it and locking it. The whole transaction is
     rolled back (releasing every lock) and re-run, so locks are never taken out of order."""
@@ -190,9 +198,10 @@ def _relock(fn):
             except LockSetGrew:
                 continue
             except OperationalError as exc:
-                # TiDB/MySQL: 1105 pessimistic retry limit, 1205 lock wait timeout, 1213 deadlock.
-                # The whole transaction is already rolled back; wait a little and run it again.
-                if not exc.args or exc.args[0] not in (1105, 1205, 1213):
+                # Retry only lock contention. 1205 lock wait timeout and 1213 deadlock are
+                # MySQL codes; TiDB reports its pessimistic retry limit as the generic 1105, so
+                # that code counts only with its exact message. Any other 1105 is a real fault.
+                if not _is_lock_contention(exc):
                     raise
                 time.sleep(random.uniform(0.02, 0.1) * (attempt + 1))  # noqa: S311 (backoff jitter, not security)
         raise ValidationError("Busy right now. Try again.")
