@@ -498,7 +498,7 @@ def test_concurrent_saves_chained_from_current_never_duplicate_a_number():
 
 
 @pytest.mark.django_db(transaction=True)
-def test_control_without_the_lock_same_base_saves_are_not_exclusive(monkeypatch):
+def test_control_without_the_lock_losers_do_not_get_a_clean_conflict(monkeypatch):
     """Sensitivity control: with the owner lock removed the race shows up, so the passing test
     above is able to fail."""
     _need_mysql()
@@ -518,7 +518,7 @@ def test_control_without_the_lock_same_base_saves_are_not_exclusive(monkeypatch)
             ]
         )
         monkeypatch.undo()
-        if out.count("ok") != 1:
+        if out.count("refused:VersionConflict") != 5:  # losers fail raw, not as a clean conflict
             seen = True
             break
     assert seen, "no anomaly in 10 unlocked rounds; the control proves nothing"
