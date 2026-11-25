@@ -29,3 +29,5 @@
 .tasks-col{background:#faf6ef;border:1px solid #ecdfcf;border-radius:8px;padding:10px 12px}
 .tasks-col h3{margin:0 0 6px;font-size:1rem}
 .task-card{background:#fff;border:1px solid #ecdfcf;border-radius:6px;padding:8px 10px;margin:0 0 8px;display:flex;flex-direction:column;gap:4px}
+.task-card .task-title{flex:0 0 auto}
+.task-card select{font:inherit;padding:4px 6px;border:1px solid #d9c9b3;border-radius:6px;background:#fff}
