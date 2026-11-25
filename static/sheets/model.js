@@ -263,6 +263,46 @@
     }
     return null;
   }
-  var api = { parseRange: parseRange, makeRule: makeRule, addRule: addRule, removeRule: removeRule, loadRules: loadRules, rulesJson: rulesJson, checkValue: checkValue, MAX_RULES: MAX_RULES, loadTabs: loadTabs, addTab: addTab, renameTab: renameTab, deleteTab: deleteTab, setActive: setActive, cleanName: cleanName, MAX_TABS: MAX_TABS, sortRange: sortRange, filterRows: filterRows, toNum: toNum, toCsv: toCsv, clean: clean, History: History, chartPoints: chartPoints, pieSlices: pieSlices, isComposing: isComposing, keyMove: keyMove, copy: copy, same: same };
+  // ---- Conditional formatting: colours a cell by its shown value. Never changes data. First matching rule wins. ----
+  var CF_KINDS = ["greater", "less", "equals", "contains"], CF_COLORS = ["red", "yellow", "green", "blue"], MAX_CF_TEXT = 40;
+  function makeCf(rangeText, kind, valueText, color, parseAddr) {
+    var g = parseRange(rangeText, parseAddr); if (!g) return { error: "Enter a range like A1:A10." };
+    if (CF_KINDS.indexOf(kind) < 0) return { error: "Choose a condition." };
+    if (CF_COLORS.indexOf(color) < 0) return { error: "Choose a colour." };
+    var v = String(valueText).trim(), rule = { range: rangeLabel(g), kind: kind, color: color };
+    if (kind === "greater" || kind === "less") { var n = toNum(v); if (n === null) return { error: "Enter a number to compare with." }; rule.value = n; }
+    else { if (!v) return { error: "Enter the text to look for." }; if (Array.from(v).length > MAX_CF_TEXT) return { error: "The text can be up to " + MAX_CF_TEXT + " characters." }; rule.value = v; }
+    return { rule: rule };
+  }
+  function addCf(rules, rule) { if (rules.length >= MAX_RULES) return { error: "A tab holds up to " + MAX_RULES + " colour rules." }; return { rules: rules.concat([rule]) }; }
+  function loadCf(raw, parseAddr) {
+    var bad = { rules: [], unreadable: true }; if (raw === null || raw === undefined) return { rules: [], unreadable: false };
+    var v; try { v = JSON.parse(raw); } catch (e) { return bad; }
+    if (!v || typeof v !== "object" || v.v !== 1 || !Array.isArray(v.rules) || v.rules.length > MAX_RULES) return bad;
+    var out = [];
+    for (var i = 0; i < v.rules.length; i++) {
+      var r = v.rules[i], g = r && typeof r === "object" ? parseRange(r.range, parseAddr) : null;
+      if (!g || r.range !== rangeLabel(g) || CF_KINDS.indexOf(r.kind) < 0 || CF_COLORS.indexOf(r.color) < 0) return bad;
+      if (r.kind === "greater" || r.kind === "less") { if (typeof r.value !== "number" || !isFinite(r.value)) return bad; }
+      else if (typeof r.value !== "string" || !r.value || Array.from(r.value).length > MAX_CF_TEXT) return bad;
+      out.push({ range: r.range, kind: r.kind, color: r.color, value: r.value });
+    }
+    return { rules: out, unreadable: false };
+  }
+  function cfJson(rules) { return JSON.stringify({ v: 1, rules: rules }); }
+  // shown is the text on screen for the cell. Returns a colour name or null.
+  function cfColor(rules, addr, shown, parseAddr) {
+    var p = parseAddr(addr); if (!p) return null; var t = String(shown).trim();
+    for (var i = 0; i < rules.length; i++) {
+      var r = rules[i], g = parseRange(r.range, parseAddr); if (!g || p.col < g.c1 || p.col > g.c2 || p.row < g.r1 || p.row > g.r2) continue;
+      var hit = false;
+      if (r.kind === "greater" || r.kind === "less") { var n = toNum(t); hit = n !== null && (r.kind === "greater" ? n > r.value : n < r.value); }
+      else if (r.kind === "equals") hit = t === r.value;
+      else hit = t.toLowerCase().indexOf(r.value.toLowerCase()) >= 0;
+      if (hit) return r.color;
+    }
+    return null;
+  }
+  var api = { parseRange: parseRange, makeRule: makeRule, addRule: addRule, removeRule: removeRule, loadRules: loadRules, rulesJson: rulesJson, checkValue: checkValue, makeCf: makeCf, addCf: addCf, loadCf: loadCf, cfJson: cfJson, cfColor: cfColor, MAX_RULES: MAX_RULES, loadTabs: loadTabs, addTab: addTab, renameTab: renameTab, deleteTab: deleteTab, setActive: setActive, cleanName: cleanName, MAX_TABS: MAX_TABS, sortRange: sortRange, filterRows: filterRows, toNum: toNum, toCsv: toCsv, clean: clean, History: History, chartPoints: chartPoints, pieSlices: pieSlices, isComposing: isComposing, keyMove: keyMove, copy: copy, same: same };
   if (typeof module !== "undefined" && module.exports) module.exports = api; else root.SalowSheetModel = api;
 })(typeof self !== "undefined" ? self : this);

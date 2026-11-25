@@ -1192,6 +1192,153 @@ def sheets_validation_paths(ctx):
     )
 
 
+def sheets_colour(ctx):
+    pg = fresh(ctx, "/sheets/")
+    KEYJS = "document.getElementById('sheet-root').dataset.storeKey"
+
+    def setc(pgx, a, v):
+        pgx.click('input[data-addr="%s"]' % a)
+        pgx.fill('input[data-addr="%s"]' % a, v)
+        pgx.press('input[data-addr="%s"]' % a, "Tab")
+
+    def cf(pgx, a):
+        return pgx.evaluate(
+            "document.querySelector('input[data-addr=\"%s\"]').dataset.cf || ''" % a
+        )
+
+    def addcf(pgx, rng, kind, value, color):
+        pgx.fill("#cf-range", rng)
+        pgx.select_option("#cf-kind", kind)
+        pgx.fill("#cf-value", value)
+        pgx.select_option("#cf-color", color)
+        pgx.click("#cf-add")
+
+    setc(pg, "A1", "50")
+    setc(pg, "A2", "5")
+    setc(pg, "A3", "=A1*2")
+    setc(pg, "B1", "Late delivery")
+    addcf(pg, "A1:A3", "greater", "10", "red")
+    check(
+        "colour: a value above the number is red",
+        cf(pg, "A1") == "red" and cf(pg, "A2") == "",
+        cf(pg, "A1") + "/" + cf(pg, "A2"),
+    )
+    check("colour: a formula is coloured by its result", cf(pg, "A3") == "red", cf(pg, "A3"))
+    check("colour: the value itself is unchanged", pg.input_value('input[data-addr="A1"]') == "50")
+    check(
+        "colour: the tooltip names the colour",
+        "highlighted red" in pg.get_attribute('input[data-addr="A1"]', "title"),
+    )
+    addcf(pg, "B1:B2", "contains", "LATE", "yellow")
+    check("colour: text matching ignores capitals", cf(pg, "B1") == "yellow", cf(pg, "B1"))
+    setc(pg, "A2", "500")
+    check("colour: editing a value recolours it", cf(pg, "A2") == "red", cf(pg, "A2"))
+    if SHOTS:
+        pg.screenshot(path=os.path.join(SHOTS, "sheets-colour-56.png"), full_page=False)
+    pg.reload()
+    pg.wait_for_timeout(400)
+    check(
+        "colour: rules and colours survive a reload",
+        cf(pg, "A1") == "red" and cf(pg, "B1") == "yellow",
+        cf(pg, "A1"),
+    )
+    pg.click("#cf-list li:nth-child(1) button")
+    check(
+        "colour: removing a rule removes its colour",
+        cf(pg, "A1") == "" and cf(pg, "B1") == "yellow",
+        cf(pg, "A1"),
+    )
+    # Damaged colour rules are kept, say so, and colour nothing.
+    key = pg.evaluate("%s+'.cf'" % KEYJS)
+    pg.evaluate("localStorage.setItem(%s,'{bad')" % json.dumps(key))
+    pg.reload()
+    pg.wait_for_timeout(400)
+    check(
+        "colour: unreadable rules are reported, adding is off, nothing coloured",
+        "could not be read" in pg.inner_text("#cf-status")
+        and pg.is_disabled("#cf-add")
+        and cf(pg, "B1") == "",
+        pg.inner_text("#cf-status"),
+    )
+    check(
+        "colour: the damaged rules are untouched",
+        pg.evaluate("localStorage.getItem(%s)" % json.dumps(key)) == "{bad",
+    )
+    with pg.expect_download() as dl:
+        pg.click("#cf-raw")
+    check(
+        "colour: the damaged rules can be downloaded as stored",
+        open(dl.value.path()).read() == "{bad",
+    )
+    # Tab paths: stale tab, id reuse, restore with a failing write.
+    pg = fresh(ctx, "/sheets/")
+    pg.click("#tab-add")
+    pg.wait_for_timeout(100)
+    tid = pg.evaluate("JSON.parse(localStorage.getItem(%s+'.tabs')).active" % KEYJS)
+    ck = pg.evaluate("%s+'.tab.%s.cf'" % (KEYJS, tid))
+    p2 = ctx.new_page()
+    p2.goto(APP + "/sheets/")
+    p2.wait_for_timeout(400)
+    p2.click('#sheet-tabs button[data-tab="%s"]' % tid)
+    p2.once("dialog", lambda d: d.accept())
+    p2.click("#tab-del")
+    p2.wait_for_timeout(200)
+    addcf(pg, "A1:A2", "equals", "x", "green")
+    check(
+        "colour: a stale tab is refused new colour rules and no key appears",
+        "not changed" in pg.inner_text("#cf-status")
+        and pg.evaluate("localStorage.getItem(%s)" % json.dumps(ck)) is None,
+        pg.inner_text("#cf-status"),
+    )
+    p2.close()
+    pg = fresh(ctx, "/sheets/")
+    pg.click("#tab-add")
+    pg.wait_for_timeout(100)
+    setc(pg, "A1", "keep")
+    addcf(pg, "A1:A2", "equals", "keep", "green")
+    pg.once("dialog", lambda d: d.accept())
+    pg.click("#tab-del")
+    pg.wait_for_timeout(200)
+    pg.evaluate(
+        "(function(){var o=Storage.prototype.setItem;window.__o=o;Storage.prototype.setItem=function(k,v){if(/[.]cf$/.test(k))throw new Error('full');return o.call(this,k,v);};})();0"
+    )
+    pg.click("#tab-restore")
+    msg = pg.inner_text("#tab-status")
+    check(
+        "colour: a failed colour write restores nothing and says so",
+        pg.evaluate("JSON.parse(localStorage.getItem(%s+'.tabs')).tabs.length" % KEYJS) == 1
+        and "would not store the tab's colour rules" in msg,
+        msg,
+    )
+    pg.evaluate("Storage.prototype.setItem=window.__o;0")
+    pg.click("#tab-restore")
+    pg.wait_for_timeout(200)
+    check(
+        "colour: Restore works afterwards with its colours",
+        cf(pg, "A1") == "green" and "equal to keep" in pg.inner_text("#cf-list"),
+        pg.inner_text("#tab-status"),
+    )
+    # A tab id with a leftover colour key is never reused.
+    t2 = pg.evaluate("JSON.parse(localStorage.getItem(%s+'.tabs')).active" % KEYJS)
+    ck2 = pg.evaluate("%s+'.tab.%s.cf'" % (KEYJS, t2))
+    pg.evaluate(
+        "(function(){var k=%s+'.tabs',m=JSON.parse(localStorage.getItem(k));m.tabs=m.tabs.filter(function(t){return t.id!=%s});m.active='t0';localStorage.setItem(k,JSON.stringify(m));})();0"
+        % (KEYJS, json.dumps(t2))
+    )
+    pg.reload()
+    pg.wait_for_timeout(400)
+    ids = set()
+    for _ in range(3):
+        pg.click("#tab-add")
+        pg.wait_for_timeout(100)
+        ids.add(pg.evaluate("JSON.parse(localStorage.getItem(%s+'.tabs')).active" % KEYJS))
+    check(
+        "colour: a new tab never reuses an id whose colour rules are stored",
+        t2 not in ids and pg.evaluate("localStorage.getItem(%s)" % json.dumps(ck2)) is not None,
+        str(ids),
+    )
+
+
 DRILLS = {
     "slides_show": slides_show,
     "slides_edit": slides_edit,
@@ -1202,6 +1349,7 @@ DRILLS = {
     "sheets_tabs": sheets_tabs,
     "sheets_chart": sheets_chart,
     "sheets_validation": sheets_validation,
+    "sheets_colour": sheets_colour,
     "sheets_validation_paths": sheets_validation_paths,
     "sheets_tabs_stale": sheets_tabs_stale,
     "sheets_tabs_safety": sheets_tabs_safety,
