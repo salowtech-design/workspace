@@ -4,7 +4,9 @@
   if (!root || !window.SalowSlides) return;
   var S = SalowSlides, KEY = root.getAttribute("data-store-key"), NS = "http://www.w3.org/2000/svg";
   var $ = function (id) { return document.getElementById(id); };
-  var status = $("sl-status"), cur = 0, selId = null;
+  var status = $("sl-status"), cur = 0, selId = null, editMaster = false;
+  function tgt() { return editMaster ? (H.deck.master ? H.deck.master.elements : []) : (H.deck.slides[cur] ? H.deck.slides[cur].elements : []); }
+  function eop(name) { var a = [].slice.call(arguments, 1); return editMaster ? S.ops["master_" + name].apply(null, [H.deck].concat(a)) : S.ops[name].apply(null, [H.deck, cur].concat(a)); }
   var loaded; try { loaded = S.loadDeck(localStorage.getItem(KEY)); } catch (e) { loaded = { deck: S.newDeck(), unreadable: false, raw: null }; }
   var initial = loaded.deck, unreadable = loaded.unreadable, rawKept = loaded.raw;
   function lock(on) {
@@ -27,7 +29,7 @@
       g.appendChild(t);
     }
   }
-  function sel() { var s = H.deck.slides[cur]; if (!s) return null; for (var i = 0; i < s.elements.length; i++) if (s.elements[i].id === selId) return s.elements[i]; return null; }
+  function sel() { var a = tgt(); for (var i = 0; i < a.length; i++) if (a[i].id === selId) return a[i]; return null; }
   function apply(next, note) { if (!next) return false; if (!H.change(next, note)) return false; cur = Math.min(cur, H.deck.slides.length - 1); render(); return true; }
   function render() {
     var d = H.deck, th = S.THEMES[d.theme];
@@ -45,7 +47,8 @@
     svg.appendChild(el("title", {}, "Slide " + (cur + 1) + " of " + d.slides.length));
     svg.appendChild(el("desc", {}, S.describe(d, cur).join("; ") || "Empty slide"));
     svg.appendChild(el("rect", { x: 0, y: 0, width: S.W, height: S.H, fill: th.bg }));
-    d.slides[cur].elements.forEach(function (e) {
+    if (!editMaster) S.masterOf(d, cur).forEach(function (e) { var g = el("g", {}); drawEl(g, d, e); svg.appendChild(g); });
+    tgt().forEach(function (e) {
       var g = el("g", {}); drawEl(g, d, e);
       var hit = el("rect", { x: e.x, y: e.y, width: e.w, height: e.h, fill: "transparent", stroke: e.id === selId ? "#2e6f95" : "none", "stroke-width": 3, "stroke-dasharray": "8 4", "data-id": e.id });
       hit.addEventListener("pointerdown", function (ev) { ev.preventDefault(); selId = e.id; render(); wrap.querySelector("svg").focus(); });
@@ -55,44 +58,51 @@
     svg.addEventListener("keydown", function (ev) {
       var e = sel(); if (!e) return; var dx = 0, dy = 0;
       if (ev.key === "ArrowLeft") dx = -10; else if (ev.key === "ArrowRight") dx = 10; else if (ev.key === "ArrowUp") dy = -10; else if (ev.key === "ArrowDown") dy = 10;
-      else if (ev.key === "Delete" || ev.key === "Backspace") { ev.preventDefault(); apply(S.ops.deleteElement(H.deck, cur, e.id), "Item deleted."); return; } else return;
-      ev.preventDefault(); apply(S.ops.updateElement(H.deck, cur, e.id, { x: e.x + dx, y: e.y + dy }));
+      else if (ev.key === "Delete" || ev.key === "Backspace") { ev.preventDefault(); apply(eop("deleteElement", e.id), "Item deleted."); return; } else return;
+      ev.preventDefault(); apply(eop("updateElement", e.id, { x: e.x + dx, y: e.y + dy }));
       var s2 = $("sl-canvas-wrap").querySelector("svg"); if (s2) s2.focus();
     });
     wrap.appendChild(svg);
     var il = $("sl-items"); il.textContent = "";
-    S.describe(d, cur).forEach(function (label, k) {
-      var id = d.slides[cur].elements[k].id, li = document.createElement("li"), b = document.createElement("button");
+    S.describeEls(tgt()).forEach(function (label, k) {
+      var id = tgt()[k].id, li = document.createElement("li"), b = document.createElement("button");
       b.type = "button"; b.textContent = label; b.setAttribute("aria-pressed", id === selId ? "true" : "false");
       b.addEventListener("click", function () { selId = id; render(); var again = $("sl-items").querySelectorAll("button")[k]; if (again) again.focus(); });
       li.appendChild(b); il.appendChild(li);
     });
-    $("sl-items-empty").hidden = d.slides[cur].elements.length > 0;
+    $("sl-items-empty").hidden = tgt().length > 0;
     var e = sel(), props = $("sl-props"); props.disabled = !e; $("sl-del-el").disabled = !e;
-    var pos = e ? d.slides[cur].elements.indexOf(e) : -1; $("sl-back").disabled = pos <= 0; $("sl-fwd").disabled = pos < 0 || pos >= d.slides[cur].elements.length - 1;
+    var pos = e ? tgt().indexOf(e) : -1; $("sl-back").disabled = pos <= 0; $("sl-fwd").disabled = pos < 0 || pos >= tgt().length - 1;
     ["text", "size", "x", "y", "w", "h", "fill"].forEach(function (f) { var inp = $("sl-" + f); if (document.activeElement !== inp) inp.value = e ? e[f] : ""; });
     var nt = $("sl-notes"); if (document.activeElement !== nt) nt.value = d.slides[cur].notes || "";
     $("sl-theme").value = d.theme; $("sl-undo").disabled = !H.past.length; $("sl-redo").disabled = !H.future.length;
     $("sl-up").disabled = cur === 0; $("sl-down").disabled = cur >= d.slides.length - 1; $("sl-del").disabled = d.slides.length <= 1; $("sl-dup").disabled = d.slides.length >= S.MAX_SLIDES;
+    $("sl-master").textContent = editMaster ? "Back to slides" : "Edit master"; $("sl-master").setAttribute("aria-pressed", editMaster ? "true" : "false");
+    $("sl-master-on").checked = !(d.slides[cur] && d.slides[cur].hideMaster === true); $("sl-master-on").disabled = editMaster;
+    $("sl-master-state").textContent = editMaster ? "Editing the master: its items appear on every slide that shows the master (" + tgt().length + " of " + S.MAX_MASTER + " items)." : (d.master ? "This deck has a master with " + d.master.elements.length + " item" + (d.master.elements.length === 1 ? "" : "s") + ". Its items are drawn under this slide's items" + (d.slides[cur].hideMaster ? ", but this slide hides them." : ".") : "This deck has no master.");
+    ["sl-new", "sl-dup", "sl-del", "sl-up", "sl-down", "sl-layout"].forEach(function (id) { if (editMaster) $(id).disabled = true; else if (id === "sl-layout" || id === "sl-new") $(id).disabled = false; });
+    $("sl-notes").disabled = editMaster;
     status.textContent = H.note;
     var cs = sel(); if (cs && cs.text) { var ln = S.wrapLines(cs.text, cs.size, cs.type === "text" ? cs.w : cs.w - 8); if (S.textHeight(ln, cs.size) > cs.h) status.textContent += " The text is estimated to run past the item's edges."; }
   }
+  $("sl-master").addEventListener("click", function () { editMaster = !editMaster; selId = null; render(); status.textContent = editMaster ? "Editing the master. Items you add here appear on every slide that shows the master." : "Back to editing slides."; });
+  $("sl-master-on").addEventListener("change", function () { var n = S.ops.setHideMaster(H.deck, cur, !this.checked); if (!n || !apply(n, this.checked ? "This slide now shows the master." : "This slide now hides the master.")) render(); });
   $("sl-notes").addEventListener("change", function () { apply(S.ops.setNotes(H.deck, cur, this.value), "Notes saved on this device."); });
   var fill = $("sl-fill"); S.FILLS.forEach(function (f) { var o = document.createElement("option"); o.value = f; o.textContent = f === "theme" ? "Theme color" : f; fill.appendChild(o); });
   ["text", "size", "x", "y", "w", "h"].forEach(function (f) {
     $("sl-" + f).addEventListener("change", function () {
       var e = sel(); if (!e) return; var p = {}; var asked = this.value; p[f] = asked;
-      var ok = apply(S.ops.updateElement(H.deck, cur, e.id, p)), now = sel();
+      var ok = apply(eop("updateElement", e.id, p)), now = sel();
       if (now && f !== "text" && String(now[f]) !== String(Math.round(Number(asked)))) { status.textContent = "Adjusted " + f.toUpperCase() + " to " + now[f] + " so the item fits the slide and limits. " + H.note; }
       else if (now && f !== "text" && !isFinite(Number(asked))) { status.textContent = "Enter a number for " + f.toUpperCase() + ". Kept " + now[f] + "."; this.value = now[f]; }
     });
   });
-  fill.addEventListener("change", function () { var e = sel(); if (e) apply(S.ops.updateElement(H.deck, cur, e.id, { fill: fill.value })); });
-  ["text", "rect", "ellipse"].forEach(function (t) { $("sl-add-" + t).addEventListener("click", function () { var r = S.ops.addElement(H.deck, cur, t); if (!r) { status.textContent = "A slide holds up to " + S.MAX_EL + " items."; return; } selId = r.id; apply(r.deck); }); });
+  fill.addEventListener("change", function () { var e = sel(); if (e) apply(eop("updateElement", e.id, { fill: fill.value })); });
+  ["text", "rect", "ellipse"].forEach(function (t) { $("sl-add-" + t).addEventListener("click", function () { var r = eop("addElement", t); if (!r) { status.textContent = editMaster ? "The master holds up to " + S.MAX_MASTER + " items." : "A slide holds up to " + S.MAX_EL + " items."; return; } selId = r.id; apply(r.deck); }); });
   [["sl-back", -1, "Item sent backward."], ["sl-fwd", 1, "Item brought forward."]].forEach(function (c) {
-    $(c[0]).addEventListener("click", function () { var e = sel(); if (e && apply(S.ops.moveElement(H.deck, cur, e.id, c[1]), c[2])) { var b = $(c[0]); if (b.disabled) $("sl-del-el").focus(); else b.focus(); } });
+    $(c[0]).addEventListener("click", function () { var e = sel(); if (e && apply(eop("moveElement", e.id, c[1]), c[2])) { var b = $(c[0]); if (b.disabled) $("sl-del-el").focus(); else b.focus(); } });
   });
-  $("sl-del-el").addEventListener("click", function () { var e = sel(); if (e) apply(S.ops.deleteElement(H.deck, cur, e.id), "Item deleted."); });
+  $("sl-del-el").addEventListener("click", function () { var e = sel(); if (e) apply(eop("deleteElement", e.id), "Item deleted."); });
   $("sl-new").addEventListener("click", function () { var n = S.ops.addSlide(H.deck, cur, $("sl-layout").value); if (!n) { status.textContent = "A deck holds up to " + S.MAX_SLIDES + " slides."; return; } var prev = cur, prevSel = selId; cur++; selId = null; if (!apply(n)) { cur = prev; selId = prevSel; } });
   $("sl-del").addEventListener("click", function () { if (H.deck.slides[cur].elements.length && !window.confirm("Delete this slide and its items? You can undo until you reload.")) return; var n = S.ops.deleteSlide(H.deck, cur); if (n) { selId = null; apply(n, "Slide deleted."); } });
   $("sl-dup").addEventListener("click", function () {
@@ -106,7 +116,7 @@
   $("sl-undo").addEventListener("click", function () { if (H.undo()) { cur = Math.min(cur, H.deck.slides.length - 1); render(); } });
   $("sl-redo").addEventListener("click", function () { if (H.redo()) { cur = Math.min(cur, H.deck.slides.length - 1); render(); } });
   $("sl-clear").addEventListener("click", function () {
-    if (!window.confirm("Clear the whole deck? It becomes one empty slide. You can undo until you reload this page; after a reload the cleared deck cannot be brought back.")) return;
+    if (!window.confirm("Clear the whole deck? It becomes one empty slide and the master is removed. You can undo until you reload this page; after a reload the cleared deck cannot be brought back.")) return;
     var prev = cur, prevSel = selId; cur = 0; selId = null;
     if (!apply(S.newDeck(), "Deck cleared. Undo works until you reload this page.")) { cur = prev; selId = prevSel; status.textContent = H.blocked ? H.note : "Nothing to clear."; }
   });
@@ -164,7 +174,7 @@
     var svg = el("svg", { viewBox: "0 0 " + S.W + " " + S.H, role: "img", "aria-label": "Slide " + (showAt + 1) + " of " + d.slides.length });
     svg.appendChild(el("desc", {}, S.describe(d, showAt).join("; ") || "Empty slide"));
     svg.appendChild(el("rect", { x: 0, y: 0, width: S.W, height: S.H, fill: th.bg }));
-    d.slides[showAt].elements.forEach(function (e) { var g = el("g", {}); drawEl(g, d, e); svg.appendChild(g); });
+    S.masterOf(d, showAt).concat(d.slides[showAt].elements).forEach(function (e) { var g = el("g", {}); drawEl(g, d, e); svg.appendChild(g); });
     box.appendChild(svg);
     $("sl-show-notes").textContent = d.slides[showAt].notes || "No notes for this slide.";
     $("sl-show-count").textContent = "Slide " + (showAt + 1) + " of " + d.slides.length;

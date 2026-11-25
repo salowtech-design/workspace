@@ -3,7 +3,7 @@
  * unchecked. Elements without their own color inherit the theme, so a theme change restyles them. */
 (function (root) {
   "use strict";
-  var W = 960, H = 540, MAX_SLIDES = 50, MAX_EL = 30, MAX_TEXT = 1000, MAX_NOTES = 2000, HIST = 100;
+  var W = 960, H = 540, MAX_SLIDES = 50, MAX_EL = 30, MAX_MASTER = 10, MAX_TEXT = 1000, MAX_NOTES = 2000, HIST = 100;
   var THEMES = { light: { bg: "#ffffff", fg: "#222222", accent: "#7a2e22" }, dark: { bg: "#1f2430", fg: "#f2f2f2", accent: "#e0a458" }, warm: { bg: "#faf5ec", fg: "#3b2a20", accent: "#a4472f" } };
   var FILLS = ["theme", "#7a2e22", "#2e6f95", "#3b7d4f", "#c28b1d", "#6b6b6b"];
   var TYPES = ["text", "rect", "ellipse"];
@@ -38,15 +38,25 @@
   }
   // returns a clean deck or null; unknown fields are dropped and numbers are clamped
   function validate(d) {
-    if (!d || typeof d !== "object" || Array.isArray(d) || (has(d, "v") && d.v !== 1) || !Array.isArray(d.slides) || !d.slides.length || d.slides.length > MAX_SLIDES) return null;
-    var ids = Object.create(null), out = { v: 1, theme: has(THEMES, d.theme) ? d.theme : "light", slides: [] };
+    if (!d || typeof d !== "object" || Array.isArray(d) || (has(d, "v") && d.v !== 1 && d.v !== 2) || !Array.isArray(d.slides) || !d.slides.length || d.slides.length > MAX_SLIDES) return null;
+    var ids = Object.create(null), out = { v: 1, theme: has(THEMES, d.theme) ? d.theme : "light", slides: [] }, masterEls = [], anyHide = false;
+    if (has(d, "master")) {
+      var m = d.master; if (!m || typeof m !== "object" || Array.isArray(m) || !Array.isArray(m.elements) || m.elements.length > MAX_MASTER) return null;
+      for (var k = 0; k < m.elements.length; k++) { var me = fixEl(m.elements[k]); if (!me || ids[me.id]) return null; ids[me.id] = true; masterEls.push(me); }
+    }
     for (var i = 0; i < d.slides.length; i++) {
       var s = d.slides[i];
       if (!s || typeof s !== "object" || typeof s.id !== "string" || !ID_RE.test(s.id) || !Array.isArray(s.elements) || s.elements.length > MAX_EL || ids[s.id]) return null;
       ids[s.id] = true; var els = [];
       for (var j = 0; j < s.elements.length; j++) { var e = fixEl(s.elements[j]); if (!e || ids[e.id]) return null; ids[e.id] = true; els.push(e); }
-      out.slides.push({ id: s.id, elements: els, notes: typeof s.notes === "string" ? cut(s.notes, MAX_NOTES) : "" });
+      if (has(s, "hideMaster") && typeof s.hideMaster !== "boolean") return null;
+      var ns = { id: s.id, elements: els, notes: typeof s.notes === "string" ? cut(s.notes, MAX_NOTES) : "" };
+      if (s.hideMaster === true) { ns.hideMaster = true; anyHide = true; }
+      out.slides.push(ns);
     }
+    // Version 2 only when something needs it, so a deck without a master is still a version 1 deck that older code opens.
+    if (masterEls.length) out.master = { elements: masterEls };
+    if (masterEls.length || anyHide) out.v = 2;
     return out;
   }
   // how many text fields in a raw (unvalidated) deck are longer than the limits and so will be shortened
@@ -85,8 +95,28 @@
       var n = copy(d), a = n.slides[i].elements; var t = a[k]; a[k] = a[k + dir]; a[k + dir] = t; return n;
     },
     deleteElement: function (d, i, id) { var s = d.slides[i]; if (!s) return null; var n = copy(d), l = n.slides[i].elements.length; n.slides[i].elements = n.slides[i].elements.filter(function (e) { return e.id !== id; }); return n.slides[i].elements.length === l ? null : n; },
+    setHideMaster: function (d, i, hide) { var s = d.slides[i]; if (!s || typeof hide !== "boolean" || (s.hideMaster === true) === hide) return null; var n = copy(d); if (hide) n.slides[i].hideMaster = true; else delete n.slides[i].hideMaster; return normVersion(n); },
     setTheme: function (d, name) { if (!has(THEMES, name) || d.theme === name) return null; var n = copy(d); n.theme = name; return n; }
   };
+  // The master is edited through the same item operations as a slide, on a one-slide stand-in deck.
+  function normVersion(n) {
+    var any = n.slides.some(function (s) { return s.hideMaster === true; });
+    if (n.master && !n.master.elements.length) delete n.master;
+    n.v = n.master || any ? 2 : 1; return n;
+  }
+  function viaMaster(d, fn, adding) {
+    var els = d.master ? d.master.elements : [];
+    if (adding && els.length >= MAX_MASTER) return null;
+    var t = { v: 1, theme: d.theme, slides: [{ id: "master", elements: copy(els), notes: "" }] }, r = fn(t); if (!r) return null;
+    var nd = r.deck || r, n = copy(d); n.master = { elements: nd.slides[0].elements }; normVersion(n);
+    return r.deck ? { deck: n, id: r.id } : n;
+  }
+  ops.master_addElement = function (d, type) { return viaMaster(d, function (t) { return ops.addElement(t, 0, type); }, true); };
+  ops.master_updateElement = function (d, id, patch) { return viaMaster(d, function (t) { return ops.updateElement(t, 0, id, patch); }); };
+  ops.master_moveElement = function (d, id, dir) { return viaMaster(d, function (t) { return ops.moveElement(t, 0, id, dir); }); };
+  ops.master_deleteElement = function (d, id) { return viaMaster(d, function (t) { return ops.deleteElement(t, 0, id); }); };
+  // the master items drawn under slide i (none when the slide hides the master)
+  function masterOf(d, i) { return d.master && d.slides[i] && d.slides[i].hideMaster !== true ? d.master.elements : []; }
   function color(deck, e) { var t = THEMES[deck.theme]; return e.fill === "theme" ? (e.type === "text" ? t.fg : t.accent) : e.fill; }
   function lum(hex) { var c = [1, 3, 5].map(function (i) { var v = parseInt(hex.substr(i, 2), 16) / 255; return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); }); return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]; }
   function contrast(a, b) { var x = lum(a), y = lum(b); return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05); }
@@ -99,8 +129,9 @@
     var v = null; try { v = validate(JSON.parse(raw)); } catch (e) { v = null; }
     return v ? { deck: v, unreadable: false, raw: null } : { deck: newDeck(), unreadable: true, raw: String(raw) };
   }
-  function describe(deck, i) {
-    return deck.slides[i].elements.map(function (e, k) {
+  function describe(deck, i) { return describeEls(deck.slides[i].elements); }
+  function describeEls(els) {
+    return els.map(function (e, k) {
       var kind = e.type === "text" ? "Text" : e.type === "rect" ? "Rectangle" : "Ellipse";
       return (k + 1) + ". " + kind + (e.text ? ": " + cut(e.text, 40) : "");
     });
@@ -155,6 +186,6 @@
     return out;
   }
   function textHeight(lines, size) { return Math.ceil(lines.length * size * 1.2); }
-  var api = { LAYOUTS: LAYOUTS, countCut: countCut, cut: cut, MAX_NOTES: MAX_NOTES, fmtClock: fmtClock, wrapLines: wrapLines, textHeight: textHeight, showNav: showNav, W: W, H: H, THEMES: THEMES, FILLS: FILLS, MAX_SLIDES: MAX_SLIDES, MAX_EL: MAX_EL, newDeck: newDeck, validate: validate, ops: ops, color: color, textColor: textColor, onFill: onFill, contrast: contrast, loadDeck: loadDeck, describe: describe, History: History, copy: copy };
+  var api = { LAYOUTS: LAYOUTS, countCut: countCut, cut: cut, MAX_NOTES: MAX_NOTES, fmtClock: fmtClock, wrapLines: wrapLines, textHeight: textHeight, showNav: showNav, W: W, H: H, THEMES: THEMES, FILLS: FILLS, MAX_SLIDES: MAX_SLIDES, MAX_EL: MAX_EL, newDeck: newDeck, validate: validate, ops: ops, color: color, textColor: textColor, onFill: onFill, contrast: contrast, loadDeck: loadDeck, describe: describe, describeEls: describeEls, masterOf: masterOf, MAX_MASTER: MAX_MASTER, History: History, copy: copy };
   if (typeof module !== "undefined" && module.exports) module.exports = api; else root.SalowSlides = api;
 })(typeof self !== "undefined" ? self : this);

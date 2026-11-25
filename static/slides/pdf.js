@@ -1,7 +1,7 @@
 /* Salow Slides PDF: builds a PDF from the deck, in the browser. Nothing leaves the device.
  * One 960 x 540 point page (13.33 x 7.5 in, 16:9) per slide. Rectangles, ellipses and text are drawn as vector shapes and
  * text in Helvetica (a standard PDF font, so the file embeds no font). Line breaks use the same estimate as the screen
- * (SalowSlides.wrapLines), so they match the editor, not a measurement of Helvetica. Speaker notes are not written.
+ * (SalowSlides.wrapLines), so they match the editor, not a measurement of Helvetica. Speaker notes are not written. Master items are drawn under each slide that shows the master.
  * Characters Helvetica's encoding cannot draw are refused before any file is made: nothing is dropped silently. */
 (function (root) {
   "use strict";
@@ -12,18 +12,20 @@
     var bad = [], set = Object.create(null);
     font.getCharacterSet().forEach(function (cp) { set[cp] = true; });
     function can(ch) { return set[ch.codePointAt(0)] === true; }
-    deck.slides.forEach(function (s, i) {
-      s.elements.forEach(function (e, j) {
+    function scan(els, label) {
+      els.forEach(function (e, j) {
         if (!e.text) return;
         var seen = [];
         Array.from(e.text).forEach(function (ch) { if (!/\s/.test(ch) && !can(ch) && seen.indexOf(ch) < 0) seen.push(ch); });
-        if (seen.length) bad.push({ slide: i + 1, item: j + 1, chars: seen });
+        if (seen.length) bad.push({ slide: label, item: j + 1, chars: seen });
       });
-    });
+    }
+    if (deck.master) scan(deck.master.elements, 0);
+    deck.slides.forEach(function (s, i) { scan(s.elements, i + 1); });
     return bad;
   }
   function refusal(bad) {
-    var parts = bad.slice(0, 5).map(function (b) { return "slide " + b.slide + " item " + b.item + " (" + b.chars.slice(0, 6).join(" ") + (b.chars.length > 6 ? " ..." : "") + ")"; });
+    var parts = bad.slice(0, 5).map(function (b) { return (b.slide === 0 ? "the master" : "slide " + b.slide) + " item " + b.item + " (" + b.chars.slice(0, 6).join(" ") + (b.chars.length > 6 ? " ..." : "") + ")"; });
     return "The PDF fonts cannot draw some characters, so no PDF was made: " + parts.join(", ") + (bad.length > 5 ? ", and " + (bad.length - 5) + " more items" : "") + ". Change or remove them and try again.";
   }
   // L is the pdf-lib global, S the SalowSlides model. Returns Promise<Uint8Array>, or rejects with an Error whose code is "chars".
@@ -37,7 +39,7 @@
         deck.slides.forEach(function (s) {
           var pg = doc.addPage([W, H]);
           pg.drawRectangle({ x: 0, y: 0, width: W, height: H, color: rgbOf(L, th.bg) });
-          s.elements.forEach(function (e) {
+          S.masterOf(deck, deck.slides.indexOf(s)).concat(s.elements).forEach(function (e) {
             var c = S.color(deck, e);
             if (e.type === "rect") pg.drawRectangle({ x: e.x, y: H - e.y - e.h, width: e.w, height: e.h, color: rgbOf(L, c) });
             else if (e.type === "ellipse") pg.drawEllipse({ x: e.x + e.w / 2, y: H - e.y - e.h / 2, xScale: e.w / 2, yScale: e.h / 2, color: rgbOf(L, c) });

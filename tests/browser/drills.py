@@ -987,8 +987,8 @@ def slides_layout(ctx):
         items(),
     )
     check(
-        "layouts: the help says a layout is not a master",
-        "no shared master" in pg.inner_text("#sl-layout-help")
+        "layouts: the help says a layout is not the master",
+        "not the master" in pg.inner_text("#sl-layout-help")
         and "appear in Present" in pg.inner_text("#sl-layout-help"),
     )
     pg.click("#sl-present")
@@ -1339,6 +1339,200 @@ def sheets_colour(ctx):
     )
 
 
+def slides_master(ctx):
+    import shutil
+    import subprocess
+    import tempfile
+
+    pg = fresh(ctx, "/slides/")
+    KEY = pg.evaluate("document.getElementById('slide-root').dataset.storeKey")
+
+    def stored():
+        return json.loads(pg.evaluate("localStorage.getItem(%s)" % json.dumps(KEY)))
+
+    def canvas_all():
+        return pg.evaluate(
+            "Array.from(document.querySelectorAll('#sl-canvas-wrap svg text')).map(function(t){return t.textContent}).join(' | ')"
+        )
+
+    def showtxt():
+        return pg.evaluate("document.getElementById('sl-show-canvas').textContent")
+
+    pg.click("#sl-add-text")
+    pg.fill("#sl-text", "Slide one body")
+    pg.press("#sl-text", "Tab")
+    check(
+        "master: a deck with no master is stored as version 1",
+        stored()["v"] == 1 and "master" not in stored(),
+        stored().get("v"),
+    )
+    pg.click("#sl-master")
+    pg.click("#sl-add-text")
+    pg.fill("#sl-text", "MASTERMARK")
+    pg.press("#sl-text", "Tab")
+    for f, v in (("y", "470"), ("x", "40")):
+        pg.fill("#sl-" + f, v)
+        pg.press("#sl-" + f, "Tab")
+    pg.click("#sl-add-rect")
+    for f, v in (("x", "840"), ("y", "20"), ("w", "100"), ("h", "30")):
+        pg.fill("#sl-" + f, v)
+        pg.press("#sl-" + f, "Tab")
+    check(
+        "master: editing the master saves it as version 2 with two items",
+        stored()["v"] == 2 and len(stored()["master"]["elements"]) == 2,
+        stored(),
+    )
+    check(
+        "master: the master editor lists only master items",
+        "MASTERMARK" in pg.inner_text("#sl-items")
+        and "Slide one" not in pg.inner_text("#sl-items"),
+    )
+    pg.click("#sl-master")
+    check(
+        "master: the slide shows the master under its own items",
+        "MASTERMARK" in canvas_all() and "Slide one body" in canvas_all(),
+        canvas_all(),
+    )
+    check(
+        "master: the slide's item list holds only the slide's own item",
+        "MASTERMARK" not in pg.inner_text("#sl-items"),
+        pg.inner_text("#sl-items"),
+    )
+    check(
+        "master: master items cannot be selected on a slide",
+        pg.locator("#sl-canvas-wrap rect[data-id]").count() == 1,
+        pg.locator("#sl-canvas-wrap rect[data-id]").count(),
+    )
+    pg.click("#sl-new")
+    check("master: a new slide shows the master too", "MASTERMARK" in canvas_all(), canvas_all())
+    pg.click("#sl-add-text")
+    pg.fill("#sl-text", "Second slide")
+    pg.press("#sl-text", "Tab")
+    pg.uncheck("#sl-master-on")
+    check(
+        "master: a slide can hide the master",
+        "MASTERMARK" not in canvas_all() and stored()["slides"][1].get("hideMaster") is True,
+        canvas_all(),
+    )
+    if SHOTS:
+        pg.click("#sl-list button:nth-child(1)")
+        pg.screenshot(path=os.path.join(SHOTS, "slides-master-57.png"), full_page=False)
+    pg.reload()
+    pg.wait_for_timeout(400)
+    check(
+        "master: the master and the hide flag survive a reload",
+        stored()["v"] == 2
+        and "MASTERMARK" in canvas_all()
+        and len(stored()["master"]["elements"]) == 2,
+        canvas_all(),
+    )
+    pg.click("#sl-present")
+    pg.wait_for_timeout(300)
+    check(
+        "master: Present draws the master on slide 1",
+        "MASTERMARK" in showtxt(),
+        showtxt(),
+    )
+    pg.click("#sl-show-next")
+    pg.wait_for_timeout(200)
+    check(
+        "master: Present hides it on the slide that hides it",
+        "MASTERMARK" not in showtxt() and "Second slide" in showtxt(),
+        showtxt(),
+    )
+    pg.click("#sl-show-exit")
+    # PDF: master only on the slide that shows it.
+    with pg.expect_download() as dl:
+        pg.click("#sl-pdf")
+    pdf = dl.value.path()
+    if shutil.which("pdftotext"):
+        p1 = subprocess.run(
+            ["pdftotext", "-f", "1", "-l", "1", pdf, "-"], capture_output=True, text=True
+        ).stdout
+        p2 = subprocess.run(
+            ["pdftotext", "-f", "2", "-l", "2", pdf, "-"], capture_output=True, text=True
+        ).stdout
+        check(
+            "master: the PDF draws the master on page 1 and not on page 2",
+            "MASTERMARK" in p1 and "MASTERMARK" not in p2 and "Second slide" in p2,
+            (p1, p2),
+        )
+    # Export and import round trip.
+    with pg.expect_download() as dl2:
+        pg.click("#sl-export")
+    exported = open(dl2.value.path()).read()
+    ex = json.loads(exported)
+    check(
+        "master: Export includes the master, the version and the hide flag",
+        ex["v"] == 2
+        and len(ex["master"]["elements"]) == 2
+        and ex["slides"][1].get("hideMaster") is True,
+    )
+    pg.once("dialog", lambda d: d.accept())
+    pg.click("#sl-clear")
+    check(
+        "master: Clear deck removes the master and returns to version 1",
+        stored()["v"] == 1 and "master" not in stored(),
+        stored(),
+    )
+    tmp = tempfile.mkdtemp()
+    fp = os.path.join(tmp, "deck.json")
+    open(fp, "w").write(exported)
+    pg.once("dialog", lambda d: d.accept())
+    pg.set_input_files("#sl-import", fp)
+    pg.wait_for_timeout(300)
+    check("master: Import brings the master and hide flag back exactly", stored() == ex, "")
+    pg.click("#sl-undo")
+    check("master: Undo of the import returns to the cleared deck", "master" not in stored(), "")
+    # A master with characters the PDF font cannot draw is refused before a file is made.
+    pg.click("#sl-redo")
+    pg.click("#sl-master")
+    pg.click("#sl-add-text")
+    pg.fill("#sl-text", "\u65e5\u672c")
+    pg.press("#sl-text", "Tab")
+    pg.click("#sl-pdf")
+    pg.wait_for_timeout(500)
+    check(
+        "master: unsupported master characters are refused and named",
+        "the master" in pg.inner_text("#sl-status"),
+        pg.inner_text("#sl-status"),
+    )
+    # Limits and unreadable versions.
+    for _ in range(10):
+        pg.click("#sl-add-rect")
+    check(
+        "master: the master stops at ten items with a message",
+        len(stored()["master"]["elements"]) == 10 and "up to 10" in pg.inner_text("#sl-status"),
+        pg.inner_text("#sl-status"),
+    )
+    raw = json.dumps({"v": 9, "slides": [{"id": "s", "elements": []}]})
+    pg.evaluate("localStorage.setItem(%s,%s)" % (json.dumps(KEY), json.dumps(raw)))
+    pg.reload()
+    pg.wait_for_timeout(400)
+    check(
+        "master: a deck with an unknown version is reported unreadable and left untouched",
+        pg.is_visible("#sl-unreadable")
+        and pg.evaluate("localStorage.getItem(%s)" % json.dumps(KEY)) == raw,
+    )
+    pg.evaluate(
+        "localStorage.setItem(%s,%s)"
+        % (
+            json.dumps(KEY),
+            json.dumps(
+                json.dumps(
+                    {"v": 2, "master": {"elements": "x"}, "slides": [{"id": "s", "elements": []}]}
+                )
+            ),
+        )
+    )
+    pg.reload()
+    pg.wait_for_timeout(400)
+    check(
+        "master: a damaged master makes the deck unreadable, not a deck without a master",
+        pg.is_visible("#sl-unreadable"),
+    )
+
+
 DRILLS = {
     "slides_show": slides_show,
     "slides_edit": slides_edit,
@@ -1350,6 +1544,7 @@ DRILLS = {
     "sheets_chart": sheets_chart,
     "sheets_validation": sheets_validation,
     "sheets_colour": sheets_colour,
+    "slides_master": slides_master,
     "sheets_validation_paths": sheets_validation_paths,
     "sheets_tabs_stale": sheets_tabs_stale,
     "sheets_tabs_safety": sheets_tabs_safety,
