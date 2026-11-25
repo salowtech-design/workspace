@@ -1,0 +1,2 @@
+.auto-links { display: flex; flex-wrap: wrap; gap: 8px; }
+.cal-form fieldset input, .cal-form fieldset select { width: 100%; max-width: 32em; box-sizing: border-box; }

@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block title %}Workflow: Salow{% endblock %}
+{% block extra_head %}<link rel="stylesheet" href="/static/css/events.css"><link rel="stylesheet" href="/static/css/automation.css">{% endblock %}
+{% block content %}
+<div class="card cal"><div class="cal-head"><h2>{% if mode == "edit" %}Edit {{ wf.name }}{% else %}New workflow{% endif %}</h2></div>
+<form method="post" class="cal-form">{% csrf_token %}
+{% if mode == "new" %}<label>Name<input type="text" name="name" maxlength="120" value="{{ name }}" required></label>{% endif %}
+<p class="cal-meta">Steps run in order, up to 10 here. Leave a row's type empty to skip it. Values are kept as text, each up to 200 characters. Notify me sends a notification to you only.</p>
+{% for r in rows %}<fieldset><legend>Step {{ forloop.counter }}</legend>
+<label>Type<select name="type{{ r.i }}"><option value="">(none)</option>{% for k, label in kinds %}<option value="{{ k }}"{% if r.type == k %} selected{% endif %}>{{ label }}</option>{% endfor %}</select></label>
+<label>Title (Notify me)<input type="text" name="title{{ r.i }}" maxlength="200" value="{{ r.title }}"></label>
+<label>Key (Set a value, Stop unless)<input type="text" name="key{{ r.i }}" maxlength="64" value="{{ r.key }}"></label>
+<label>Value (Set a value)<input type="text" name="value{{ r.i }}" maxlength="200" value="{{ r.value }}"></label>
+<label>Equals (Stop unless)<input type="text" name="equals{{ r.i }}" maxlength="200" value="{{ r.equals }}"></label>
+</fieldset>{% endfor %}
+<button class="btn" type="submit">Save</button> <a href="{% if mode == 'edit' %}{% url 'automation:detail' wf.public_id %}{% else %}{% url 'automation:home' %}{% endif %}">Cancel</a>
+</form></div>
+{% endblock %}
