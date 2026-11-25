@@ -59,5 +59,40 @@ ok("keys: other keys do nothing", M.keyMove("a", false, true, true) === null);
   ok("csv: an error shows its code and is not guarded", (() => { const r = csv({ A1: "=1/0" }); return /^#[A-Z/0!]+\r\n$/.test(r.text) && r.guarded === 0; })());
   ok("csv: ordinary text is unchanged and booleans are TRUE or FALSE", csv({ A1: "hello", B1: "TRUE", C1: "=1=2" }).text === "hello,TRUE,FALSE\r\n");
 }
+const F = require("../../static/sheets/formula.js");
+const col = (c, k) => Object.keys(c).filter((a) => a[0] === k).sort((x, y) => parseInt(x.slice(1)) - parseInt(y.slice(1))).map((a) => c[a]);
+const fruit = mk({ A1: "Name", B1: "Qty", A2: "pear", B2: "3", A3: "Apple", B3: "10", B4: "7", A5: "fig", B5: "abc", A6: "x", B6: "1" });
+{
+  const r = M.sortRange(fruit, parseAddr, { c1: 1, c2: 2, r1: 1, r2: 6 }, 1, false, true);
+  ok("sort A to Z keeps the header, ignores case, puts blanks last and moves whole rows", col(r.cells, "A").join("|") === "Name|Apple|fig|pear|x" && r.cells.B6 === "7" && !("A6" in r.cells));
+  ok("rows stay together after a sort", r.cells.A2 === "Apple" && r.cells.B2 === "10" && r.cells.A4 === "pear" && r.cells.B4 === "3" && r.cells.B6 === "7" && !("A6" in r.cells));
+  ok("sort does not change its input", fruit.A2 === "pear" && fruit.B6 === "1");
+  const q = M.sortRange(fruit, parseAddr, { c1: 1, c2: 2, r1: 1, r2: 6 }, 2, false, true);
+  ok("numbers sort before text, by number not by text", [q.cells.B2, q.cells.B3, q.cells.B4, q.cells.B5, q.cells.B6].join(",") === "1,3,7,10,abc");
+  const d = M.sortRange(fruit, parseAddr, { c1: 1, c2: 2, r1: 1, r2: 6 }, 2, true, true);
+  ok("descending reverses the order of keys", [d.cells.B2, d.cells.B3, d.cells.B4, d.cells.B5, d.cells.B6].join(",") === "abc,10,7,3,1");
+ok("descending still puts a blank key last", (() => { const x = M.sortRange(fruit, parseAddr, { c1: 1, c2: 2, r1: 1, r2: 6 }, 1, true, true); return x.cells.A2 === "x" && x.cells.A3 === "pear" && x.cells.B6 === "7" && !x.cells.A6; })());
+  const t = M.sortRange(mk({ A1: "b", B1: "1", A2: "a", B2: "2", A3: "b", B3: "3", A4: "a", B4: "4" }), parseAddr, { c1: 1, c2: 2, r1: 1, r2: 4 }, 1, false, false);
+  ok("equal keys keep their order (stable)", col(t.cells, "B").join(",") === "2,4,1,3");
+  const nh = M.sortRange(fruit, parseAddr, { c1: 1, c2: 2, r1: 1, r2: 6 }, 1, false, false);
+  ok("without a header the first row sorts too", nh.cells.A1 === "Apple" || nh.cells.A1 === "fig");
+}
+ok("sort refuses a range holding a formula and says how many", (() => { const r = M.sortRange(mk({ A1: "2", A2: "=A1+1", A3: "1", B1: "=1" }), parseAddr, { c1: 1, c2: 2, r1: 1, r2: 3 }, 1, false, false); return !r.cells && /2 formulas/.test(r.error); })());
+ok("sort refuses a key outside the range and fewer than two rows", M.sortRange(mk({}), parseAddr, { c1: 1, c2: 2, r1: 1, r2: 5 }, 3, false, false).error !== undefined && M.sortRange(mk({ A1: "1" }), parseAddr, { c1: 1, c2: 1, r1: 1, r2: 1 }, 1, false, false).error !== undefined && M.sortRange(mk({ A1: "h", A2: "1" }), parseAddr, { c1: 1, c2: 1, r1: 1, r2: 2 }, 1, false, true).error !== undefined);
+ok("sort only touches cells inside the range", (() => { const c = mk({ A1: "3", A2: "1", C1: "keep", D9: "keep2", A3: "2" }); const r = M.sortRange(c, parseAddr, { c1: 1, c2: 1, r1: 1, r2: 3 }, 1, false, false); return r.cells.C1 === "keep" && r.cells.D9 === "keep2" && col(r.cells, "A").join(",") === "1,2,3"; })());
+ok("sort of sorted data moves nothing", M.sortRange(mk({ A1: "1", A2: "2", A3: "3" }), parseAddr, { c1: 1, c2: 1, r1: 1, r2: 3 }, 1, false, false).moved === 0);
+ok("sort treats numbers like 1e3, -2 and .5 as numbers but not 12abc or Infinity", M.toNum("1e3") === 1000 && M.toNum("-2") === -2 && M.toNum(".5") === 0.5 && M.toNum("12abc") === null && M.toNum("Infinity") === null && M.toNum("  ") === null);
+{
+  const sh = new F.Sheet({ A1: "Item", A2: "Apple", A3: "Banana", A4: "apricot", A5: "=1+1", A6: "", B1: "n", B2: "5", B3: "12", B4: "abc", B5: "=B2*2", B6: "-1" });
+  const g = (a) => sh.get(a);
+  const fr = (col, op, val, header) => M.filterRows(g, F.isErr, 1, 6, col, op, val, header);
+  ok("filter contains ignores case and keeps the header row", (() => { const r = fr(1, "contains", "AP", true); return r.vis[1] && r.vis[2] && r.vis[4] && !r.vis[3] && r.shown === 2 && r.total === 5; })());
+  ok("filter uses displayed formula results", (() => { const r = fr(1, "equals", "2", true); return r.vis[5] && r.shown === 1; })());
+  ok("filter greater and less compare numbers only, text never matches", (() => { const g1 = fr(2, "gt", "4", true), l1 = fr(2, "lt", "6", true); return [2, 3, 5].every((r) => g1.vis[r]) && !g1.vis[4] && !g1.vis[6] && l1.vis[2] && l1.vis[6] && !l1.vis[3] && !l1.vis[4]; })());
+  ok("filter blank and not blank", fr(1, "blank", "", true).shown === 1 && fr(1, "nonblank", "", true).shown === 4);
+  ok("filter without a header counts row 1 as data", fr(1, "contains", "item", false).vis[1] === true && fr(1, "contains", "item", false).total === 6);
+  ok("filter refuses a bad operator, an empty value and a non-number", fr(1, "xx", "a", true).error !== undefined && fr(1, "contains", "  ", true).error !== undefined && fr(2, "gt", "abc", true).error !== undefined);
+  ok("filter with no match shows zero rows without error", (() => { const r = fr(1, "contains", "zzz", true); return r.shown === 0 && !r.error && r.vis[1]; })());
+}
 console.log(`${n - fails}/${n} model rows passed`);
 process.exit(fails ? 1 : 0);

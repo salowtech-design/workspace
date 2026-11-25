@@ -11,7 +11,7 @@
   try { var st0 = clean(JSON.parse(localStorage.getItem(KEY) || "{}")); if (st0) initial = st0.cells; } catch (e) { initial = Object.create(null); }
   var H = new M.History(initial, { save: function (c) { try { localStorage.setItem(KEY, JSON.stringify(c)); return true; } catch (e) { return false; } } }, HIST);
   var cells = H.cells, chartRange = null;
-  function sync() { cells = H.cells; show(); buttons(); drawChart(); status.textContent = H.note; }
+  function sync() { cells = H.cells; show(); buttons(); drawChart(); applyFilter(); status.textContent = H.note; }
   function buttons() { undoBtn.disabled = !H.past.length; redoBtn.disabled = !H.future.length; }
   function change(next, note) { if (!H.change(next, note)) return false; sync(); return true; }
   function undo() { if (H.undo()) sync(); }
@@ -40,6 +40,8 @@
   function commit(a, v) { var n = M.copy(cells); if (v === "") delete n[a]; else n[a] = v; change(n); }
   function move(dc, dr) {
     if (!cur) return; var p = F.parseAddr(cur), nc = Math.min(COLS, Math.max(1, p.col + dc)), nr = Math.min(ROWS, Math.max(1, p.row + dr));
+    while (dr && rowHidden(nr) && nr + (dr > 0 ? 1 : -1) >= 1 && nr + (dr > 0 ? 1 : -1) <= ROWS) nr += dr > 0 ? 1 : -1;
+    if (rowHidden(nr)) return;
     inputs[String.fromCharCode(64 + nc) + nr].focus();
   }
   table.addEventListener("focusin", function (e) {
@@ -133,6 +135,44 @@
     if ((c2 - c1 + 1) * (r2 - r1 + 1) > 50) { out.textContent = "A chart takes up to 50 cells."; return; }
     chartRange = { c1: c1, c2: c2, r1: r1, r2: r2, label: m[1].toUpperCase() + ":" + m[2].toUpperCase() };
     drawChart();
+  });
+  // ---- Sort and filter (see model.js) ----
+  var $ = function (id) { return document.getElementById(id); }, fstat = $("filter-status"), filt = null;
+  function parseRange(str) {
+    var m = /^\s*([A-Za-z]{1,2}[0-9]{1,4})\s*:\s*([A-Za-z]{1,2}[0-9]{1,4})\s*$/.exec(str), p1 = m && F.parseAddr(m[1].toUpperCase()), p2 = m && F.parseAddr(m[2].toUpperCase());
+    if (!p1 || !p2) return null;
+    return { c1: Math.min(p1.col, p2.col), c2: Math.max(p1.col, p2.col), r1: Math.min(p1.row, p2.row), r2: Math.max(p1.row, p2.row) };
+  }
+  function colNum(t) { var m = /^\s*([A-Za-z])\s*$/.exec(t); return m ? m[1].toUpperCase().charCodeAt(0) - 64 : 0; }
+  function rowHidden(r) { return !!(table.rows[r] && table.rows[r].hidden); }
+  function showAllRows() { for (var i = 1; i <= ROWS; i++) table.rows[i].hidden = false; }
+  // the filter covers rows down to the last one that holds anything; empty rows below stay visible
+  function lastRow() { var m = 0; Object.keys(cells).forEach(function (k) { var p = F.parseAddr(k); if (p && p.row <= ROWS && p.row > m) m = p.row; }); return m; }
+  function applyFilter() {
+    showAllRows(); $("filter-clear").disabled = !filt;
+    if (!filt) { fstat.textContent = ""; return; }
+    var last = lastRow(), sh = new F.Sheet(cells), res = M.filterRows(function (a) { return sh.get(a); }, F.isErr, 1, Math.max(1, last), filt.col, filt.op, filt.val, filt.header);
+    if (res.error) { fstat.textContent = res.error; return; }
+    for (var i = 1; i <= last; i++) table.rows[i].hidden = !res.vis[i];
+    fstat.textContent = "Showing " + res.shown + " of " + res.total + " rows. Hidden rows are only hidden on screen: nothing is deleted and the filter is not saved." + (res.shown === 0 ? " No rows match." : "");
+  }
+  $("filter-go").addEventListener("click", function () {
+    var col = colNum($("filter-col").value);
+    if (!col || col > COLS) { fstat.textContent = "Enter a column from A to " + String.fromCharCode(64 + COLS) + "."; return; }
+    var f = { col: col, op: $("filter-op").value, val: $("filter-val").value, header: $("filter-header").checked };
+    var sh = new F.Sheet(cells), test = M.filterRows(function (a) { return sh.get(a); }, F.isErr, 1, Math.max(1, lastRow()), f.col, f.op, f.val, f.header);
+    if (test.error) { fstat.textContent = test.error; return; }
+    filt = f; applyFilter();
+  });
+  $("filter-clear").addEventListener("click", function () { filt = null; applyFilter(); fstat.textContent = "All rows are showing."; });
+  $("sort-go").addEventListener("click", function () {
+    var rg = parseRange($("sort-range").value), key = colNum($("sort-col").value);
+    if (!rg) { status.textContent = "Enter a range like A1:C10."; return; }
+    if ((rg.c2 - rg.c1 + 1) * (rg.r2 - rg.r1 + 1) > 2000 || rg.c2 > 26 || rg.r2 > 1000) { status.textContent = "A sort range can hold up to 2000 cells."; return; }
+    var r = M.sortRange(cells, F.parseAddr, rg, key, $("sort-dir").value === "desc", $("sort-header").checked);
+    if (r.error) { status.textContent = r.error; return; }
+    var note = "Sorted " + r.rows + " rows by column " + String.fromCharCode(64 + key) + "; " + r.moved + " moved. Undo restores the old order." + (filt ? " The filter is still on." : "");
+    if (!change(r.cells, note)) status.textContent = "Already in that order. Nothing changed.";
   });
   show(); buttons(); status.textContent = "";
 })();

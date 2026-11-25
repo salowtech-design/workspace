@@ -88,6 +88,61 @@
     return { text: lines.join("\r\n") + "\r\n", rows: maxR, cols: maxC, guarded: guarded };
   }
 
-  var api = { toCsv: toCsv, clean: clean, History: History, chartPoints: chartPoints, isComposing: isComposing, keyMove: keyMove, copy: copy, same: same };
+  // ---- Sort and filter ----
+  function colName(c) { return String.fromCharCode(64 + c); }
+  function toNum(t) { if (typeof t !== "string") return null; var x = t.trim(); if (x === "" || !/^[-+]?(\d+\.?\d*|\.\d+)(e[-+]?\d+)?$/i.test(x)) return null; var n = Number(x); return isFinite(n) ? n : null; }
+  // Sort whole rows of a range by one column of what was typed. Rows move together. Formulas are refused because moving
+  // them would change what their references mean. Numbers come before text, text is compared without case, blanks go last
+  // in either direction, equal keys keep their order. rg = {c1,c2,r1,r2}; keyCol is an absolute column number.
+  function sortRange(cells, parseAddr, rg, keyCol, desc, header) {
+    if (!rg || keyCol < rg.c1 || keyCol > rg.c2) return { error: "The sort column must be inside the range." };
+    var first = header ? rg.r1 + 1 : rg.r1;
+    if (first >= rg.r2) return { error: "There are fewer than two rows to sort." };
+    var rows = [], r, c, formulas = 0;
+    for (r = rg.r1; r <= rg.r2; r++) for (c = rg.c1; c <= rg.c2; c++) { var rv = cells[colName(c) + r]; if (typeof rv === "string" && rv.charAt(0) === "=") formulas++; }
+    if (formulas) return { error: "The range holds " + formulas + " formula" + (formulas === 1 ? "" : "s") + ". Sorting would change what they refer to, so nothing was sorted. Sort a range of typed values." };
+    for (r = first; r <= rg.r2; r++) {
+      var vals = {}, kr = cells[colName(keyCol) + r];
+      for (c = rg.c1; c <= rg.c2; c++) { var a = colName(c) + r; if (has(cells, a)) vals[c] = cells[a]; }
+      var n = toNum(kr), blank = kr === undefined || String(kr).trim() === "";
+      rows.push({ i: r - first, vals: vals, kind: blank ? 2 : n !== null ? 0 : 1, num: n, txt: blank ? "" : String(kr).toLowerCase() });
+    }
+    function cmp(x, y) {
+      if (x.kind === 2 || y.kind === 2) return x.kind === y.kind ? x.i - y.i : x.kind === 2 ? 1 : -1;
+      var d = x.kind !== y.kind ? x.kind - y.kind : x.kind === 0 ? x.num - y.num : (x.txt < y.txt ? -1 : x.txt > y.txt ? 1 : 0);
+      if (desc) d = -d;
+      return d !== 0 ? d : x.i - y.i;
+    }
+    var sorted = rows.slice().sort(cmp), next = copy(cells), moved = 0;
+    for (r = first; r <= rg.r2; r++) for (c = rg.c1; c <= rg.c2; c++) delete next[colName(c) + r];
+    sorted.forEach(function (row, k) {
+      if (row.i !== k) moved++;
+      Object.keys(row.vals).forEach(function (cc) { next[colName(Number(cc)) + (first + k)] = row.vals[cc]; });
+    });
+    return { cells: next, moved: moved, rows: rows.length };
+  }
+  // Which rows a filter shows. get(addr) gives the displayed value. The header row, if any, is always shown.
+  // ops: contains, equals, gt, lt, nonblank, blank. gt and lt compare numbers only, so text never matches them.
+  function filterRows(get, isErr, r1, r2, col, op, val, header) {
+    var needsVal = op === "contains" || op === "equals" || op === "gt" || op === "lt";
+    if (["contains", "equals", "gt", "lt", "nonblank", "blank"].indexOf(op) < 0) return { error: "Choose a filter." };
+    if (needsVal && String(val).trim() === "") return { error: "Enter a value to filter by." };
+    var want = null; if (op === "gt" || op === "lt") { want = toNum(String(val)); if (want === null) return { error: "Enter a number to compare with." }; }
+    var vis = {}, shown = 0, total = 0, r;
+    for (r = r1; r <= r2; r++) {
+      if (header && r === r1) { vis[r] = true; continue; }
+      total++;
+      var v = get(colName(col) + r), t = isErr(v) ? String(v.code) : typeof v === "boolean" ? (v ? "TRUE" : "FALSE") : String(v), lc = t.toLowerCase(), q = String(val).trim().toLowerCase(), ok = false;
+      if (op === "contains") ok = lc.indexOf(q) >= 0;
+      else if (op === "equals") { var a = toNum(t), b = toNum(String(val)); ok = a !== null && b !== null ? a === b : lc === q; }
+      else if (op === "gt" || op === "lt") { var n = typeof v === "number" ? v : toNum(t); ok = n !== null && (op === "gt" ? n > want : n < want); }
+      else if (op === "nonblank") ok = t.trim() !== "";
+      else ok = t.trim() === "";
+      if (ok) { vis[r] = true; shown++; }
+    }
+    return { vis: vis, shown: shown, total: total };
+  }
+
+  var api = { sortRange: sortRange, filterRows: filterRows, toNum: toNum, toCsv: toCsv, clean: clean, History: History, chartPoints: chartPoints, isComposing: isComposing, keyMove: keyMove, copy: copy, same: same };
   if (typeof module !== "undefined" && module.exports) module.exports = api; else root.SalowSheetModel = api;
 })(typeof self !== "undefined" ? self : this);
