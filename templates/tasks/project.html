@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+{% block title %}{{ project.name }}: Salow Tasks{% endblock %}
+{% block extra_head %}<link rel="stylesheet" href="/static/css/tasks.css">{% endblock %}
+{% block content %}
+<div class="card tasks">
+  <div class="tasks-head"><h2>{{ project.name }}</h2></div>
+  {% include "tasks/_nav.html" %}
+  <div class="tasks-board">{% for c in columns %}<div class="tasks-col"><h3>{{ c.name }}</h3><p class="task-meta">No tasks. Project tasks are not built yet.</p></div>{% endfor %}</div>
+  <h3>Members</h3>
+  <p class="task-meta">Everyone listed here can see this project. Adding people is not built yet.</p>
+  {% for m in members %}<div class="task-row"><span class="task-title">{{ m.person.full_name }}</span><span class="task-meta">{{ m.get_role_display }}</span></div>{% endfor %}
+</div>
+{% endblock %}

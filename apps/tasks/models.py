@@ -55,3 +55,46 @@ class Task(models.Model):
             models.Index(fields=["task_list", "deleted_at", "position"]),
             models.Index(fields=["assignee", "deleted_at", "status"]),
         ]
+
+
+class Project(models.Model):
+    """A shared space. Only members can see it. Separate from personal lists."""
+
+    public_id = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
+    name = models.CharField(max_length=120)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="+"
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    deleted_at = models.DateTimeField(null=True, blank=True)
+
+
+class ProjectMember(models.Model):
+    LEAD, MEMBER = "lead", "member"
+    ROLES = [(LEAD, "Lead"), (MEMBER, "Member")]
+
+    project = models.ForeignKey(Project, on_delete=models.PROTECT, related_name="members")
+    person = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="project_memberships"
+    )
+    role = models.CharField(max_length=8, choices=ROLES, default=MEMBER)
+    added_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="+"
+    )
+    added_at = models.DateTimeField(auto_now_add=True)
+    removed_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        indexes = [models.Index(fields=["person", "removed_at"])]
+        constraints = [
+            models.UniqueConstraint(fields=["project", "person"], name="uniq_project_person")
+        ]
+
+
+class Column(models.Model):
+    project = models.ForeignKey(Project, on_delete=models.PROTECT, related_name="columns")
+    name = models.CharField(max_length=60)
+    position = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        ordering = ["position", "id"]

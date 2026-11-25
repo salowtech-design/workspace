@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% block title %}Projects: Salow Tasks{% endblock %}
+{% block extra_head %}<link rel="stylesheet" href="/static/css/tasks.css">{% endblock %}
+{% block content %}
+<div class="card tasks">
+  <div class="tasks-head"><h2>Tasks</h2></div>
+  {% include "tasks/_nav.html" %}
+  <form method="post" action="{% url 'tasks:new_project' %}" class="tasks-inline">{% csrf_token %}
+    <input type="text" name="name" maxlength="120" placeholder="New project" required>
+    <button class="btn btn-outline btn-small" type="submit">Add project</button></form>
+  <p class="task-meta">A project is visible only to its members. Your personal lists are separate and stay private to you.</p>
+  {% for p in projects %}<div class="task-row"><a class="task-title" href="{% url 'tasks:project' p.public_id %}">{{ p.name }}</a></div>
+  {% empty %}<p class="task-meta">No projects yet.</p>{% endfor %}
+</div>
+{% endblock %}

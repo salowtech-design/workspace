@@ -25,3 +25,6 @@
 
 .tasks-conflict{border:1px solid #d9b38c;background:#fdf3e7;border-radius:8px;padding:10px 14px;margin:0 0 14px;font-size:.9rem}
 .tasks-conflict p{margin:4px 0}
+.tasks-board{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin:12px 0 20px}
+.tasks-col{background:#faf6ef;border:1px solid #ecdfcf;border-radius:8px;padding:10px 12px}
+.tasks-col h3{margin:0 0 6px;font-size:1rem}
