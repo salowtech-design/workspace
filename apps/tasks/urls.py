@@ -25,4 +25,9 @@ urlpatterns = [
     path(
         "projects/task/<uuid:task_id>/edit/", project_views.edit_project_task, name="project_edit"
     ),
+    path(
+        "projects/task/<uuid:task_id>/delete/",
+        project_views.delete_project_task,
+        name="project_delete",
+    ),
 ]

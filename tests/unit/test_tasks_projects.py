@@ -289,8 +289,9 @@ def test_race_removal_vs_assign(monkeypatch, locked):
     from tests.unit.test_drive_services import _threads
 
     _need_mysql()
-    pause = _setup_race(monkeypatch, locked, 2)
+    _setup_race(monkeypatch, locked, 2)  # sets the unlocked control; the hook is replaced below
     broken = 0
+    saw_commit, outcomes = [], []
     for i in range(2 if locked else 3):
         a, m = _u(f"RM-A{i}{locked}"), _u(f"RM-M{i}{locked}")
         p = pj.create_project(a, "P")
@@ -299,12 +300,21 @@ def test_race_removal_vs_assign(monkeypatch, locked):
 
         t = ProjectTask.objects.create(project=p, column=p.columns.first(), title="t", created_by=a)
 
-        committed = threading.Event()
+        committed = threading.Event()  # the removal's transaction has committed
+        assign_paused = threading.Event()  # assign has judged membership and is about to write
 
-        def remove(p=p, m=m, committed=committed):
+        def hook(committed=committed, assign_paused=assign_paused):
+            assign_paused.set()
+            # write only after the removal has committed; when the lock keeps the remover out
+            # the event never comes, so the wait is bounded (no deadlock)
+            saw_commit.append(committed.wait(timeout=2.0))
+
+        monkeypatch.setattr(pj, "_pause", hook)
+
+        def remove(p=p, m=m, committed=committed, assign_paused=assign_paused):
+            assert assign_paused.wait(timeout=10), "assign never reached its write"  # assign first
             with transaction.atomic():
                 Project.objects.select_for_update().get(pk=p.pk)
-                pause()
                 ProjectMember.objects.filter(project=p, person=m).update(
                     removed_at="2026-01-01T00:00:00Z"
                 )
@@ -313,14 +323,10 @@ def test_race_removal_vs_assign(monkeypatch, locked):
                 ProjectTask.objects.filter(project=p, assignee=m).update(assignee=None)
             committed.set()  # the transaction block has exited: the removal is committed
 
-        def assign(a=a, t=t, m=m, committed=committed):
-            pause.mine.wait_for = committed
-            try:
-                pj.assign_task(a, t, m)
-            except ValidationError:
-                pass
+        def assign(a=a, t=t, m=m):
+            pj.assign_task(a, t, m)
 
-        _threads([remove, assign])
+        outcomes.append(_threads([remove, assign]))
         t.refresh_from_db()
         gone = not ProjectMember.objects.filter(
             project=p, person=m, removed_at__isnull=True
@@ -330,7 +336,8 @@ def test_race_removal_vs_assign(monkeypatch, locked):
     rounds = 2 if locked else 3
     # ordering evidence, not timing: the late writer either saw the removal commit (no lock) or
     # was holding the lock while the remover could not commit (lock held, event never set)
-    assert pause.saw_commit == [not locked] * rounds, pause.saw_commit
+    assert outcomes == [["ok", "ok"]] * rounds, outcomes  # no error, deadlock or timeout hidden
+    assert saw_commit == [not locked] * rounds, saw_commit
     # control: the assign judged a membership that was removed before its write, every round
     assert (broken == 0) if locked else (broken == rounds), (broken, rounds)
 
@@ -426,3 +433,34 @@ def test_project_edit_notes_and_due_date_set_and_clear_and_name_stays_off_person
         for name in ("tasks:home", "tasks:assigned"):
             assert b"Hidden project name" not in _c(who).get(reverse(name)).content
     assert ProjectTask.objects.get(pk=t.pk).version == 3
+
+
+@pytest.mark.django_db
+def test_project_task_delete_needs_confirmation_and_is_lead_only():
+    from apps.tasks.models import ProjectTask
+
+    a, m, x = _u("PZ-A"), _u("PZ-M"), _u("PZ-X")
+    p = pj.create_project(a, "P")
+    _member(p, m)
+    t = pj.add_task(a, p, p.columns.first().pk, "gone soon")
+    url = reverse("tasks:project_delete", args=[t.public_id])
+    ca = _c(a)
+    page = ca.get(url)
+    assert page.status_code == 200 and b"Nothing is permanently erased" in page.content
+    ca.post(url, {})  # no confirm field: nothing happens
+    assert ProjectTask.objects.get(pk=t.pk).deleted_at is None
+    for who in (m, x):
+        assert _c(who).get(url).status_code == 404
+        assert _c(who).post(url, {"confirm": "yes"}).status_code == 404
+    assert ProjectTask.objects.get(pk=t.pk).deleted_at is None
+    r = ca.post(url, {"confirm": "yes"})
+    assert r.status_code == 302 and ProjectTask.objects.get(pk=t.pk).deleted_at is not None
+    assert b"gone soon" not in ca.get(reverse("tasks:project", args=[p.public_id])).content
+    assert ca.get(url).status_code == 404  # already deleted: same as missing
+    assert (
+        ca.post(reverse("tasks:project_edit", args=[t.public_id]), {"version": 1}).status_code
+        == 404
+    )
+    from apps.core.models import AuditLog
+
+    assert AuditLog.objects.filter(action="tasks.project_task.delete").count() == 1

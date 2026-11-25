@@ -3,6 +3,7 @@ from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.http import Http404
 from django.shortcuts import redirect, render
+from django.urls import reverse
 from django.views.decorators.http import require_http_methods, require_POST
 
 from apps.core.foundation.throttle import throttled
@@ -146,3 +147,25 @@ def edit_project_task(request, task_id):
         raise Http404 from None
     messages.success(request, "Saved.")
     return redirect("tasks:project", project_id=t.project.public_id)
+
+
+@login_required
+@require_http_methods(["GET", "POST"])
+def delete_project_task(request, task_id):
+    t = pj.get_task(request.user, task_id)
+    if not _is_lead(request.user, t.project):
+        raise Http404
+    back = reverse("tasks:project", args=[t.project.public_id])
+    if request.method == "GET" or request.POST.get("confirm") != "yes":
+        return render(
+            request,
+            "tasks/confirm.html",
+            {"what": "task", "name": t.title, "extra": 0, "post_url": request.path,
+             "back": back, "tab": "projects"},
+        )  # fmt: skip
+    try:
+        pj.delete_task(request.user, t)
+    except (PermissionDenied, Http404):
+        raise Http404 from None
+    messages.success(request, "Task deleted.")
+    return redirect(back)

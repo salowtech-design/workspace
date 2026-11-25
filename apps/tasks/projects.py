@@ -177,7 +177,11 @@ def tasks_by_column(project):
 
 
 def get_task(user, public_id):
-    t = ProjectTask.objects.filter(public_id=public_id).select_related("project").first()
+    t = (
+        ProjectTask.objects.filter(public_id=public_id, deleted_at__isnull=True)
+        .select_related("project")
+        .first()
+    )
     if t is None or not can_view(user, t.project):
         raise Http404
     return t
@@ -211,3 +215,15 @@ def edit_task(user, task, expected_version, **changes):
     audit(user, "tasks.project_task.update", "project_task", t.pk, fields=sorted(fields))
     t.refresh_from_db()
     return t
+
+
+@transaction.atomic
+def delete_task(user, task):
+    """Soft delete under the project lock. Nothing is erased and no restore exists yet."""
+    p = _lock_as_lead(user, task.project)
+    t = _fresh_task(p, task)
+    _pause()
+    ProjectTask.objects.filter(pk=t.pk, deleted_at__isnull=True).update(
+        deleted_at=timezone.now(), updated_at=timezone.now()
+    )
+    audit(user, "tasks.project_task.delete", "project_task", t.pk, project=p.pk)
