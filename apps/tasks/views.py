@@ -160,17 +160,29 @@ def edit(request, task_id):
         return render(
             request, "tasks/edit.html", {"task": task, "tab": "mine", "sent": sent}, status=400
         )
-    done = _run(request, svc.update_task, request.user, task, version, ok="Saved.", **changes)
-    if done is None:  # refused or stale: keep what was typed, show what is saved now
+    sent = {k: request.POST.get(k, "") for k in ("title", "notes", "due")}
+    try:
+        svc.update_task(request.user, task, version, **changes)
+    except svc.StaleVersion as exc:  # the only case that gets the conflict box and 409
+        messages.error(request, " ".join(exc.messages))
         task.refresh_from_db()
-        sent = {
-            "title": request.POST.get("title", task.title),
-            "notes": request.POST.get("notes", task.notes),
-            "due": request.POST.get("due", task.due_date.isoformat() if task.due_date else ""),
-        }
+        if task.deleted_at is not None:
+            raise Http404 from None
         return render(
-            request, "tasks/edit.html", {"task": task, "tab": "mine", "sent": sent}, status=409
+            request,
+            "tasks/edit.html",
+            {"task": task, "tab": "mine", "sent": sent, "conflict": True},
+            status=409,
         )
+    except ValidationError as exc:  # ordinary invalid input: keep typing, plain message, 400
+        messages.error(request, " ".join(exc.messages))
+        task.refresh_from_db()
+        return render(
+            request, "tasks/edit.html", {"task": task, "tab": "mine", "sent": sent}, status=400
+        )
+    except PermissionDenied:
+        raise Http404 from None  # no longer allowed: same as not found
+    messages.success(request, "Saved.")
     return _back(request, task)
 
 

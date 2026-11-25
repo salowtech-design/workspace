@@ -15,6 +15,10 @@ from apps.tasks.models import NOTES_MAX, TITLE_MAX, Task, TaskList
 logger = logging.getLogger(__name__)
 
 
+class StaleVersion(ValidationError):
+    """The task was changed (or removed) since the form was loaded."""
+
+
 def _clean_title(title):
     title = (title or "").strip()
     if not title:
@@ -133,7 +137,7 @@ def update_task(user, task, expected_version, **changes):
         pk=task.pk, version=expected_version, deleted_at__isnull=True
     ).update(version=F("version") + 1, updated_at=timezone.now(), **fields)
     if not done:
-        raise ValidationError("This task changed while you were editing. Reload and try again.")
+        raise StaleVersion("This task changed while you were editing. Reload and try again.")
     audit(user, "tasks.task.update", "task", task.pk, fields=sorted(fields))
     task.refresh_from_db()
     return task

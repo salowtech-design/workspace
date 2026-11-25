@@ -4,7 +4,7 @@
 {% block content %}
 <div class="card tasks">
   <div class="tasks-head"><h2>Edit task</h2></div>
-  {% if sent %}<div class="tasks-conflict"><p>Your changes were not saved. The fields below keep what you typed. The saved version is:</p>
+  {% if conflict %}<div class="tasks-conflict"><p>Your changes were not saved. The fields below keep what you typed. The saved version is:</p>
     <p><strong>{{ task.title }}</strong>{% if task.notes %}<br>{{ task.notes|truncatechars:300 }}{% endif %}{% if task.due_date %}<br>Due {{ task.due_date|date:"j M Y" }}{% endif %}</p>
     <p>Saving again replaces the saved version with what is in the form.</p></div>{% endif %}
   <form method="post" action="{% url 'tasks:edit' task.public_id %}" class="tasks-form">{% csrf_token %}

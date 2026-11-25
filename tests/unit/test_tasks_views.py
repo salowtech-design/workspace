@@ -258,9 +258,10 @@ def test_every_sidebar_link_resolves_on_the_workspace_host_urlconf():
     import re
     from pathlib import Path
 
+    from django.conf import settings
     from django.urls import reverse as rev
 
-    html = Path("templates/base.html").read_text()
+    html = (Path(settings.BASE_DIR) / "templates" / "base.html").read_text()
     names = set(re.findall(r"\{% url '([a-z_]+:[a-z_]+)' %\}", html))
     assert "tasks:home" in names and "drive:home" in names
     for name in sorted(names):
@@ -297,3 +298,27 @@ def test_an_empty_edit_changes_nothing():
     svc.update_task(a, t, 1)
     t.refresh_from_db()
     assert t.version == 1
+
+
+@pytest.mark.django_db
+def test_invalid_edit_is_400_without_the_conflict_box_and_markup_is_escaped():
+    a = _u("V-A")
+    ca = _c(a)
+    tl = svc.create_list(a, "L")
+    t = svc.create_task(a, tl, "keep")
+    url = reverse("tasks:edit", args=[t.public_id])
+    r = ca.post(url, {"version": 1, "title": "   ", "notes": "my notes"})
+    assert r.status_code == 400 and b"tasks-conflict" not in r.content
+    assert b"my notes" in r.content
+    t.refresh_from_db()
+    assert (t.title, t.version) == ("keep", 1)
+    evil = '"><script>alert(1)</script>'
+    svc.update_task(a, t, 1, title="other")
+    r = ca.post(url, {"version": 1, "title": evil, "notes": "</textarea><b>x</b>"})
+    body = r.content.decode()
+    assert r.status_code == 409 and "tasks-conflict" in body
+    assert "<script>alert(1)</script>" not in body and "</textarea><b>" not in body
+    assert "&quot;&gt;&lt;script&gt;" in body
+    # gone: soft-deleted after the form was opened is 404, not a conflict box
+    svc.delete_task(a, svc.get_task(a, t.public_id, "edit"))
+    assert ca.post(url, {"version": 2, "title": "x"}).status_code == 404
