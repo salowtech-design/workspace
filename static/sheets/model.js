@@ -55,9 +55,12 @@
   }
 
   // CSV of what the sheet shows (formula results, not formulas), over the box that holds every filled cell. get(addr) returns
-  // a number, boolean, string or error. Text that starts with = + - @ tab or CR gets a leading apostrophe so a spreadsheet
-  // program opening the file does not run it as a formula; numbers are written as they are.
-  var RISKY = /^[=+\-@\t\r]/;
+  // a number, boolean, string or error. Text that starts with = + - @ (after any leading blanks or invisible characters) or with tab or CR gets a leading
+  // apostrophe. This is a mitigation, not a guarantee for every spreadsheet program; numbers are written as they are.
+  // Leading spaces, control characters, zero-width and no-break characters are skipped when looking for the trigger
+  // character, because some programs ignore them before reading a formula. Fullwidth look-alikes are included.
+  var SKIP = /^[\s\u0000-\u001f\u007f-\u009f\u00a0\u00ad\u200b-\u200f\u2028\u2029\u202a-\u202e\u2060\ufeff]*/;
+  var RISKY = { test: function (t) { if (/^[\t\r]/.test(t)) return true; var r = t.replace(SKIP, ""); return /^[=+\-@\uff1d\uff0b\uff0d\uff20]/.test(r); } };
   function csvField(v, isErr) {
     var t;
     if (isErr(v)) t = String(v.code);

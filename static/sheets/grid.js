@@ -79,7 +79,7 @@
     if (!r) { status.textContent = "The sheet is empty, so nothing was downloaded."; return; }
     var u = URL.createObjectURL(new Blob([r.text], { type: "text/csv;charset=utf-8" })), l = document.createElement("a");
     l.href = u; l.download = "sheet.csv"; document.body.appendChild(l); l.click(); l.remove(); setTimeout(function () { URL.revokeObjectURL(u); }, 4000);
-    status.textContent = "Downloaded sheet.csv: " + r.rows + " rows by " + r.cols + " columns, with the values shown (not formulas)." + (r.guarded ? " " + r.guarded + " text cell(s) started with = + - or @, so a leading apostrophe was added to keep spreadsheet programs from running them." : "");
+    status.textContent = "Downloaded sheet.csv: " + r.rows + " rows by " + r.cols + " columns, with the values shown (not formulas)." + (r.guarded ? " " + r.guarded + " text cell(s) looked like formulas (they start with = + - or @), so a leading apostrophe was added. That lowers the chance a spreadsheet program runs them, but it is not a guarantee for every program." : "");
   });
   document.getElementById("sheet-import").addEventListener("change", function (e) {
     var f = e.target.files[0]; if (!f) return;
