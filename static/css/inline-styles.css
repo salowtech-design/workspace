@@ -749,3 +749,25 @@
 .iam-claim-hidden { display: none; }
 .iam-qr-box { max-width: 240px; margin: 0 auto 12px; }
 .iam-codes-list { font-family: monospace; list-style: none; padding: 0; }
+
+/* Sign-in page restyle (scoped to .login-v2): cream canvas, soft depth, gentle motion. Same flow and fields. */
+.login-v2 { max-width: 440px; margin: 3.5rem auto !important; padding: 2.25rem 2rem 2rem !important; border-radius: 18px !important; border: 1px solid var(--color-border-subtle) !important; background: var(--color-bg-surface) !important; box-shadow: 0 1px 2px rgba(43, 35, 26, 0.04), 0 22px 44px -20px rgba(94, 34, 25, 0.30) !important; animation: login-rise 0.55s cubic-bezier(0.2, 0.7, 0.2, 1) both; }
+.login-v2 .login-mark { height: 60px !important; width: auto !important; max-width: 140px; border-radius: 12px !important; margin-bottom: 0.4rem !important; animation: login-float 5.5s ease-in-out 0.7s infinite; }
+.login-v2 .login-title { font-size: 1.65rem !important; letter-spacing: -0.01em; color: var(--color-primary-700) !important; }
+.login-v2 .login-sub { font-size: 0.9rem !important; margin-top: 0.3rem !important; margin-bottom: 0.4rem !important; }
+.login-v2 .login-choices { gap: 0.85rem !important; margin-bottom: 1.5rem !important; }
+.login-v2 .login-choice { border-radius: 12px !important; padding: 1rem 0.5rem !important; transition: transform 0.18s ease, box-shadow 0.18s ease, background-color 0.18s ease !important; animation: login-rise 0.5s ease both; }
+.login-v2 .login-choice:nth-child(2) { animation-delay: 0.08s; }
+.login-v2 .login-choice:hover { transform: translateY(-2px); box-shadow: 0 12px 22px -12px rgba(94, 34, 25, 0.6); }
+.login-v2 .login-choice:active { transform: translateY(0); }
+.login-v2 .login-panel { animation: login-rise 0.4s ease both; }
+.login-v2 .form-input { border-radius: 10px !important; transition: border-color 0.18s ease, box-shadow 0.18s ease; }
+.login-v2 .form-input:focus { border-color: var(--color-primary-600) !important; box-shadow: 0 0 0 4px rgba(125, 48, 36, 0.14) !important; outline: none; }
+.login-v2 .login-submit { border-radius: 10px !important; transition: transform 0.15s ease, box-shadow 0.15s ease; }
+.login-v2 .login-submit:hover { transform: translateY(-1px); box-shadow: 0 10px 20px -10px rgba(94, 34, 25, 0.6); }
+@keyframes login-rise { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: none; } }
+@keyframes login-float { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-4px); } }
+@media (prefers-reduced-motion: reduce) { .login-v2, .login-v2 .login-mark, .login-v2 .login-choice, .login-v2 .login-panel { animation: none; } .login-v2 .login-choice:hover, .login-v2 .login-submit:hover { transform: none; } }
+@media (max-width: 480px) { .login-v2 { margin: 1.5rem 0.75rem !important; padding: 1.75rem 1.25rem 1.5rem !important; } }
+.login-v2 .btn-back-landing { white-space: nowrap; flex-shrink: 0; margin-left: 0.75rem; }
+.login-v2 .login-panel h3 { font-size: 1rem !important; }

@@ -3,22 +3,22 @@
 {% block title %}Sign In — Salowtech Workspace{% endblock %}
 
 {% block content %}
-<div class="card s-fe29e128">
+<div class="card s-fe29e128 login-v2">
     <div class="s-f0b24eea">
-        <img src="/static/img/logo.jpg" alt="Salowtech Logo" class="s-63fdcc73">
-        <h2 class="s-580e7beb">Salowtech Workspace</h2>
-        <p class="s-84e54f86">
+        <img src="/static/img/logo.jpg" alt="Salowtech Logo" class="s-63fdcc73 login-mark">
+        <h2 class="s-580e7beb login-title">Salowtech Workspace</h2>
+        <p class="s-84e54f86 login-sub">
             Enterprise Identity & Access Management
         </p>
     </div>
 
     <!-- Exactly Two Primary Buttons Side by Side: Login and Sign In -->
-    <div id="landing-buttons-container" class="s-5ded4aa8" role="tablist" aria-label="Authentication Options">
-        <button type="button" id="btn-login" class="btn btn-primary s-5327b0f0">
+    <div id="landing-buttons-container" class="s-5ded4aa8 login-choices" role="tablist" aria-label="Authentication Options">
+        <button type="button" id="btn-login" class="btn btn-primary s-5327b0f0 login-choice">
             <span>Login</span>
             <span class="s-c319bba4">First-Time Activation</span>
         </button>
-        <button type="button" id="btn-signin" class="btn btn-primary s-5327b0f0">
+        <button type="button" id="btn-signin" class="btn btn-primary s-5327b0f0 login-choice">
             <span>Sign In</span>
             <span class="s-c319bba4">Returning Employee</span>
         </button>
@@ -36,7 +36,7 @@
     {% endif %}
 
     <!-- State 1: First-Time Activation Flow (Initially Hidden unless flow='login') -->
-    <div id="login-flow-container" class="text-left{% if flow != 'login' %} d-none{% endif %}">
+    <div id="login-flow-container" class="login-panel text-left{% if flow != 'login' %} d-none{% endif %}">
         <div class="s-7a365447">
             <h3 class="s-00ed56fc">First-Time Account Activation</h3>
             <button type="button" class="btn-back-landing s-0e8b573d">← Back</button>
@@ -63,14 +63,14 @@
                     </button>
                 </div>
             </div>
-            <button type="submit" id="btn-submit-activation" class="btn btn-primary s-bea6f1ff">
+            <button type="submit" id="btn-submit-activation" class="btn btn-primary s-bea6f1ff login-submit">
                 Activate Account →
             </button>
         </form>
     </div>
 
     <!-- State 2: Returning Employee Sign-In Flow (Initially Hidden unless flow='signin' or error) -->
-    <div id="signin-flow-container" class="text-left{% if flow != 'signin' and not error %} d-none{% endif %}">
+    <div id="signin-flow-container" class="login-panel text-left{% if flow != 'signin' and not error %} d-none{% endif %}">
         <div class="s-7a365447">
             <h3 class="s-00ed56fc">Returning Employee Sign-In</h3>
             <button type="button" class="btn-back-landing s-0e8b573d">← Back</button>
@@ -109,7 +109,7 @@
                 </p>
             </div>
 
-            <button type="submit" id="confirm-btn" class="btn btn-primary s-bea6f1ff">
+            <button type="submit" id="confirm-btn" class="btn btn-primary s-bea6f1ff login-submit">
                 Confirm
             </button>
 
