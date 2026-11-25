@@ -62,9 +62,9 @@ def test_non_member_gets_404_everywhere_even_an_admin_and_unknown_looks_the_same
     for who in (c, admin):
         for call in (
             lambda w=who: cs.messages_after(w, sp.public_id),
-            lambda w=who: cs.latest_messages(w, sp.public_id),
+            lambda w=who: cs.window(w, sp.public_id),
             lambda w=who: cs.post_message(w, sp.public_id, "x", "z"),
-            lambda w=who: cs.mark_read(w, sp.public_id, 1),
+            lambda w=who: cs.mark_read(w, sp.public_id, 1, 1),
         ):
             with pytest.raises(Http404):
                 call()
@@ -84,9 +84,9 @@ def test_groups_unread_catch_up_and_read_marks_never_go_back():
     assert cs.spaces_for(a)[0]["unread"] == 0  # the sender has read their own
     _, rows, more = cs.messages_after(b, g.public_id, after_seq=1)
     assert [m.seq for m in rows] == [2, 3] and not more
-    cs.mark_read(b, g.public_id, 2)
-    cs.mark_read(b, g.public_id, 1)  # backwards: ignored
-    cs.mark_read(b, g.public_id, 99)  # past the end: capped
+    cs.mark_read(b, g.public_id, 2, 1)
+    cs.mark_read(b, g.public_id, 1, 1)  # backwards: ignored
+    cs.mark_read(b, g.public_id, 99, 1)  # past the end: capped
     assert Member.objects.get(space=g, person=b).last_read_seq == 3
     with pytest.raises(ValidationError):
         cs.create_group(a, "Two", [b.pk])
@@ -164,3 +164,177 @@ def test_race_two_posts_get_distinct_sequence_numbers(monkeypatch, locked):
         # the anomaly: both took seq 1, the unique key rejected one and its message was lost
         assert sorted(o.split(":")[0] for o in out) == ["error", "ok"], out
         assert "IntegrityError" in "".join(out) and seqs == [1], (out, seqs)
+
+
+def _many(sender, sp, n, prefix="m"):
+    for i in range(n):
+        cs.post_message(sender, sp.public_id, f"{prefix}{i}", f"{prefix}{i}")
+
+
+@pytest.mark.django_db
+def test_sending_does_not_mark_unseen_messages_read():
+    a, b = _u("CH-A"), _u("CH-B")
+    sp = cs.open_dm(a, b.pk)
+    _many(a, sp, 3)
+    cs.post_message(b, sp.public_id, "reply without opening", "r1")  # b never opened the page
+    assert Member.objects.get(space=sp, person=b).last_read_seq == 0
+    assert cs.spaces_for(b)[0]["unread"] == 3  # a's three; b's own message is not counted
+    # a caught-up sender does move their own mark
+    cs.mark_read(b, sp.public_id, 4, 1)
+    cs.post_message(b, sp.public_id, "now caught up", "r2")
+    assert Member.objects.get(space=sp, person=b).last_read_seq == 5
+
+
+@pytest.mark.django_db
+def test_more_than_a_page_unread_starts_at_the_first_unread_and_reads_only_what_was_shown():
+    a, b = _u("CH-A"), _u("CH-B")
+    sp = cs.open_dm(a, b.pk)
+    _many(a, sp, cs.PAGE + 50)
+    _, rows = cs.window(b, sp.public_id)
+    assert [m.seq for m in rows] == list(range(1, cs.PAGE + 1))  # not the latest page
+    cs.mark_read(b, sp.public_id, rows[-1].seq, rows[0].seq)
+    assert Member.objects.get(space=sp, person=b).last_read_seq == cs.PAGE
+    assert cs.spaces_for(b)[0]["unread"] == 50
+    _, nxt = cs.window(b, sp.public_id, after=cs.PAGE)
+    assert [m.seq for m in nxt] == list(range(cs.PAGE + 1, cs.PAGE + 51))
+    # history: older pages are reachable and a non-contiguous batch never moves the mark
+    _, old = cs.window(b, sp.public_id, before=60)
+    assert old[0].seq == 1 and old[-1].seq == 59
+    cs.mark_read(b, sp.public_id, cs.PAGE + 50, cs.PAGE + 40)  # a gap: 101..139 never shown
+    assert Member.objects.get(space=sp, person=b).last_read_seq == cs.PAGE
+
+
+@pytest.mark.django_db
+def test_list_is_most_recently_active_first_not_by_message_count():
+    a, b, c = _u("CH-A"), _u("CH-B"), _u("CH-C")
+    busy, quiet = cs.open_dm(a, b.pk), cs.open_dm(a, c.pk)
+    _many(a, busy, 5)
+    cs.post_message(a, quiet.public_id, "latest word", "q1")
+    assert [s["space"].pk for s in cs.spaces_for(a)] == [quiet.pk, busy.pk]
+    cs.post_message(b, busy.public_id, "bump", "b-bump")
+    assert [s["space"].pk for s in cs.spaces_for(a)] == [busy.pk, quiet.pk]
+
+
+@pytest.mark.django_db
+def test_reused_client_id_with_other_text_is_a_conflict_and_same_text_is_idempotent():
+    a, b = _u("CH-A"), _u("CH-B")
+    sp = cs.open_dm(a, b.pk)
+    cs.post_message(a, sp.public_id, "first", "dup")
+    assert cs.post_message(a, sp.public_id, " first ", "dup").seq == 1
+    with pytest.raises(cs.ReplayConflict):
+        cs.post_message(a, sp.public_id, "second text", "dup")
+    assert Message.objects.count() == 1
+
+
+@pytest.mark.django_db
+def test_failed_sends_keep_the_draft_and_a_conflict_gives_a_fresh_form_id(monkeypatch):
+    a, b = _u("CH-A"), _u("CH-B")
+    sp = cs.open_dm(a, b.pk)
+    ca = _c(a)
+    send = reverse("chat:send", args=[sp.public_id])
+    r = ca.post(send, {"body": "x" * 8001, "client_msg_id": "k1"})
+    assert r.status_code == 400 and r.content.decode().count("x" * 8001) == 1
+    assert 'name="client_msg_id" value="k1"' in r.content.decode()
+    ca.post(send, {"body": "kept words", "client_msg_id": "k2"})
+    r = ca.post(send, {"body": "different words", "client_msg_id": "k2"})
+    html = r.content.decode()
+    assert r.status_code == 409 and "different words" in html and "already used" in html
+    assert 'value="k2"' not in html  # a fresh id, so pressing Send posts it as new
+    assert Message.objects.filter(body="different words").count() == 0
+    from apps.chat import views
+
+    monkeypatch.setattr(views, "throttled", lambda *a, **k: True)
+    r = ca.post(send, {"body": "typed while throttled", "client_msg_id": "k3"})
+    assert r.status_code == 429 and "typed while throttled" in r.content.decode()
+    assert Message.objects.count() == 1
+
+
+@pytest.mark.django_db
+def test_every_route_refuses_an_inactive_person_and_poll_answers_401_when_signed_out():
+    a, b = _u("CH-A"), _u("CH-B")
+    sp = cs.open_dm(a, b.pk)
+    cs.post_message(b, sp.public_id, "hello", "h1")
+    ca = _c(a)
+    a.status = "suspended"
+    a.save()
+    sid = sp.public_id
+    for method, url in (
+        ("get", "/chat/"),
+        ("get", f"/chat/space/{sid}/"),
+        ("get", f"/chat/space/{sid}/poll/?after=0"),
+        ("post", f"/chat/space/{sid}/send/"),
+        ("post", "/chat/dm/"),
+        ("post", "/chat/group/"),
+    ):
+        # the site-wide sign-in gate may answer first (302 to login, or 401 for poll); it must never be a 200
+        assert getattr(ca, method)(url).status_code in (302, 401, 404), url
+    # the views' own gate, with the site-wide one out of the way
+    from django.test import RequestFactory
+
+    from apps.chat import views
+
+    rf = RequestFactory()
+    for fn, req, kw in (
+        (views.home, rf.get("/"), {}),
+        (views.space_view, rf.get("/"), {"space_id": sid}),
+        (views.poll, rf.get("/"), {"space_id": sid}),
+        (views.send, rf.post("/", {"body": "x", "client_msg_id": "z"}), {"space_id": sid}),
+        (views.start_dm, rf.post("/", {"person": "CH-B"}), {}),
+        (views.new_group, rf.post("/", {"name": "n", "people": "CH-B"}), {}),
+    ):
+        req.user = a
+        with pytest.raises(Http404):
+            fn(req, **kw)
+    anon = Client(HTTP_HOST=HOST)
+    r = anon.get(f"/chat/space/{sid}/poll/?after=0")
+    assert r.status_code == 401 and b"<html" not in r.content
+
+
+@pytest.mark.django_db
+def test_poll_marks_read_only_when_contiguous_and_is_not_cached():
+    a, b = _u("CH-A"), _u("CH-B")
+    sp = cs.open_dm(a, b.pk)
+    _many(a, sp, 3)
+    cb = _c(b)
+    url = f"/chat/space/{sp.public_id}/poll/"
+    r = cb.get(url + "?after=1")  # b never displayed message 1: the mark must not jump
+    assert r["X-Chat-Last"] == "3" and r["Cache-Control"] == "no-store"
+    assert Member.objects.get(space=sp, person=b).last_read_seq == 0
+    cb.get(url + "?after=0")
+    assert Member.objects.get(space=sp, person=b).last_read_seq == 3
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.parametrize("fallback", [True, False])
+def test_race_two_people_opening_the_same_dm_get_one_space(monkeypatch, fallback):
+    from django.db import connection
+
+    from tests.unit.test_drive_services import _threads
+
+    if connection.vendor == "sqlite":
+        pytest.skip("concurrent writers are only meaningful on the TiDB/MySQL backend")
+    monkeypatch.setattr(cs, "_CATCH_DM_DUPLICATE", fallback)
+    a, b = _u(f"RD-A{fallback}"), _u(f"RD-B{fallback}")
+    barrier = threading.Barrier(2)
+
+    def pause():
+        try:
+            barrier.wait(timeout=10)  # both looked and found no DM yet
+        except threading.BrokenBarrierError:
+            pass
+
+    monkeypatch.setattr(cs, "_pause_dm", pause)
+    got = []
+    out = _threads(
+        [
+            lambda: got.append(cs.open_dm(a, b.pk).pk),
+            lambda: got.append(cs.open_dm(b, a.pk).pk),
+        ]
+    )
+    if fallback:
+        assert out == ["ok", "ok"] and len(set(got)) == 1, (out, got)
+    else:
+        # the anomaly the fallback absorbs: the loser fails on the unique pair key or is chosen as the deadlock victim
+        assert sorted(o.split(":")[0] for o in out) == ["error", "ok"], out
+        assert "IntegrityError" in "".join(out) or "1213" in "".join(out), out
+    assert DmPair.objects.count() == 1 and Space.objects.filter(kind="dm").count() == 1

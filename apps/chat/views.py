@@ -1,10 +1,12 @@
 import uuid
+from functools import wraps
 
 from django.contrib import messages
 from django.contrib.auth import get_user_model
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db.models.functions import Upper
+from django.http import Http404, HttpResponse
 from django.shortcuts import redirect, render
 from django.views.decorators.http import require_POST
 
@@ -30,12 +32,27 @@ def _pks(raw):
     return [found[i] for i in ids]
 
 
+def active_only(view):
+    """Every chat route refuses a person who is no longer active, with the same 404 as a
+    conversation that does not exist."""
+
+    @wraps(view)
+    def wrapped(request, *a, **k):
+        if cs._live(request.user.pk) is None:
+            raise Http404
+        return view(request, *a, **k)
+
+    return wrapped
+
+
 @login_required
+@active_only
 def home(request):
     return render(request, "chat/home.html", {"spaces": cs.spaces_for(request.user)})
 
 
 @login_required
+@active_only
 @require_POST
 def start_dm(request):
     if throttled(request.user, "chat-new", CHANGE_LIMIT):
@@ -53,6 +70,7 @@ def start_dm(request):
 
 
 @login_required
+@active_only
 @require_POST
 def new_group(request):
     if throttled(request.user, "chat-new", CHANGE_LIMIT):
@@ -76,11 +94,26 @@ def _label(sp, user):
     return sp.name
 
 
-@login_required
-def space_view(request, space_id):
-    sp, rows = cs.latest_messages(request.user, space_id)
+def _int(raw):
+    try:
+        return int(raw) if raw not in (None, "") else None
+    except ValueError:
+        return None
+
+
+def _page(request, space_id, *, status=200, draft="", client_msg_id=None):
+    """The conversation page. Reading marks messages read only when they were all displayed."""
+    sp, rows = cs.window(
+        request.user,
+        space_id,
+        before=_int(request.GET.get("before")),
+        after=_int(request.GET.get("after")),
+    )
+    viewing_history = request.GET.get("before") not in (None, "")
+    first = rows[0].seq if rows else 0
     last = rows[-1].seq if rows else 0
-    cs.mark_read(request.user, space_id, last)
+    if rows and not viewing_history:
+        cs.mark_read(request.user, space_id, last, first)
     return render(
         request,
         "chat/space.html",
@@ -89,47 +122,66 @@ def space_view(request, space_id):
             "label": _label(sp, request.user),
             "rows": rows,
             "last": last,
-            "client_msg_id": uuid.uuid4().hex,
+            "older": first if first > 1 else None,
+            "newer": last if last < sp.last_seq else None,
+            "client_msg_id": client_msg_id or uuid.uuid4().hex,
+            "draft": draft,
             "me": request.user,
+            "live": not viewing_history and last >= sp.last_seq,
         },
+        status=status,
     )
 
 
 @login_required
+@active_only
+def space_view(request, space_id):
+    return _page(request, space_id)
+
+
+@login_required
+@active_only
 @require_POST
 def send(request, space_id):
+    body = request.POST.get("body", "")
+    cid = request.POST.get("client_msg_id", "")
     if throttled(request.user, "chat-send", SEND_LIMIT):
-        messages.error(request, "You are sending too fast. Wait a moment and send again.")
-        return redirect("chat:space", space_id=space_id)
-    try:
-        cs.post_message(
-            request.user, space_id, request.POST.get("body"), request.POST.get("client_msg_id")
+        messages.error(
+            request,
+            "You are sending too fast. Your text is kept below. Wait a moment and send again.",
         )
+        return _page(request, space_id, status=429, draft=body, client_msg_id=cid or None)
+    try:
+        cs.post_message(request.user, space_id, body, cid)
+    except cs.ReplayConflict as exc:
+        messages.error(request, " ".join(exc.messages))
+        return _page(request, space_id, status=409, draft=body)  # a fresh client id
     except ValidationError as exc:
         messages.error(request, " ".join(exc.messages))
+        return _page(request, space_id, status=400, draft=body, client_msg_id=cid or None)
     except PermissionDenied:
         return redirect("chat:home")
     return redirect("chat:space", space_id=space_id)
 
 
-@login_required
+POLL_LIMIT = 30  # polls per person per minute
+
+
 def poll(request, space_id):
-    """Messages after the given seq, as a fragment the page swaps in every 10 seconds."""
-    try:
-        after = int(request.GET.get("after", "0"))
-    except ValueError:
-        after = 0
+    """New messages after a seq, as a fragment. Answers 401 (never a login page) when the
+    session is gone, so the page's script can stop instead of swapping a sign-in page in."""
+    if not request.user.is_authenticated:
+        return HttpResponse(status=401)
+    if cs._live(request.user.pk) is None:
+        raise Http404
+    if throttled(request.user, "chat-poll", POLL_LIMIT):
+        return HttpResponse(status=429)
+    after = _int(request.GET.get("after")) or 0
     sp, rows, more = cs.messages_after(request.user, space_id, after)
     if rows:
-        cs.mark_read(request.user, space_id, rows[-1].seq)
-    return render(
-        request,
-        "chat/_messages.html",
-        {
-            "space": sp,
-            "rows": rows,
-            "me": request.user,
-            "last": rows[-1].seq if rows else after,
-            "more": more,
-        },
-    )
+        cs.mark_read(request.user, space_id, rows[-1].seq, after + 1)
+    resp = render(request, "chat/_messages.html", {"rows": rows, "me": request.user})
+    resp["X-Chat-Last"] = str(rows[-1].seq if rows else after)
+    resp["X-Chat-More"] = "1" if more else "0"
+    resp["Cache-Control"] = "no-store"
+    return resp

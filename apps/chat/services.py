@@ -7,8 +7,7 @@ assigned under the space row lock. No edit, delete, retention or attachments exi
 
 from django.contrib.auth import get_user_model
 from django.core.exceptions import PermissionDenied, ValidationError
-from django.db import IntegrityError, transaction
-from django.db.models import F
+from django.db import IntegrityError, OperationalError, transaction
 from django.http import Http404
 
 from apps.chat.models import BODY_MAX, NAME_MAX, DmPair, Member, Message, Space
@@ -16,6 +15,16 @@ from apps.core.foundation.audit import audit
 
 MAX_GROUP_OTHERS = 50
 PAGE = 100
+
+
+class ReplayConflict(ValidationError):
+    """The same send form was reused for different text."""
+
+
+REPLAY_MESSAGE = (
+    "That form was already used to send a different message. Your text is kept below. "
+    "Press Send to send it as a new message."
+)
 PEOPLE_ERROR = "Some people could not be added. Check the employee IDs."  # same for every cause
 
 
@@ -32,6 +41,13 @@ def _people(ids, exclude):
     return found
 
 
+_CATCH_DM_DUPLICATE = True  # tests switch it off to see the raw error that the fallback absorbs
+
+
+def _pause_dm():
+    """Test hook between the pair lookup and the create. A no-op."""
+
+
 def open_dm(actor, other_pk):
     """The one DM between two people, created on first use. Returns the space."""
     with transaction.atomic():
@@ -45,6 +61,7 @@ def open_dm(actor, other_pk):
         pair = DmPair.objects.filter(user_low=low, user_high=high).select_related("space").first()
         if pair is not None:
             return pair.space
+    _pause_dm()
     try:
         with transaction.atomic():
             sp = Space.objects.create(kind=Space.DM, created_by=me)
@@ -54,8 +71,16 @@ def open_dm(actor, other_pk):
             DmPair.objects.create(user_low=low, user_high=high, space=sp)
             audit(me, "chat.dm.create", "space", sp.pk)
         return sp
-    except IntegrityError:  # the other side created it first: use theirs
-        return DmPair.objects.select_related("space").get(user_low=low, user_high=high).space
+    except (IntegrityError, OperationalError) as exc:
+        # a lost race for the same pair surfaces as a duplicate key or, on TiDB, a deadlock (1213)
+        lost_race = isinstance(exc, IntegrityError) or (exc.args and exc.args[0] == 1213)
+        if not _CATCH_DM_DUPLICATE or not lost_race:
+            raise
+        # only a lost race for the same pair is absorbed; any other failure still surfaces
+        pair = DmPair.objects.filter(user_low=low, user_high=high).select_related("space").first()
+        if pair is None:
+            raise
+        return pair.space
 
 
 def create_group(actor, name, other_pks):
@@ -105,25 +130,37 @@ def post_message(actor, public_id, body, client_msg_id):
     with transaction.atomic():
         sp = _lock_space(public_id)  # space row first, then everything is re-read
         me = _live(actor.pk)
-        if sp is None or me is None or _member(sp, me.pk) is None:
+        mem = _member(sp, me.pk) if sp is not None and me is not None else None
+        if mem is None:
             raise Http404  # a non-member gets the same answer as an unknown space
         dup = Message.objects.filter(space=sp, author=me, client_msg_id=cid).first()
         if dup is not None:
+            if dup.body != body:
+                raise ReplayConflict(REPLAY_MESSAGE)  # never drop new text silently
             return dup  # a retry of the same send: the original, no second message
         _pause()
         seq = sp.last_seq + 1
         msg = Message.objects.create(space=sp, seq=seq, author=me, body=body, client_msg_id=cid)
-        Space.objects.filter(pk=sp.pk).update(last_seq=seq)
-        Member.objects.filter(space=sp, person=me).update(last_read_seq=seq)
+        Space.objects.filter(pk=sp.pk).update(last_seq=seq, last_message_at=msg.created_at)
+        if mem.last_read_seq >= seq - 1:  # only a caught-up sender has "read" up to here
+            Member.objects.filter(pk=mem.pk).update(last_read_seq=seq)
         audit(me, "chat.message.post", "space", sp.pk, seq=seq)  # ids only, never the text
     return msg
 
 
+def _visible_space(actor, public_id):
+    sp = Space.objects.filter(public_id=public_id).first()
+    if sp is None or _live(actor.pk) is None:
+        raise Http404
+    mem = _member(sp, actor.pk)
+    if mem is None:
+        raise Http404
+    return sp, mem
+
+
 def messages_after(actor, public_id, after_seq=0, limit=PAGE):
     """Messages with seq > after_seq, oldest first. 404 for a non-member."""
-    sp = Space.objects.filter(public_id=public_id).first()
-    if sp is None or _live(actor.pk) is None or _member(sp, actor.pk) is None:
-        raise Http404
+    sp, _ = _visible_space(actor, public_id)
     limit = max(1, min(int(limit), PAGE))
     rows = list(
         Message.objects.filter(space=sp, seq__gt=max(0, int(after_seq)))
@@ -133,34 +170,48 @@ def messages_after(actor, public_id, after_seq=0, limit=PAGE):
     return sp, rows[:limit], len(rows) > limit
 
 
-def latest_messages(actor, public_id, limit=PAGE):
-    """The last `limit` messages, oldest first."""
-    sp = Space.objects.filter(public_id=public_id).first()
-    if sp is None or _live(actor.pk) is None or _member(sp, actor.pk) is None:
-        raise Http404
-    rows = list(Message.objects.filter(space=sp).select_related("author").order_by("-seq")[:limit])
-    return sp, rows[::-1]
+def window(actor, public_id, before=None, after=None):
+    """The page of history to show. Returns (space, rows, first_unread_gap).
+
+    before=N: the PAGE messages older than N (history). after=N: the first PAGE after N.
+    Neither: the latest PAGE, unless more than PAGE are unread, in which case the page starts at
+    the first unread message so nothing unseen is skipped over."""
+    sp, mem = _visible_space(actor, public_id)
+    qs = Message.objects.filter(space=sp).select_related("author")
+    if before is not None:
+        rows = list(qs.filter(seq__lt=max(0, int(before))).order_by("-seq")[:PAGE])[::-1]
+    elif after is not None:
+        rows = list(qs.filter(seq__gt=max(0, int(after))).order_by("seq")[:PAGE])
+    elif sp.last_seq - mem.last_read_seq > PAGE:
+        rows = list(qs.filter(seq__gt=mem.last_read_seq).order_by("seq")[:PAGE])
+    else:
+        rows = list(qs.order_by("-seq")[:PAGE])[::-1]
+    return sp, rows
 
 
-def mark_read(actor, public_id, seq):
-    """Move the read mark forward only, never past the last message."""
+def mark_read(actor, public_id, seq, from_seq):
+    """Move the read mark forward to seq, never backwards, never past the last message, and only
+    when the messages shown started at or before the first unread one (from_seq <= mark + 1), so
+    messages that were never displayed are not marked read."""
     with transaction.atomic():
-        sp = Space.objects.filter(public_id=public_id).first()
-        if sp is None or _live(actor.pk) is None or _member(sp, actor.pk) is None:
-            raise Http404
+        sp, _ = _visible_space(actor, public_id)
         seq = min(int(seq), sp.last_seq)
         Member.objects.filter(
-            space=sp, person=actor, left_at__isnull=True, last_read_seq__lt=seq
+            space=sp,
+            person=actor,
+            left_at__isnull=True,
+            last_read_seq__lt=seq,
+            last_read_seq__gte=int(from_seq) - 1,
         ).update(last_read_seq=seq)
 
 
 def spaces_for(user):
-    """The person's conversations with unread counts, most recently active first."""
+    """The person's conversations with unread counts (others' messages after the read mark),
+    most recently active first."""
     rows = (
         Member.objects.filter(person=user, left_at__isnull=True)
         .select_related("space")
-        .annotate(unread=F("space__last_seq") - F("last_read_seq"))
-        .order_by("-space__last_seq", "-space_id")
+        .order_by("-space__last_message_at", "-space_id")
     )
     out = []
     for m in rows:
@@ -177,5 +228,10 @@ def spaces_for(user):
                 if other
                 else "Direct message"
             )
-        out.append({"space": m.space, "label": label, "unread": max(0, m.unread)})
+        unread = (
+            Message.objects.filter(space=m.space, seq__gt=m.last_read_seq)
+            .exclude(author=user)
+            .count()
+        )
+        out.append({"space": m.space, "label": label, "unread": unread})
     return out

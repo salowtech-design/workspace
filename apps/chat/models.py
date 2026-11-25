@@ -2,6 +2,7 @@ import uuid
 
 from django.conf import settings
 from django.db import models
+from django.utils import timezone
 
 BODY_MAX = 8000
 NAME_MAX = 120
@@ -17,6 +18,7 @@ class Space(models.Model):
     kind = models.CharField(max_length=8)
     name = models.CharField(max_length=NAME_MAX, blank=True)
     last_seq = models.BigIntegerField(default=0)  # per-space order, set under the row lock
+    last_message_at = models.DateTimeField(default=timezone.now)  # list order: recent first
     created_by = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="+"
     )
