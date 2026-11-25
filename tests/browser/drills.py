@@ -649,11 +649,129 @@ def sheets_tabs_safety(ctx):
     )
 
 
+def sheets_chart(ctx):
+    pg = fresh(ctx, "/sheets/")
+
+    def setc(a, v):
+        pg.click('input[data-addr="%s"]' % a)
+        pg.fill('input[data-addr="%s"]' % a, v)
+        pg.press('input[data-addr="%s"]' % a, "Tab")
+
+    def count(sel):
+        return pg.eval_on_selector_all("#chart-out " + sel, "e=>e.length")
+
+    def label():
+        return pg.eval_on_selector("#chart-out svg", "e=>e.getAttribute('aria-label')")
+
+    for i, v in enumerate(["3", "1", "0", "-2"], 1):
+        setc("A%d" % i, v)
+    pg.fill("#chart-range", "A1:A4")
+    pg.click("#chart-draw")
+    check(
+        "chart: bar is the default and draws a bar per non-zero value",
+        label().startswith("Bar") and count("rect") == 3,
+        label(),
+    )
+    pg.select_option("#chart-type", "line")
+    pg.click("#chart-draw")
+    check(
+        "chart: line draws one line and a point per value",
+        label().startswith("Line") and count("polyline") == 1 and count("circle") == 4,
+        (label(), count("circle")),
+    )
+    pg.select_option("#chart-type", "pie")
+    pg.click("#chart-draw")
+    check(
+        "chart: pie draws one slice per value above zero",
+        label().startswith("Pie") and count("path") == 2 and count("li") == 2,
+        (label(), count("path")),
+    )
+    check(
+        "chart: pie says what it left out",
+        "2 values at or below zero left out" in pg.inner_text("#chart-out"),
+        pg.inner_text("#chart-out"),
+    )
+    shares = pg.eval_on_selector_all("#chart-out li", "e=>e.map(x=>x.textContent)")
+    check(
+        "chart: pie shares are 75.0% and 25.0%",
+        shares == ["A1: 3 (75.0%)", "A2: 1 (25.0%)"],
+        shares,
+    )
+    shot(pg, "sheets-chart-42-pie")
+    setc("A2", "9")
+    check(
+        "chart: the pie follows an edit",
+        "A2: 9 (75.0%)" in pg.inner_text("#chart-out"),
+        pg.inner_text("#chart-out"),
+    )
+    setc("A1", "0")
+    setc("A2", "-1")
+    check(
+        "chart: a pie with nothing above zero says so",
+        "needs at least one value above zero" in pg.inner_text("#chart-out"),
+        pg.inner_text("#chart-out"),
+    )
+    check("chart: no stray SVG is left behind then", count("svg") == 0)
+
+
+def sheets_tabs_stale(ctx):
+    pg = fresh(ctx, "/sheets/")
+    KEYJS = "document.getElementById('sheet-root').dataset.storeKey"
+    pg.click("#tab-add")
+    pg.wait_for_timeout(100)
+    tid = pg.evaluate("JSON.parse(localStorage.getItem(%s+'.tabs')).active" % KEYJS)
+    pg.click('input[data-addr="A1"]')
+    pg.fill('input[data-addr="A1"]', "kept")
+    pg.press('input[data-addr="A1"]', "Tab")
+    key = pg.evaluate("%s+'.tab.%s'" % (KEYJS, tid))
+    p2 = ctx.new_page()
+    p2.goto(APP + "/sheets/")
+    p2.wait_for_timeout(400)
+    p2.click('#sheet-tabs button[data-tab="%s"]' % tid)
+    p2.once("dialog", lambda d: d.accept())
+    p2.click("#tab-del")
+    p2.wait_for_timeout(200)
+    check(
+        "stale: the other window deleted the tab and its cells",
+        pg.evaluate("localStorage.getItem(%s)" % json.dumps(key)) is None,
+    )
+    pg.click('input[data-addr="A1"]')
+    pg.fill('input[data-addr="A1"]', "lost?")
+    pg.press('input[data-addr="A1"]', "Tab")
+    pg.wait_for_timeout(150)
+    check(
+        "stale: an edit on the deleted tab is not written to storage",
+        pg.evaluate("localStorage.getItem(%s)" % json.dumps(key)) is None,
+    )
+    check(
+        "stale: the page says the edit was not saved",
+        "not saved" in pg.inner_text("#sheet-status"),
+        pg.inner_text("#sheet-status"),
+    )
+    p2.close()
+    # unreadable cells can be downloaded exactly as stored
+    pg.evaluate("localStorage.setItem(%s,'{not json')" % KEYJS)
+    pg.reload()
+    pg.wait_for_timeout(400)
+    active = pg.evaluate("JSON.parse(localStorage.getItem(%s+'.tabs')||'null')" % KEYJS)
+    if active and active.get("active") != "t0":
+        pg.click('#sheet-tabs button[data-tab="t0"]')
+    check("stale: the download button shows for an unreadable tab", pg.is_visible("#tab-raw"))
+    with pg.expect_download() as dl:
+        pg.click("#tab-raw")
+    check(
+        "stale: the download is the stored text, unchanged",
+        open(dl.value.path()).read() == "{not json",
+    )
+
+
 DRILLS = {
     "slides_show": slides_show,
     "slides_edit": slides_edit,
     "sheets_sort_filter": sheets_sort_filter,
     "sheets_tabs": sheets_tabs,
+    "sheets_chart": sheets_chart,
+    "sheets_tabs_stale": sheets_tabs_stale,
     "sheets_tabs_safety": sheets_tabs_safety,
     "selftest_scrub": selftest_scrub,
 }

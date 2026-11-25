@@ -116,6 +116,9 @@ ok("sort and the engine agree on which typed values are numbers", ["1", " 2 ", "
   ok("tabs: saved meta round-trips through loadTabs", (() => { const m = M.renameTab(a1, "t0", "Budget").meta; const r = M.loadTabs(JSON.stringify(m)); return !r.unreadable && JSON.stringify(r.meta) === JSON.stringify(m); })());
   ok("tabs: addTab skips ids whose stored cells still exist", (() => { const n = M.addTab(d0.meta, (id) => id === "t1" || id === "t2"); return n.active === "t3" && n.tabs.length === 2; })());
   ok("tabs: addTab without a callback behaves as before", M.addTab(d0.meta).active === "t1");
+  ok("chart: pie keeps positive values only and the shares add up to 1", (() => { const r = M.pieSlices([{ a: "A1", v: 3 }, { a: "A2", v: 1 }, { a: "A3", v: 0 }, { a: "A4", v: -2 }]); return r.slices.length === 2 && r.left === 2 && Math.abs(r.slices[0].frac - 0.75) < 1e-12 && Math.abs(r.slices.reduce((a, q) => a + q.frac, 0) - 1) < 1e-12; })());
+  ok("chart: pie of nothing positive is null", M.pieSlices([{ a: "A1", v: 0 }, { a: "A2", v: -1 }]) === null && M.pieSlices([]) === null);
+  ok("chart: pie with one value is a full share", M.pieSlices([{ a: "A1", v: 5 }]).slices[0].frac === 1);
 }
 console.log(`${n - fails}/${n} model rows passed`);
 process.exit(fails ? 1 : 0);

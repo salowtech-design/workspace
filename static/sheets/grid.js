@@ -11,12 +11,26 @@
   var tabsRaw = null, tabsRead = true; try { tabsRaw = localStorage.getItem(KEY + ".tabs"); } catch (e) { tabsRead = false; }
   var tl = M.loadTabs(tabsRaw), meta = tl.meta, tabsLocked = tl.unreadable || !tabsRead, hist = Object.create(null), lastDeleted = null;
   function tabKey(id) { return id === "t0" ? KEY : KEY + ".tab." + id; }
-  var unreadableTabs = Object.create(null);
+  var unreadableTabs = Object.create(null), rawTabs = Object.create(null);
   function makeHist(id) {
     var init = Object.create(null), raw = null, bad = false;
     try { raw = localStorage.getItem(tabKey(id)); } catch (e) { bad = true; }
     if (raw !== null && !bad) { try { var st0 = clean(JSON.parse(raw)); if (st0) init = st0.cells; else bad = true; } catch (e) { bad = true; } }
-    var h = new M.History(init, { save: function (c) { try { localStorage.setItem(tabKey(id), JSON.stringify(c)); return true; } catch (e) { return false; } } }, HIST);
+    var stale = false;
+    var h = new M.History(init, { save: function (c) {
+      // Do not write cells for a tab that another window deleted or that is no longer in the stored list.
+      var lr = null; try { lr = M.loadTabs(localStorage.getItem(KEY + ".tabs")); } catch (e) { lr = null; }
+      if (lr && !lr.unreadable && !lr.meta.tabs.some(function (t) { return t.id === id; })) { stale = true; return false; }
+      stale = false;
+      try { localStorage.setItem(tabKey(id), JSON.stringify(c)); return true; } catch (e) { return false; }
+    } }, HIST);
+    var basePersist = h.persist;
+    h.persist = function (note) {
+      var ok = basePersist(note);
+      if (stale) h.note = "This tab was deleted or changed in another window, so this edit was not saved. Reload this page to see the stored tabs.";
+      return ok;
+    };
+    if (raw !== null && bad) rawTabs[id] = raw;
     if (bad) {
       // The stored cells are kept exactly as they are: this tab opens empty and never writes over them.
       unreadableTabs[id] = true;
@@ -119,35 +133,54 @@
   // Chart: bars from one row or column of the sheet, computed here from the same formula engine.
   var out = document.getElementById("chart-out"), NS = "http://www.w3.org/2000/svg";
   function el(n, at, tx) { var x = document.createElementNS(NS, n); Object.keys(at || {}).forEach(function (k) { x.setAttribute(k, at[k]); }); if (tx !== undefined) x.textContent = tx; return x; }
-  var outP = null;
+  var outP = null, chartKind = "bar";
   function drawChart() {
     out.textContent = ""; if (!chartRange) return;
     var rg = chartRange, sh = new F.Sheet(cells), vals = [], rr, cc;
     for (rr = rg.r1; rr <= rg.r2; rr++) for (cc = rg.c1; cc <= rg.c2; cc++) { var ad = String.fromCharCode(64 + cc) + rr; vals.push({ a: ad, v: sh.get(ad) }); }
     var ch = M.chartPoints(vals);
     if (!ch) { out.textContent = "No numbers in " + rg.label + " right now."; return; }
-    var W = 560, H2 = 260, L = 48, B = 30, T = 14, lo = ch.lo, hi = ch.hi;
+    var W = 560, H2 = 260, L = 48, B = 30, T = 14, lo = ch.lo, hi = ch.hi, kind = chartKind;
     var y = function (v) { return T + (H2 - T - B) * (hi - v) / (hi - lo); }, bw = (W - L - 10) / ch.bars.length;
-    var svg = el("svg", { viewBox: "0 0 " + W + " " + H2, role: "img", "aria-label": "Bar chart of " + rg.label });
-    svg.appendChild(el("line", { x1: L, y1: y(0), x2: W - 6, y2: y(0), stroke: "#555" }));
-    svg.appendChild(el("text", { x: 4, y: y(hi) + 4, "font-size": 11 }, String(+hi.toPrecision(4))));
-    svg.appendChild(el("text", { x: 4, y: y(lo), "font-size": 11 }, String(+lo.toPrecision(4))));
-    ch.bars.forEach(function (q, i) {
-      var x = L + i * bw + bw * 0.15, g = el("g", {});
-      if (q.bar) { var rc = el("rect", { x: x, y: Math.min(y(q.v), y(0)), width: bw * 0.7, height: Math.abs(y(q.v) - y(0)), fill: "#7a2e22" }); rc.appendChild(el("title", {}, q.a + ": " + q.v)); g.appendChild(rc); }
-      else { var zt = el("text", { x: x + bw * 0.35, y: y(0) - 4, "font-size": 10, "text-anchor": "middle" }, "0"); zt.appendChild(el("title", {}, q.a + ": 0")); g.appendChild(zt); }
-      g.appendChild(el("text", { x: x + bw * 0.35, y: H2 - 12, "font-size": 10, "text-anchor": "middle" }, q.a));
-      svg.appendChild(g);
-    });
-    out.appendChild(svg);
+    var svg = el("svg", { viewBox: "0 0 " + W + " " + H2, role: "img", "aria-label": (kind === "line" ? "Line" : kind === "pie" ? "Pie" : "Bar") + " chart of " + rg.label });
+    var pie = kind === "pie" ? M.pieSlices(ch.pts) : null, legend = null;
+    if (kind === "pie" && !pie) { out.textContent = "A pie chart needs at least one value above zero in " + rg.label + "."; return; }
+    if (pie) {
+      var cx = 130, cy = 130, R = 110, ang = -Math.PI / 2, pal = ["#7a2e22", "#c58b3c", "#4d7a5a", "#3e6f9e", "#8a5a9e", "#b5533c", "#6b6b6b", "#a89a3c"];
+      legend = document.createElement("ul"); legend.className = "cal-meta";
+      pie.slices.forEach(function (q, i) {
+        var a2 = ang + q.frac * 2 * Math.PI, col = pal[i % pal.length], sl;
+        if (pie.slices.length === 1) sl = el("circle", { cx: cx, cy: cy, r: R, fill: col });
+        else sl = el("path", { d: "M" + cx + "," + cy + " L" + (cx + R * Math.cos(ang)) + "," + (cy + R * Math.sin(ang)) + " A" + R + "," + R + " 0 " + (q.frac > 0.5 ? 1 : 0) + " 1 " + (cx + R * Math.cos(a2)) + "," + (cy + R * Math.sin(a2)) + " Z", fill: col, stroke: "#fff" });
+        sl.appendChild(el("title", {}, q.a + ": " + q.v + " (" + (q.frac * 100).toFixed(1) + "%)")); svg.appendChild(sl); ang = a2;
+        var li = document.createElement("li"); li.textContent = q.a + ": " + q.v + " (" + (q.frac * 100).toFixed(1) + "%)"; li.style.borderLeft = "10px solid " + col; li.style.paddingLeft = "6px"; legend.appendChild(li);
+      });
+    } else {
+      svg.appendChild(el("line", { x1: L, y1: y(0), x2: W - 6, y2: y(0), stroke: "#555" }));
+      svg.appendChild(el("text", { x: 4, y: y(hi) + 4, "font-size": 11 }, String(+hi.toPrecision(4))));
+      svg.appendChild(el("text", { x: 4, y: y(lo), "font-size": 11 }, String(+lo.toPrecision(4))));
+      var pts2 = [];
+      ch.bars.forEach(function (q, i) {
+        var x = L + i * bw + bw * 0.15, g = el("g", {});
+        if (kind === "line") {
+          var px = x + bw * 0.35, py = y(q.v); pts2.push(px + "," + py);
+          var dot = el("circle", { cx: px, cy: py, r: 4, fill: "#7a2e22" }); dot.appendChild(el("title", {}, q.a + ": " + q.v)); g.appendChild(dot);
+        } else if (q.bar) { var rc = el("rect", { x: x, y: Math.min(y(q.v), y(0)), width: bw * 0.7, height: Math.abs(y(q.v) - y(0)), fill: "#7a2e22" }); rc.appendChild(el("title", {}, q.a + ": " + q.v)); g.appendChild(rc); }
+        else { var zt = el("text", { x: x + bw * 0.35, y: y(0) - 4, "font-size": 10, "text-anchor": "middle" }, "0"); zt.appendChild(el("title", {}, q.a + ": 0")); g.appendChild(zt); }
+        g.appendChild(el("text", { x: x + bw * 0.35, y: H2 - 12, "font-size": 10, "text-anchor": "middle" }, q.a));
+        svg.appendChild(g);
+      });
+      if (kind === "line" && pts2.length > 1) svg.insertBefore(el("polyline", { points: pts2.join(" "), fill: "none", stroke: "#7a2e22", "stroke-width": 2 }), svg.children[3]);
+    }
+    out.appendChild(svg); if (legend) out.appendChild(legend);
     var note = document.createElement("p"); note.className = "cal-meta";
-    note.textContent = ch.pts.length + " values charted from " + rg.label + (ch.skipped ? ", " + ch.skipped + " cells skipped (blank, text or error)" : "") + ". The chart follows the sheet as you edit and is not saved.";
+    note.textContent = ch.pts.length + " values charted from " + rg.label + (ch.skipped ? ", " + ch.skipped + " cells skipped (blank, text or error)" : "") + (pie && pie.left ? ", " + pie.left + " values at or below zero left out of the pie" : "") + ". The chart follows the sheet as you edit and is not saved.";
     out.appendChild(note);
   }
   document.getElementById("chart-draw").addEventListener("click", function () {
     var m = /^\s*([A-Za-z]{1,2}[0-9]{1,4})\s*:\s*([A-Za-z]{1,2}[0-9]{1,4})\s*$/.exec(document.getElementById("chart-range").value);
     var p1 = m && F.parseAddr(m[1].toUpperCase()), p2 = m && F.parseAddr(m[2].toUpperCase());
-    chartRange = null; out.textContent = "";
+    chartRange = null; out.textContent = ""; chartKind = document.getElementById("chart-type").value; if (["bar", "line", "pie"].indexOf(chartKind) < 0) chartKind = "bar";
     if (!p1 || !p2) { out.textContent = "Enter a range like A1:A8."; return; }
     var c1 = Math.min(p1.col, p2.col), c2 = Math.max(p1.col, p2.col), r1 = Math.min(p1.row, p2.row), r2 = Math.max(p1.row, p2.row);
     if (c1 !== c2 && r1 !== r2) { out.textContent = "Use one row or one column."; return; }
@@ -225,6 +258,7 @@
       b.addEventListener("click", function () { switchTo(t.id, b); }); tabBar.appendChild(b);
     });
     var ct = meta.tabs.filter(function (t) { return t.id === meta.active; })[0]; if (document.activeElement !== tabName) tabName.value = ct.name;
+    var dl = $("tab-raw"); dl.hidden = !(unreadableTabs[meta.active] && rawTabs[meta.active] !== undefined);
     $("tab-add").disabled = tabsLocked || meta.tabs.length >= M.MAX_TABS; $("tab-rename").disabled = tabsLocked; $("tab-del").disabled = tabsLocked || meta.tabs.length <= 1;
     $("tab-restore").disabled = tabsLocked || !lastDeleted || meta.tabs.length >= M.MAX_TABS;
   }
@@ -236,6 +270,12 @@
     tabMsg.textContent = "Now on " + meta.tabs.filter(function (t) { return t.id === id; })[0].name + ". Undo history is kept for each tab until you reload." + (hadFilter ? " The filter was cleared." : "");
     var again = keep && tabBar.querySelector('button[data-tab="' + id + '"]'); if (again) again.focus();
   }
+  $("tab-raw").addEventListener("click", function () {
+    var raw = rawTabs[meta.active]; if (raw === undefined) return;
+    var u = URL.createObjectURL(new Blob([raw], { type: "text/plain;charset=utf-8" })), l = document.createElement("a");
+    l.href = u; l.download = "unreadable-tab-cells.txt"; document.body.appendChild(l); l.click(); l.remove(); setTimeout(function () { URL.revokeObjectURL(u); }, 4000);
+    tabMsg.textContent = "Downloaded the stored text of this tab exactly as it is in this browser. It is not a valid sheet file, so it cannot be imported as is.";
+  });
   $("tab-add").addEventListener("click", function () {
     var next = M.addTab(meta, keyUsed); if (!next) { tabMsg.textContent = "A file holds up to " + M.MAX_TABS + " tabs."; return; }
     if (!commitMeta(next)) return;
@@ -251,7 +291,7 @@
     var id = meta.active, n = Object.keys(H.cells).length, nm = meta.tabs.filter(function (t) { return t.id === id; })[0].name, bad = !!unreadableTabs[id];
     var r = M.deleteTab(meta, id); if (r.error) { tabMsg.textContent = r.error; return; }
     var q = "";
-    if (bad) q += "The stored cells of the tab " + nm + " could not be read. They stay in this browser's storage but will no longer be shown, and cannot be restored here. ";
+    if (bad) q += "The stored cells of the tab " + nm + " could not be read. They stay in this browser's storage but will no longer be shown, and cannot be restored here. Use Download unreadable cells first if you want a copy. ";
     else if (n) q += "Delete the tab " + nm + " and its " + n + " cells? ";
     if (lastDeleted && !bad) q += (q ? "" : "Delete the tab " + nm + "? ") + "Only the most recently deleted tab can be restored, so this replaces the restorable tab " + lastDeleted.name + ", which will be lost. ";
     if (q && !bad) q += "You can bring this tab back with Restore deleted tab until you reload this page. After a reload it cannot be brought back.";

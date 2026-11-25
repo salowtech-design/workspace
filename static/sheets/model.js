@@ -41,6 +41,13 @@
     return { pts: pts, lo: lo, hi: hi, skipped: skipped, bars: pts.map(function (q) { return { a: q.a, v: q.v, bar: q.v !== 0 }; }) };
   }
 
+  // Pie: only positive values make slices. Others are counted as left out. frac sums to 1.
+  function pieSlices(pts) {
+    var pos = pts.filter(function (q) { return q.v > 0; }), tot = pos.reduce(function (a, q) { return a + q.v; }, 0);
+    if (!pos.length || !(tot > 0) || !isFinite(tot)) return null;
+    return { slices: pos.map(function (q) { return { a: q.a, v: q.v, frac: q.v / tot }; }), left: pts.length - pos.length };
+  }
+
   // Enter during IME composition confirms the text and must not move the cursor.
   function isComposing(e) { return !!(e && (e.isComposing || e.keyCode === 229)); }
 
@@ -188,6 +195,6 @@
   }
   function setActive(meta, id) { if (!meta.tabs.some(function (t) { return t.id === id; }) || meta.active === id) return null; var n = cloneMeta(meta); n.active = id; return n; }
 
-  var api = { loadTabs: loadTabs, addTab: addTab, renameTab: renameTab, deleteTab: deleteTab, setActive: setActive, cleanName: cleanName, MAX_TABS: MAX_TABS, sortRange: sortRange, filterRows: filterRows, toNum: toNum, toCsv: toCsv, clean: clean, History: History, chartPoints: chartPoints, isComposing: isComposing, keyMove: keyMove, copy: copy, same: same };
+  var api = { loadTabs: loadTabs, addTab: addTab, renameTab: renameTab, deleteTab: deleteTab, setActive: setActive, cleanName: cleanName, MAX_TABS: MAX_TABS, sortRange: sortRange, filterRows: filterRows, toNum: toNum, toCsv: toCsv, clean: clean, History: History, chartPoints: chartPoints, pieSlices: pieSlices, isComposing: isComposing, keyMove: keyMove, copy: copy, same: same };
   if (typeof module !== "undefined" && module.exports) module.exports = api; else root.SalowSheetModel = api;
 })(typeof self !== "undefined" ? self : this);
