@@ -8,7 +8,7 @@ from apps.accounts.models import CustomUser
 from apps.core.foundation.permissions import can
 from apps.core.models import AuditLog
 from apps.drive import services as svc
-from apps.drive.models import DriveFile, Folder, Share
+from apps.drive.models import DriveFile, FileVersion, Folder, Share
 
 
 def _u(eid):
@@ -417,3 +417,122 @@ def test_mutual_shares_do_not_deadlock():
             ]
         )
         assert res == ["ok", "ok"], res
+
+
+def _hex(n):
+    return f"{n:064x}"
+
+
+@pytest.mark.django_db
+def test_version_compare_and_set_sequential():
+    a, b = _u("VV-A"), _u("VV-B")
+    top = svc.create_folder(a, "Docs")
+    f = svc.create_file(a, "plan.txt", top)
+    assert f.current_version == 0
+    v1 = svc.add_version(a, f, 0, _hex(1), 10, _hex(101))
+    assert v1.number == 1
+    with pytest.raises(svc.VersionConflict):
+        svc.add_version(a, f, 0, _hex(2), 11, _hex(102))  # stale base
+    with pytest.raises(PermissionDenied):
+        svc.add_version(b, f, 1, _hex(3), 5, _hex(103))  # no access
+    svc.share(a, top, b, "viewer")
+    with pytest.raises(PermissionDenied):
+        svc.add_version(b, f, 1, _hex(3), 5, _hex(103))  # viewer cannot save
+    svc.share(a, top, b, "editor")
+    v2 = svc.add_version(b, f, 1, _hex(4), 20, _hex(104))
+    assert v2.number == 2 and v2.uploaded_by_id == b.pk
+    f.refresh_from_db()
+    assert f.current_version == 2 and f.size == 20 and f.owner_id == a.pk
+    for bad in (("zz", _hex(1)), (_hex(5), "short")):
+        with pytest.raises(ValidationError):
+            svc.add_version(a, f, 2, bad[0], 1, bad[1])
+    svc.trash(a, f)
+    with pytest.raises((ValidationError, PermissionDenied)):
+        svc.add_version(a, f, 2, _hex(6), 1, _hex(106))
+    assert list(f.versions.values_list("number", flat=True).order_by("number")) == [1, 2]
+
+
+@pytest.mark.django_db(transaction=True)
+def test_concurrent_saves_from_same_base_exactly_one_wins_and_numbers_stay_unique():
+    _need_mysql()
+    a = _u("VV-C")
+    f = svc.create_file(a, "race.txt")
+    fns = [
+        (
+            lambda i=i: svc.add_version(
+                a, DriveFile.objects.get(pk=f.pk), 0, _hex(10 + i), 1, _hex(200 + i)
+            )
+        )
+        for i in range(6)
+    ]
+    out = _threads(fns)
+    assert out.count("ok") == 1 and out.count("refused:VersionConflict") == 5, out
+    assert DriveFile.objects.get(pk=f.pk).current_version == 1
+    assert FileVersion.objects.filter(file=f).count() == 1
+
+
+@pytest.mark.django_db(transaction=True)
+def test_concurrent_saves_chained_from_current_never_duplicate_a_number():
+    _need_mysql()
+    a = _u("VV-D")
+    f = svc.create_file(a, "chain.txt")
+
+    def save(i):
+        def run():
+            for _ in range(10):  # retry on conflict, like a client that re-reads
+                cur = DriveFile.objects.get(pk=f.pk).current_version
+                try:
+                    return svc.add_version(
+                        a, DriveFile.objects.get(pk=f.pk), cur, _hex(30 + i), 1, _hex(300 + i)
+                    )
+                except svc.VersionConflict:
+                    continue
+
+        return run
+
+    res = _threads([save(i) for i in range(5)])
+    assert res == ["ok"] * 5, res
+    nums = sorted(FileVersion.objects.filter(file=f).values_list("number", flat=True))
+    assert nums == list(range(1, len(nums) + 1)) and len(nums) == 5
+    assert DriveFile.objects.get(pk=f.pk).current_version == 5
+
+
+@pytest.mark.django_db(transaction=True)
+def test_control_without_the_lock_same_base_saves_are_not_exclusive(monkeypatch):
+    """Sensitivity control: with the owner lock removed the race shows up, so the passing test
+    above is able to fail."""
+    _need_mysql()
+    a = _u("VV-E")
+    seen = False
+    for rnd in range(10):
+        f = svc.create_file(a, f"ctl{rnd}.txt")
+        monkeypatch.setattr(svc, "_lock_tree", lambda owner_id: None)
+        out = _threads(
+            [
+                (
+                    lambda i=i: svc.add_version(
+                        a, DriveFile.objects.get(pk=f.pk), 0, _hex(60 + i), 1, _hex(600 + i)
+                    )
+                )
+                for i in range(6)
+            ]
+        )
+        monkeypatch.undo()
+        if out.count("ok") != 1:
+            seen = True
+            break
+    assert seen, "no anomaly in 10 unlocked rounds; the control proves nothing"
+
+
+@pytest.mark.django_db
+def test_share_survives_a_notification_failure(monkeypatch):
+    a, b = _u("VN-A"), _u("VN-B")
+    top = svc.create_folder(a, "Keep")
+
+    def boom(*args, **kwargs):
+        raise RuntimeError("notify down")
+
+    monkeypatch.setattr(svc, "notify", boom)
+    svc.share(a, top, b, "viewer")
+    assert Share.objects.filter(folder=top, user=b).exists()
+    assert AuditLog.objects.filter(action="drive.share").exists()

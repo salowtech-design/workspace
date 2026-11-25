@@ -188,3 +188,21 @@ def test_search_returns_only_owned_and_shared_items_and_share_notifies():
     assert n.link == f"/drive/folder/{fin.public_id}/" and "Budget" not in n.title
     assert not Notification.objects.filter(user=c).exists()
     assert other.pk and mine.pk
+
+
+@pytest.mark.django_db
+def test_search_file_direct_share_and_trashed_owner_cases():
+    from apps.core.foundation.search import search
+
+    a, b = _u("V-F1"), _u("V-F2")
+    top = svc.create_folder(a, "Vault")
+    f = svc.create_file(a, "report plan.txt", top)
+    svc.share(a, f, b, "viewer")
+    hits = search(b, "report")
+    assert [h.title for h in hits] == ["report plan.txt"]
+    assert hits[0].url == "/drive/shared/" and str(top.public_id) not in hits[0].url
+    own = search(a, "report")
+    assert own[0].url == f"/drive/folder/{top.public_id}/"
+    svc.trash(a, top)
+    assert search(a, "report") == [] and search(a, "vault") == []
+    assert search(b, "report") == []

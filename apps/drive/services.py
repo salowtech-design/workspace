@@ -1,5 +1,7 @@
 """Drive operations. Every function checks the foundation permission policy first."""
 
+import logging
+import re
 import uuid
 
 from django.contrib.auth import get_user_model
@@ -11,9 +13,12 @@ from apps.core.foundation.audit import audit
 from apps.core.foundation.notify import notify
 from apps.core.foundation.permissions import can, require
 from apps.drive import policy  # noqa: F401  (registers the policies)
-from apps.drive.models import DriveChange, DriveFile, Folder, Share
+from apps.drive.models import DriveChange, DriveFile, FileVersion, Folder, Share
 
 FOLDER, FILE = "drive.folder", "drive.file"
+
+
+logger = logging.getLogger(__name__)
 
 
 def _clean_name(name):
@@ -117,6 +122,74 @@ def create_folder(user, name, parent=None):
     _journal(user, folder, "create")
     audit(user, "drive.folder.create", FOLDER, folder.pk, parent=getattr(parent, "pk", None))
     return folder
+
+
+@transaction.atomic
+def create_file(user, name, folder=None, content_type=""):
+    """Create a file RECORD (no bytes yet, current_version 0). Bytes arrive through add_version."""
+    name = _clean_name(name)
+    if folder is not None:
+        _lock_tree(folder.owner_id)
+        _fresh(folder)
+        require(user, "edit", FOLDER, folder)
+        if _in_trash(folder):
+            raise ValidationError("Cannot add a file in the trash.")
+    else:
+        _lock_tree(user.pk)
+    owner_id = folder.owner_id if folder is not None else user.pk
+    if _name_taken(folder, name, owner_id):
+        raise ValidationError("That name is already used here.")
+    f = DriveFile.objects.create(
+        owner_id=owner_id,
+        folder=folder,
+        name=name,
+        content_type=(content_type or "")[:127],
+        created_by=user,
+    )
+    _journal(user, f, "create")
+    audit(user, "drive.file.create", FILE, f.pk, folder=getattr(folder, "pk", None))
+    return f
+
+
+class VersionConflict(ValidationError):
+    """base_version is not the file's current version: someone else saved first."""
+
+
+_HEX64 = re.compile(r"^[0-9a-f]{64}$")
+
+
+@transaction.atomic
+def add_version(user, file, base_version, storage_key, size, sha256):
+    """Record a new version only if the caller saw the current one (compare and set under the
+    owner lock). The caller supplies a random storage key from the storage layer; this only
+    stores it. Nothing here writes or reads bytes."""
+    _lock_tree(file.owner_id)
+    _fresh(file)
+    require(user, "edit", FILE, file)
+    if file.trashed_at is not None or (file.folder_id and _in_trash(file.folder)):
+        raise ValidationError("Restore the file before saving a new version.")
+    if not _HEX64.match(storage_key or "") or not _HEX64.match(sha256 or ""):
+        raise ValidationError("Invalid storage key or checksum.")
+    if not isinstance(size, int) or size < 0:
+        raise ValidationError("Invalid size.")
+    if base_version != file.current_version:
+        raise VersionConflict(
+            f"This file changed (now version {file.current_version}); you saved from {base_version}."
+        )
+    number = file.current_version + 1
+    v = FileVersion.objects.create(
+        file=file,
+        number=number,
+        storage_key=storage_key,
+        size=size,
+        sha256=sha256,
+        uploaded_by=user,
+    )
+    DriveFile.objects.filter(pk=file.pk).update(current_version=number, size=size)
+    _journal(user, file, "version")
+    audit(user, "drive.file.version", FILE, file.pk, number=number, size=size)
+    file.refresh_from_db()
+    return v
 
 
 def _kind(item):
@@ -287,14 +360,20 @@ def share(user, item, person, role):
     audit(user, "drive.share", kind, item.pk, person=person.pk, role=role)
     if created:
         # Title carries the sharer's name only, never the item name; the link is the opaque id.
+        # A notification problem must never undo the share, so it runs in its own savepoint.
         link = f"/drive/folder/{item.public_id}/" if isinstance(item, Folder) else "/drive/shared/"
-        notify(
-            person,
-            "drive.share",
-            f"{user.full_name or user.employee_id} shared a {'folder' if isinstance(item, Folder) else 'file'} with you",
-            link,
-            check=(kind, item),
-        )
+        label = "folder" if isinstance(item, Folder) else "file"
+        try:
+            with transaction.atomic():
+                notify(
+                    person,
+                    "drive.share",
+                    f"{user.full_name or user.employee_id} shared a {label} with you",
+                    link,
+                    check=(kind, item),
+                )
+        except Exception:  # noqa: BLE001
+            logger.exception("drive share notification skipped")
     return obj
 
 
@@ -406,5 +485,10 @@ def search_items(user, query, limit):
         yield (FOLDER, f, f.name, f"/drive/folder/{f.public_id}/")
     for f in files:
         # there is no file detail page yet, so a file hit opens the folder that holds it
-        url = f"/drive/folder/{f.folder.public_id}/" if f.folder_id else "/drive/"
+        if f.folder_id is None:
+            url = "/drive/"
+        elif can(user, "view", FOLDER, f.folder):
+            url = f"/drive/folder/{f.folder.public_id}/"
+        else:
+            url = "/drive/shared/"  # never reveal the id of a folder they cannot open
         yield (FILE, f, f.name, url)
