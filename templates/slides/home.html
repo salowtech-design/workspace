@@ -25,7 +25,7 @@
 <h3>Items on this slide</h3><ul id="sl-items" class="slide-items"></ul><p class="cal-meta" id="sl-items-empty">No items yet.</p>
 <p class="cal-meta">Click an item or choose it from the list to select it. With an item selected and focus on the slide, arrow keys move it by 10 and Delete removes it. Items higher in the list are drawn underneath later ones; use Send backward and Bring forward to change that. Text wrapping is approximate: it works by character, not by joined emoji or accent sequences, so those can split across lines.</p></div></div>
 <p class="slide-tools"><button class="btn" type="button" id="sl-new">New slide</button> <button class="btn" type="button" id="sl-dup">Duplicate slide</button> <button class="btn" type="button" id="sl-up">Move up</button> <button class="btn" type="button" id="sl-down">Move down</button> <button class="btn" type="button" id="sl-del">Delete slide</button>
-<button class="btn" type="button" id="sl-clear">Clear deck (undo until reload)</button> <button class="btn" type="button" id="sl-export">Export (.json)</button> <span class="cal-meta">The file includes speaker notes.</span> <label>Import <input type="file" id="sl-import" accept=".json,application/json"></label></p>
+<button class="btn" type="button" id="sl-clear">Clear deck (undo until reload)</button> <button class="btn" type="button" id="sl-export">Export (.json)</button> <button class="btn" type="button" id="sl-pdf" aria-describedby="sl-pdf-help">Download PDF</button> <span class="cal-meta">The file includes speaker notes.</span> <span class="cal-meta" id="sl-pdf-help">The PDF has one page per slide, uses Helvetica, and leaves out speaker notes. Characters Helvetica cannot draw stop the export with a message.</span> <label>Import <input type="file" id="sl-import" accept=".json,application/json"></label></p>
 </div>
 <dialog id="sl-show" class="slide-show" tabindex="-1" aria-label="Slide show">
 <div id="sl-show-canvas"></div>
@@ -35,6 +35,8 @@
 </dialog>
 <p class="cal-meta" id="sl-status" role="status"></p>
 </div>
+<script src="/static/pdf/vendor/pdf-lib.min.js"></script>
 <script src="/static/slides/model.js"></script>
+<script src="/static/slides/pdf.js"></script>
 <script src="/static/slides/editor.js"></script>
 {% endblock %}

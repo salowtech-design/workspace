@@ -774,9 +774,110 @@ def sheets_tabs_stale(ctx):
     )
 
 
+def slides_pdf(ctx):
+    import re
+    import shutil
+    import subprocess
+
+    pg = fresh(ctx, "/slides/")
+    pg.click("#sl-add-text")
+    pg.fill("#sl-text", "Agenda caf\u00e9 \u20ac5")
+    pg.press("#sl-text", "Tab")
+    pg.fill("#sl-notes", "NOTE-NOT-IN-PDF")
+    pg.press("#sl-notes", "Tab")
+    pg.click("#sl-add-rect")
+    pg.fill("#sl-x", "520")
+    pg.press("#sl-x", "Tab")
+    pg.fill("#sl-y", "260")
+    pg.press("#sl-y", "Tab")
+    if SHOTS:
+        pg.locator("#sl-canvas-wrap").screenshot(
+            path=os.path.join(SHOTS, "slides-pdf-51-screen.png")
+        )
+    pg.click("#sl-new")
+    pg.click("#sl-add-ellipse")
+    pg.fill("#sl-text", "Round")
+    pg.press("#sl-text", "Tab")
+    got = []
+    pg.on("download", lambda d: got.append(d))
+    with pg.expect_download() as dl:
+        pg.click("#sl-pdf")
+    path = dl.value.path()
+    check(
+        "slides pdf: the download is named slides.pdf",
+        dl.value.suggested_filename == "slides.pdf",
+        dl.value.suggested_filename,
+    )
+    raw = open(path, "rb").read()
+    check("slides pdf: it is a PDF", raw.startswith(b"%PDF-"))
+    check("slides pdf: speaker notes are not in it", b"NOTE-NOT-IN-PDF" not in raw)
+    check(
+        "slides pdf: the status says notes are left out",
+        "Speaker notes are not in the PDF" in pg.inner_text("#sl-status"),
+        pg.inner_text("#sl-status"),
+    )
+    if shutil.which("pdfinfo") and shutil.which("pdftotext"):
+        info = subprocess.run(["pdfinfo", path], capture_output=True, text=True).stdout  # noqa: S603, S607
+        txt = subprocess.run(
+            ["pdftotext", "-layout", path, "-"], capture_output=True, text=True
+        ).stdout  # noqa: S603, S607
+        check(
+            "slides pdf: two pages of 960 x 540",
+            re.search(r"Pages:\s+2\b", info) is not None and "960 x 540" in info,
+            info,
+        )
+        check(
+            "slides pdf: slide text is extractable in order",
+            "Agenda caf\u00e9 \u20ac5" in txt and txt.index("Agenda") < txt.index("Round"),
+            txt,
+        )
+        if SHOTS and shutil.which("pdftoppm"):
+            subprocess.run(
+                [
+                    "pdftoppm",
+                    "-png",
+                    "-r",
+                    "60",
+                    "-f",
+                    "1",
+                    "-l",
+                    "2",
+                    path,
+                    os.path.join(SHOTS, "slides-pdf-50"),
+                ],
+                check=False,
+            )  # noqa: S603, S607
+    else:
+        check(
+            "slides pdf: poppler tools available to inspect the file",
+            False,
+            "pdfinfo/pdftotext missing",
+        )
+    before = len(got)
+    pg.click("#sl-list button:nth-child(1)")
+    pg.click("#sl-add-text")
+    pg.fill("#sl-text", "tick \u2713 \u65e5\u672c")
+    pg.press("#sl-text", "Tab")
+    pg.click("#sl-pdf")
+    pg.wait_for_timeout(500)
+    msg = pg.inner_text("#sl-status")
+    check(
+        "slides pdf: unsupported characters stop the export with a clear message",
+        "no PDF was made" in msg and "slide 1" in msg and "\u2713" in msg,
+        msg,
+    )
+    check(
+        "slides pdf: no file was downloaded for the refused export",
+        len(got) == before,
+        (len(got), before),
+    )
+    check("slides pdf: the button works again after a refusal", not pg.is_disabled("#sl-pdf"))
+
+
 DRILLS = {
     "slides_show": slides_show,
     "slides_edit": slides_edit,
+    "slides_pdf": slides_pdf,
     "sheets_sort_filter": sheets_sort_filter,
     "sheets_tabs": sheets_tabs,
     "sheets_chart": sheets_chart,
