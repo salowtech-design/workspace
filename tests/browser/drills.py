@@ -1531,24 +1531,62 @@ def slides_master(ctx):  # noqa: C901
         and "MASTERMARK" in pg.inner_text("#sl-master-under"),
         pg.inner_text("#sl-master-under"),
     )
+
+    def ids(d):
+        return [x["id"] for x in d["slides"]] + [
+            e["id"] for x in d["slides"] for e in x["elements"]
+        ]
+
+    def texts(d):
+        return [
+            (x["elements"][0]["text"] if x["elements"] else "", x.get("hideMaster") is True)
+            for x in d["slides"]
+        ]
+
+    before = stored()
     pg.click("#sl-dup")
+    after = stored()
     check(
-        "master: Duplicate works after leaving master mode",
-        len(stored()["slides"]) == 3,
-        len(stored()["slides"]),
+        "master: Duplicate copies slide 1 with its text and no hide flag, after it, with fresh ids",
+        texts(after)
+        == [("Slide one body", False), ("Slide one body", False), ("Second slide", True)]
+        and len(set(ids(after))) == len(ids(after))
+        and after["slides"][1]["id"] not in ids(before)
+        and after["slides"][1]["elements"][0]["id"] not in ids(before)
+        and after["master"] == before["master"],
+        texts(after),
     )
     pg.click("#sl-down")
+    moved = stored()
     check(
-        "master: Move down works after leaving master mode",
-        stored()["slides"][2]["id"] == ex["slides"][0]["id"] or len(stored()["slides"]) == 3,
+        "master: Move down puts the copy after the hidden slide and keeps the flags",
+        [x["id"] for x in moved["slides"]]
+        == [after["slides"][0]["id"], after["slides"][2]["id"], after["slides"][1]["id"]]
+        and texts(moved)
+        == [("Slide one body", False), ("Second slide", True), ("Slide one body", False)],
+        texts(moved),
     )
     pg.once("dialog", lambda d: d.accept())
     pg.click("#sl-del")
+    gone = stored()
     check(
-        "master: Delete works after leaving master mode",
-        len(stored()["slides"]) == 2 and len(stored()["master"]["elements"]) == 2,
-        len(stored()["slides"]),
+        "master: Delete removes the copy only, and the master is untouched",
+        [x["id"] for x in gone["slides"]] == [before["slides"][0]["id"], before["slides"][1]["id"]]
+        and gone["master"] == before["master"],
+        texts(gone),
     )
+    pg.click("#sl-list button:nth-child(2)")
+    pg.click("#sl-dup")
+    hid = stored()
+    check(
+        "master: Duplicating the hidden slide keeps its hide flag and text, with a fresh id",
+        texts(hid) == [("Slide one body", False), ("Second slide", True), ("Second slide", True)]
+        and hid["slides"][2]["id"] not in ids(gone),
+        texts(hid),
+    )
+    pg.once("dialog", lambda d: d.accept())
+    pg.click("#sl-del")
+    pg.click("#sl-list button:nth-child(1)")
     pg.fill("#sl-notes", "slide note")
     pg.press("#sl-notes", "Tab")
     check(
