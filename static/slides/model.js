@@ -42,6 +42,11 @@
   var ops = {
     addSlide: function (d, at) { if (d.slides.length >= MAX_SLIDES) return null; var n = copy(d), s = newSlide(); n.slides.splice(at === undefined ? n.slides.length : at + 1, 0, s); return n; },
     deleteSlide: function (d, i) { if (d.slides.length <= 1 || !d.slides[i]) return null; var n = copy(d); n.slides.splice(i, 1); return n; },
+    // copy of slide i placed right after it, with fresh ids so ids stay unique; null at the slide or item caps
+    duplicateSlide: function (d, i) {
+      var src = d.slides[i]; if (!src || d.slides.length >= MAX_SLIDES) return null;
+      var n = copy(d), c = copy(src); c.id = uid(); c.elements.forEach(function (e) { e.id = uid(); }); n.slides.splice(i + 1, 0, c); return n;
+    },
     moveSlide: function (d, i, to) { if (!d.slides[i] || to < 0 || to >= d.slides.length || to === i) return null; var n = copy(d), s = n.slides.splice(i, 1)[0]; n.slides.splice(to, 0, s); return n; },
     addElement: function (d, i, type) { var s = d.slides[i]; if (!s || s.elements.length >= MAX_EL || TYPES.indexOf(type) < 0) return null; var n = copy(d), e = newEl(type); n.slides[i].elements.push(e); return { deck: n, id: e.id }; },
     updateElement: function (d, i, id, patch) {

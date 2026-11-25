@@ -70,7 +70,7 @@
     var pos = e ? d.slides[cur].elements.indexOf(e) : -1; $("sl-back").disabled = pos <= 0; $("sl-fwd").disabled = pos < 0 || pos >= d.slides[cur].elements.length - 1;
     ["text", "size", "x", "y", "w", "h", "fill"].forEach(function (f) { var inp = $("sl-" + f); if (document.activeElement !== inp) inp.value = e ? e[f] : ""; });
     $("sl-theme").value = d.theme; $("sl-undo").disabled = !H.past.length; $("sl-redo").disabled = !H.future.length;
-    $("sl-up").disabled = cur === 0; $("sl-down").disabled = cur >= d.slides.length - 1; $("sl-del").disabled = d.slides.length <= 1;
+    $("sl-up").disabled = cur === 0; $("sl-down").disabled = cur >= d.slides.length - 1; $("sl-del").disabled = d.slides.length <= 1; $("sl-dup").disabled = d.slides.length >= S.MAX_SLIDES;
     status.textContent = H.note;
   }
   var fill = $("sl-fill"); S.FILLS.forEach(function (f) { var o = document.createElement("option"); o.value = f; o.textContent = f === "theme" ? "Theme color" : f; fill.appendChild(o); });
@@ -90,6 +90,10 @@
   $("sl-del-el").addEventListener("click", function () { var e = sel(); if (e) apply(S.ops.deleteElement(H.deck, cur, e.id), "Item deleted."); });
   $("sl-new").addEventListener("click", function () { var n = S.ops.addSlide(H.deck, cur); if (!n) { status.textContent = "A deck holds up to " + S.MAX_SLIDES + " slides."; return; } var prev = cur, prevSel = selId; cur++; selId = null; if (!apply(n)) { cur = prev; selId = prevSel; } });
   $("sl-del").addEventListener("click", function () { if (H.deck.slides[cur].elements.length && !window.confirm("Delete this slide and its items? You can undo until you reload.")) return; var n = S.ops.deleteSlide(H.deck, cur); if (n) { selId = null; apply(n, "Slide deleted."); } });
+  $("sl-dup").addEventListener("click", function () {
+    var n = S.ops.duplicateSlide(H.deck, cur); if (!n) { status.textContent = "A deck holds up to " + S.MAX_SLIDES + " slides."; return; }
+    var prev = cur, prevSel = selId; cur++; selId = null; if (!apply(n, "Slide duplicated.")) { cur = prev; selId = prevSel; }
+  });
   $("sl-up").addEventListener("click", function () { if (apply(S.ops.moveSlide(H.deck, cur, cur - 1))) { cur--; render(); } });
   $("sl-down").addEventListener("click", function () { if (apply(S.ops.moveSlide(H.deck, cur, cur + 1))) { cur++; render(); } });
   $("sl-theme").addEventListener("change", function () { apply(S.ops.setTheme(H.deck, this.value)); });
