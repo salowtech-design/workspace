@@ -53,10 +53,25 @@ def role_for(user, item):
     return {v: k for k, v in RANK.items()}.get(best)
 
 
+def _ancestor_trashed(item):
+    folder = item.folder if isinstance(item, DriveFile) else item.parent
+    n = 0
+    while folder is not None and n <= MAX_DEPTH + 1:
+        if folder.trashed_at is not None:
+            return True
+        folder = folder.parent
+        n += 1
+    return False
+
+
 def _policy(user, action, item):
     need = NEEDS.get(action)
     if need is None:
         return False
+    if item.trashed_at is None and _ancestor_trashed(item):
+        # Own flag clear but a folder above is in the trash (normally trash marks every
+        # descendant, so this is a defence). Only the owner may still look at it.
+        return item.owner_id == user.pk and action == "view"
     if item.trashed_at is not None:
         # A trashed item is only reachable by its owner and by the person who trashed it,
         # and only to look at it or bring it back (owner may also delete it forever).

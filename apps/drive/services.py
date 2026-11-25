@@ -13,8 +13,17 @@ from django.utils import timezone
 from apps.core.foundation.audit import audit
 from apps.core.foundation.notify import notify
 from apps.core.foundation.permissions import can, require
+from apps.drive import manifest as mf
 from apps.drive import policy  # noqa: F401  (registers the policies)
-from apps.drive.models import DriveChange, DriveFile, FileVersion, Folder, Share
+from apps.drive.models import (
+    DriveChange,
+    DriveFile,
+    FileVersion,
+    Folder,
+    ManifestChange,
+    ManifestEpoch,
+    Share,
+)
 
 FOLDER, FILE = "drive.folder", "drive.file"
 
@@ -123,6 +132,178 @@ def create_folder(user, name, parent=None):
     _journal(user, folder, "create")
     audit(user, "drive.folder.create", FOLDER, folder.pk, parent=getattr(parent, "pk", None))
     return folder
+
+
+# ---- manifest (see salow-drive-manifest-design.md) ----
+
+
+def _people(item):
+    """Everyone whose manifest entry for this item can change: owner, plus anyone holding a
+    share on the item (files) or on the item or an ancestor folder."""
+    folder = item.folder if isinstance(item, DriveFile) else item
+    ids = []
+    n = 0
+    while folder is not None and n <= policy.MAX_DEPTH + 1:
+        ids.append(folder.pk)
+        folder = folder.parent
+        n += 1
+    q = Share.objects.filter(folder_id__in=ids)
+    if isinstance(item, DriveFile):
+        q = Share.objects.filter(file=item) | q
+    return {item.owner_id} | set(q.values_list("user_id", flat=True))
+
+
+def _nested(item):
+    """Shares that live INSIDE a folder's subtree: (person id, root item). Their entries change
+    when the folder is trashed, restored or moved. Bounded by the number of shares, not by the
+    number of files."""
+    if not isinstance(item, Folder):
+        return []
+    fids = [f.pk for f in _descendants(item)]
+    out = []
+    for sh in Share.objects.filter(folder_id__in=fids).exclude(folder_id=item.pk):
+        out.append((sh.user_id, sh.folder))
+    for sh in Share.objects.filter(file__folder_id__in=fids).select_related("file"):
+        out.append((sh.user_id, sh.file))
+    return out
+
+
+class LockSetGrew(Exception):
+    """The set of people grew between reading it and locking it. The whole transaction is
+    rolled back (releasing every lock) and re-run, so locks are never taken out of order."""
+
+
+def _relock(fn):
+    """Outermost wrapper: re-run the whole operation in a fresh transaction when the lock set
+    grew. Never retries inside a transaction that already holds locks."""
+    import functools
+    import random
+    import time
+
+    from django.db import OperationalError
+
+    @functools.wraps(fn)
+    def wrapper(*args, **kwargs):
+        for attempt in range(5):
+            try:
+                return fn(*args, **kwargs)
+            except LockSetGrew:
+                continue
+            except OperationalError as exc:
+                # TiDB/MySQL: 1105 pessimistic retry limit, 1205 lock wait timeout, 1213 deadlock.
+                # The whole transaction is already rolled back; wait a little and run it again.
+                if not exc.args or exc.args[0] not in (1105, 1205, 1213):
+                    raise
+                time.sleep(random.uniform(0.02, 0.1) * (attempt + 1))  # noqa: S311 (backoff jitter, not security)
+        raise ValidationError("Busy right now. Try again.")
+
+    return wrapper
+
+
+def _affected(item, extra_ids=(), also=()):
+    want = _people(item) | set(extra_ids) | {p for p, _ in _nested(item)}
+    for other in also:
+        want |= _people(other)
+    return want
+
+
+def _lock_affected(item, *extra_ids, also=()):
+    """Read the affected set, lock owner and all of them together in ascending id, re-read.
+    If the set grew, raise LockSetGrew so the caller's transaction is rolled back and retried
+    from scratch (see _relock)."""
+    want = _affected(item, extra_ids, also)
+    _lock_users(*want)
+    _fresh(item)
+    if not _affected(item, extra_ids, also) <= want:
+        raise LockSetGrew()
+    return want
+
+
+def _bump(person_id, item, reason, people_state=None):
+    """Write one scoped row for one person. Caller holds that person's account lock."""
+    person = get_user_model().objects.get(pk=person_id)
+    entry = mf.effective_entry(person, item)
+    state = {
+        mf.ACTIVE: ManifestChange.State.ACTIVE,
+        mf.TRASHED: ManifestChange.State.TRASHED,
+        mf.NONE: ManifestChange.State.REVOKED,
+    }[entry.state]
+    ep, _ = ManifestEpoch.objects.get_or_create(user_id=person_id)
+    ep.epoch += 1
+    ep.save(update_fields=["epoch", "updated_at"])
+    is_folder = isinstance(item, Folder)
+    ManifestChange.objects.create(
+        user_id=person_id,
+        epoch=ep.epoch,
+        item_type="folder" if is_folder else "file",
+        item_public_id=item.public_id,
+        scope=ManifestChange.Scope.SUBTREE if is_folder else ManifestChange.Scope.ITEM,
+        state=state,
+        role=entry.role or "",
+        reason=reason,
+    )
+    return ep.epoch
+
+
+def _record(item, reason, people, nested=()):
+    for pid in sorted(people):
+        _bump(pid, item, reason)
+    for pid, root in sorted(nested, key=lambda t: (t[0], str(t[1].public_id))):
+        _bump(pid, root, reason)
+
+
+def manifest_since(user, since=0):
+    """Changes after `since`, capped at the epoch read FIRST. Rows carry absolute state, so a
+    client that takes the epoch before listing and then applies later rows converges."""
+    ep = ManifestEpoch.objects.filter(user=user).first()
+    top = ep.epoch if ep else 0
+    rows = ManifestChange.objects.filter(user=user, epoch__gt=since, epoch__lte=top).order_by(
+        "epoch"
+    )
+    return {"epoch": top, "full_list_required": ep is None, "changes": list(rows)}
+
+
+def reconcile_user(user, fix=False):
+    """Compare the last recorded state for each root with live truth. Without fix this only
+    flags candidates. With fix it takes the ordered locks, recomputes fresh under them, and
+    only then writes a correction, so a stale read can never overwrite current truth."""
+    latest = {}
+    for row in ManifestChange.objects.filter(user=user).order_by("epoch"):
+        latest[(row.item_type, row.item_public_id)] = row
+    flagged = []
+    for (kind, pid), row in latest.items():
+        model = Folder if kind == "folder" else DriveFile
+        item = model.objects.filter(public_id=pid).first()
+        if item is None:
+            continue
+        live = mf.effective_entry(user, item)
+        want = {mf.ACTIVE: "active", mf.TRASHED: "trashed", mf.NONE: "revoked"}[live.state]
+        if want != row.state or (live.role or "") != row.role:
+            flagged.append((kind, pid))
+    if not fix:
+        return flagged
+    corrected = []
+    for kind, pid in flagged:
+        model = Folder if kind == "folder" else DriveFile
+        with transaction.atomic():
+            item = model.objects.filter(public_id=pid).first()
+            if item is None:
+                continue
+            try:
+                _lock_affected(item, user.pk)
+            except LockSetGrew:
+                continue  # state moved under us; the next reconcile pass will see it
+            last = (
+                ManifestChange.objects.filter(user=user, item_public_id=pid)
+                .order_by("-epoch")
+                .first()
+            )
+            live = mf.effective_entry(user, item)
+            want = {mf.ACTIVE: "active", mf.TRASHED: "trashed", mf.NONE: "revoked"}[live.state]
+            if last is None or want != last.state or (live.role or "") != last.role:
+                _bump(user.pk, item, "reconcile")
+                corrected.append((kind, pid))
+    return corrected
 
 
 @transaction.atomic
@@ -246,11 +427,14 @@ def _check_destination(user, item, destination):
         raise ValidationError("That would nest folders too deeply.")
 
 
+@_relock
 @transaction.atomic
 def move(user, item, destination):
     """Move to another folder (None = the owner's top level). Folders cannot enter themselves."""
-    _lock_tree(item.owner_id)
-    _fresh(item)
+    also = (destination,) if destination is not None else ()
+    _lock_affected(item, also=also)
+    people = _people(item)
+    nested = _nested(item)
     kind = _kind(item)
     require(user, "move", kind, item)
     _check_destination(user, item, destination)
@@ -264,6 +448,8 @@ def move(user, item, destination):
         item.save(update_fields=["folder"])
     _journal(user, item, "move")
     audit(user, "drive.move", kind, item.pk, to=getattr(destination, "pk", None))
+    item.refresh_from_db()
+    _record(item, "move", people | _people(item), nested)
     return item
 
 
@@ -276,11 +462,13 @@ def _descendants(folder):
     return folders
 
 
+@_relock
 @transaction.atomic
 def trash(user, item):
     """Move to trash as one batch (a folder takes its contents with it). Nothing is deleted."""
-    _lock_tree(item.owner_id)
-    _fresh(item)
+    _lock_affected(item)
+    people = _people(item)
+    nested = _nested(item)
     kind = _kind(item)
     require(user, "trash", kind, item)
     now, batch = timezone.now(), uuid.uuid4()
@@ -294,16 +482,19 @@ def trash(user, item):
     _journal(user, item, "trash")
     audit(user, "drive.trash", kind, item.pk)
     item.refresh_from_db()
+    _record(item, "trash", people, nested)
     return item
 
 
+@_relock
 @transaction.atomic
 def restore(user, item):
     """Bring back one trash batch. It returns to its old place; if that place is gone, is in
     the trash, would collide by name, or would nest too deep, nothing changes and the
     person is told. Only the owner may re-home a batch at the top level."""
-    _lock_tree(item.owner_id)
-    _fresh(item)
+    _lock_affected(item)
+    people = _people(item)
+    nested = _nested(item)
     kind = _kind(item)
     require(user, "restore", kind, item)
     if item.trash_batch is None:
@@ -336,9 +527,13 @@ def restore(user, item):
     _journal(user, item, "restore")
     audit(user, "drive.restore", kind, item.pk)
     item.refresh_from_db()
+    # recomputed from live access now, not replayed from the shares that existed before
+    people = people | _people(item)
+    _record(item, "restore", people, nested)
     return item
 
 
+@_relock
 @transaction.atomic
 def share(user, item, person, role):
     _lock_users(item.owner_id, person.pk)
@@ -360,6 +555,7 @@ def share(user, item, person, role):
     )
     _journal(user, item, "share", subject=person)
     audit(user, "drive.share", kind, item.pk, person=person.pk, role=role)
+    _bump(person.pk, item, "share")
     if created:
         # Title carries the sharer's name only, never the item name; the link is the opaque id.
         # A notification problem must never undo the share, so it runs in its own savepoint.
@@ -379,9 +575,10 @@ def share(user, item, person, role):
     return obj
 
 
+@_relock
 @transaction.atomic
 def unshare(user, item, person):
-    _lock_tree(item.owner_id)
+    _lock_users(item.owner_id, person.pk)
     _fresh(item)
     kind = _kind(item)
     require(user, "unshare", kind, item)
@@ -390,6 +587,12 @@ def unshare(user, item, person):
     if n:
         _journal(user, item, "unshare", subject=person)
         audit(user, "drive.unshare", kind, item.pk, person=person.pk)
+        _bump(person.pk, item, "unshare")
+        # An independent grant inside the subtree stays valid. Say so explicitly so a device
+        # that drops the revoked root keeps those items (it re-lists with live checks anyway).
+        for pid, root in _nested(item):
+            if pid == person.pk:
+                _bump(person.pk, root, "unshare_keep")
         return n
     if policy.role_for(person, item) is not None and person.pk != item.owner_id:
         raise ValidationError(

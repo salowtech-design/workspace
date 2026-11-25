@@ -77,3 +77,266 @@ def test_inactive_person_and_after_unshare_and_after_move_out():
     CustomUser.objects.filter(pk=b.pk).update(is_active=False, status="inactive")
     b.refresh_from_db()
     assert m.effective_entry(b, top) == m.Entry(m.NONE, None)
+
+
+# ---- manifest rows ----
+
+
+def _rows(user):
+    from apps.drive.models import ManifestChange
+
+    return [
+        (r.epoch, r.item_type, r.scope, r.state, r.role, r.reason)
+        for r in ManifestChange.objects.filter(user=user).order_by("epoch")
+    ]
+
+
+@pytest.mark.django_db
+def test_exact_rows_for_share_trash_restore_unshare_and_epochs_are_gap_free():
+    a, b = _u("R-A"), _u("R-B")
+    top = svc.create_folder(a, "Top")
+    svc.share(a, top, b, "editor")
+    svc.trash(a, top)
+    top.refresh_from_db()
+    svc.restore(a, top)
+    svc.unshare(a, top, b)
+    assert _rows(b) == [
+        (1, "folder", "subtree", "active", "editor", "share"),
+        (2, "folder", "subtree", "revoked", "", "trash"),  # sharee loses it while in trash
+        (3, "folder", "subtree", "active", "editor", "restore"),  # recomputed, live access
+        (4, "folder", "subtree", "revoked", "", "unshare"),
+    ]
+    assert [r[0] for r in _rows(a)] == [1, 2]  # owner: trash, restore
+    owner_states = [r[3] for r in _rows(a)]
+    assert owner_states == ["trashed", "active"]
+
+
+@pytest.mark.django_db
+def test_restore_uses_live_access_not_the_old_shares():
+    a, b = _u("R-C"), _u("R-D")
+    top = svc.create_folder(a, "Top2")
+    svc.share(a, top, b, "viewer")
+    svc.trash(a, top)
+    top.refresh_from_db()
+    from apps.drive.models import Share
+
+    Share.objects.filter(folder=top, user=b).delete()  # share gone while the folder was trashed
+    top.refresh_from_db()
+    svc.restore(a, top)
+    # b gets no new grant: the last row b has is still the revoke written at trash time
+    assert [r[3] for r in _rows(b)][-1] == "revoked"
+    assert all(r[5] != "restore" or r[3] == "revoked" for r in _rows(b))
+
+
+@pytest.mark.django_db
+def test_unshare_folder_keeps_an_independent_file_grant_active():
+    a, b = _u("R-F"), _u("R-G")
+    top = svc.create_folder(a, "Proj")
+    f = svc.create_file(a, "keep.txt", top)
+    svc.share(a, top, b, "viewer")
+    svc.share(a, f, b, "viewer")
+    svc.unshare(a, top, b)
+    f.refresh_from_db()
+    assert m.effective_entry(b, f).state == m.ACTIVE
+    rows = _rows(b)
+    assert rows[-2][1:4] == ("folder", "subtree", "revoked")
+    assert rows[-1][1:4] == ("file", "item", "active") and rows[-1][5] == "unshare_keep"
+
+
+@pytest.mark.django_db
+def test_trash_writes_revoke_for_nested_share_roots_not_one_row_per_file():
+    from apps.drive.models import ManifestChange
+
+    a, b = _u("R-H"), _u("R-I")
+    top = svc.create_folder(a, "Wide")
+    for i in range(40):
+        svc.create_file(a, f"f{i}.txt", top)
+    svc.share(a, svc.create_file(a, "shared.txt", top), b, "viewer")
+    before = ManifestChange.objects.count()
+    top.refresh_from_db()
+    svc.trash(a, top)
+    # owner row for the folder plus one row for b's nested file share: not 41 rows
+    assert ManifestChange.objects.count() - before == 2
+
+
+@pytest.mark.django_db
+def test_cross_owner_move_is_refused_and_writes_no_manifest_rows():
+    from django.core.exceptions import PermissionDenied, ValidationError
+
+    from apps.drive.models import ManifestChange
+
+    a, b = _u("R-J"), _u("R-K")
+    mine = svc.create_folder(a, "Mine")
+    theirs = svc.create_folder(b, "Theirs")
+    svc.share(b, theirs, a, "editor")
+    before = ManifestChange.objects.count()
+    with pytest.raises((ValidationError, PermissionDenied)):
+        svc.move(a, mine, theirs)
+    assert ManifestChange.objects.count() == before
+
+
+@pytest.mark.django_db
+def test_reconcile_flags_without_locks_and_corrects_under_locks():
+    from apps.drive.models import Share
+
+    a, b = _u("R-L"), _u("R-M")
+    top = svc.create_folder(a, "Rec")
+    svc.share(a, top, b, "viewer")
+    assert svc.reconcile_user(b) == []
+    Share.objects.filter(folder=top, user=b).delete()  # state changed behind the manifest's back
+    flagged = svc.reconcile_user(b)
+    assert len(flagged) == 1
+    assert len(_rows(b)) == 1  # flagging wrote nothing
+    assert len(svc.reconcile_user(b, fix=True)) == 1
+    assert _rows(b)[-1][3:6] == ("revoked", "", "reconcile")
+    assert svc.reconcile_user(b) == []
+
+
+@pytest.mark.django_db
+def test_manifest_since_reads_epoch_first_and_flags_new_people():
+    a, b = _u("R-N"), _u("R-O")
+    assert svc.manifest_since(b) == {"epoch": 0, "full_list_required": True, "changes": []}
+    top = svc.create_folder(a, "Feed")
+    svc.share(a, top, b, "viewer")
+    out = svc.manifest_since(b, since=0)
+    assert out["epoch"] == 1 and out["full_list_required"] is False and len(out["changes"]) == 1
+    assert svc.manifest_since(b, since=1)["changes"] == []
+
+
+# ---- concurrency (TiDB/MySQL only) ----
+
+
+def _need_mysql():
+    from django.db import connection
+
+    if connection.vendor == "sqlite":
+        pytest.skip("row locks are only meaningful on the TiDB/MySQL backend")
+
+
+def _epochs(user):
+    return [r[0] for r in _rows(user)]
+
+
+@pytest.mark.django_db(transaction=True)
+def test_two_owners_sharing_to_one_recipient_get_distinct_gap_free_epochs():
+    from tests.unit.test_drive_services import _threads
+
+    _need_mysql()
+    r = _u("C-R")
+    owners = [_u(f"C-O{i}") for i in range(4)]
+    folders = [svc.create_folder(o, "F") for o in owners]
+    out = _threads(
+        [
+            (lambda o=o, f=f: svc.share(o, f, r, "viewer"))
+            for o, f in zip(owners, folders, strict=True)
+        ]
+    )
+    assert out == ["ok"] * 4, out
+    assert _epochs(r) == [1, 2, 3, 4]
+
+
+def _bump_in_threads(r, folders, take_lock):
+    """Call the epoch writer directly from several threads, with or without the account lock.
+    Going through share() would not show it: audit logging already serialises those calls."""
+    import time
+
+    from django.db import transaction
+
+    from apps.drive.models import ManifestEpoch
+    from tests.unit.test_drive_services import _threads
+
+    ManifestEpoch.objects.get_or_create(user=r)
+    real_save = ManifestEpoch.save
+
+    def slow_save(self, *a, **k):  # widen the read-modify-write window
+        time.sleep(0.05)
+        return real_save(self, *a, **k)
+
+    def one(folder):
+        def run():
+            with transaction.atomic():
+                if take_lock:
+                    svc._lock_users(r.pk)
+                svc._bump(r.pk, folder, "probe")
+
+        return run
+
+    ManifestEpoch.save = slow_save
+    try:
+        return _threads([one(f) for f in folders])
+    finally:
+        ManifestEpoch.save = real_save
+
+
+@pytest.mark.django_db(transaction=True)
+def test_epoch_writer_with_the_account_lock_is_gap_free_and_without_it_collides():
+    _need_mysql()
+    a = _u("C-X")
+    folders = [svc.create_folder(a, f"P{i}") for i in range(4)]
+    locked, unlocked = _u("C-L"), _u("C-U")
+    assert _bump_in_threads(locked, folders, True) == ["ok"] * 4
+    assert _epochs(locked) == [1, 2, 3, 4]
+    _bump_in_threads(unlocked, folders, False)
+    ep = _epochs(unlocked)
+    assert ep != [1, 2, 3, 4], f"control showed no collision: {ep}"
+
+
+@pytest.mark.django_db(transaction=True)
+def test_lock_set_growth_between_read_and_lock_is_retried_from_scratch(monkeypatch):
+    import threading
+
+    from django.db import connection
+
+    from apps.drive.models import Share
+
+    _need_mysql()
+    a, b, c = _u("G-A"), _u("G-B"), _u("G-C")
+    top = svc.create_folder(a, "Grow")
+    svc.share(a, top, b, "viewer")
+    calls = {"n": 0}
+    real = svc._lock_users
+
+    def grow_once(*ids):
+        calls["n"] += 1
+        if calls["n"] == 1:  # another connection adds a person after the set was read
+
+            def other():
+                try:
+                    Share.objects.create(folder=top, user=c, role="viewer", granted_by=a)
+                finally:
+                    connection.close()
+
+            t = threading.Thread(target=other)
+            t.start()
+            t.join()
+        return real(*ids)
+
+    monkeypatch.setattr(svc, "_lock_users", grow_once)
+    svc.trash(a, top)
+    monkeypatch.undo()
+    assert calls["n"] >= 2  # first attempt saw the set grow and was redone
+    assert {r[5] for r in _rows(c)} == {"trash"}  # the late person is covered by the retry
+
+
+@pytest.mark.django_db(transaction=True)
+def test_stale_reconcile_cannot_overwrite_a_concurrent_unshare():
+    from tests.unit.test_drive_services import _threads
+
+    _need_mysql()
+    a, b = _u("K-A"), _u("K-B")
+    top = svc.create_folder(a, "Race")
+    svc.share(a, top, b, "viewer")
+    for _ in range(5):  # unshare and reshare while reconcile runs; truth must win
+        out = _threads(
+            [
+                lambda: svc.unshare(a, top, b),
+                lambda: svc.reconcile_user(b, fix=True),
+            ]
+        )
+        assert all(o == "ok" for o in out), out
+        svc.reconcile_user(b, fix=True)
+        live = m.effective_entry(b, top).state
+        last = _rows(b)[-1][3]
+        assert (live, last) in ((m.NONE, "revoked"), (m.ACTIVE, "active"))
+        svc.share(a, top, b, "viewer")
+    assert _epochs(b) == list(range(1, len(_epochs(b)) + 1))

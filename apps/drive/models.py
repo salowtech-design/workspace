@@ -135,3 +135,49 @@ class DriveChange(models.Model):
     class Meta:
         ordering = ["id"]
         indexes = [models.Index(fields=["owner", "id"])]
+
+
+class ManifestEpoch(models.Model):
+    """One counter per person. Bumped only while that person's account row is locked, so the
+    committed epochs for one person form a gap free sequence."""
+
+    user = models.OneToOneField(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="drive_manifest_epoch"
+    )
+    epoch = models.PositiveBigIntegerField(default=0)
+    updated_at = models.DateTimeField(auto_now=True)
+
+
+class ManifestChange(models.Model):
+    """Append only. Each row states the ABSOLUTE state for one root, so replaying rows in
+    epoch order over a newer listing converges. Public ids only, never integer pks."""
+
+    class State(models.TextChoices):
+        ACTIVE = "active", "Active"
+        TRASHED = "trashed", "Trashed"
+        REVOKED = "revoked", "Revoked"
+
+    class Scope(models.TextChoices):
+        ITEM = "item", "Item"
+        SUBTREE = "subtree", "Subtree"
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="drive_manifest_changes"
+    )
+    epoch = models.PositiveBigIntegerField()
+    item_type = models.CharField(max_length=10)
+    item_public_id = models.UUIDField()
+    scope = models.CharField(max_length=8, choices=Scope.choices)
+    state = models.CharField(max_length=8, choices=State.choices)
+    role = models.CharField(max_length=10, blank=True, default="")
+    reason = models.CharField(max_length=24)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["user_id", "epoch", "id"]
+        indexes = [models.Index(fields=["user", "epoch"])]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["user", "epoch", "item_public_id"], name="drive_manifest_row_unique"
+            )
+        ]
