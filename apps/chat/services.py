@@ -5,6 +5,8 @@ a group (2 to 50 other people); only a group's manager (its creator) changes it 
 Nobody, including admins, can read a space they are not in. Order comes from a per-space sequence
 assigned under the space row lock. No edit, delete, retention or attachments exist."""
 
+import time
+
 from django.contrib.auth import get_user_model
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import IntegrityError, OperationalError, transaction
@@ -41,6 +43,7 @@ def _people(ids, exclude):
     return found
 
 
+_DM_WAIT = (20, 0.1)  # up to 2 seconds for the winning transaction to commit
 _CATCH_DM_DUPLICATE = True  # tests switch it off to see the raw error that the fallback absorbs
 
 
@@ -76,11 +79,17 @@ def open_dm(actor, other_pk):
         lost_race = isinstance(exc, IntegrityError) or (exc.args and exc.args[0] == 1213)
         if not _CATCH_DM_DUPLICATE or not lost_race:
             raise
-        # only a lost race for the same pair is absorbed; any other failure still surfaces
-        pair = DmPair.objects.filter(user_low=low, user_high=high).select_related("space").first()
-        if pair is None:
-            raise
-        return pair.space
+        # Only a lost race for the same pair is absorbed. The winner may not have committed yet
+        # (the deadlock case), so look for its row a few times, briefly; if it never appears the
+        # original error is raised, whatever it was.
+        for _ in range(_DM_WAIT[0]):
+            pair = (
+                DmPair.objects.filter(user_low=low, user_high=high).select_related("space").first()
+            )
+            if pair is not None:
+                return pair.space
+            time.sleep(_DM_WAIT[1])
+        raise
 
 
 def create_group(actor, name, other_pks):

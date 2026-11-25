@@ -286,3 +286,24 @@ class RateLimitMiddleware:
                 )
 
         return self.get_response(request)
+
+
+class HtmxSessionExpiryMiddleware:
+    """A background (HX-Request) call from a signed-in page that finds the session gone gets
+    401 with no body instead of a redirect to the sign-in page, which the page script would
+    otherwise paint into the middle of whatever screen the person is on. Normal page loads and
+    responses that are not a redirect to sign-in are untouched."""
+
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request):
+        response = self.get_response(request)
+        if (
+            request.headers.get("HX-Request") == "true"
+            and not request.user.is_authenticated
+            and response.status_code in (301, 302)
+            and response.get("Location", "").startswith(settings.LOGIN_URL)
+        ):
+            return HttpResponse(status=401)
+        return response

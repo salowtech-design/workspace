@@ -2,6 +2,7 @@ import threading
 
 import pytest
 from django.core.exceptions import ValidationError
+from django.db import IntegrityError
 from django.http import Http404
 from django.test import Client
 from django.urls import reverse
@@ -338,3 +339,17 @@ def test_race_two_people_opening_the_same_dm_get_one_space(monkeypatch, fallback
         assert sorted(o.split(":")[0] for o in out) == ["error", "ok"], out
         assert "IntegrityError" in "".join(out) or "1213" in "".join(out), out
     assert DmPair.objects.count() == 1 and Space.objects.filter(kind="dm").count() == 1
+
+
+@pytest.mark.django_db
+def test_an_unrelated_integrity_failure_while_opening_a_dm_is_not_swallowed(monkeypatch):
+    a, b = _u("CH-A"), _u("CH-B")
+    monkeypatch.setattr(cs, "_DM_WAIT", (2, 0.0))
+
+    def boom(*args, **kwargs):
+        raise IntegrityError("some other constraint")
+
+    monkeypatch.setattr(cs.Member.objects, "bulk_create", boom)
+    with pytest.raises(IntegrityError):
+        cs.open_dm(a, b.pk)
+    assert Space.objects.count() == 0 and DmPair.objects.count() == 0

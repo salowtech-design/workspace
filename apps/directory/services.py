@@ -394,9 +394,16 @@ def start_onboarding(user, actor, start_date=None):
     try:
         return _start_onboarding(user, actor, start_date)
     except IntegrityError:
-        if not _CATCH_DUPLICATE:
-            raise
-        return []
+        # Absorb only a lost race: after the rollback, every step of the template must already
+        # be on the person (the other start made them). Anything else is a real failure.
+        if _CATCH_DUPLICATE:
+            want = set(OnboardingStep.objects.values_list("title", flat=True))
+            have = set(
+                OnboardingTask.objects.filter(user_id=user.pk).values_list("title", flat=True)
+            )
+            if want and want <= have:
+                return []
+        raise
 
 
 def _start_onboarding(user, actor, start_date):

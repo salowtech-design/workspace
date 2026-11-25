@@ -44,6 +44,7 @@ MIDDLEWARE = [
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
+    "apps.core.middleware.HtmxSessionExpiryMiddleware",
     "apps.accounts.middleware.HostSecurityIsolationMiddleware",
     "apps.accounts.middleware.AccountSecurityMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",

@@ -612,3 +612,31 @@ def test_race_two_onboarding_starts_make_each_step_once(monkeypatch, mode):
         assert "IntegrityError" in "".join(out), out
     else:
         assert out == ["ok", "ok"] and sorted(made) == [0, 3], (out, made)
+
+
+@pytest.mark.django_db
+def test_onboarding_start_does_not_mask_an_unrelated_integrity_failure(monkeypatch):
+    from apps.directory import services as ds
+    from apps.directory.models import OnboardingStep, OnboardingTask
+
+    admin = CustomUser.objects.create(
+        employee_id="OB-AD-X", full_name="Adm", role="super_admin", status="active", is_active=True
+    )
+    person = CustomUser.objects.create(
+        employee_id="OB-P-X", full_name="Pat", role="employee", status="active", is_active=True
+    )
+    OnboardingStep.objects.create(title="Only step", due_after_days=1, position=0)
+
+    def boom(**kwargs):
+        raise IntegrityError("audit table constraint")
+
+    monkeypatch.setattr(ds, "record_audit_event", boom)
+    with pytest.raises(IntegrityError):
+        ds.start_onboarding(person, admin)
+    assert OnboardingTask.objects.filter(user=person).count() == 0  # rolled back, not "started"
+    # a duplicate that really is a lost race (steps already there) is still absorbed
+    OnboardingTask.objects.create(user=person, title="Only step", due_date="2026-12-01")
+    monkeypatch.setattr(
+        ds, "_start_onboarding", lambda *a, **k: (_ for _ in ()).throw(IntegrityError("dup"))
+    )
+    assert ds.start_onboarding(person, admin) == []
