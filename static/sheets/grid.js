@@ -77,7 +77,7 @@
   undoBtn.addEventListener("click", undo); redoBtn.addEventListener("click", redo);
 
   var table = document.createElement("table"), inputs = Object.create(null), cur = null, orig = "";
-  var head = table.insertRow(); head.insertCell().textContent = "";
+  var head = table.insertRow(), corner = document.createElement("th"); corner.setAttribute("aria-hidden", "true"); head.appendChild(corner);  // a th, so the blank corner pins like the headers and covers a row number that scrolls under it
   for (var c = 1; c <= COLS; c++) { var th = document.createElement("th"); th.textContent = String.fromCharCode(64 + c); head.appendChild(th); }
   for (var r = 1; r <= ROWS; r++) {
     var tr = table.insertRow(), rh = document.createElement("th"); rh.textContent = r; tr.appendChild(rh);

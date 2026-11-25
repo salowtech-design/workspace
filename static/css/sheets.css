@@ -4,7 +4,11 @@
 /* components.css makes every table display:block with its own scroll at 768px and below, which would make the table, not .sheet-scroll, the scroll box and stop the sticky headers sticking */
 .sheet-scroll table { display: table; overflow: visible; }
 .sheet-scroll th { position: sticky; top: 0; background: #f3ece2; font-size: 14px; padding: 6px 8px; z-index: 1; }
-.sheet-scroll tbody th, .sheet-scroll tr > th:first-child { left: 0; z-index: 2; }
+/* The header row is the first row of the same tbody. Column letters pin to the top only, row numbers pin to the left only,
+   and the blank corner pins both ways above them, so no letter or number can end up pinned in the wrong place. */
+.sheet-scroll tr:first-child > th { top: 0; z-index: 3; }
+.sheet-scroll tr:not(:first-child) > th:first-child { left: 0; top: auto; z-index: 2; }
+.sheet-scroll tr:first-child > th:first-child { top: 0; left: 0; z-index: 4; }
 .sheet-scroll td { padding: 0; border: 1px solid #e6ddd0; }
 .sheet-scroll input { width: 9em; font-size: 16px; padding: 8px; border: 0; background: transparent; box-sizing: border-box; }
 .sheet-scroll input:focus { outline: 2px solid #7a2e22; outline-offset: -2px; background: #fff; }

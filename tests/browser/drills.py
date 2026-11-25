@@ -2262,11 +2262,22 @@ def sheets_headers(ctx):  # noqa: C901
         pg.wait_for_timeout(200)
         m = pg.evaluate(JS)
         hit = pg.evaluate(
-            "(function(){var hs=document.querySelectorAll('#sheet-root tr:nth-child(1) th'),n=0,ok=0;for(var i=1;i<hs.length;i++){var r=hs[i].getBoundingClientRect(),x=r.left+r.width/2;if(x<hs[0].getBoundingClientRect().right+8||x>innerWidth-5||x>document.getElementById('sheet-root').getBoundingClientRect().right-5)continue;n++;if(document.elementFromPoint(x,r.top+r.height/2)===hs[i])ok++;}return n>0&&n===ok;})()"
+            "(function(){var hs=document.querySelectorAll('#sheet-root tr:nth-child(1) th'),n=0,ok=0,bad=[],box=document.getElementById('sheet-root').getBoundingClientRect(),lim=hs[0].getBoundingClientRect().right+8;for(var i=1;i<hs.length;i++){var r=hs[i].getBoundingClientRect(),x=r.left+r.width/2;if(x<lim||x>innerWidth-5||x>box.right-5)continue;n++;var e=document.elementFromPoint(x,r.top+r.height/2);if(e===hs[i])ok++;else bad.push(hs[i].textContent+':'+(e?e.tagName+'#'+e.id:'null')+'@'+Math.round(x)+','+Math.round(r.top+r.height/2));}return {n:n,ok:ok,bad:bad};})()"
+        )
+        corner = pg.evaluate(
+            "(function(){var b=document.getElementById('sheet-root'),c=b.querySelector('tr:nth-child(1) th:nth-child(1)'),r=c.getBoundingClientRect(),br=b.getBoundingClientRect(),pts=[[r.left+4,r.top+4],[r.right-4,r.top+4],[r.left+4,r.bottom-4],[r.right-4,r.bottom-4]],hit=0;pts.forEach(function(p){if(document.elementFromPoint(p[0],p[1])===c)hit++;});"
+            "var rows=b.querySelectorAll('tr:not(:first-child) > th:first-child'),band=0,bandTop=r.bottom;rows.forEach(function(h){var q=h.getBoundingClientRect();if(q.bottom>br.top&&q.top<bandTop-1&&q.bottom>r.top+1&&q.left<r.right)band++;});"
+            "return {hit:hit,rowInBand:band,cornerLeft:Math.round(r.left-br.left),cornerTop:Math.round(r.top-br.top)};})()"
+        )
+        check(
+            "headers: %s, the blank corner is on top: all four of its points hit the corner (no scrolled row number covers it)"
+            % label,
+            corner["hit"] == 4 and abs(corner["cornerLeft"]) <= 2 and abs(corner["cornerTop"]) <= 2,
+            str(corner),
         )
         check(
             "headers: %s, the column letter is not covered by the sticky formula bar" % label,
-            hit is True,
+            hit["n"] > 0 and hit["n"] == hit["ok"],
             str(hit),
         )
         check(
