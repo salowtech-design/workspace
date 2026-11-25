@@ -1,5 +1,3 @@
-import time
-
 import pytest
 from django.core.exceptions import ValidationError
 from django.test import Client
@@ -257,16 +255,21 @@ def _setup_race(monkeypatch, locked, parties):
     barrier = threading.Barrier(parties)
 
     mine = threading.local()
+    saw_commit = []
 
     def pause():
         try:
             barrier.wait(timeout=1.5)
         except threading.BrokenBarrierError:
             pass
-        if getattr(mine, "late", False):
-            time.sleep(0.6)  # this side writes only after the other side has committed
+        ev = getattr(mine, "wait_for", None)
+        if ev is not None:
+            # write only after the other side has committed; when the lock keeps that side out
+            # the event never comes, so give up after a bounded wait (no deadlock)
+            saw_commit.append(ev.wait(timeout=1.0))
 
     pause.mine = mine
+    pause.saw_commit = saw_commit
     monkeypatch.setattr(pj, "_pause", pause)
     if not locked:
         monkeypatch.setattr(pj, "_lock_project", lambda p: Project.objects.get(pk=p.pk))
@@ -279,6 +282,8 @@ def test_race_removal_vs_assign(monkeypatch, locked):
     """Memberships are seeded; no member-add UI exists. The removal is a test fixture that takes
     the project lock the way a future remove would (the control removes the lock on the assign
     side only, so the assign judges a stale membership)."""
+    import threading
+
     from django.db import transaction
 
     from tests.unit.test_drive_services import _threads
@@ -294,7 +299,9 @@ def test_race_removal_vs_assign(monkeypatch, locked):
 
         t = ProjectTask.objects.create(project=p, column=p.columns.first(), title="t", created_by=a)
 
-        def remove(p=p, m=m):
+        committed = threading.Event()
+
+        def remove(p=p, m=m, committed=committed):
             with transaction.atomic():
                 Project.objects.select_for_update().get(pk=p.pk)
                 pause()
@@ -304,9 +311,10 @@ def test_race_removal_vs_assign(monkeypatch, locked):
                 # fixture only: a removed person is not left as assignee (what a future remove
                 # does is an open policy choice; this makes the invariant checkable)
                 ProjectTask.objects.filter(project=p, assignee=m).update(assignee=None)
+            committed.set()  # the transaction block has exited: the removal is committed
 
-        def assign(a=a, t=t, m=m):
-            pause.mine.late = True
+        def assign(a=a, t=t, m=m, committed=committed):
+            pause.mine.wait_for = committed
             try:
                 pj.assign_task(a, t, m)
             except ValidationError:
@@ -320,6 +328,9 @@ def test_race_removal_vs_assign(monkeypatch, locked):
         if gone and t.assignee_id == m.pk:  # removed, yet still the assignee
             broken += 1
     rounds = 2 if locked else 3
+    # ordering evidence, not timing: the late writer either saw the removal commit (no lock) or
+    # was holding the lock while the remover could not commit (lock held, event never set)
+    assert pause.saw_commit == [not locked] * rounds, pause.saw_commit
     # control: the assign judged a membership that was removed before its write, every round
     assert (broken == 0) if locked else (broken == rounds), (broken, rounds)
 
@@ -392,3 +403,26 @@ def test_assign_noop_stale_and_updated_at_and_member_pages_stay_separate():
     assert b"projtask" not in cm.get(reverse("tasks:assigned")).content
     assert b"projtask" not in cm.get(reverse("tasks:home")).content
     assert list(svc.assigned_to(m)) == []
+
+
+@pytest.mark.django_db
+def test_project_edit_notes_and_due_date_set_and_clear_and_name_stays_off_personal_pages():
+    from apps.tasks.models import ProjectTask
+
+    a, m = _u("PD-A"), _u("PD-M")
+    p = pj.create_project(a, "Hidden project name")
+    _member(p, m)
+    t = pj.add_task(a, p, p.columns.first().pk, "t")
+    ca = _c(a)
+    url = reverse("tasks:project_edit", args=[t.public_id])
+    ca.post(url, {"version": 1, "notes": "some notes", "due": "2026-12-24"})
+    t.refresh_from_db()
+    assert (t.notes, str(t.due_date), t.title, t.version) == ("some notes", "2026-12-24", "t", 2)
+    ca.post(url, {"version": 2, "due": ""})  # clear the date, notes and title untouched
+    t.refresh_from_db()
+    assert (t.notes, t.due_date, t.version) == ("some notes", None, 3)
+    assert ca.post(url, {"version": 3, "due": "24/12/2026"}).status_code == 400
+    for who in (a, m):
+        for name in ("tasks:home", "tasks:assigned"):
+            assert b"Hidden project name" not in _c(who).get(reverse(name)).content
+    assert ProjectTask.objects.get(pk=t.pk).version == 3
