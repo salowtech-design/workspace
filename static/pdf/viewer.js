@@ -178,7 +178,7 @@
     });
   }
   function notesClose() {
-    nDoc = null; nKey = ""; notes = []; nState = "off"; pending = null; adding = false; disarm(); lastRaw = null; saving = false;
+    nDoc = null; nKey = ""; notes = []; nState = "off"; pending = null; adding = false; disarm(); lastRaw = null; saving = false; exportToken++; exporting = false; if (signedHold) { clearTimeout(signedHold.timer); signedHold = null; }
     $("pdf-noteform").hidden = true; $("pdf-notetext").value = ""; nmsg(""); renderNotes();
   }
   function notesOpen(d, hash) {
@@ -236,18 +236,43 @@
   function loadScript(src) {
     return new Promise(function (ok, no) { var t = document.createElement("script"); t.src = src; t.onload = ok; t.onerror = function () { no(new Error("script")); }; document.head.appendChild(t); });
   }
+  var SIGWARN = " Saving a copy rewrites the whole file, so any digital signature in the original will not validate in the copy. Keep the original for anything that must stay signed.";
+  var exportToken = 0, signedHold = null;
+  function exportDone(myDoc, token) { if (token === exportToken) { exporting = false; if (myDoc === doc) nControls(); } }
+  function saveCopy(r, myDoc, nameText) {
+    var url = URL.createObjectURL(new Blob([r.bytes], { type: "application/pdf" })), a = document.createElement("a");
+    a.href = url; a.download = nameText.replace(/\.pdf$/i, "").replace(/[^A-Za-z0-9._-]+/g, "_").slice(0, 80) + "-with-notes.pdf";
+    document.body.appendChild(a); a.click(); a.remove(); setTimeout(function () { URL.revokeObjectURL(url); }, 4000);
+    if (myDoc === doc) nmsg("Downloaded a copy with " + r.added + " note(s) added as text annotations. The file you opened was not changed, and neither were the notes kept in this browser." + (r.signed ? " This file has a digital signature, and the copy's signature will not validate." : SIGWARN));
+  }
   $("pdf-exportcopy").addEventListener("click", function () {
     if (!doc || doc !== nDoc || nState !== "ok" || !notes.length || exporting) return;
-    var myDoc = doc, snap = notes.slice(), nameText = $("pdf-name").textContent || "PDF file";
-    exporting = true; nControls(); nmsg("Building a copy with your notes in this browser...");
-    var libs = window.PDFLib ? Promise.resolve() : loadScript(BASE + "pdf-lib.min.js");
-    libs.then(function () { return myDoc.getData(); }).then(function (bytes) { return window.PdfNotesExport.build(window.PDFLib, bytes, snap); }).then(function (r) {
-      if (myDoc !== doc) return;
-      var url = URL.createObjectURL(new Blob([r.bytes], { type: "application/pdf" })), a = document.createElement("a");
-      a.href = url; a.download = nameText.replace(/\.pdf$/i, "").replace(/[^A-Za-z0-9._-]+/g, "_").slice(0, 80) + "-with-notes.pdf";
-      document.body.appendChild(a); a.click(); a.remove(); setTimeout(function () { URL.revokeObjectURL(url); }, 4000);
-      nmsg("Downloaded a copy with " + r.added + " note(s) added as text annotations. The file you opened was not changed. The notes you keep in this browser are unchanged.");
-    }).catch(function () { if (myDoc === doc) nmsg("A copy could not be made from this file (for example it may be encrypted or damaged). Nothing was downloaded and the file was not changed."); }).then(function () { exporting = false; if (myDoc === doc) nControls(); });
+    var myDoc = doc, snap = notes.slice(), nameText = $("pdf-name").textContent || "PDF file", token = ++exportToken;
+    if (signedHold) { var h = signedHold; signedHold = null; clearTimeout(h.timer); if (h.doc === myDoc && h.sig === N.dump(snap)) { saveCopy(h.r, myDoc, nameText); return; } }
+    exporting = true; nControls(); nmsg("Building a copy with your notes in this browser. A large file can make this page pause for a moment.");
+    var libs = window.PDFLib ? Promise.resolve() : loadScript(BASE + "pdf-lib.min.js").catch(function () { throw { stage: "load" }; });
+    libs.then(function () { return myDoc.getData().catch(function () { throw { stage: "read" }; }); }).then(function (bytes) {
+      if (bytes.length > window.PdfNotesExport.MAX_BYTES) throw { stage: "size", mb: Math.round(bytes.length / 1048576) };
+      return window.PdfNotesExport.build(window.PDFLib, bytes, snap);
+    }).then(function (r) {
+      if (token !== exportToken || myDoc !== doc) return;
+      if (r.signed) {
+        signedHold = { doc: myDoc, r: r, sig: N.dump(snap), timer: setTimeout(function () { signedHold = null; if (myDoc === doc) nmsg("The copy was not downloaded."); }, 15000) };
+        nmsg("This file has a digital signature. A copy rewrites the file, so the signature in the copy will not validate. The original is not touched. Press Download a copy with my notes again within 15 seconds to download it anyway.");
+        return;
+      }
+      saveCopy(r, myDoc, nameText);
+    }).catch(function (e) {
+      if (token !== exportToken || myDoc !== doc) return;
+      var c = e && (e.stage || e.code), m = "A copy could not be made. Nothing was downloaded and the file you opened was not changed.";
+      if (c === "load") m = "The part of this page that writes copies could not be loaded, so nothing was downloaded. Check the connection and try again.";
+      else if (c === "read") m = "This page could not read the open file's bytes again, so nothing was downloaded. Open the file again and retry.";
+      else if (c === "size") m = "This file is " + e.mb + " MB. Copies are limited to " + Math.round(window.PdfNotesExport.MAX_BYTES / 1048576) + " MB so the page does not run out of memory. Nothing was downloaded. Download notes (text) still works.";
+      else if (c === "encrypted") m = "This file is encrypted, so a copy cannot be made. Nothing was downloaded.";
+      else if (c === "damaged") m = "This file could not be read for copying (it may be damaged). Nothing was downloaded.";
+      else if (c === "annots") m = "A page in this file has an annotation list in a form this copy cannot safely extend, so nothing was downloaded and nothing was replaced.";
+      nmsg(m);
+    }).then(function () { exportDone(myDoc, token); });
   });
   $("pdf-clearnotes").addEventListener("click", function () {
     if (!doc || doc !== nDoc || !(nState === "ok" || nState === "bad") || saving) return;

@@ -25,6 +25,7 @@
 <button class="btn" type="button" id="pdf-exportnotes" disabled>Download notes (text)</button>
 <button class="btn" type="button" id="pdf-exportcopy" disabled>Download a copy with my notes</button>
 <button class="btn" type="button" id="pdf-clearnotes" disabled>Delete all notes for this file</button></p>
+<p class="cal-meta" id="pdf-copyhint">A copy with notes is a new file built in this browser. It rewrites the whole file, so a digital signature in the original will not validate in the copy. Copies are limited to 20 MB and the page may pause while one is built.</p>
 <form id="pdf-noteform" class="pdf-tools" hidden><label>Note for page <span id="pdf-noteformpage"></span> <input type="text" id="pdf-notetext" maxlength="500" autocomplete="off"></label>
 <button class="btn" type="submit">Save note</button> <button class="btn" type="button" id="pdf-notecancel">Cancel</button></form>
 <p class="cal-meta" id="pdf-notestatus" role="status"></p>

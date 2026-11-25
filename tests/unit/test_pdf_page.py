@@ -70,7 +70,7 @@ def test_pdf_export_table_passes_under_node():
         timeout=60,
     )
     assert r.returncode == 0, r.stdout + r.stderr
-    assert "15/15 pdf export rows passed" in r.stdout
+    assert "22/22 pdf export rows passed" in r.stdout
 
 
 def test_vendor_files_are_tracked_and_match_recorded_checksums():
