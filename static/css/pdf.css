@@ -3,3 +3,4 @@
 .pdf-stage { overflow: auto; max-width: 100%; border: 1px solid #d9cfc2; border-radius: 6px; background: #eee9e0; padding: 8px; min-height: 120px; }
 .pdf-stage canvas { display: block; margin: 0 auto; background: #fff; max-width: none; }
 #pdf-status { min-height: 1.5em; }
+.pdf-text { white-space: pre-wrap; max-height: 16em; overflow: auto; background: #fff; border: 1px solid #d9cfc2; border-radius: 6px; padding: 8px; font: inherit; }

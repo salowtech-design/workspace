@@ -4,7 +4,8 @@
 {% block content %}
 <div class="card cal pdf-card">
 <div class="cal-head"><h2>PDF</h2></div>
-<p class="cal-meta">Opens a PDF from this device in this browser only. The file is read in this tab, not uploaded, stored or shared, and it is gone when you close it or leave the page. Files up to 50 MB open; that is a browser memory limit, not a storage rule. Password-protected files, some scanned-image formats (JBIG2, JPEG 2000) and some East Asian fonts are not supported yet. No search, selection, annotation or printing yet.</p>
+<p class="cal-meta">Opens a PDF from this device in this browser only. The file is read in this tab and is not uploaded, stored or shared. It is gone when you close it or leave the page.</p>
+<details class="cal-meta"><summary>Limits</summary><p>Files up to 50 MB open; that is a browser memory limit, not a storage rule. Password-protected files, some scanned-image formats (JBIG2, JPEG 2000) and some East Asian fonts are not supported yet. No search, annotation or printing yet. The page text below the picture can be selected and read by a screen reader.</p></details>
 <p class="pdf-tools"><label>Open a PDF <input type="file" id="pdf-open" accept=".pdf,application/pdf"></label>
 <button class="btn" type="button" id="pdf-prev" disabled>Previous</button>
 <label>Page <input type="number" id="pdf-page" min="1" step="1" disabled></label>
@@ -14,6 +15,7 @@
 <button class="btn" type="button" id="pdf-close" disabled>Close file</button></p>
 <p class="cal-meta"><span id="pdf-name"></span> <span id="pdf-where" role="status">No file open.</span></p>
 <div id="pdf-stage" class="pdf-stage"><canvas id="pdf-canvas" width="1" height="1" role="img" aria-label="Current PDF page. Text content is not available as text yet."></canvas></div>
+<details class="cal-meta" id="pdf-text-wrap" open><summary>Text of this page</summary><pre id="pdf-text" class="pdf-text" tabindex="0" aria-label="Text of the current page"></pre></details>
 <p class="cal-meta" id="pdf-status" role="status"></p>
 </div>
 <script src="/static/pdf/check.js"></script>

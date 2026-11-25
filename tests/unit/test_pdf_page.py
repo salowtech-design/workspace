@@ -26,7 +26,7 @@ def test_pdf_page_is_workspace_host_only_signed_in_only_and_says_what_it_does():
     ca.force_login(a)
     r = ca.get("/pdf/")
     html = r.content.decode()
-    assert r.status_code == 200 and "not uploaded" in html and "No search, selection" in html
+    assert r.status_code == 200 and "not uploaded" in html and "Password-protected" in html
     assert "no-store" in r["Cache-Control"]
     assert 'href="/pdf/"' in ca.get("/chat/").content.decode()
     assert ca.get("/pdf/", HTTP_HOST="iam.salowtech.com").status_code == 404
@@ -42,3 +42,36 @@ def test_pdf_check_table_passes_in_node():
     )
     assert r.returncode == 0, r.stdout + r.stderr
     assert "9/9 pdf check rows passed" in r.stdout
+
+
+def test_vendor_files_are_tracked_and_match_recorded_checksums():
+    import hashlib
+
+    vendor = ROOT / "static/pdf/vendor"
+    lines = (vendor / "SHA256SUMS").read_text().splitlines()
+    assert len(lines) == 19
+    for line in lines:
+        digest, name = line.split("  ", 1)
+        assert hashlib.sha256((vendor / name).read_bytes()).hexdigest() == digest, name
+    tracked = subprocess.run(  # noqa: S603 - fixed argv
+        [shutil.which("git"), "ls-files", "static/pdf/vendor"],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+    ).stdout.split()
+    assert (
+        "static/pdf/vendor/pdf.min.mjs" in tracked
+        and "static/pdf/vendor/pdf.worker.min.mjs" in tracked
+    )
+
+
+def test_module_files_are_served_with_a_javascript_type_by_django_static_serving():
+    from django.contrib.staticfiles.views import serve
+    from django.test import RequestFactory, override_settings
+
+    with override_settings(DEBUG=True):
+        for f in ("pdf/vendor/pdf.min.mjs", "pdf/vendor/pdf.worker.min.mjs"):
+            r = serve(RequestFactory().get("/static/" + f, HTTP_HOST=HOST), f)
+            assert r.status_code == 200 and r["Content-Type"].startswith("text/javascript"), r[
+                "Content-Type"
+            ]
