@@ -4,8 +4,10 @@ Not in CI. Needs playwright and Chromium. Secrets are read from a 0600 file and 
 
 import json
 import os
+import re
 import sys
 import time
+import zlib
 from urllib.parse import urlsplit
 
 import pyotp
@@ -2624,6 +2626,7 @@ def slides_style(ctx):  # noqa: C901
     pg.select_option("#sl-align", "right")
     pg.select_option("#sl-align", "default")
     check("style: Default align drops the field", "al" not in last(), str(last()))
+    pg.select_option("#sl-align", "right")
     # Present draws the styles
     pg.click("#sl-present")
     pg.wait_for_timeout(300)
@@ -2631,18 +2634,70 @@ def slides_style(ctx):  # noqa: C901
         "(()=>{const t=document.querySelector('#sl-show-canvas text');return t?[t.getAttribute('font-weight'),t.getAttribute('font-style')]:null;})()"
     )
     check("style: Present draws bold and italic", ps == ["bold", "italic"], str(ps))
+    pa = pg.evaluate(
+        "(()=>{const t=document.querySelector('#sl-show-canvas text');return t?t.getAttribute('text-anchor'):null;})()"
+    )
+    check("style: Present draws right-aligned text with an end anchor", pa == "end", str(pa))
     pg.click("#sl-show-exit")
     pg.wait_for_timeout(200)
+
     # the PDF uses the bold-oblique standard font
-    with pg.expect_download() as dl:
-        pg.click("#sl-pdf")
-    raw = open(dl.value.path(), "rb").read()
+    def pdf_fonts():
+        with pg.expect_download() as dlx:
+            pg.click("#sl-pdf")
+        data = open(dlx.value.path(), "rb").read()
+        used = set()
+        for m in re.finditer(rb"stream\r?\n(.*?)endstream", data, re.S):
+            body = m.group(1)
+            try:
+                body = zlib.decompress(body)
+            except Exception:  # noqa: S110 - not every stream is deflated
+                pass
+            used |= {re.sub(rb"-\d+$", b"", f) for f in re.findall(rb"/(\S+) [\d.]+ Tf", body)}
+        return used, data
+
+    def setstyle(b, i):
+        (pg.check if b else pg.uncheck)("#sl-bold")
+        (pg.check if i else pg.uncheck)("#sl-italic")
+
+    setstyle(True, True)
+    f, raw = pdf_fonts()
     if SHOTS:
         open(f"{SHOTS}/slides-style-68.pdf", "wb").write(raw)
     check(
-        "style: the PDF names Helvetica-BoldOblique for a bold italic item",
-        b"Helvetica-BoldOblique" in raw,
+        "style: bold italic item is set in Helvetica-BoldOblique only (Tf operators)",
+        f == {b"Helvetica-BoldOblique"},
+        str(f),
     )
+    setstyle(True, False)
+    f, _ = pdf_fonts()
+    check("style: bold item is set in Helvetica-Bold only", f == {b"Helvetica-Bold"}, str(f))
+    setstyle(False, True)
+    f, _ = pdf_fonts()
+    check(
+        "style: italic item is set in Helvetica-Oblique only", f == {b"Helvetica-Oblique"}, str(f)
+    )
+    setstyle(False, False)
+    f, _ = pdf_fonts()
+    check("style: unstyled item is set in plain Helvetica only", f == {b"Helvetica"}, str(f))
+    setstyle(True, True)
+    # multiline bold italic text near the box width, exported once per alignment
+    pg.fill("#sl-text", "Bold italic words that wrap across several lines in one box")
+    pg.press("#sl-text", "Tab")
+    pg.fill("#sl-w", "300")
+    pg.press("#sl-w", "Tab")
+    pg.fill("#sl-x", "100")
+    pg.press("#sl-x", "Tab")
+    pg.fill("#sl-size", "28")
+    pg.press("#sl-size", "Tab")
+    for al in ("left", "center", "right"):
+        pg.select_option("#sl-align", al)
+        with pg.expect_download() as dl2:
+            pg.click("#sl-pdf")
+        raw2 = open(dl2.value.path(), "rb").read()
+        if SHOTS:
+            open(f"{SHOTS}/slides-style-68-{al}.pdf", "wb").write(raw2)
+        check("style: a multiline %s-aligned PDF downloads" % al, raw2[:5] == b"%PDF-")
     pg.reload()
     pg.wait_for_timeout(300)
     # a master item can be styled too
