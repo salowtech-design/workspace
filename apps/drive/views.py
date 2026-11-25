@@ -85,7 +85,9 @@ def folder_view(request, folder_id):
             "folders": folders,
             "files": files,
             "crumbs": (crumbs := _crumbs(request.user, folder)),
-            "shared_root": bool(crumbs and crumbs[0].parent_id),
+            "shared_root": bool(
+                crumbs and (crumbs[0].parent_id or crumbs[0].owner_id != request.user.pk)
+            ),
             "can_edit": can(request.user, "edit", "drive.folder", folder),
             "is_owner": owner,
             "shares": shares,

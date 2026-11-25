@@ -149,3 +149,13 @@ def test_share_actions_are_throttled_per_person():
     # another person is not affected
     cb = _client(b)
     assert cb.get(reverse("drive:home")).status_code == 200
+
+
+@pytest.mark.django_db
+def test_top_level_shared_folder_trail_starts_at_shared_with_me():
+    a, b = _u("V-R1"), _u("V-R2")
+    top = svc.create_folder(a, "Top shared")
+    svc.share(a, top, b, "viewer")
+    html = _client(b).get(reverse("drive:folder", args=[top.public_id])).content.decode()
+    assert "Shared with me" in html and 'class="crumbs"' in html
+    assert ">My Drive</a>" not in html.split('class="crumbs"')[1].split("</div>")[0]
