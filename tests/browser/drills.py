@@ -1071,7 +1071,11 @@ def sheets_validation(ctx):
         pg.inner_text("#val-status"),
     )
     setc("C2", "99")
-    check("validation: with unreadable rules the cell is not blocked", val("C2") == "99", val("C2"))
+    check(
+        "validation: with unreadable rules a typed edit is refused and says why",
+        val("C2") != "99" and "could not be read" in pg.inner_text("#sheet-status"),
+        val("C2") + " | " + pg.inner_text("#sheet-status"),
+    )
     check(
         "validation: the damaged rules are untouched",
         pg.evaluate("localStorage.getItem(%s)" % json.dumps(key)) == "{bad",
@@ -1875,7 +1879,7 @@ def sheets_paste(ctx):  # noqa: C901
         "(function(t){var a=document.createElement('textarea');a.value=t;document.body.appendChild(a);a.select();var ok=document.execCommand('copy');a.remove();return ok;})(%s)"
         % json.dumps("r1\tr2\nr3\tr4")
     )
-    print("note: execCommand copy to the browser clipboard returned", copied, flush=True)
+    check("paste: copying to the browser clipboard succeeded", copied is True, str(copied))
     pg.click('input[data-addr="P5"]')
     pg.keyboard.press("Control+V")
     pg.wait_for_timeout(250)
@@ -1993,10 +1997,21 @@ def sheets_paste(ctx):  # noqa: C901
     pg.click('input[data-addr="H41"]')
     pg.fill('input[data-addr="H41"]', "typed")
     pg.press('input[data-addr="H41"]', "Tab")
-    print(
-        "note: existing behaviour with unreadable rules, a typed edit is saved unchecked:",
-        val("H41") == "typed",
-        flush=True,
+    check(
+        "paste: with unreadable rules a typed edit is refused and the rules bytes stay",
+        val("H41") != "typed"
+        and "could not be read" in pg.inner_text("#sheet-status")
+        and pg.evaluate("localStorage.getItem(%s)" % json.dumps(rk)) == "{bad",
+        val("H41"),
+    )
+    pg.click('input[data-addr="H41"]')
+    pg.fill("#sheet-bar", "viabar")
+    pg.press("#sheet-bar", "Enter")
+    check(
+        "paste: with unreadable rules a formula-bar edit is refused too",
+        val("H41") != "viabar"
+        and pg.evaluate("localStorage.getItem(%s)" % json.dumps(rk)) == "{bad",
+        val("H41"),
     )
     pg.evaluate("localStorage.removeItem(%s)" % json.dumps(rk))
     pg.reload()

@@ -102,6 +102,7 @@
     });
   }
   function commit(a, v) {
+    if (rulesLocked && v !== (cells[a] || "")) { status.textContent = "This tab's validation rules could not be read, so edits are off until they are fixed or removed. Use Download unreadable rules to keep a copy. The edit was not applied."; return; }
     var why = rulesLocked ? null : M.checkValue(rules, a, v, F.parseAddr);
     if (why) { status.textContent = why + " The edit was not applied."; return; }
     var n = M.copy(cells); if (v === "") delete n[a]; else n[a] = v; change(n); }
