@@ -65,6 +65,10 @@
     var r = ok ? M.loadRules(raw, F.parseAddr) : { rules: [], unreadable: true };
     rules = r.rules; rulesLocked = r.unreadable; rulesRaw = ok ? raw : null; if (typeof renderRules === "function") renderRules();
   }
+  // The formula row sticks to the top; focused cells scroll to just below it, whatever height it wraps to.
+  var barRow = document.getElementById("sheet-barrow");
+  function setBarH() { if (barRow) root.style.setProperty("--sheet-bar-h", barRow.offsetHeight + "px"); }
+  setBarH(); window.addEventListener("resize", setBarH); if (window.ResizeObserver && barRow) new ResizeObserver(setBarH).observe(barRow);
   function sync() { cells = H.cells; reloadRules(); reloadCf(); reloadFmt(); if (typeof clearPivot === "function") clearPivot(); show(); buttons(); drawChart(); applyFilter(); status.textContent = H.note; }
   function buttons() { undoBtn.disabled = !H.past.length; redoBtn.disabled = !H.future.length; }
   function change(next, note) { if (!H.change(next, note)) return false; sync(); return true; }

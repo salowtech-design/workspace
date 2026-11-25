@@ -2183,7 +2183,7 @@ def slides_transition(ctx):
     )
 
 
-def sheets_grid(ctx):
+def sheets_grid(ctx):  # noqa: C901
     pg = fresh(ctx, "/sheets/")
     KEYJS = "document.getElementById('sheet-root').dataset.storeKey"
 
@@ -2302,6 +2302,48 @@ def sheets_grid(ctx):
     )
     if SHOTS:
         pg.screenshot(path=os.path.join(SHOTS, "sheets-sticky-63-phone.png"), full_page=False)
+
+    # Upward navigation at 390 px: ArrowUp and Shift+Tab must not leave the focused cell under the bar.
+    def visible_below_bar(pgx):
+        r = pgx.evaluate(
+            "(function(){var b=document.getElementById('sheet-barrow').getBoundingClientRect(),c=document.activeElement.getBoundingClientRect();return [b.bottom,c.top,c.bottom,innerHeight,document.activeElement.dataset.addr];})()"
+        )
+        return r[1] >= r[0] - 1 and r[2] <= r[3], r
+
+    pg.locator('input[data-addr="A90"]').scroll_into_view_if_needed()
+    pg.click('input[data-addr="A90"]')
+    worst = []
+    for _ in range(12):
+        pg.keyboard.press("ArrowUp")
+        pg.wait_for_timeout(80)
+        okv, r = visible_below_bar(pg)
+        if not okv:
+            worst.append(r)
+    check(
+        "grid: at 390 px ArrowUp keeps each focused cell below the formula bar",
+        not worst,
+        str(worst[:2]),
+    )
+    worst = []
+    pg.click('input[data-addr="A80"]')
+    for _ in range(5):
+        pg.keyboard.press("Shift+Tab")
+        pg.wait_for_timeout(80)
+        okv, r = visible_below_bar(pg)
+        if not okv:
+            worst.append(r)
+    check(
+        "grid: at 390 px Shift+Tab keeps the focused cell below the formula bar",
+        not worst,
+        str(worst[:2]),
+    )
+    check(
+        "grid: the formula bar height is measured, not fixed",
+        pg.evaluate(
+            "parseInt(getComputedStyle(document.getElementById('sheet-root')).getPropertyValue('--sheet-bar-h'))"
+        )
+        == pg.evaluate("document.getElementById('sheet-barrow').offsetHeight"),
+    )
     if SHOTS:
         pg.locator('input[data-addr="Z100"]').scroll_into_view_if_needed()
         pg.screenshot(path=os.path.join(SHOTS, "sheets-grid-61-phone.png"), full_page=False)
