@@ -303,6 +303,62 @@
     }
     return null;
   }
+  // ---- Cell format: bold, alignment and a number format per range. Display only: it never changes, blocks or moves a value. ----
+  // A rule is { range, bold?: true|false, align?: "left"|"center"|"right", nf?: "int"|"dec2"|"thousands"|"percent"|"general" }.
+  // Later rules override earlier ones, property by property. Format v:1 is read by this code only; unknown properties make it unreadable.
+  var FMT_ALIGNS = ["left", "center", "right"], FMT_NFS = ["general", "int", "dec2", "thousands", "percent"], MAX_FMT = 20;
+  function makeFmt(rangeText, bold, align, nf, parseAddr) {
+    var g = parseRange(rangeText, parseAddr); if (!g) return { error: "Enter a range like A1:A10." };
+    var rule = { range: rangeLabel(g) };
+    if (bold === "on") rule.bold = true; else if (bold === "off") rule.bold = false; else if (bold !== "") return { error: "Choose bold on, off or unchanged." };
+    if (align !== "") { if (FMT_ALIGNS.indexOf(align) < 0) return { error: "Choose an alignment." }; rule.align = align; }
+    if (nf !== "") { if (FMT_NFS.indexOf(nf) < 0) return { error: "Choose a number format." }; rule.nf = nf; }
+    if (Object.keys(rule).length < 2) return { error: "Choose at least one thing to change." };
+    return { rule: rule };
+  }
+  function addFmt(rules, rule) { if (rules.length >= MAX_FMT) return { error: "A tab holds up to " + MAX_FMT + " format rules." }; return { rules: rules.concat([rule]) }; }
+  function loadFmt(raw, parseAddr) {
+    var bad = { rules: [], unreadable: true }; if (raw === null || raw === undefined) return { rules: [], unreadable: false };
+    var v; try { v = JSON.parse(raw); } catch (e) { return bad; }
+    if (!v || typeof v !== "object" || v.v !== 1 || !Array.isArray(v.rules) || v.rules.length > MAX_FMT) return bad;
+    var out = [];
+    for (var i = 0; i < v.rules.length; i++) {
+      var r = v.rules[i], g = r && typeof r === "object" && !Array.isArray(r) ? parseRange(r.range, parseAddr) : null;
+      if (!g || r.range !== rangeLabel(g)) return bad;
+      var keys = Object.keys(r).filter(function (k) { return k !== "range"; }), o = { range: r.range };
+      if (!keys.length) return bad;
+      for (var j = 0; j < keys.length; j++) {
+        var k = keys[j];
+        if (k === "bold" && typeof r.bold === "boolean") o.bold = r.bold;
+        else if (k === "align" && FMT_ALIGNS.indexOf(r.align) >= 0) o.align = r.align;
+        else if (k === "nf" && FMT_NFS.indexOf(r.nf) >= 0) o.nf = r.nf;
+        else return bad;
+      }
+      out.push(o);
+    }
+    return { rules: out, unreadable: false };
+  }
+  function fmtJson(rules) { return JSON.stringify({ v: 1, rules: rules }); }
+  // The merged format of one cell: { bold, align, nf }, each undefined when no rule sets it.
+  function fmtFor(rules, addr, parseAddr) {
+    var p = parseAddr(addr), out = {}; if (!p) return out;
+    for (var i = 0; i < rules.length; i++) {
+      var r = rules[i], g = parseRange(r.range, parseAddr); if (!g || p.col < g.c1 || p.col > g.c2 || p.row < g.r1 || p.row > g.r2) continue;
+      if (r.bold !== undefined) out.bold = r.bold; if (r.align !== undefined) out.align = r.align; if (r.nf !== undefined) out.nf = r.nf;
+    }
+    return out;
+  }
+  // The text a number format shows. Text, errors, blanks and anything not a plain number stay as they are.
+  function fmtText(nf, shown) {
+    var n = nf && nf !== "general" ? toNum(String(shown)) : null; if (n === null) return shown;
+    var t;
+    if (nf === "int") t = String(Math.round(n));
+    else if (nf === "dec2") t = n.toFixed(2);
+    else if (nf === "thousands") t = n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    else if (nf === "percent") t = (n * 100).toFixed(1) + "%";
+    else return shown;
+    return /^-0(\.0+)?%?$/.test(t) ? t.slice(1) : t;
+  }
   // ---- Pivot: group rows of a range by one column and total another. Read only: it never writes to cells. ----
   var PIVOT_AGGS = ["count", "sum", "average", "min", "max"], MAX_GROUPS = 20;
   function colNo(t) { var m = /^\s*([A-Za-z])\s*$/.exec(String(t)); return m ? m[1].toUpperCase().charCodeAt(0) - 64 : null; }
@@ -344,6 +400,6 @@
     });
     return { groups: out, skipped: skipped, rows: rows };
   }
-  var api = { parseRange: parseRange, makeRule: makeRule, addRule: addRule, removeRule: removeRule, loadRules: loadRules, rulesJson: rulesJson, checkValue: checkValue, makePivot: makePivot, pivot: pivot, MAX_GROUPS: MAX_GROUPS, makeCf: makeCf, addCf: addCf, loadCf: loadCf, cfJson: cfJson, cfColor: cfColor, MAX_RULES: MAX_RULES, loadTabs: loadTabs, addTab: addTab, renameTab: renameTab, deleteTab: deleteTab, setActive: setActive, cleanName: cleanName, MAX_TABS: MAX_TABS, sortRange: sortRange, filterRows: filterRows, toNum: toNum, toCsv: toCsv, clean: clean, History: History, chartPoints: chartPoints, pieSlices: pieSlices, isComposing: isComposing, keyMove: keyMove, copy: copy, same: same };
+  var api = { parseRange: parseRange, makeRule: makeRule, addRule: addRule, removeRule: removeRule, loadRules: loadRules, rulesJson: rulesJson, checkValue: checkValue, makePivot: makePivot, pivot: pivot, MAX_GROUPS: MAX_GROUPS, makeCf: makeCf, addCf: addCf, loadCf: loadCf, cfJson: cfJson, cfColor: cfColor, makeFmt: makeFmt, addFmt: addFmt, loadFmt: loadFmt, fmtJson: fmtJson, fmtFor: fmtFor, fmtText: fmtText, MAX_FMT: MAX_FMT, MAX_RULES: MAX_RULES, loadTabs: loadTabs, addTab: addTab, renameTab: renameTab, deleteTab: deleteTab, setActive: setActive, cleanName: cleanName, MAX_TABS: MAX_TABS, sortRange: sortRange, filterRows: filterRows, toNum: toNum, toCsv: toCsv, clean: clean, History: History, chartPoints: chartPoints, pieSlices: pieSlices, isComposing: isComposing, keyMove: keyMove, copy: copy, same: same };
   if (typeof module !== "undefined" && module.exports) module.exports = api; else root.SalowSheetModel = api;
 })(typeof self !== "undefined" ? self : this);

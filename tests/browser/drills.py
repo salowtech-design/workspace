@@ -1339,6 +1339,213 @@ def sheets_colour(ctx):
     )
 
 
+def sheets_format(ctx):  # noqa: C901
+    pg = fresh(ctx, "/sheets/")
+    KEYJS = "document.getElementById('sheet-root').dataset.storeKey"
+
+    def setc(pgx, a, v):
+        pgx.click('input[data-addr="%s"]' % a)
+        pgx.fill('input[data-addr="%s"]' % a, v)
+        pgx.press('input[data-addr="%s"]' % a, "Tab")
+
+    def sel(a):
+        return 'input[data-addr="%s"]' % a
+
+    def shown(pgx, a):
+        return pgx.input_value(sel(a))
+
+    def sty(pgx, a, prop):
+        return pgx.evaluate(
+            "getComputedStyle(document.querySelector('input[data-addr=\"%s\"]')).%s" % (a, prop)
+        )
+
+    def addfmt(pgx, rng, bold, align, nf):
+        pgx.fill("#fmt-range", rng)
+        pgx.select_option("#fmt-bold", bold)
+        pgx.select_option("#fmt-align", align)
+        pgx.select_option("#fmt-nf", nf)
+        pgx.click("#fmt-add")
+
+    setc(pg, "A1", "1234.5")
+    setc(pg, "A2", "0.256")
+    setc(pg, "A3", "=A1*2")
+    setc(pg, "A4", "text")
+    setc(pg, "Z100", "9")
+    addfmt(pg, "A1:A4", "on", "right", "thousands")
+    check(
+        "format: a number shows with the thousands format",
+        shown(pg, "A1") == "1,234.50" and shown(pg, "A3") == "2,469.00",
+        shown(pg, "A1") + "/" + shown(pg, "A3"),
+    )
+    check("format: text is left as typed", shown(pg, "A4") == "text")
+    check(
+        "format: bold and right alignment are applied",
+        sty(pg, "A1", "fontWeight") in ("700", "bold") and sty(pg, "A1", "textAlign") == "right",
+        sty(pg, "A1", "fontWeight") + "/" + sty(pg, "A1", "textAlign"),
+    )
+    check(
+        "format: the tooltip shows the value behind the format",
+        "value 1234.5" in pg.get_attribute(sel("A1"), "title"),
+        pg.get_attribute(sel("A1"), "title"),
+    )
+    pg.click(sel("A1"))
+    check("format: editing shows the stored value", shown(pg, "A1") == "1234.5", shown(pg, "A1"))
+    pg.press(sel("A1"), "Tab")
+    addfmt(pg, "A2:A2", "off", "", "percent")
+    check(
+        "format: a later rule overrides one property only",
+        shown(pg, "A2") == "25.6%"
+        and sty(pg, "A2", "fontWeight") in ("400", "normal")
+        and sty(pg, "A2", "textAlign") == "right",
+        shown(pg, "A2") + "/" + sty(pg, "A2", "textAlign"),
+    )
+    addfmt(pg, "Y99:Z100", "on", "", "dec2")
+    check("format: it reaches Z100", shown(pg, "Z100") == "9.00", shown(pg, "Z100"))
+    # Values are untouched: Export keeps the stored cells, a dependent formula uses the value.
+    setc(pg, "B1", "=A1+1")
+    check(
+        "format: a formula reads the value, not the text",
+        shown(pg, "B1") == "1235.5",
+        shown(pg, "B1"),
+    )
+    pg.fill("#fmt-range", "zz")
+    pg.click("#fmt-add")
+    check(
+        "format: a bad range is refused",
+        "range" in pg.inner_text("#fmt-status"),
+        pg.inner_text("#fmt-status"),
+    )
+    pg.click("#fmt-add")
+    stored = pg.evaluate(
+        "JSON.parse(localStorage.getItem(%s+'.tab.t0')||localStorage.getItem(%s))" % (KEYJS, KEYJS)
+    )
+    check(
+        "format: stored cells hold the typed values",
+        isinstance(stored, dict) and stored.get("A1") == "1234.5" and stored.get("A3") == "=A1*2",
+        str(stored)[:120],
+    )
+    if SHOTS:
+        pg.locator(sel("A1")).scroll_into_view_if_needed()
+        pg.screenshot(path=os.path.join(SHOTS, "sheets-format-62.png"), full_page=False)
+    pg.reload()
+    pg.wait_for_timeout(400)
+    check(
+        "format: rules and formats survive a reload",
+        shown(pg, "A1") == "1,234.50" and shown(pg, "A2") == "25.6%",
+        shown(pg, "A1"),
+    )
+    pg.click("#fmt-list li:nth-child(2) button")
+    check(
+        "format: removing a rule falls back to the rule below it",
+        shown(pg, "A2") == "0.26",
+        shown(pg, "A2"),
+    )
+    # Damaged rules are kept, reported, and nothing is formatted.
+    key = pg.evaluate("%s+'.fmt'" % KEYJS)
+    pg.evaluate("localStorage.setItem(%s,'{bad')" % json.dumps(key))
+    pg.reload()
+    pg.wait_for_timeout(400)
+    check(
+        "format: unreadable rules are reported, adding is off, nothing formatted",
+        "could not be read" in pg.inner_text("#fmt-status")
+        and pg.is_disabled("#fmt-add")
+        and shown(pg, "A1") == "1234.5",
+        pg.inner_text("#fmt-status"),
+    )
+    check(
+        "format: the damaged rules are untouched",
+        pg.evaluate("localStorage.getItem(%s)" % json.dumps(key)) == "{bad",
+    )
+    with pg.expect_download() as dl:
+        pg.click("#fmt-raw")
+    check("format: damaged rules download as stored", open(dl.value.path()).read() == "{bad")
+    # Tab paths.
+    pg = fresh(ctx, "/sheets/")
+    pg.click("#tab-add")
+    pg.wait_for_timeout(100)
+    tid = pg.evaluate("JSON.parse(localStorage.getItem(%s+'.tabs')).active" % KEYJS)
+    fk = pg.evaluate("%s+'.tab.%s.fmt'" % (KEYJS, tid))
+    p2 = ctx.new_page()
+    p2.goto(APP + "/sheets/")
+    p2.wait_for_timeout(400)
+    p2.click('#sheet-tabs button[data-tab="%s"]' % tid)
+    p2.once("dialog", lambda d: d.accept())
+    p2.click("#tab-del")
+    p2.wait_for_timeout(200)
+    addfmt(pg, "A1:A2", "on", "", "")
+    check(
+        "format: a stale tab is refused new format rules and no key appears",
+        "not changed" in pg.inner_text("#fmt-status")
+        and pg.evaluate("localStorage.getItem(%s)" % json.dumps(fk)) is None,
+        pg.inner_text("#fmt-status"),
+    )
+    p2.close()
+    pg = fresh(ctx, "/sheets/")
+    pg.click("#tab-add")
+    pg.wait_for_timeout(100)
+    setc(pg, "A1", "5")
+    pg.fill("#cf-range", "A1:A2")
+    pg.select_option("#cf-kind", "greater")
+    pg.fill("#cf-value", "1")
+    pg.select_option("#cf-color", "red")
+    pg.click("#cf-add")
+    addfmt(pg, "A1:A2", "", "center", "dec2")
+    pg.once("dialog", lambda d: d.accept())
+    pg.click("#tab-del")
+    pg.wait_for_timeout(200)
+    pg.evaluate(
+        "(function(){var o=Storage.prototype.setItem;window.__o=o;Storage.prototype.setItem=function(k,v){if(/[.]fmt$/.test(k))throw new Error('full');return o.call(this,k,v);};})();0"
+    )
+    pg.click("#tab-restore")
+    msg = pg.inner_text("#tab-status")
+    check(
+        "format: a failed format write restores nothing and says so",
+        pg.evaluate("JSON.parse(localStorage.getItem(%s+'.tabs')).tabs.length" % KEYJS) == 1
+        and "would not store the tab's format rules" in msg,
+        msg,
+    )
+    check(
+        "format: the colour rule written before the failure is rolled back too",
+        pg.evaluate(
+            "Object.keys(localStorage).filter(function(k){return /[.]cf$/.test(k)&&k.indexOf('.tab.')>0}).length"
+        )
+        == 0,
+    )
+    left = pg.evaluate(
+        "Object.keys(localStorage).filter(function(k){return k.indexOf(%s)===0&&/[.]tab[.]t[0-9]+/.test(k)&&!/[.]tab[.]t0/.test(k)}).length"
+        % KEYJS
+    )
+    check("format: no half-restored keys are left", left == 0, str(left))
+    pg.evaluate("Storage.prototype.setItem=window.__o;0")
+    pg.click("#tab-restore")
+    pg.wait_for_timeout(200)
+    check(
+        "format: Restore works afterwards with its format",
+        shown(pg, "A1") == "5.00"
+        and sty(pg, "A1", "textAlign") == "center"
+        and pg.evaluate("document.querySelector('input[data-addr=A1]').dataset.cf") == "red",
+        pg.inner_text("#tab-status"),
+    )
+    t2 = pg.evaluate("JSON.parse(localStorage.getItem(%s+'.tabs')).active" % KEYJS)
+    fk2 = pg.evaluate("%s+'.tab.%s.fmt'" % (KEYJS, t2))
+    pg.evaluate(
+        "(function(){var k=%s+'.tabs',m=JSON.parse(localStorage.getItem(k));m.tabs=m.tabs.filter(function(t){return t.id!=%s});m.active='t0';localStorage.setItem(k,JSON.stringify(m));})();0"
+        % (KEYJS, json.dumps(t2))
+    )
+    pg.reload()
+    pg.wait_for_timeout(400)
+    ids = set()
+    for _ in range(3):
+        pg.click("#tab-add")
+        pg.wait_for_timeout(100)
+        ids.add(pg.evaluate("JSON.parse(localStorage.getItem(%s+'.tabs')).active" % KEYJS))
+    check(
+        "format: a new tab never reuses an id whose format rules are stored",
+        t2 not in ids and pg.evaluate("localStorage.getItem(%s)" % json.dumps(fk2)) is not None,
+        str(ids),
+    )
+
+
 def slides_master(ctx):  # noqa: C901
     import shutil
     import subprocess
@@ -1986,6 +2193,7 @@ DRILLS = {
     "sheets_chart": sheets_chart,
     "sheets_validation": sheets_validation,
     "sheets_colour": sheets_colour,
+    "sheets_format": sheets_format,
     "sheets_pivot": sheets_pivot,
     "sheets_grid": sheets_grid,
     "slides_master": slides_master,

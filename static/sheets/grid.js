@@ -47,6 +47,13 @@
   var rules = [], rulesLocked = false, rulesRaw = null;
   var cfRules = [], cfLocked = false, cfRaw = null;
   function cfKey(id) { return tabKey(id) + ".cf"; }
+  var fmtRules = [], fmtLocked = false, fmtRaw = null;
+  function fmtKey(id) { return tabKey(id) + ".fmt"; }
+  function reloadFmt() {
+    var raw = null, ok = true; try { raw = localStorage.getItem(fmtKey(meta.active)); } catch (e) { ok = false; }
+    var r = ok ? M.loadFmt(raw, F.parseAddr) : { rules: [], unreadable: true };
+    fmtRules = r.rules; fmtLocked = r.unreadable; fmtRaw = ok ? raw : null; if (typeof renderFmt === "function") renderFmt();
+  }
   function reloadCf() {
     var raw = null, ok = true; try { raw = localStorage.getItem(cfKey(meta.active)); } catch (e) { ok = false; }
     var r = ok ? M.loadCf(raw, F.parseAddr) : { rules: [], unreadable: true };
@@ -58,7 +65,7 @@
     var r = ok ? M.loadRules(raw, F.parseAddr) : { rules: [], unreadable: true };
     rules = r.rules; rulesLocked = r.unreadable; rulesRaw = ok ? raw : null; if (typeof renderRules === "function") renderRules();
   }
-  function sync() { cells = H.cells; reloadRules(); reloadCf(); if (typeof clearPivot === "function") clearPivot(); show(); buttons(); drawChart(); applyFilter(); status.textContent = H.note; }
+  function sync() { cells = H.cells; reloadRules(); reloadCf(); reloadFmt(); if (typeof clearPivot === "function") clearPivot(); show(); buttons(); drawChart(); applyFilter(); status.textContent = H.note; }
   function buttons() { undoBtn.disabled = !H.past.length; redoBtn.disabled = !H.future.length; }
   function change(next, note) { if (!H.change(next, note)) return false; sync(); return true; }
   function undo() { if (H.undo()) sync(); }
@@ -82,8 +89,12 @@
     Object.keys(inputs).forEach(function (a) {
       var sv = sh.get(a), shown = F.isErr(sv) ? sv.code : String(sv), col = cfLocked ? null : M.cfColor(cfRules, a, shown, F.parseAddr);
       if (col) inputs[a].dataset.cf = col; else delete inputs[a].dataset.cf;
-      if (document.activeElement === inputs[a]) return;
-      var v = sv; inputs[a].value = shown; inputs[a].title = (cells[a] || "") + (col ? (cells[a] ? " " : "") + "(highlighted " + col + " by a colour rule)" : "");
+      var f = fmtLocked ? {} : M.fmtFor(fmtRules, a, F.parseAddr), inp = inputs[a];
+      if (f.bold) inp.dataset.bold = "1"; else delete inp.dataset.bold;
+      if (f.align) inp.dataset.align = f.align; else delete inp.dataset.align;
+      if (document.activeElement === inp) return;
+      var text = F.isErr(sv) ? shown : M.fmtText(f.nf, shown);
+      inp.value = text; inp.title = (cells[a] || "") + (col ? (cells[a] ? " " : "") + "(highlighted " + col + " by a colour rule)" : "") + (text !== shown ? (cells[a] || col ? " " : "") + "(shown with a number format; value " + shown + ")" : "");
     });
   }
   function commit(a, v) {
@@ -277,6 +288,38 @@
     l.href = u; l.download = "unreadable-colour-rules.txt"; document.body.appendChild(l); l.click(); l.remove(); setTimeout(function () { URL.revokeObjectURL(u); }, 4000);
   });
   reloadCf();
+  // ---- Cell format: bold, alignment, number format per range. Display only, kept in this browser with the tab. ----
+  function renderFmt() {
+    var ul = $("fmt-list"); ul.textContent = "";
+    fmtRules.forEach(function (r, i) {
+      var li = document.createElement("li"), b = document.createElement("button"), bits = [];
+      if (r.bold !== undefined) bits.push(r.bold ? "bold" : "not bold"); if (r.align) bits.push(r.align + " aligned"); if (r.nf) bits.push("number format " + r.nf);
+      li.textContent = r.range + ": " + bits.join(", ") + " "; b.type = "button"; b.className = "btn"; b.textContent = "Remove"; b.setAttribute("aria-label", "Remove the format rule for " + r.range);
+      b.addEventListener("click", function () { saveFmt(fmtRules.filter(function (x, j) { return j !== i; }), "Removed the format rule for " + r.range + "."); }); li.appendChild(b); ul.appendChild(li);
+    });
+    $("fmt-none").hidden = fmtRules.length > 0 || fmtLocked; $("fmt-add").disabled = fmtLocked; $("fmt-raw").hidden = !(fmtLocked && fmtRaw !== null);
+    if (fmtLocked) $("fmt-status").textContent = "This tab's format rules could not be read, so no formats are applied and the rules cannot be changed. They were left untouched.";
+  }
+  function saveFmt(next, msg) {
+    if (fmtLocked || !next) return;
+    var lt = null; try { lt = M.loadTabs(localStorage.getItem(KEY + ".tabs")); } catch (e) { lt = null; }
+    if (!lt || lt.unreadable || !lt.meta.tabs.some(function (t) { return t.id === meta.active; })) { $("fmt-status").textContent = "This tab was deleted or changed in another window, or the tab list cannot be read, so the format rules were not changed. Reload this page."; return; }
+    try { if (next.length) localStorage.setItem(fmtKey(meta.active), M.fmtJson(next)); else localStorage.removeItem(fmtKey(meta.active)); }
+    catch (e) { $("fmt-status").textContent = "This browser would not store the format rules, so nothing was changed."; return; }
+    fmtRules = next; renderFmt(); show(); $("fmt-status").textContent = msg;
+  }
+  $("fmt-add").addEventListener("click", function () {
+    var r = M.makeFmt($("fmt-range").value, $("fmt-bold").value, $("fmt-align").value, $("fmt-nf").value, F.parseAddr);
+    if (r.error) { $("fmt-status").textContent = r.error; return; }
+    var a = M.addFmt(fmtRules, r.rule); if (a.error) { $("fmt-status").textContent = a.error; return; }
+    saveFmt(a.rules, "Added a format rule for " + r.rule.range + ". It only changes how cells look.");
+  });
+  $("fmt-raw").addEventListener("click", function () {
+    if (fmtRaw === null) return;
+    var u = URL.createObjectURL(new Blob([fmtRaw], { type: "text/plain;charset=utf-8" })), l = document.createElement("a");
+    l.href = u; l.download = "unreadable-format-rules.txt"; document.body.appendChild(l); l.click(); l.remove(); setTimeout(function () { URL.revokeObjectURL(u); }, 4000);
+  });
+  reloadFmt();
   // ---- Pivot: a read-only summary table, built when asked from the values shown now ----
   var pvOut = $("pivot-out"), pvSt = $("pivot-status");
   // The table describes the tab and cells it was built from, so it is cleared whenever the open tab or its cells are replaced (tab switch, add, delete, restore, import, clear, undo and redo).
@@ -362,7 +405,8 @@
     if (!saveMeta(next)) { tabMsg.textContent = "This browser would not store the tab list, so nothing was changed."; return false; }
     meta = next; return true;
   }
-  function keyUsed(id) { try { return localStorage.getItem(tabKey(id)) !== null || localStorage.getItem(rulesKey(id)) !== null || localStorage.getItem(cfKey(id)) !== null; } catch (e) { return true; } }
+  var EXTRAS = [{ key: rulesKey, load: M.loadRules, label: "validation rules" }, { key: cfKey, load: M.loadCf, label: "colour rules" }, { key: fmtKey, load: M.loadFmt, label: "format rules" }];
+  function keyUsed(id) { try { return localStorage.getItem(tabKey(id)) !== null || localStorage.getItem(rulesKey(id)) !== null || localStorage.getItem(cfKey(id)) !== null || localStorage.getItem(fmtKey(id)) !== null; } catch (e) { return true; } }
   function renderTabs() {
     tabBar.textContent = "";
     meta.tabs.forEach(function (t) {
@@ -412,7 +456,7 @@
     var saved = bad ? null : M.copy(H.cells);
     if (!commitMeta(r.meta)) return;
     if (!bad) { try { localStorage.removeItem(tabKey(id)); } catch (e) { /* the tab is out of the list; its id will not be reused while the cells remain */ } }
-    delete hist[id]; delete unreadableTabs[id]; if (!bad) { var rr = null, rulesWasThere = false; try { rr = localStorage.getItem(rulesKey(id)); rulesWasThere = rr !== null; if (rr !== null && !M.loadRules(rr, F.parseAddr).unreadable) localStorage.removeItem(rulesKey(id)); else rr = null; } catch (e) { rr = null; } var cr = null, cfWas = false; try { cr = localStorage.getItem(cfKey(id)); cfWas = cr !== null; if (cr !== null && !M.loadCf(cr, F.parseAddr).unreadable) localStorage.removeItem(cfKey(id)); else cr = null; } catch (e) { cr = null; } lastDeleted = { name: nm, cells: saved, rules: rr, cf: cr, rulesLeft: (rr === null && rulesWasThere) || (cr === null && cfWas) }; }
+    delete hist[id]; delete unreadableTabs[id]; if (!bad) { var ex = [], left = false; EXTRAS.forEach(function (x) { var raw = null, was = false; try { raw = localStorage.getItem(x.key(id)); was = raw !== null; if (raw !== null && !x.load(raw, F.parseAddr).unreadable) localStorage.removeItem(x.key(id)); else raw = null; } catch (e) { raw = null; } ex.push(raw); if (raw === null && was) left = true; }); lastDeleted = { name: nm, cells: saved, extras: ex, rulesLeft: left }; }
     H = histFor(meta.active); chartRange = null; out.textContent = ""; cur = null; filt = null; sync(); renderTabs();
     tabMsg.textContent = bad ? "Removed the tab " + nm + " from the list. Its unreadable stored cells were not deleted." : "Deleted the tab " + nm + ". Restore deleted tab brings back only this one, until you reload; after a reload it cannot be brought back.";
   });
@@ -422,18 +466,17 @@
     var nm = lastDeleted.name, rn = M.renameTab(next, next.active, nm); if (!rn.error) next = rn.meta;
     var key = tabKey(next.active);
     try { localStorage.setItem(key, JSON.stringify(lastDeleted.cells)); } catch (e) { tabMsg.textContent = "This browser would not store the restored tab, so nothing was restored. The deleted tab is still kept until you reload."; return; }
-    if (lastDeleted.rules) {
-      try { localStorage.setItem(rulesKey(next.active), lastDeleted.rules); }
-      catch (e) { try { localStorage.removeItem(key); } catch (e2) { /* nothing else points at this key */ } tabMsg.textContent = "This browser would not store the tab's validation rules, so nothing was restored. The deleted tab and its rules are still kept until you reload. Try Restore again."; return; }
+    var done = [key];
+    function undoAll() { try { done.forEach(function (k) { localStorage.removeItem(k); }); } catch (e2) { /* nothing else points at these keys */ } }
+    for (var xi = 0; xi < EXTRAS.length; xi++) {
+      if (!lastDeleted.extras[xi]) continue;
+      try { localStorage.setItem(EXTRAS[xi].key(next.active), lastDeleted.extras[xi]); done.push(EXTRAS[xi].key(next.active)); }
+      catch (e) { undoAll(); tabMsg.textContent = "This browser would not store the tab's " + EXTRAS[xi].label + ", so nothing was restored. The deleted tab and its rules are still kept until you reload. Try Restore again."; return; }
     }
-    if (lastDeleted.cf) {
-      try { localStorage.setItem(cfKey(next.active), lastDeleted.cf); }
-      catch (e) { try { localStorage.removeItem(key); if (lastDeleted.rules) localStorage.removeItem(rulesKey(next.active)); } catch (e2) { /* nothing else points at these keys */ } tabMsg.textContent = "This browser would not store the tab's colour rules, so nothing was restored. The deleted tab and its rules are still kept until you reload. Try Restore again."; return; }
-    }
-    if (!commitMeta(next)) { try { localStorage.removeItem(key); if (lastDeleted.rules) localStorage.removeItem(rulesKey(next.active)); if (lastDeleted.cf) localStorage.removeItem(cfKey(next.active)); } catch (e) { /* nothing else points at these keys */ } return; }
+    if (!commitMeta(next)) { undoAll(); return; }
     var left = lastDeleted.rulesLeft; H = histFor(meta.active); lastDeleted = null;
     chartRange = null; out.textContent = ""; cur = null; filt = null; sync(); renderTabs();
-    tabMsg.textContent = "Restored the tab" + (rn.error ? " under a new name, because " + nm + " is in use." : " " + nm + ".") + (left ? " Its validation or colour rules were unreadable or could not be removed, so they were not restored." : "");
+    tabMsg.textContent = "Restored the tab" + (rn.error ? " under a new name, because " + nm + " is in use." : " " + nm + ".") + (left ? " Its validation, colour or format rules were unreadable or could not be removed, so they were not restored." : "");
   });
   status.textContent = H.note;
   if (tabsLocked) tabMsg.textContent = "The stored tab list could not be read, so tab changes are off. Your cells were not touched.";
