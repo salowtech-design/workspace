@@ -1,0 +1,5 @@
+.org ul{list-style:none;margin:6px 0 0;padding-left:22px;border-left:2px solid #ecdfcf}
+.org-tree{border-left:0;padding-left:0}
+.org li{margin:8px 0;word-break:break-word}
+.org a{color:#3a1d17;text-decoration:none}
+.org-meta{color:#8a7a72;font-size:.85rem}

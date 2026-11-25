@@ -7,6 +7,7 @@ from apps.directory.models import Team
 from apps.directory.selectors import (
     get_departments,
     get_direct_reports,
+    org_tree,
     search_directory,
 )
 
@@ -79,3 +80,11 @@ def team_detail_view(request, team_code: str):
             "memberships": memberships,
         },
     )
+
+
+@login_required
+@require_permission("accounts.user.view")
+def org_chart_view(request):
+    """Read-only reporting tree. Same fields as the directory list."""
+    tree, truncated = org_tree(request.user)
+    return render(request, "directory/org.html", {"tree": tree, "truncated": truncated})

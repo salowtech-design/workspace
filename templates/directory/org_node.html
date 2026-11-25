@@ -1,0 +1,3 @@
+<li><a href="{% url 'directory:profile' node.user.employee_id %}"><strong>{{ node.user.full_name }}</strong></a>
+  <span class="org-meta">{{ node.user.employee_id }} · {{ node.user.get_role_display }}</span>
+  {% if node.reports %}<ul>{% for child in node.reports %}{% include "directory/org_node.html" with node=child %}{% endfor %}</ul>{% endif %}</li>

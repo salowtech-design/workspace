@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+{% block title %}Org chart: Salow Workspace{% endblock %}
+{% block extra_head %}<link rel="stylesheet" href="/static/css/org.css">{% endblock %}
+{% block content %}
+<div class="card org">
+  <h2>Org chart</h2>
+  <p class="org-meta"><a href="{% url 'directory:list' %}">Back to the directory</a>. Shows active and onboarding employees and who they report to. Someone with no manager, or whose manager is no longer active, appears at the top level.</p>
+  {% if truncated %}<p class="org-meta">Some levels below are not shown because the chart is cut off at a fixed depth.</p>{% endif %}
+  <ul class="org-tree">{% for node in tree %}{% include "directory/org_node.html" with node=node %}{% empty %}<li class="org-meta">No employees to show.</li>{% endfor %}</ul>
+</div>
+{% endblock %}

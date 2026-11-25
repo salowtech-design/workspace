@@ -74,24 +74,78 @@ def add_team_member(team: Team, user: CustomUser, actor: CustomUser) -> TeamMemb
     return membership
 
 
+def _reporting_lock():
+    """One row that every reporting change locks first, so two changes cannot each pass the
+    cycle check against data the other has not committed yet. Reporting changes are rare admin
+    actions, so one global lock is acceptable. (Uses a shared bucket row as the lock row.)"""
+    from datetime import timedelta
+
+    from django.utils import timezone
+
+    from apps.core.models import RateLimitBucket
+
+    RateLimitBucket.objects.get_or_create(
+        bucket_key="lock:reporting",
+        defaults={"count": 0, "reset_at": timezone.now() + timedelta(days=36500)},
+    )
+    return RateLimitBucket.objects.select_for_update().get(bucket_key="lock:reporting")
+
+
+def _pause():
+    """Test hook, called after the checks and before the write. A no-op."""
+
+
+_LIVE = (CustomUser.Status.ACTIVE, CustomUser.Status.ONBOARDING)
+
+
 def assign_reporting_manager(
     manager: CustomUser, subordinate: CustomUser, actor: CustomUser
 ) -> ReportingRelationship:
-    """Assign or update direct manager for an employee."""
+    """Assign or update direct manager for an employee.
+
+    Authority is the existing rule in this module: super admin and admin only. (The blueprint
+    proposes HR; that difference is open and is not applied here.) Refuses self-management,
+    people who are not active or onboarding, and any change that would make a reporting loop.
+    The loop check runs under the reporting lock on fresh data."""
     if actor.role not in (CustomUser.Role.SUPER_ADMIN, CustomUser.Role.ADMIN):
         raise PermissionDenied("Only administrators can configure reporting relationships.")
 
     with transaction.atomic():
+        _reporting_lock()
+        mgr = CustomUser.objects.filter(pk=manager.pk, status__in=_LIVE).first()
+        sub = CustomUser.objects.filter(pk=subordinate.pk, status__in=_LIVE).first()
+        if mgr is None or sub is None:
+            raise ValidationError("Both people must be active or onboarding employees.")
+        if mgr.pk == sub.pk:
+            raise ValidationError(
+                "Self-management is prohibited: an employee cannot manage themselves."
+            )
+        current = ReportingRelationship.objects.filter(subordinate=sub).first()
+        if current is not None and current.manager_id == mgr.pk:
+            return current  # nothing changes: no write, no audit row
+        up, seen = mgr.pk, set()
+        while up is not None and up not in seen:  # walk the manager's chain on fresh rows
+            if up == sub.pk:
+                raise ValidationError(
+                    "Reporting cycle detected: an employee cannot report to their subordinate."
+                )
+            seen.add(up)
+            up = (
+                ReportingRelationship.objects.filter(subordinate_id=up)
+                .values_list("manager_id", flat=True)
+                .first()
+            )
+        _pause()
         rel, _ = ReportingRelationship.objects.update_or_create(
-            subordinate=subordinate,
-            defaults={"manager": manager},
+            subordinate=sub,
+            defaults={"manager": mgr},
         )
         record_audit_event(
             event_type="directory.manager_assigned",
             actor=actor,
             target_entity="ReportingRelationship",
             target_id=str(rel.id),
-            details={"subordinate": subordinate.employee_id, "manager": manager.employee_id},
+            details={"subordinate": sub.employee_id, "manager": mgr.employee_id},
         )
         return rel
 

@@ -59,3 +59,53 @@ def search_directory(
         ).distinct()
 
     return qs
+
+
+ORG_MAX_DEPTH = 12  # a chart deeper than this is cut off; the cut is shown, never hidden
+
+
+def org_tree(actor: CustomUser):
+    """Reporting tree of active and onboarding employees. Shows only what the directory list
+    already shows (ID, name, role). Returns (roots, children, truncated).
+
+    A person whose manager is inactive, or who has no manager, is a root. Cycles cannot be
+    built through the model, but the walk still refuses to revisit anyone."""
+    live = list(
+        CustomUser.objects.filter(
+            status__in=[CustomUser.Status.ACTIVE, CustomUser.Status.ONBOARDING]
+        ).order_by("full_name", "employee_id")
+    )
+    by_id = {u.pk: u for u in live}
+    manager_of = dict(
+        ReportingRelationship.objects.filter(
+            subordinate_id__in=by_id.keys(), manager_id__in=by_id.keys()
+        ).values_list("subordinate_id", "manager_id")
+    )
+    kids: dict[int, list] = {}
+    roots = []
+    for u in live:
+        mgr = manager_of.get(u.pk)
+        if mgr is None:
+            roots.append(u)
+        else:
+            kids.setdefault(mgr, []).append(u)
+
+    seen: set[int] = set()
+    truncated = False
+
+    def build(u, depth):
+        nonlocal truncated
+        seen.add(u.pk)
+        if depth >= ORG_MAX_DEPTH:
+            if kids.get(u.pk):
+                truncated = True
+            return {"user": u, "reports": []}
+        return {
+            "user": u,
+            "reports": [build(k, depth + 1) for k in kids.get(u.pk, []) if k.pk not in seen],
+        }
+
+    tree = [build(r, 0) for r in roots]
+    unreachable = [u for u in live if u.pk not in seen]  # only possible if data had a cycle
+    tree += [build(u, 0) for u in unreachable if u.pk not in seen]
+    return tree, truncated

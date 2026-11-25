@@ -89,3 +89,163 @@ def test_directory_search_privacy_filtering():
 
     assert "DIR_ACT" in result_ids
     assert "DIR_EXT" not in result_ids
+
+
+def _emp(eid, name, role=None, status=None):
+    u = CustomUser.objects.create_user(employee_id=eid, full_name=name, password="x" * 12)
+    if role:
+        u.role = role
+    u.status = status or CustomUser.Status.ACTIVE
+    u.is_active = True
+    u.save()
+    return u
+
+
+@pytest.mark.django_db
+def test_org_chart_tree_roots_inactive_managers_and_shown_fields():
+    from django.test import Client
+    from django.urls import reverse
+
+    from apps.directory.selectors import org_tree
+
+    boss = _emp("OC-BOSS", "Boss Person", CustomUser.Role.MANAGER)
+    mid = _emp("OC-MID", "Mid Person")
+    low = _emp("OC-LOW", "Low Person")
+    orphan = _emp("OC-ORPH", "Orphan Person")
+    gone = _emp("OC-GONE", "Gone Manager", status=CustomUser.Status.SUSPENDED)
+    ReportingRelationship.objects.create(manager=boss, subordinate=mid)
+    ReportingRelationship.objects.create(manager=mid, subordinate=low)
+    ReportingRelationship.objects.create(manager=gone, subordinate=orphan)
+    tree, truncated = org_tree(boss)
+    names = {n["user"].employee_id: n for n in tree}
+    assert "OC-GONE" not in names and "OC-ORPH" in names and "OC-BOSS" in names  # orphan is a root
+    chain = names["OC-BOSS"]["reports"][0]
+    assert (
+        chain["user"].employee_id == "OC-MID"
+        and chain["reports"][0]["user"].employee_id == "OC-LOW"
+    )
+    assert truncated is False
+    from apps.directory.models import EmployeeProfile
+
+    EmployeeProfile.objects.update_or_create(
+        user=mid, defaults={"phone": "555-0101", "emergency_contact": "Secret Contact"}
+    )
+    c = Client()
+    c.force_login(boss)
+    page = c.get(reverse("directory:org"), HTTP_HOST="app.salowtech.com")
+    assert page.status_code == 200
+    body = page.content.decode()
+    assert "Mid Person" in body and "OC-LOW" in body
+    assert (
+        "555-0101" not in body and "Secret Contact" not in body and "@" not in body.split("<ul")[1]
+    )
+    assert c.get("/directory/org/", HTTP_HOST="iam.salowtech.com").status_code == 404
+
+
+@pytest.mark.django_db
+def test_org_chart_cuts_off_deep_chains_and_says_so(monkeypatch):
+    from apps.directory import selectors
+
+    monkeypatch.setattr(selectors, "ORG_MAX_DEPTH", 2)
+    prev = _emp("OD-0", "Zero")
+    top = prev
+    for i in range(1, 5):
+        cur = _emp(f"OD-{i}", f"Level {i}")
+        ReportingRelationship.objects.create(manager=prev, subordinate=cur)
+        prev = cur
+    tree, truncated = selectors.org_tree(top)
+    assert truncated is True
+    depth, node = 0, tree[0]
+    while node["reports"]:
+        node, depth = node["reports"][0], depth + 1
+    assert depth == 2  # cut at the configured depth, nobody is silently dropped from the top
+
+
+@pytest.mark.django_db
+def test_org_chart_needs_sign_in():
+    from django.test import Client
+
+    r = Client().get("/directory/org/", HTTP_HOST="app.salowtech.com")
+    assert r.status_code == 302
+
+
+@pytest.mark.django_db
+def test_assign_manager_authority_cycles_self_inactive_and_noop():
+    from django.core.exceptions import PermissionDenied
+
+    from apps.core.models import AuditLog
+    from apps.directory import services as ds
+
+    admin = _emp("AM-ADM", "Admin", CustomUser.Role.ADMIN)
+    a, b, c = _emp("AM-A", "A"), _emp("AM-B", "B"), _emp("AM-C", "C")
+    off = _emp("AM-OFF", "Off", status=CustomUser.Status.SUSPENDED)
+    for who in (
+        _emp("AM-E", "E"),
+        _emp("AM-H", "H", CustomUser.Role.HR),
+        _emp("AM-M", "M", CustomUser.Role.MANAGER),
+    ):
+        with pytest.raises(PermissionDenied):  # the existing rule: admins only (HR open question)
+            ds.assign_reporting_manager(a, b, who)
+    ds.assign_reporting_manager(a, b, admin)  # B reports to A
+    ds.assign_reporting_manager(b, c, admin)  # C reports to B
+    with pytest.raises(ValidationError):
+        ds.assign_reporting_manager(c, a, admin)  # A under C closes a loop of three
+    with pytest.raises(ValidationError):
+        ds.assign_reporting_manager(b, a, admin)  # direct loop
+    with pytest.raises(ValidationError):
+        ds.assign_reporting_manager(a, a, admin)
+    for pair in ((off, a), (a, off)):
+        with pytest.raises(ValidationError):
+            ds.assign_reporting_manager(pair[0], pair[1], admin)
+    n = AuditLog.objects.filter(action="directory.manager_assigned").count()
+    again = ds.assign_reporting_manager(a, b, admin)  # same manager again
+    assert again.manager_id == a.pk
+    assert AuditLog.objects.filter(action="directory.manager_assigned").count() == n == 2
+    assert ReportingRelationship.objects.count() == 2
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.parametrize("locked", [True, False])
+def test_race_two_manager_changes_cannot_make_a_loop(monkeypatch, locked):
+    import threading
+
+    from django.db import connection
+
+    from apps.directory import services as ds
+    from tests.unit.test_drive_services import _threads
+
+    if connection.vendor == "sqlite":
+        pytest.skip("row locks are only meaningful on the TiDB/MySQL backend")
+    if not locked:
+        monkeypatch.setattr(ds, "_reporting_lock", lambda: None)
+    loops, outcomes = 0, []
+    for i in range(2 if locked else 3):
+        admin = _emp(f"RL-ADM{i}{locked}", "Admin", CustomUser.Role.ADMIN)
+        a, b = _emp(f"RL-A{i}{locked}", "A"), _emp(f"RL-B{i}{locked}", "B")
+        barrier = threading.Barrier(2)
+
+        def pause(barrier=barrier):
+            try:
+                barrier.wait(timeout=1.5)  # both sides have passed the loop check
+            except threading.BrokenBarrierError:
+                pass  # the lock kept the other side out
+
+        monkeypatch.setattr(ds, "_pause", pause)
+        outcomes.append(
+            _threads(
+                [
+                    lambda a=a, b=b, admin=admin: ds.assign_reporting_manager(a, b, admin),
+                    lambda a=a, b=b, admin=admin: ds.assign_reporting_manager(b, a, admin),
+                ]
+            )
+        )
+        both = ReportingRelationship.objects.filter(subordinate__in=[a, b]).count() == 2
+        if both:
+            loops += 1
+    assert all("error" not in o for row in outcomes for o in row), outcomes
+    if locked:
+        assert loops == 0 and all(
+            sorted(r) == ["ok", "refused:ValidationError"] for r in outcomes
+        ), (loops, outcomes)
+    else:
+        assert loops == 3, (loops, outcomes)
