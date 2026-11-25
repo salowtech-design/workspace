@@ -102,14 +102,14 @@
   $("pdf-fstop").addEventListener("click", function () { if (!finding) return; fseq.begin(); fmsg("Find stopped."); fend(); });
   // ---- Notes: pinned or page-level text kept in this browser for this file only; never written into the PDF.
   // The key is a SHA-256 of the file's bytes, so a file cannot claim another file's notes.
-  var drawn = 0, nDoc = null, nKey = "", notes = [], nState = "off", pending = null, adding = false, clearArmed = false, clearTimer = null, lastRaw = null, saving = false;
+  var drawn = 0, nDoc = null, nKey = "", notes = [], nState = "off", pending = null, adding = false, clearArmed = false, clearTimer = null, lastRaw = null, saving = false, exporting = false;
   var prefix = $("pdf-notes").getAttribute("data-prefix") || "salow.pdfnotes.";
   function nmsg(t) { $("pdf-notestatus").textContent = t; }
   function sorted() { return notes.slice().sort(function (a, b) { return a.page - b.page || (a.y || 0) - (b.y || 0) || (a.x || 0) - (b.x || 0); }); }
   function disarm() { clearArmed = false; if (clearTimer) { clearTimeout(clearTimer); clearTimer = null; } }
   function nControls() {
     var on = nState === "ok" && !!doc;
-    $("pdf-addnote").disabled = !on; $("pdf-addpagenote").disabled = !on; $("pdf-exportnotes").disabled = !on || !notes.length;
+    $("pdf-addnote").disabled = !on; $("pdf-addpagenote").disabled = !on; $("pdf-exportnotes").disabled = !on || !notes.length; $("pdf-exportcopy").disabled = !on || !notes.length || exporting;
     $("pdf-clearnotes").disabled = !(nState === "ok" || nState === "bad") || !doc;
     $("pdf-addnote").setAttribute("aria-pressed", adding ? "true" : "false");
     $("pdf-stage").classList.toggle("pdf-adding", adding);
@@ -232,6 +232,22 @@
     var a = document.createElement("a"); a.href = url; a.download = nameText.replace(/[^A-Za-z0-9._-]+/g, "_").slice(0, 80) + "-notes.txt";
     document.body.appendChild(a); a.click(); a.remove(); setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
     nmsg("Notes downloaded as a text file. The PDF itself was not changed.");
+  });
+  function loadScript(src) {
+    return new Promise(function (ok, no) { var t = document.createElement("script"); t.src = src; t.onload = ok; t.onerror = function () { no(new Error("script")); }; document.head.appendChild(t); });
+  }
+  $("pdf-exportcopy").addEventListener("click", function () {
+    if (!doc || doc !== nDoc || nState !== "ok" || !notes.length || exporting) return;
+    var myDoc = doc, snap = notes.slice(), nameText = $("pdf-name").textContent || "PDF file";
+    exporting = true; nControls(); nmsg("Building a copy with your notes in this browser...");
+    var libs = window.PDFLib ? Promise.resolve() : loadScript(BASE + "pdf-lib.min.js");
+    libs.then(function () { return myDoc.getData(); }).then(function (bytes) { return window.PdfNotesExport.build(window.PDFLib, bytes, snap); }).then(function (r) {
+      if (myDoc !== doc) return;
+      var url = URL.createObjectURL(new Blob([r.bytes], { type: "application/pdf" })), a = document.createElement("a");
+      a.href = url; a.download = nameText.replace(/\.pdf$/i, "").replace(/[^A-Za-z0-9._-]+/g, "_").slice(0, 80) + "-with-notes.pdf";
+      document.body.appendChild(a); a.click(); a.remove(); setTimeout(function () { URL.revokeObjectURL(url); }, 4000);
+      nmsg("Downloaded a copy with " + r.added + " note(s) added as text annotations. The file you opened was not changed. The notes you keep in this browser are unchanged.");
+    }).catch(function () { if (myDoc === doc) nmsg("A copy could not be made from this file (for example it may be encrypted or damaged). Nothing was downloaded and the file was not changed."); }).then(function () { exporting = false; if (myDoc === doc) nControls(); });
   });
   $("pdf-clearnotes").addEventListener("click", function () {
     if (!doc || doc !== nDoc || !(nState === "ok" || nState === "bad") || saving) return;

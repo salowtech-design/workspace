@@ -60,6 +60,19 @@ def test_pdf_notes_table_passes_in_node():
     assert "20/20 pdf notes rows passed" in r.stdout
 
 
+def test_pdf_export_table_passes_under_node():
+    if not shutil.which("node"):
+        pytest.skip("node not available")
+    r = subprocess.run(  # noqa: S603 - fixed argv
+        [shutil.which("node"), str(ROOT / "tests/js/pdf_export_table.js")],
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert "15/15 pdf export rows passed" in r.stdout
+
+
 def test_vendor_files_are_tracked_and_match_recorded_checksums():
     import hashlib
 
