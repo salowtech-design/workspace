@@ -199,3 +199,151 @@ def test_audit_rows_carry_the_acting_user(people):
     assert set(acts) >= {"drive.folder.create", "drive.share", "drive.rename", "drive.unshare"}
     assert set(acts.values()) == {a.pk}
     assert Share.objects.count() == 0
+
+
+def test_restore_checks_name_collision_and_blocks_editor_rehoming(people):
+    a, b, _ = people
+    top = svc.create_folder(a, "R")
+    f = _file(a, top, "same.txt")
+    svc.share(a, top, b, "editor")
+    svc.trash(b, f)  # b trashes one file
+    _file(a, top, "same.txt")  # a different live file takes the name
+    f.refresh_from_db()
+    with pytest.raises(ValidationError):
+        svc.restore(b, f)  # collision: nothing changes
+    f.refresh_from_db()
+    assert f.trashed_at is not None and f.trash_batch is not None
+    # folder trashed with its file as one batch; the file's own earlier trash stays separate
+    sub = svc.create_folder(a, "Sub", parent=top)
+    g = _file(a, sub, "g.txt")
+    svc.trash(a, g)
+    svc.trash(b, sub)
+    sub.refresh_from_db()
+    g.refresh_from_db()
+    assert g.trash_batch != sub.trash_batch
+    svc.trash(a, top)
+    top.refresh_from_db()
+    sub.refresh_from_db()
+    with pytest.raises(ValidationError):
+        svc.restore(b, sub)  # parent still in the trash: an editor may not re-home it
+    # owner may bring a nested batch back at the top level
+    svc.restore(a, sub)
+    sub.refresh_from_db()
+    assert sub.parent_id is None and sub.trashed_at is None
+    g.refresh_from_db()
+    assert g.trashed_at is not None  # separate earlier batch is untouched
+
+
+def test_deleting_an_owner_with_items_is_protected(people):
+    from django.db.models import ProtectedError
+
+    a, _, _ = people
+    svc.create_folder(a, "Keep")
+    with pytest.raises(ProtectedError):
+        a.delete()
+
+
+def test_share_target_must_be_valid_and_live(people):
+    a, b, _ = people
+    top = svc.create_folder(a, "S")
+    svc.trash(a, top)
+    top.refresh_from_db()
+    with pytest.raises(PermissionDenied):
+        svc.share(a, top, b, "viewer")
+    svc.restore(a, top)
+    top.refresh_from_db()
+    svc.share(a, top, b, "viewer")
+    from apps.drive.models import DriveChange
+
+    ch = DriveChange.objects.get(action="share")
+    assert ch.subject_id == b.pk
+
+
+# ---- real concurrent tests (row locks only exist on TiDB/MySQL) ----
+
+
+def _threads(fns):
+    import threading
+
+    from django.db import connection
+
+    barrier = threading.Barrier(len(fns))
+    out = [None] * len(fns)
+
+    def run(i, fn):
+        try:
+            barrier.wait(timeout=10)
+            fn()
+            out[i] = "ok"
+        except (ValidationError, PermissionDenied) as exc:
+            out[i] = f"refused:{type(exc).__name__}"
+        except Exception as exc:  # noqa: BLE001
+            out[i] = f"error:{type(exc).__name__}:{exc}"
+        finally:
+            connection.close()
+
+    ts = [threading.Thread(target=run, args=(i, fn)) for i, fn in enumerate(fns)]
+    [t.start() for t in ts]
+    [t.join(timeout=60) for t in ts]
+    return out
+
+
+def _need_mysql():
+    from django.db import connection
+
+    if connection.vendor == "sqlite":
+        pytest.skip("row locks are only meaningful on the TiDB/MySQL backend")
+
+
+@pytest.mark.django_db(transaction=True)
+def test_concurrent_opposite_moves_never_make_a_cycle():
+    _need_mysql()
+    a = _u("D-RA")
+    fa, fb = svc.create_folder(a, "A"), svc.create_folder(a, "B")
+    res = _threads(
+        [
+            lambda: svc.move(a, Folder.objects.get(pk=fa.pk), Folder.objects.get(pk=fb.pk)),
+            lambda: svc.move(a, Folder.objects.get(pk=fb.pk), Folder.objects.get(pk=fa.pk)),
+        ]
+    )
+    assert res.count("ok") == 1, res
+    fa.refresh_from_db()
+    fb.refresh_from_db()
+    assert (fa.parent_id is None) or (fb.parent_id is None)
+
+
+@pytest.mark.django_db(transaction=True)
+def test_concurrent_same_name_creates_allow_exactly_one():
+    _need_mysql()
+    a = _u("D-RB")
+    res = _threads([lambda: svc.create_folder(a, "Same")] * 4)
+    assert res.count("ok") == 1, res
+    assert Folder.objects.filter(owner=a, name="Same").count() == 1
+
+
+@pytest.mark.django_db(transaction=True)
+def test_create_racing_a_trash_never_leaves_a_live_child_in_a_trashed_folder():
+    _need_mysql()
+    a = _u("D-RC")
+    for i in range(5):
+        p = svc.create_folder(a, f"P{i}")
+        _threads(
+            [
+                lambda p=p, i=i: svc.create_folder(a, f"c{i}", parent=Folder.objects.get(pk=p.pk)),
+                lambda p=p: svc.trash(a, Folder.objects.get(pk=p.pk)),
+            ]
+        )
+        p.refresh_from_db()
+        assert p.trashed_at is not None
+        live = Folder.objects.filter(parent=p, trashed_at__isnull=True)
+        assert not live.exists(), "a live child sits inside a trashed folder"
+
+
+@pytest.mark.django_db(transaction=True)
+def test_control_without_the_tree_lock_the_same_name_race_is_visible(monkeypatch):
+    """Sensitivity control: shows the race test above can fail when the lock is missing."""
+    _need_mysql()
+    monkeypatch.setattr(svc, "_lock_tree", lambda owner_id: None)
+    a = _u("D-RD")
+    res = _threads([lambda: svc.create_folder(a, "Same")] * 6)
+    assert res.count("ok") > 1, res

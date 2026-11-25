@@ -4,10 +4,10 @@ from django.db import models
 
 class Folder(models.Model):
     owner = models.ForeignKey(
-        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="drive_folders"
+        settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="drive_folders"
     )
     parent = models.ForeignKey(
-        "self", null=True, blank=True, on_delete=models.CASCADE, related_name="children"
+        "self", null=True, blank=True, on_delete=models.PROTECT, related_name="children"
     )
     name = models.CharField(max_length=200)
     created_by = models.ForeignKey(
@@ -15,6 +15,7 @@ class Folder(models.Model):
     )
     created_at = models.DateTimeField(auto_now_add=True)
     trashed_at = models.DateTimeField(null=True, blank=True, db_index=True)
+    trash_batch = models.UUIDField(null=True, blank=True, db_index=True)
     trashed_by = models.ForeignKey(
         settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
     )
@@ -28,10 +29,10 @@ class DriveFile(models.Model):
     """File record. Bytes live behind the storage interface; only the key is kept here."""
 
     owner = models.ForeignKey(
-        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="drive_files"
+        settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="drive_files"
     )
     folder = models.ForeignKey(
-        Folder, null=True, blank=True, on_delete=models.CASCADE, related_name="files"
+        Folder, null=True, blank=True, on_delete=models.PROTECT, related_name="files"
     )
     name = models.CharField(max_length=255)
     content_type = models.CharField(max_length=127, blank=True)
@@ -42,6 +43,7 @@ class DriveFile(models.Model):
     )
     created_at = models.DateTimeField(auto_now_add=True)
     trashed_at = models.DateTimeField(null=True, blank=True, db_index=True)
+    trash_batch = models.UUIDField(null=True, blank=True, db_index=True)
     trashed_by = models.ForeignKey(
         settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
     )
@@ -110,7 +112,12 @@ class DriveChange(models.Model):
     Ids and short facts only, never names or content. Clients and later sync read it in order.
     """
 
-    owner = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="+")
+    owner = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="+")
+    # The person whose access changed (share, unshare), so a sync client can find revocations
+    # addressed to it. Null for changes that concern everyone.
+    subject = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
+    )
     item_type = models.CharField(max_length=10)  # "folder" or "file"
     item_id = models.PositiveBigIntegerField()
     action = models.CharField(max_length=20)
