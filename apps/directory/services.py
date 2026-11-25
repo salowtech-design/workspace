@@ -12,6 +12,8 @@ from apps.directory.models import (
     CustomFieldValue,
     Department,
     EmployeeProfile,
+    OnboardingStep,
+    OnboardingTask,
     ReportingRelationship,
     Team,
     TeamMembership,
@@ -217,8 +219,9 @@ def _require_admin(actor: CustomUser):
 def create_custom_field(
     key: str, label: str, field_type: str, actor: CustomUser, required: bool = False
 ) -> CustomFieldDefinition:
-    """Define a custom profile field. Administrators only (existing directory authority)."""
-    _require_admin(actor)
+    """Define a custom profile field. Administrators only (existing directory authority).
+    `required` is enforced when a value is set; it does not backfill people who have none."""
+    _require_admin(actor)  # early refusal; checked again inside the transaction
     key, label = (key or "").strip().lower(), (label or "").strip()
     if not _FIELD_KEY.match(key):
         raise ValidationError("Key: 2 to 40 characters, lowercase letters, digits, underscore.")
@@ -228,18 +231,19 @@ def create_custom_field(
         raise ValidationError("Unknown field type.")
     try:
         with transaction.atomic():
+            _require_admin(actor)
             d = CustomFieldDefinition.objects.create(
                 key=key, label=label, field_type=field_type, required=bool(required)
             )
+            record_audit_event(
+                event_type="directory.custom_field_created",
+                actor=actor,
+                target_entity="CustomFieldDefinition",
+                target_id=str(d.id),
+                details={"key": d.key, "type": d.field_type},
+            )
     except IntegrityError:
         raise ValidationError("A field with that key already exists.") from None
-    record_audit_event(
-        event_type="directory.custom_field_created",
-        actor=actor,
-        target_entity="CustomFieldDefinition",
-        target_id=str(d.id),
-        details={"key": d.key, "type": d.field_type},
-    )
     return d
 
 
@@ -250,13 +254,22 @@ def _norm_text(text):
 
 
 def _norm_number(text):
+    if len(text) > 40 or not text.isascii() or "_" in text:
+        raise ValidationError("Enter a number.")
     try:
         n = Decimal(text)
     except InvalidOperation:
         raise ValidationError("Enter a number.") from None
     if not n.is_finite() or abs(n) >= Decimal("1e15"):
         raise ValidationError("Enter a number.")
-    return format(n.normalize(), "f")
+    if n.is_zero():
+        return "0"  # also turns -0 into 0
+    if n.as_tuple().exponent < -12 or abs(n) < Decimal("1e-12"):
+        raise ValidationError("Use at most 12 decimal places.")
+    out = format(n.normalize(), "f")
+    if len(out) > 40:
+        raise ValidationError("Enter a number.")
+    return out
 
 
 def _norm_date(text):
@@ -292,6 +305,7 @@ def set_custom_value(user: CustomUser, key: str, raw, actor: CustomUser):
     and is refused for a required one. The audit row records ids, never the value."""
     _require_admin(actor)
     with transaction.atomic():
+        _require_admin(actor)
         d = CustomFieldDefinition.objects.select_for_update().filter(key=(key or "")).first()
         if d is None:
             raise ValidationError("Unknown field.")
@@ -320,3 +334,99 @@ def set_custom_value(user: CustomUser, key: str, raw, actor: CustomUser):
             details={"cleared": not value},
         )
         return value
+
+
+def add_onboarding_step(title, actor, owner_role="", due_after_days=0):
+    """Add a step to the onboarding template. Administrators only (existing authority)."""
+    _require_admin(actor)
+    title = (title or "").strip()
+    if not 1 <= len(title) <= 120:
+        raise ValidationError("Title must be 1 to 120 characters.")
+    if not 0 <= int(due_after_days) <= 365:
+        raise ValidationError("Due days must be 0 to 365.")
+    valid_roles = {r.value for r in CustomUser.Role}
+    if owner_role and owner_role not in valid_roles:
+        raise ValidationError("Unknown role.")
+    with transaction.atomic():
+        last = (
+            OnboardingStep.objects.order_by("-position").values_list("position", flat=True).first()
+        )
+        try:
+            with transaction.atomic():
+                step = OnboardingStep.objects.create(
+                    title=title,
+                    owner_role=owner_role,
+                    due_after_days=int(due_after_days),
+                    position=(last or 0) + 1,
+                )
+        except IntegrityError:
+            raise ValidationError("A step with that title already exists.") from None
+        record_audit_event(
+            event_type="directory.onboarding_step_added",
+            actor=actor,
+            target_entity="OnboardingStep",
+            target_id=str(step.id),
+            details={},
+        )
+    return step
+
+
+def start_onboarding(user, actor, start_date=None):
+    """Copy the template into tasks for one person. Administrators only. Safe to repeat: steps
+    the person already has are skipped (unique per person and title). Returns tasks created."""
+    from datetime import timedelta
+
+    _require_admin(actor)
+    start_date = start_date or date.today()
+    created = []
+    with transaction.atomic():
+        _require_admin(actor)
+        target = CustomUser.objects.select_for_update().filter(pk=user.pk).first()
+        if target is None or target.status not in _LIVE:
+            raise ValidationError("Onboarding needs an active or onboarding person.")
+        have = set(OnboardingTask.objects.filter(user=target).values_list("title", flat=True))
+        for step in OnboardingStep.objects.all():
+            if step.title in have:
+                continue
+            created.append(
+                OnboardingTask.objects.create(
+                    user=target,
+                    title=step.title,
+                    owner_role=step.owner_role,
+                    due_date=start_date + timedelta(days=step.due_after_days),
+                    position=step.position,
+                )
+            )
+        if created:
+            record_audit_event(
+                event_type="directory.onboarding_started",
+                actor=actor,
+                target_entity="CustomUser",
+                target_id=target.employee_id,
+                details={"tasks": len(created)},
+            )
+    return created
+
+
+def complete_onboarding_task(task_id, actor):
+    """Mark a task done. Administrators only for now. Already done: no change, no audit row."""
+    from django.utils import timezone
+
+    _require_admin(actor)
+    with transaction.atomic():
+        _require_admin(actor)
+        t = OnboardingTask.objects.select_for_update().filter(pk=task_id).first()
+        if t is None:
+            raise ValidationError("Unknown task.")
+        if t.state == OnboardingTask.State.DONE:
+            return t
+        t.state, t.completed_at = OnboardingTask.State.DONE, timezone.now()
+        t.save(update_fields=["state", "completed_at"])
+        record_audit_event(
+            event_type="directory.onboarding_task_done",
+            actor=actor,
+            target_entity="OnboardingTask",
+            target_id=str(t.id),
+            details={},
+        )
+        return t

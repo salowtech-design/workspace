@@ -230,3 +230,43 @@ class CustomFieldValue(models.Model):
         constraints = [
             models.UniqueConstraint(fields=["user", "definition"], name="custom_value_unique")
         ]
+
+
+class OnboardingStep(models.Model):
+    """One configurable step of the onboarding template. No company steps are shipped: the
+    template starts empty and administrators define it. owner_role is a label saying which
+    role the step is meant for; it grants nothing (build default: administrators complete steps)."""
+
+    title = models.CharField(max_length=120, unique=True)
+    owner_role = models.CharField(max_length=20, blank=True)
+    due_after_days = models.PositiveSmallIntegerField(default=0)
+    position = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        ordering = ["position", "id"]
+
+
+class OnboardingTask(models.Model):
+    """A step copied for one person when onboarding is started. Copies, so later template
+    edits do not rewrite what was already assigned."""
+
+    class State(models.TextChoices):
+        OPEN = "open", "Open"
+        DONE = "done", "Done"
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="onboarding_tasks"
+    )
+    title = models.CharField(max_length=120)
+    owner_role = models.CharField(max_length=20, blank=True)
+    due_date = models.DateField()
+    state = models.CharField(max_length=8, choices=State.choices, default=State.OPEN)
+    completed_at = models.DateTimeField(null=True, blank=True)
+    position = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        ordering = ["position", "id"]
+        indexes = [models.Index(fields=["user", "state"])]
+        constraints = [
+            models.UniqueConstraint(fields=["user", "title"], name="onboarding_task_unique")
+        ]

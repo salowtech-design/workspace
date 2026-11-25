@@ -392,8 +392,114 @@ def test_reporting_lock_row_is_seeded_by_the_migration_itself():
 
     from apps.directory.models import ReportingLock
 
-    mod = import_module("apps.directory.migrations.0002_reporting_lock_and_self_check")
+    mod = import_module("apps.directory.migrations.0005_seed_reporting_lock")
     ReportingLock.objects.all().delete()
     mod.seed_lock(django_apps, None)
     mod.seed_lock(django_apps, None)  # running twice does not duplicate
     assert ReportingLock.objects.filter(name="reporting").count() == 1
+
+
+@pytest.mark.django_db
+def test_onboarding_template_is_empty_by_default_and_admin_only():
+    from django.core.exceptions import PermissionDenied
+
+    from apps.directory.models import OnboardingStep, OnboardingTask
+    from apps.directory.services import (
+        add_onboarding_step,
+        complete_onboarding_task,
+        start_onboarding,
+    )
+
+    assert OnboardingStep.objects.count() == 0  # nothing invented
+    admin = _emp("OB-ADM", "Ob Admin", CustomUser.Role.ADMIN)
+    hr = _emp("OB-HR", "Ob Hr", CustomUser.Role.HR)
+    new = _emp("OB-NEW", "New Hire", status=CustomUser.Status.ONBOARDING)
+    gone = _emp("OB-GONE", "Gone", status=CustomUser.Status.SUSPENDED)
+    with pytest.raises(PermissionDenied):
+        add_onboarding_step("Sign forms", hr)
+    with pytest.raises(ValidationError):
+        add_onboarding_step("", admin)
+    with pytest.raises(ValidationError):
+        add_onboarding_step("x", admin, owner_role="nonsense")
+    with pytest.raises(ValidationError):
+        add_onboarding_step("x", admin, due_after_days=400)
+    add_onboarding_step("Sign forms", admin, owner_role="hr", due_after_days=2)
+    add_onboarding_step("Laptop", admin, due_after_days=5)
+    with pytest.raises(ValidationError):
+        add_onboarding_step("Laptop", admin)
+    from datetime import date
+
+    with pytest.raises(PermissionDenied):
+        start_onboarding(new, hr)
+    with pytest.raises(ValidationError):
+        start_onboarding(gone, admin)
+    made = start_onboarding(new, admin, date(2026, 12, 1))
+    assert [(t.title, t.due_date.isoformat()) for t in made] == [
+        ("Sign forms", "2026-12-03"),
+        ("Laptop", "2026-12-06"),
+    ]
+    add_onboarding_step("Badge", admin)
+    assert [t.title for t in start_onboarding(new, admin)] == ["Badge"]  # repeat adds only new
+    assert start_onboarding(new, admin) == []
+    assert OnboardingTask.objects.filter(user=new).count() == 3
+    t = made[0]
+    with pytest.raises(PermissionDenied):
+        complete_onboarding_task(t.pk, hr)  # owner_role label grants nothing
+    assert complete_onboarding_task(t.pk, admin).state == "done"
+    stamp = OnboardingTask.objects.get(pk=t.pk).completed_at
+    complete_onboarding_task(t.pk, admin)
+    assert OnboardingTask.objects.get(pk=t.pk).completed_at == stamp
+    with pytest.raises(ValidationError):
+        complete_onboarding_task(999999, admin)
+
+
+@pytest.mark.django_db
+def test_custom_number_extremes_and_negative_zero():
+    from apps.directory.models import CustomFieldDefinition
+    from apps.directory.services import normalise_custom_value
+
+    d = CustomFieldDefinition(key="n", label="N", field_type="number")
+    for bad in (
+        "1e-9999",
+        "1e-100000000",
+        "1e-13",
+        "0.0000000000001",
+        "9" * 41,
+        "1" + "0" * 40,
+        "1e15",
+        "Infinity",
+        "1_000",
+        "\u0661\u0662",
+    ):
+        with pytest.raises(ValidationError):
+            normalise_custom_value(d, bad)
+    assert normalise_custom_value(d, "-0") == "0"
+    assert normalise_custom_value(d, "-0.000") == "0"
+    assert normalise_custom_value(d, "0.000000000001") == "0.000000000001"
+    assert normalise_custom_value(d, "007.50") == "7.5"
+    assert normalise_custom_value(d, "-1e3") == "-1000"
+    assert len(normalise_custom_value(d, "123456789012345.123456789012")) <= 40
+
+
+@pytest.mark.django_db
+def test_admin_demoted_between_early_check_and_write_is_refused(monkeypatch):
+    from django.core.exceptions import PermissionDenied
+
+    from apps.directory import services as ds
+    from apps.directory.models import CustomFieldDefinition
+
+    admin = _emp("RC-ADM", "Race Admin", CustomUser.Role.ADMIN)
+    real, calls = ds._require_admin, []
+
+    def demote_after_first(actor):
+        calls.append(1)  # counted before the real check, which raises on the second call
+        r = real(actor)
+        if len(calls) == 1:
+            CustomUser.objects.filter(pk=actor.pk).update(role=CustomUser.Role.EMPLOYEE)
+        return r
+
+    monkeypatch.setattr(ds, "_require_admin", demote_after_first)
+    with pytest.raises(PermissionDenied):
+        ds.create_custom_field("late_key", "Late", "text", admin)
+    assert not CustomFieldDefinition.objects.filter(key="late_key").exists()
+    assert len(calls) == 2  # the second, in-transaction read is what refused it

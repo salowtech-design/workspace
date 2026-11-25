@@ -4,10 +4,6 @@ from django.conf import settings
 from django.db import migrations, models
 
 
-def seed_lock(apps, schema_editor):
-    apps.get_model("directory", "ReportingLock").objects.get_or_create(name="reporting")
-
-
 class Migration(migrations.Migration):
 
     dependencies = [
@@ -30,5 +26,4 @@ class Migration(migrations.Migration):
             model_name='reportingrelationship',
             constraint=models.CheckConstraint(condition=models.Q(('manager', models.F('subordinate')), _negated=True), name='reporting_no_self_manager'),
         ),
-        migrations.RunPython(seed_lock, migrations.RunPython.noop),
     ]
