@@ -31,6 +31,40 @@
   }
   function sel() { var a = tgt(); for (var i = 0; i < a.length; i++) if (a[i].id === selId) return a[i]; return null; }
   function apply(next, note) { if (!next) return false; if (!H.change(next, note)) return false; cur = Math.min(cur, H.deck.slides.length - 1); render(); return true; }
+  // Dragging an item moves it, dragging the blue corner square resizes it. Nothing is stored until the pointer is released, so a drag is one Undo step; Esc or a cancelled pointer drops it.
+  var drag = null;
+  function endDrag() { document.removeEventListener("pointermove", onDragMove); document.removeEventListener("pointerup", onDragUp); document.removeEventListener("pointercancel", onDragCancel); document.removeEventListener("keydown", onDragKey, true); drag = null; }
+  function dragDelta(ev) { var m = drag.svg.getScreenCTM(); if (!m || !m.a) return { dx: 0, dy: 0 }; return { dx: (ev.clientX - drag.sx) / m.a, dy: (ev.clientY - drag.sy) / m.d }; }
+  function onDragMove(ev) {
+    if (!drag || ev.pointerId !== drag.id) return; var d = dragDelta(ev); drag.moved = drag.moved || Math.abs(ev.clientX - drag.sx) + Math.abs(ev.clientY - drag.sy) > 4;
+    if (!drag.moved) return;
+    if (drag.mode === "move") { drag.g.setAttribute("transform", "translate(" + d.dx + "," + d.dy + ")"); drag.hit.setAttribute("stroke", "#2e6f95"); }
+    else { drag.hit.setAttribute("width", Math.max(10, drag.e.w + d.dx)); drag.hit.setAttribute("height", Math.max(10, drag.e.h + d.dy)); drag.hit.setAttribute("stroke", "#2e6f95"); }
+  }
+  function onDragUp(ev) {
+    if (!drag || ev.pointerId !== drag.id) return; var d = dragDelta(ev), dr = drag; endDrag();
+    if (!dr.moved) { render(); wrap().querySelector("svg").focus(); return; }
+    if (unreadable) { render(); return; }
+    var e = dr.e, p = dr.mode === "move" ? { x: Math.round(e.x + d.dx), y: Math.round(e.y + d.dy) } : { w: Math.round(e.w + d.dx), h: Math.round(e.h + d.dy) };
+    var ok = apply(eop("updateElement", e.id, p), dr.mode === "move" ? "Item moved." : "Item resized."), now = sel();
+    if (ok && now) { var keys = Object.keys(p).filter(function (k) { return now[k] !== p[k]; }); if (keys.length) status.textContent = "Adjusted " + keys.join(" and ").toUpperCase() + " so the item fits the slide and limits. " + H.note; }
+    else if (!ok) render();
+    var s2 = wrap().querySelector("svg"); if (s2) s2.focus();
+  }
+  function onDragCancel(ev) { if (!drag || ev.pointerId !== drag.id) return; endDrag(); render(); status.textContent = "Drag cancelled. Nothing changed."; }
+  function onDragKey(ev) { if (drag && ev.key === "Escape") { ev.preventDefault(); ev.stopPropagation(); endDrag(); render(); status.textContent = "Drag cancelled. Nothing changed."; } }
+  function wrap() { return $("sl-canvas-wrap"); }
+  function beginDrag(ev, e, mode) {
+    if (drag) endDrag();
+    selId = e.id; var prevSvg = wrap().querySelector("svg");
+    if (unreadable || (ev.pointerType === "mouse" && ev.button !== 0)) { render(); wrap().querySelector("svg").focus(); return; }
+    render();
+    var svg = wrap().querySelector("svg"), hit = svg.querySelector('rect[data-id="' + e.id + '"]');
+    if (!hit) return;
+    drag = { id: ev.pointerId, sx: ev.clientX, sy: ev.clientY, e: { id: e.id, x: e.x, y: e.y, w: e.w, h: e.h }, mode: mode, svg: svg, g: hit.parentNode, hit: hit, moved: false };
+    document.addEventListener("pointermove", onDragMove); document.addEventListener("pointerup", onDragUp); document.addEventListener("pointercancel", onDragCancel); document.addEventListener("keydown", onDragKey, true);
+    svg.focus();
+  }
   function render() {
     var d = H.deck, th = S.THEMES[d.theme];
     if (!sel()) selId = null;
@@ -51,7 +85,7 @@
     tgt().forEach(function (e) {
       var g = el("g", {}); drawEl(g, d, e);
       var hit = el("rect", { x: e.x, y: e.y, width: e.w, height: e.h, fill: "transparent", stroke: e.id === selId ? "#2e6f95" : "none", "stroke-width": 3, "stroke-dasharray": "8 4", "data-id": e.id });
-      hit.addEventListener("pointerdown", function (ev) { ev.preventDefault(); selId = e.id; render(); wrap.querySelector("svg").focus(); });
+      hit.addEventListener("pointerdown", function (ev) { ev.preventDefault(); beginDrag(ev, e, "move"); });
       g.appendChild(hit); svg.appendChild(g);
     });
     svg.addEventListener("pointerdown", function (ev) { if (ev.target === svg || ev.target.tagName === "rect" && !ev.target.getAttribute("data-id")) { selId = null; render(); } });
@@ -59,10 +93,17 @@
       var e = sel(); if (!e) return; var dx = 0, dy = 0;
       if (ev.key === "ArrowLeft") dx = -10; else if (ev.key === "ArrowRight") dx = 10; else if (ev.key === "ArrowUp") dy = -10; else if (ev.key === "ArrowDown") dy = 10;
       else if (ev.key === "Delete" || ev.key === "Backspace") { ev.preventDefault(); apply(eop("deleteElement", e.id), "Item deleted."); return; } else return;
-      ev.preventDefault(); apply(eop("updateElement", e.id, { x: e.x + dx, y: e.y + dy }));
+      ev.preventDefault(); apply(eop("updateElement", e.id, ev.shiftKey ? { w: e.w + dx, h: e.h + dy } : { x: e.x + dx, y: e.y + dy }), ev.shiftKey ? "Item resized." : undefined);
       var s2 = $("sl-canvas-wrap").querySelector("svg"); if (s2) s2.focus();
     });
     wrap.appendChild(svg);
+    var se = sel(); if (se && !unreadable) {
+      var hs = Math.max(24, 28 / Math.max(0.05, svg.getBoundingClientRect().width / S.W));  // about 28 screen pixels, whatever the canvas width
+      var hd = el("rect", { x: se.x + se.w - hs / 2, y: se.y + se.h - hs / 2, width: hs, height: hs, fill: "#2e6f95", stroke: "#fff", "stroke-width": 2, "data-handle": se.id, style: "cursor:nwse-resize" });
+      hd.appendChild(el("title", {}, "Drag to resize this item"));
+      hd.addEventListener("pointerdown", function (ev) { ev.preventDefault(); ev.stopPropagation(); beginDrag(ev, se, "resize"); });
+      svg.appendChild(hd);
+    }
     var il = $("sl-items"); il.textContent = "";
     S.describeEls(tgt()).forEach(function (label, k) {
       var id = tgt()[k].id, li = document.createElement("li"), b = document.createElement("button");

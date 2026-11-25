@@ -2297,6 +2297,132 @@ def sheets_headers(ctx):  # noqa: C901
             pg.screenshot(path=os.path.join(SHOTS, "sheets-headers-66.png"), full_page=False)
 
 
+def slides_drag(ctx):  # noqa: C901
+    """Drag to move, drag the corner square to resize, in real Chromium with the real mouse."""
+    pg = fresh(ctx, "/slides/")
+    KEY = "document.getElementById('slide-root').dataset.storeKey"
+
+    def item():
+        return pg.evaluate(
+            "(()=>{const d=JSON.parse(localStorage.getItem(%s));const e=d.slides[0].elements;const x=e[e.length-1];return [x.x,x.y,x.w,x.h];})()"
+            % KEY
+        )
+
+    def geom():
+        return pg.evaluate(
+            "(()=>{const s=document.querySelector('#sl-canvas-wrap svg').getBoundingClientRect();return {x:s.left,y:s.top,k:s.width/960};})()"
+        )
+
+    def drag(frm, to, steps=8):
+        pg.mouse.move(frm[0], frm[1])
+        pg.mouse.down()
+        pg.mouse.move(to[0], to[1], steps=steps)
+        pg.mouse.up()
+        pg.wait_for_timeout(120)
+
+    def near(a, b, tol=3):
+        return all(abs(p - q) <= tol for p, q in zip(a, b, strict=True))
+
+    pg.click("#sl-add-rect")
+    pg.wait_for_timeout(150)
+    start = item()
+    g = geom()
+    cx, cy = (
+        g["x"] + (start[0] + start[2] / 2) * g["k"],
+        g["y"] + (start[1] + start[3] / 2) * g["k"],
+    )
+    drag((cx, cy), (cx + 100 * g["k"], cy + 50 * g["k"]))
+    moved = item()
+    check(
+        "drag: dragging an item moves it by the distance dragged, in slide units",
+        near(moved, [start[0] + 100, start[1] + 50, start[2], start[3]]),
+        (start, moved),
+    )
+    check("drag: the new place is stored", near(item(), moved, 0))
+    pg.click("#sl-undo")
+    check("drag: one Undo puts the whole drag back", item() == start, item())
+    pg.click("#sl-redo")
+    check("drag: Redo moves it again", near(item(), moved, 0), item())
+    # a tap with no movement changes nothing
+    before = pg.evaluate("localStorage.getItem(%s)" % KEY)
+    undo_was = pg.is_disabled("#sl-undo")
+    pg.mouse.move(cx + 100 * g["k"], cy + 50 * g["k"])
+    pg.mouse.down()
+    pg.mouse.up()
+    pg.wait_for_timeout(120)
+    check(
+        "drag: a tap without moving selects but stores nothing and adds no Undo step",
+        pg.evaluate("localStorage.getItem(%s)" % KEY) == before
+        and pg.is_disabled("#sl-undo") == undo_was,
+    )
+    # Esc during a drag drops it
+    pos = item()
+    pg.mouse.move(cx + 100 * g["k"], cy + 50 * g["k"])
+    pg.mouse.down()
+    pg.mouse.move(cx + 200 * g["k"], cy + 100 * g["k"], steps=6)
+    pg.keyboard.press("Escape")
+    pg.mouse.up()
+    pg.wait_for_timeout(120)
+    check(
+        "drag: Esc during a drag cancels it and says so",
+        item() == pos and "Drag cancelled" in pg.inner_text("#sl-status"),
+        (item(), pg.inner_text("#sl-status")),
+    )
+    # resize by the corner square
+    pos = item()
+    hx = g["x"] + (pos[0] + pos[2]) * g["k"]
+    hy = g["y"] + (pos[1] + pos[3]) * g["k"]
+    if SHOTS:
+        pg.screenshot(path=os.path.join(SHOTS, "slides-drag-67.png"), full_page=False)
+    drag((hx, hy), (hx + 60 * g["k"], hy + 40 * g["k"]))
+    now = item()
+    check(
+        "drag: dragging the corner square resizes the item and leaves its position",
+        near(now, [pos[0], pos[1], pos[2] + 60, pos[3] + 40]),
+        (pos, now),
+    )
+    pg.click("#sl-undo")
+    check("drag: one Undo puts the size back", item() == pos, item())
+    # dragged past the slide edge: clamped, and says so
+    pos = item()
+    cx, cy = g["x"] + (pos[0] + pos[2] / 2) * g["k"], g["y"] + (pos[1] + pos[3] / 2) * g["k"]
+    drag((cx, cy), (cx + 2000 * g["k"] / 3, cy + 1000 * g["k"] / 3))
+    now = item()
+    check(
+        "drag: an item dragged off the slide is kept inside it and the status says it was adjusted",
+        now[0] + now[2] <= 960
+        and now[1] + now[3] <= 540
+        and "Adjusted" in pg.inner_text("#sl-status"),
+        (now, pg.inner_text("#sl-status")),
+    )
+    # keyboard: Shift+Arrow resizes, Arrow moves
+    pg.click("#sl-undo")
+    pos = item()
+    pg.locator("#sl-canvas-wrap svg").focus()
+    pg.keyboard.press("Shift+ArrowRight")
+    pg.keyboard.press("Shift+ArrowDown")
+    check(
+        "drag: Shift+Arrow resizes by 10",
+        near(item(), [pos[0], pos[1], pos[2] + 10, pos[3] + 10], 0),
+        item(),
+    )
+    pg.keyboard.press("ArrowLeft")
+    check("drag: Arrow still moves by 10", item()[0] == pos[0] - 10, item())
+    # phone: the corner square is big enough to touch
+    pg.set_viewport_size({"width": 390, "height": 800})
+    pg.wait_for_timeout(250)
+    pg.click("#sl-items button")
+    pg.wait_for_timeout(150)
+    hw = pg.evaluate(
+        "(()=>{const h=document.querySelector('#sl-canvas-wrap rect[data-handle]');return h?h.getBoundingClientRect().width:0;})()"
+    )
+    check("drag: at 390 px the corner square is at least 24 screen pixels wide", hw >= 24, hw)
+    if SHOTS:
+        pg.locator("#sl-canvas-wrap svg").scroll_into_view_if_needed()
+        pg.screenshot(path=os.path.join(SHOTS, "slides-drag-67-phone.png"), full_page=False)
+    pg.set_viewport_size({"width": 1100, "height": 900})
+
+
 def slides_master(ctx):  # noqa: C901
     import shutil
     import subprocess
@@ -3034,6 +3160,7 @@ DRILLS = {
     "sheets_sort_filter": sheets_sort_filter,
     "sheets_fill": sheets_fill,
     "sheets_headers": sheets_headers,
+    "slides_drag": slides_drag,
     "sheets_tabs": sheets_tabs,
     "sheets_chart": sheets_chart,
     "sheets_validation": sheets_validation,
