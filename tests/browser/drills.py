@@ -6,6 +6,7 @@ import json
 import os
 import sys
 import time
+from urllib.parse import urlsplit
 
 import pyotp
 from playwright.sync_api import sync_playwright
@@ -373,16 +374,16 @@ def main():
         errs = []
         remote = []
 
+        app_u = urlsplit(APP)
+
         def only_loopback(route):
-            host = route.request.url.split("/")[2].split(":")[0]
-            if host in (
-                "app.salowtech.com",
-                "127.0.0.1",
-                "localhost",
-            ) or route.request.url.startswith(("data:", "blob:")):
+            u = urlsplit(route.request.url)
+            if u.scheme in ("data", "blob", "about"):
+                route.continue_()
+            elif u.scheme == "http" and u.hostname == app_u.hostname and u.port == app_u.port:
                 route.continue_()
             else:
-                remote.append(host)
+                remote.append((u.scheme or "?") + "://" + (u.hostname or "?") + ":" + str(u.port))
                 route.abort()
 
         ctx.route("**/*", only_loopback)

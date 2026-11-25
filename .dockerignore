@@ -12,3 +12,4 @@ htmlcov
 .env
 *.sqlite3
 docs/
+tests/browser

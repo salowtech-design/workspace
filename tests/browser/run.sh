@@ -49,7 +49,7 @@ PORT_DB="${DRILL_DB_PORT:-$(free_port)}"; PORT_APP="${DRILL_APP_PORT:-$(free_por
 for p in "$PORT_DB" "$PORT_APP" "$PORT_ST"; do
   if port_busy "$p"; then echo "Port $p is already in use. Not starting; nothing was touched."; RC=2; exit 2; fi
 done
-[ "$PORT_DB" != "$PORT_APP" ] || { echo "Same port for DB and app"; RC=2; exit 2; }
+if [ "$PORT_DB" = "$PORT_APP" ] || [ "$PORT_DB" = "$PORT_ST" ] || [ "$PORT_APP" = "$PORT_ST" ]; then echo "DB, app and status ports must all differ"; RC=2; exit 2; fi
 # Clean environment for everything below. Only these variables pass through.
 E=(env -i PATH="$PATH" HOME="${HOME:-/tmp}" LANG=C.UTF-8 TMPDIR="$TMP" NO_PROXY=127.0.0.1,localhost,app.salowtech.com no_proxy=127.0.0.1,localhost,app.salowtech.com
    ${PLAYWRIGHT_BROWSERS_PATH:+PLAYWRIGHT_BROWSERS_PATH="$PLAYWRIGHT_BROWSERS_PATH"}
@@ -57,7 +57,7 @@ E=(env -i PATH="$PATH" HOME="${HOME:-/tmp}" LANG=C.UTF-8 TMPDIR="$TMP" NO_PROXY=
    TIDB_TEST_USER=root TIDB_TEST_PASSWORD= TIDB_TEST_HOST=127.0.0.1 TIDB_TEST_PORT="$PORT_DB"
    PYTHONPATH="$ROOT:$ROOT/tests/browser${EXTRA_PYTHONPATH:+:$EXTRA_PYTHONPATH}")
 mkdir -p "$TMP/audit"
-echo "Target: DB 127.0.0.1:$PORT_DB (new throwaway store), app 127.0.0.1:$PORT_APP, settings config.settings.test_tidb"
+echo "Planned target: DB 127.0.0.1:$PORT_DB (new throwaway store), app 127.0.0.1:$PORT_APP, settings config.settings.test_tidb"
 "$TIDB_SERVER" --store=unistore --path="$TMP/tidb" -P "$PORT_DB" --host 127.0.0.1 --status "$PORT_ST" --log-file="$TMP/tidb.log" > "$TMP/tidb.out" 2>&1 &
 TIDB_PID=$!
 ready=0
@@ -69,7 +69,8 @@ done
 [ "$ready" = 1 ] || { echo "DB not ready"; RC=2; exit 2; }
 cd "$ROOT" || exit 2
 "${E[@]}" "$PY" -c "import pymysql;c=pymysql.connect(host='127.0.0.1',port=$PORT_DB,user='root');c.cursor().execute('create database drill_db')" || { echo "Could not create the throwaway database"; RC=2; exit 2; }
-"${E[@]}" "$PY" manage.py migrate -v0 2>&1 | tail -3
+"${E[@]}" "$PY" tests/browser/check_target.py "$PORT_DB" || { RC=2; exit 2; }
+"${E[@]}" "$PY" -m django migrate -v0 2>&1 | tail -3
 [ "${PIPESTATUS[0]}" = 0 ] || { echo "migrate failed"; RC=2; exit 2; }
 "${E[@]}" "$PY" tests/browser/seed.py "$TMP/secrets.json" || { RC=2; exit 2; }
 "${E[@]}" "$PY" -m uvicorn asgi_dev:application --host 127.0.0.1 --port "$PORT_APP" --log-level warning > "$TMP/uvicorn.log" 2>&1 &
@@ -87,7 +88,11 @@ RC=${PIPESTATUS[0]}
 "$PY" - "$TMP" <<'PYEOF'
 import json, os, sys
 tmp = sys.argv[1]
-vals = [v for v in json.load(open(os.path.join(tmp, "secrets.json"))).values() if v]
+import base64, urllib.parse
+raw = [v for v in json.load(open(os.path.join(tmp, "secrets.json"))).values() if v]
+vals = set(raw)
+for v in raw:  # plain text plus URL-encoded, base64 and JSON-escaped forms
+    vals |= {urllib.parse.quote(v), urllib.parse.quote_plus(v), base64.b64encode(v.encode()).decode().rstrip("="), json.dumps(v)[1:-1]}
 t = open(os.path.join(tmp, "drills.out")).read() + open(os.path.join(tmp, "uvicorn.log")).read()
 if any(v in t for v in vals):
     print("SECRET FOUND IN OUTPUT OR APP LOG")
