@@ -134,7 +134,7 @@ def passkey_delete_view(request, passkey_id: int):
         )
         return redirect("/auth/security/sudo/?next=/auth/security/")
 
-    success = revoke_passkey(request.user, passkey_id)
+    success = revoke_passkey(request.user, passkey_id, actor_employee_id=request.user.employee_id)
     if success:
         messages.success(request, "Passkey credential has been revoked.")
     else:

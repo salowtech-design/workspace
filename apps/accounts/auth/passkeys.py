@@ -139,6 +139,8 @@ def verify_passkey_registration(
         employee_id=user.employee_id,
         reference_id=f"PK-{passkey.id}",
         message=f"Passkey '{passkey.display_name}' registered successfully",
+        # Registration runs inside the signed-in user's own session (login_required view).
+        actor_employee_id=user.employee_id if request is not None else "",
     )
 
     return passkey
@@ -241,7 +243,7 @@ def verify_passkey_authentication(
     return matched_user
 
 
-def revoke_passkey(user: CustomUser, passkey_id: int) -> bool:
+def revoke_passkey(user: CustomUser, passkey_id: int, actor_employee_id: str = "") -> bool:
     """Revoke/deactivate a user passkey credential."""
     updated = PasskeyCredential.objects.filter(id=passkey_id, user=user).update(is_active=False)
     if updated:
@@ -252,6 +254,7 @@ def revoke_passkey(user: CustomUser, passkey_id: int) -> bool:
             employee_id=user.employee_id,
             reference_id=f"PK-{passkey_id}",
             message="Passkey revoked by user",
+            actor_employee_id=actor_employee_id,
         )
         return True
     return False
