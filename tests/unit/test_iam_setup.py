@@ -386,6 +386,8 @@ def test_two_simultaneous_recoveries_with_one_code_succeed_only_once():
 
     from django.db import connection
 
+    if connection.vendor == "sqlite":
+        pytest.skip("row locks are only meaningful on the TiDB/MySQL backend")
     admin, _s, codes = _enroll()
     results = []
 
