@@ -301,6 +301,8 @@ def test_live_events_cursor_dedup_actor_domain_and_no_leaks(session_and_token):
         "event",
         "code",
         "actor",
+        "actor_state",
+        "claimed_identity",
         "subject",
         "reference",
         "message",
@@ -336,8 +338,10 @@ def test_live_events_message_is_allow_listed_not_truncated(session_and_token):
     assert by["password_verified"]["message"] == ""
     assert "SECRET" not in str(rows)
     assert by["team_membership_added"]["message"].startswith("Added to team")
-    # A sign-in style event names its employee as the actor.
-    assert by["password_verified"]["actor"] == "ST-X"
+    # A sign-in style event carries only the submitted identity: shown as a claim, not an actor.
+    assert by["password_verified"]["actor"] == ""
+    assert by["password_verified"]["actor_state"] == "claimed"
+    assert by["password_verified"]["claimed_identity"] == "ST-X"
 
 
 def test_unknown_event_names_are_unclassified_not_workspace(session_and_token):

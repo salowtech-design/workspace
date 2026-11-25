@@ -170,11 +170,43 @@ def transaction_domains(events) -> dict:
     return dict(rows)
 
 
+# Events written by the sign-in paths that carry only the submitted identity.
+SIGNIN_EVENTS = frozenset(
+    {
+        "password_verified",
+        "totp_verified",
+        "totp_invalid",
+        "totp_replay_rejected",
+        "session_established",
+        "second_device_session_established",
+        "activation_failed",
+        "recovery_code_failed",
+        "passkey_auth_failed",
+    }
+)
+# Only these mean the identity was authenticated, so only these name it as the actor.
+VERIFIED_SIGNIN_EVENTS = frozenset({"auth.terminal.success", "session_established"})
+
+
 def public_payload(evt: AuthEvent, tx_domain=None) -> dict:
     """Only these fields leave the server. No network address, no exception text."""
     domain = domain_of(evt.event, tx_domain)
-    # Sign-in style events have no separate actor: the employee is the actor.
-    actor = evt.actor_employee_id or (evt.employee_id if domain == "workspace" else "")
+    event_name = evt.event or ""
+    subject = evt.employee_id or ""
+    is_signin = event_name.startswith(("auth.", "login_failed")) or event_name in SIGNIN_EVENTS
+    # A recorded actor is always shown as recorded. A sign-in row carries only the identity
+    # that was submitted: it is the actor only once authentication succeeded. Before that
+    # (wrong password, wrong code, unknown ID, someone else's ID) it is shown as an
+    # unverified claim and never as the actor.
+    if evt.actor_employee_id:
+        actor, state = evt.actor_employee_id, "recorded"
+    elif event_name in VERIFIED_SIGNIN_EVENTS and subject:
+        actor, state = subject, "verified"
+    elif is_signin:
+        actor, state = "", ("claimed" if subject else "none")
+    else:
+        actor = subject if domain == "workspace" else ""
+        state = "recorded" if actor else "none"
     return {
         "id": evt.id,
         "time": evt.time.isoformat(),
@@ -182,6 +214,8 @@ def public_payload(evt: AuthEvent, tx_domain=None) -> dict:
         "event": evt.event,
         "code": evt.code,
         "actor": actor or "",
+        "actor_state": state,
+        "claimed_identity": subject if state == "claimed" else "",
         "subject": evt.employee_id or "",
         "reference": (evt.reference_id or "")[:64],
         "message": _safe_message(evt),

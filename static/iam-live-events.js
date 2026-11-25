@@ -24,7 +24,11 @@
     tr.className = "iam-live-row";
     tr.appendChild(cell(new Date(e.time).toLocaleTimeString()));
     tr.appendChild(cell(e.domain.toUpperCase()));
-    tr.appendChild(cell(e.actor || "-"));
+    if (e.actor_state === "claimed" && e.claimed_identity) {
+      tr.appendChild(cell("unverified claim: " + e.claimed_identity, "px-4 py-2 iam-actor-claimed"));
+    } else {
+      tr.appendChild(cell(e.actor || "-"));
+    }
     tr.appendChild(cell(e.event));
     tr.appendChild(cell(e.subject || e.reference || "-"));
     tr.appendChild(cell(e.message));
