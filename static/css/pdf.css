@@ -4,3 +4,12 @@
 .pdf-stage canvas { display: block; margin: 0 auto; background: #fff; max-width: none; }
 #pdf-status { min-height: 1.5em; }
 .pdf-text { white-space: pre-wrap; max-height: 16em; overflow: auto; background: #fff; border: 1px solid #d9cfc2; border-radius: 6px; padding: 8px; font: inherit; }
+@media (max-width: 480px) {
+  .pdf-card { padding: 12px; }
+  .pdf-card .cal-head h2 { margin: 0 0 4px; }
+  .pdf-tools { gap: 6px; }
+  .pdf-tools .btn { padding: 6px 10px; font-size: 14px; }
+  .pdf-tools label:first-child { flex: 1 0 100%; }
+  .pdf-tools input[type="number"] { width: 3.5em; }
+  .pdf-stage { padding: 4px; }
+}

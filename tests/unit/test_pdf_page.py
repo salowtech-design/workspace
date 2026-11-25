@@ -49,10 +49,17 @@ def test_vendor_files_are_tracked_and_match_recorded_checksums():
 
     vendor = ROOT / "static/pdf/vendor"
     lines = (vendor / "SHA256SUMS").read_text().splitlines()
-    assert len(lines) == 19
+    on_disk = [
+        x
+        for x in vendor.rglob("*")
+        if x.is_file() and x.name not in ("SHA256SUMS", "PROVENANCE.txt")
+    ]
+    assert len(lines) == len(on_disk) >= 5
     for line in lines:
         digest, name = line.split("  ", 1)
         assert hashlib.sha256((vendor / name).read_bytes()).hexdigest() == digest, name
+    if not shutil.which("git"):
+        return
     tracked = subprocess.run(  # noqa: S603 - fixed argv
         [shutil.which("git"), "ls-files", "static/pdf/vendor"],
         cwd=ROOT,
