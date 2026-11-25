@@ -416,6 +416,9 @@ def test_reconcile_finds_a_grant_written_straight_into_the_database():
     assert svc.reconcile_user(b, fix=True) == [("folder", top.public_id)]
     assert _rows(b)[-1][3:6] == ("active", "editor", "reconcile")
     assert svc.reconcile_user(b) == []
+    from apps.core.models import AuditLog
+
+    assert AuditLog.objects.filter(action="drive.manifest.reconcile").count() == 1
 
 
 @pytest.mark.django_db
@@ -442,13 +445,7 @@ def test_notification_value_errors_skip_but_database_errors_propagate(monkeypatc
         svc.share(a, top, c, "viewer")
 
 
-def test_relock_does_not_retry_inside_a_caller_transaction_and_skips_commit_errors():
-    from django.db import OperationalError
-
-    assert svc._commit_failed(OperationalError(1105, "commit failed: write conflict"))
-    assert not svc._commit_failed(OperationalError(1105, "pessimistic lock retry limit reached"))
-
-
+@pytest.mark.django_db(transaction=True)
 def test_relock_retries_only_allowed_errors_end_to_end(monkeypatch):
     from django.db import OperationalError
 
@@ -487,9 +484,13 @@ def test_relock_retries_only_allowed_errors_end_to_end(monkeypatch):
 
 
 @pytest.mark.django_db
-def test_page_limit_is_capped():
+def test_page_limit_is_capped(monkeypatch):
     a, b = _u("L-A"), _u("L-B")
     top = svc.create_folder(a, "Cap")
-    svc.share(a, top, b, "viewer")
+    for _ in range(3):
+        svc.share(a, top, b, "viewer")
+        svc.unshare(a, top, b)
+    monkeypatch.setattr(svc, "MANIFEST_PAGE_EPOCHS", 2)
     out = svc.manifest_since(b, since=0, limit=10**9)
-    assert out["next_since"] <= svc.MANIFEST_PAGE_EPOCHS
+    assert [c.epoch for c in out["changes"]] == [1, 2]
+    assert out["next_since"] == 2 and out["has_more"] is True

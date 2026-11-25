@@ -178,16 +178,6 @@ def _is_lock_contention(exc):
     return code == 1105 and "pessimistic lock retry limit" in msg.lower()
 
 
-def _commit_failed(exc):
-    """Errors raised while committing leave the outcome unknown, so they are never retried.
-    Lock contention errors in this module come from statements inside the transaction."""
-    # LIMITATION: the driver gives no flag for "failed during COMMIT", so this matches the
-    # message text. A commit failure whose text omits "commit" would be retried; the retry
-    # re-runs the whole operation from a fresh transaction (compare-and-set and the unique
-    # epoch/item key make a repeat safe to detect, but this is not a proof).
-    return "commit" in str(exc).lower() and "retry limit" not in str(exc).lower()
-
-
 class LockSetGrew(Exception):
     """The set of people grew between reading it and locking it. The whole transaction is
     rolled back (releasing every lock) and re-run, so locks are never taken out of order."""
@@ -210,7 +200,8 @@ def _relock(fn):
             # a transaction that may already be dead or hold locks in the wrong order, so run
             # once and let the caller see the error.
             try:
-                return fn(*args, **kwargs)
+                with transaction.atomic():
+                    return fn(*args, **kwargs)
             except LockSetGrew:
                 # the enclosing transaction holds locks taken in the wrong order: force it to
                 # roll back instead of letting a caller catch this and carry on
@@ -218,15 +209,25 @@ def _relock(fn):
                 raise ValidationError("Access changed while this ran. Try again.") from None
         last = None
         for attempt in range(5):
+            body_done = False
             try:
-                return fn(*args, **kwargs)
+                with transaction.atomic():
+                    result = fn(*args, **kwargs)
+                    body_done = True  # from here on, any error is raised by COMMIT itself
+                return result
             except LockSetGrew as exc:
                 last = exc
                 continue
             except OperationalError as exc:
-                # Retry only lock contention (see _is_lock_contention). A transaction that
-                # fails at COMMIT is not retried here: the commit outcome could be unknown.
-                if not _is_lock_contention(exc) or _commit_failed(exc):
+                # Retry only lock contention raised by a statement in the body. An error after
+                # the body finished came from COMMIT: its outcome may be unknown, so it is
+                # never replayed (phase flag, not text matching).
+                if body_done:
+                    logger.error("drive operation: error raised at commit, not replayed: %r", exc)
+                    raise ValidationError(
+                        "Could not confirm this change was saved. Check the item, then try again."
+                    ) from exc
+                if not _is_lock_contention(exc):
                     raise
                 last = exc
                 time.sleep(random.uniform(0.02, 0.1) * (attempt + 1))  # noqa: S311
@@ -291,7 +292,7 @@ def _record(item, reason, people, nested=()):
 MANIFEST_PAGE_EPOCHS = 200
 
 
-def manifest_since(user, since=0, limit=MANIFEST_PAGE_EPOCHS):
+def manifest_since(user, since=0, limit=None):
     """One page of changes in (since, next_since]. The epoch is read FIRST and the page is cut
     by epoch number (epochs are gap free per person), so a page is never split mid-epoch.
     Rows carry absolute state, so replay over a newer listing converges. A cursor ahead of the
@@ -309,7 +310,7 @@ def manifest_since(user, since=0, limit=MANIFEST_PAGE_EPOCHS):
             "full_list_required": True,
             "changes": [],
         }
-    last = min(top, since + min(max(1, int(limit)), MANIFEST_PAGE_EPOCHS))
+    last = min(top, since + min(max(1, int(limit or MANIFEST_PAGE_EPOCHS)), MANIFEST_PAGE_EPOCHS))
     rows = ManifestChange.objects.filter(user=user, epoch__gt=since, epoch__lte=last).order_by(
         "epoch", "id"
     )
@@ -372,6 +373,7 @@ def reconcile_user(user, fix=False):  # noqa: C901 (one linear scan then one loc
                 last is not None and (want != last.state or (live.role or "") != last.role)
             ):
                 _bump(user.pk, item, "reconcile")
+                audit(user, "drive.manifest.reconcile", kind, pid, source="reconcile")
                 corrected.append((kind, pid))
                 logger.warning(
                     "drive manifest reconcile corrected %s %s for user %s", kind, pid, user.pk
@@ -501,7 +503,6 @@ def _check_destination(user, item, destination):
 
 
 @_relock
-@transaction.atomic
 def move(user, item, destination):
     """Move to another folder (None = the owner's top level). Folders cannot enter themselves."""
     also = (destination,) if destination is not None else ()
@@ -536,7 +537,6 @@ def _descendants(folder):
 
 
 @_relock
-@transaction.atomic
 def trash(user, item):
     """Move to trash as one batch (a folder takes its contents with it). Nothing is deleted."""
     _lock_affected(item)
@@ -560,7 +560,6 @@ def trash(user, item):
 
 
 @_relock
-@transaction.atomic
 def restore(user, item):
     """Bring back one trash batch. It returns to its old place; if that place is gone, is in
     the trash, would collide by name, or would nest too deep, nothing changes and the
@@ -607,7 +606,6 @@ def restore(user, item):
 
 
 @_relock
-@transaction.atomic
 def share(user, item, person, role):
     _lock_users(item.owner_id, person.pk)
     _fresh(item)
@@ -654,7 +652,6 @@ def share(user, item, person, role):
 
 
 @_relock
-@transaction.atomic
 def unshare(user, item, person):
     _lock_users(item.owner_id, person.pk)
     _fresh(item)
