@@ -3,7 +3,7 @@
 {% block extra_head %}<link rel="stylesheet" href="/static/css/events.css">{% endblock %}
 {% block content %}
 <div class="card cal"><div class="cal-head"><h2>Notifications</h2></div>
-<p class="cal-meta">Only you see these. They are shown here and are not emailed or pushed. The latest {{ shown }} are listed.</p>
+<p class="cal-meta">These are shown in your own in-app inbox and are not emailed or pushed. This is not a confidentiality guarantee: system records can still be read by those who run the system. The latest {{ shown }} are listed.</p>
 {% if items %}<form method="post" action="{% url 'inbox:read' %}" class="cal-form">{% csrf_token %}<button class="btn" type="submit">Mark all as read</button></form>{% endif %}
 {% for n in items %}<div class="cal-row">{% if n.link %}<a class="cal-title" href="{{ n.link }}">{{ n.title }}</a>{% else %}<span class="cal-title">{{ n.title }}</span>{% endif %} <span class="cal-meta">{{ n.when|date:"j M Y H:i" }}{% if n.unread %}, unread{% endif %}</span></div>
 {% empty %}<p class="cal-meta">No notifications.</p>{% endfor %}
