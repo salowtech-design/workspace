@@ -17,10 +17,14 @@ def register_policy(resource_type: str, policy: Policy) -> None:
 
 
 def can(user: Optional[Any], action: str, resource_type: str, obj: Any) -> bool:
-    """True only when the user is active and the registered policy allows the action."""
+    """True only when the user is active, status is ACTIVE and the registered policy allows the action."""
     if user is None or not getattr(user, "is_authenticated", False):
         return False
     if not getattr(user, "is_active", False):
+        return False
+    # The rest of the app also requires an ACTIVE account status (suspended or locked
+    # people keep is_active but must not pass any policy).
+    if getattr(user, "status", "active") != "active":
         return False
     policy = _POLICIES.get(resource_type)
     if policy is None:
@@ -28,6 +32,9 @@ def can(user: Optional[Any], action: str, resource_type: str, obj: Any) -> bool:
     try:
         return bool(policy(user, action, obj))
     except Exception:  # noqa: BLE001 - a policy bug must refuse, never allow
+        import logging
+
+        logging.getLogger(__name__).exception("policy for %s raised; refusing", resource_type)
         return False
 
 

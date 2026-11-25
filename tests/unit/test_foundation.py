@@ -98,12 +98,32 @@ def test_search_drops_results_the_user_may_not_view(clean):
     docs = [Doc(1, a), Doc(2, b)]
     permissions.register_policy("doc", lambda u, act, o: o.owner == u)
     search.register_searcher(
-        "docs", lambda q, n: [("doc", d, f"Doc {d.pk}", f"/d/{d.pk}") for d in docs]
+        "docs", lambda u, q, n: [("doc", d, f"Doc {d.pk}", f"/d/{d.pk}") for d in docs]
     )
     assert [h.object_id for h in search.search(a, "doc")] == ["1"]
     assert [h.object_id for h in search.search(b, "doc")] == ["2"]
     assert search.search(a, "d") == []  # too short
     assert search.search(a, "doc", types=["other"]) == []
+    with pytest.raises(ValueError):
+        search.register_searcher("docs", lambda u, q, n: [])
+
+
+@pytest.mark.django_db
+def test_non_active_status_is_refused_and_prefiltered_searcher_not_crowded_out(clean):
+    a = _user("F-S1")
+    permissions.register_policy("doc", lambda u, act, o: o.owner == u)
+    a.status = "suspended"
+    assert permissions.can(a, "view", "doc", Doc(1, a)) is False
+    a.status = "active"
+    assert permissions.can(a, "view", "doc", Doc(1, a)) is True
+    other = _user("F-S2")
+    pool = [Doc(i, other) for i in range(100)] + [Doc(500, a)]
+
+    def searcher(user, q, n):  # pre-filters by owner inside the query, as modules must
+        return [("doc", d, f"D{d.pk}", f"/d/{d.pk}") for d in pool if d.owner == user][:n]
+
+    search.register_searcher("docs", searcher)
+    assert [h.object_id for h in search.search(a, "doc")] == ["500"]
 
 
 @pytest.mark.django_db
@@ -127,6 +147,23 @@ def test_jobs_run_through_the_outbox_with_retries(monkeypatch):
     for _ in range(3):
         jobs.run_jobs()
     assert OutboxEvent.objects.get(event_type="job.bad").status == "failed"
+    with pytest.raises(ValueError):
+        jobs.register_job("bad", lambda p: None)
+    jobs.register_job("bad", bad)  # same handler again is a no-op
+
+
+@pytest.mark.django_db
+def test_notification_links_are_internal_and_target_permission_is_checked(clean):
+    a, b = _user("F-N1"), _user("F-N2")
+    for bad in ("//evil.example/x", "https://evil.example", "javascript:alert(1)", "x/y", "/a\\b"):
+        with pytest.raises(ValueError):
+            notify.notify(a, "k", "t", bad)
+    permissions.register_policy("doc", lambda u, act, o: o.owner == u)
+    d = Doc(1, a)
+    assert notify.notify(a, "k", "t", "/d/1/", check=("doc", d)).link == "/d/1/"
+    with pytest.raises(PermissionError):
+        notify.notify(b, "k", "t", "/d/1/", check=("doc", d))
+    assert Notification.objects.filter(user=b).count() == 0
 
 
 @pytest.mark.django_db
