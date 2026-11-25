@@ -6,7 +6,7 @@
   var W = 960, H = 540, MAX_SLIDES = 50, MAX_EL = 30, MAX_MASTER = 10, MAX_TEXT = 1000, MAX_NOTES = 2000, HIST = 100;
   var THEMES = { light: { bg: "#ffffff", fg: "#222222", accent: "#7a2e22" }, dark: { bg: "#1f2430", fg: "#f2f2f2", accent: "#e0a458" }, warm: { bg: "#faf5ec", fg: "#3b2a20", accent: "#a4472f" } };
   var FILLS = ["theme", "#7a2e22", "#2e6f95", "#3b7d4f", "#c28b1d", "#6b6b6b"];
-  var TYPES = ["text", "rect", "ellipse"];
+  var TYPES = ["text", "rect", "ellipse", "image"], HASH_RE = /^[0-9a-f]{64}$/, MAX_IMAGES = 20;
   var has = function (o, k) { return Object.prototype.hasOwnProperty.call(o, k); };
   var ID_RE = /^[A-Za-z0-9_-]{1,40}$/, MAX_SNAPSHOT_BYTES = 5000000;
   var seq = 0;
@@ -31,12 +31,18 @@
   }
   function newDeck() { return { v: 1, theme: "light", slides: [newSlide()] }; }
   var ALIGNS = ["left", "center", "right"];
+  function isImg(e) { return e.type === "image"; }
   function styled(e) { return e.b === true || e.i === true || has(e, "al"); }
-  function fixEl(e) {
+  function fixEl(e, inMaster) {
     if (!e || typeof e !== "object" || TYPES.indexOf(e.type) < 0 || typeof e.id !== "string" || !ID_RE.test(e.id)) return null;
     var text = typeof e.text === "string" ? cut(e.text, MAX_TEXT) : "";
     var w = clamp(e.w, 10, W), h = clamp(e.h, 10, H);
     var o = { id: e.id, type: e.type, x: clamp(e.x, 0, W - w), y: clamp(e.y, 0, H - h), w: w, h: h, fill: FILLS.indexOf(e.fill) >= 0 ? e.fill : "theme", text: text, size: clamp(e.size, 8, 120) };
+    // An image item holds only a reference: the SHA-256 (hex) of the picture bytes, which stay in this browser. Its text is the description.
+    if (e.type === "image") {
+      if (inMaster || typeof e.img !== "string" || !HASH_RE.test(e.img)) return null;
+      o.img = e.img; o.fill = "theme"; o.size = 32; return o;
+    }
     // Text style. Only set fields are kept, so an unstyled item serialises exactly as before and an unstyled deck stays version 1 to 3.
     if (e.b === true) o.b = true;
     if (e.i === true) o.i = true;
@@ -45,17 +51,17 @@
   }
   // returns a clean deck or null; unknown fields are dropped and numbers are clamped
   function validate(d) {
-    if (!d || typeof d !== "object" || Array.isArray(d) || (has(d, "v") && d.v !== 1 && d.v !== 2 && d.v !== 3 && d.v !== 4) || !Array.isArray(d.slides) || !d.slides.length || d.slides.length > MAX_SLIDES) return null;
-    var TRANS = ["none", "fade"], ids = Object.create(null), out = { v: 1, theme: has(THEMES, d.theme) ? d.theme : "light", slides: [] }, masterEls = [], anyHide = false, anyTrans = false, anyStyle = false;
+    if (!d || typeof d !== "object" || Array.isArray(d) || (has(d, "v") && [1, 2, 3, 4, 5].indexOf(d.v) < 0) || !Array.isArray(d.slides) || !d.slides.length || d.slides.length > MAX_SLIDES) return null;
+    var TRANS = ["none", "fade"], ids = Object.create(null), out = { v: 1, theme: has(THEMES, d.theme) ? d.theme : "light", slides: [] }, masterEls = [], anyHide = false, anyTrans = false, anyStyle = false, nImg = 0;
     if (has(d, "master")) {
       var m = d.master; if (!m || typeof m !== "object" || Array.isArray(m) || !Array.isArray(m.elements) || m.elements.length > MAX_MASTER) return null;
-      for (var k = 0; k < m.elements.length; k++) { var me = fixEl(m.elements[k]); if (!me || ids[me.id]) return null; ids[me.id] = true; masterEls.push(me); if (styled(me)) anyStyle = true; }
+      for (var k = 0; k < m.elements.length; k++) { var me = fixEl(m.elements[k], true); if (!me || ids[me.id]) return null; ids[me.id] = true; masterEls.push(me); if (styled(me)) anyStyle = true; }
     }
     for (var i = 0; i < d.slides.length; i++) {
       var s = d.slides[i];
       if (!s || typeof s !== "object" || typeof s.id !== "string" || !ID_RE.test(s.id) || !Array.isArray(s.elements) || s.elements.length > MAX_EL || ids[s.id]) return null;
       ids[s.id] = true; var els = [];
-      for (var j = 0; j < s.elements.length; j++) { var e = fixEl(s.elements[j]); if (!e || ids[e.id]) return null; ids[e.id] = true; els.push(e); if (styled(e)) anyStyle = true; }
+      for (var j = 0; j < s.elements.length; j++) { var e = fixEl(s.elements[j]); if (!e || ids[e.id]) return null; ids[e.id] = true; els.push(e); if (styled(e)) anyStyle = true; if (isImg(e)) nImg++; }
       if (has(s, "hideMaster") && typeof s.hideMaster !== "boolean") return null;
       var ns = { id: s.id, elements: els, notes: typeof s.notes === "string" ? cut(s.notes, MAX_NOTES) : "" };
       if (s.hideMaster === true) { ns.hideMaster = true; anyHide = true; }
@@ -69,6 +75,9 @@
     if (anyTrans) out.v = 3;
     // Version 4 when any item is styled: older code only knows 1 to 3 and refuses 4, so it never drops a style silently.
     if (anyStyle) out.v = 4;
+    // Version 5 when a picture is used: older code only knows 1 to 4 and refuses 5, so it never drops a picture silently. More than MAX_IMAGES pictures is refused, not trimmed.
+    if (nImg > MAX_IMAGES) return null;
+    if (nImg) out.v = 5;
     return out;
   }
   // how many text fields in a raw (unvalidated) deck are longer than the limits and so will be shortened
@@ -94,7 +103,15 @@
     // speaker notes for slide i: plain text, cut at MAX_NOTES (the page also stops typing there, so nothing is cut silently)
     setNotes: function (d, i, text) { if (!d.slides[i] || typeof text !== "string") return null; var n = copy(d); n.slides[i].notes = cut(text, MAX_NOTES); return n; },
     moveSlide: function (d, i, to) { if (!d.slides[i] || to < 0 || to >= d.slides.length || to === i) return null; var n = copy(d), s = n.slides.splice(i, 1)[0]; n.slides.splice(to, 0, s); return n; },
-    addElement: function (d, i, type) { var s = d.slides[i]; if (!s || s.elements.length >= MAX_EL || TYPES.indexOf(type) < 0) return null; var n = copy(d), e = newEl(type); n.slides[i].elements.push(e); return { deck: n, id: e.id }; },
+    // Adds a picture item that refers to bytes already stored in this browser. Null when the slide or deck is full.
+    addImage: function (d, i, hash, nw, nh, alt) {
+      var s = d.slides[i]; if (!s || typeof hash !== "string" || !HASH_RE.test(hash) || s.elements.length >= MAX_EL) return null;
+      var count = 0; d.slides.forEach(function (x) { x.elements.forEach(function (e) { if (isImg(e)) count++; }); }); if (count >= MAX_IMAGES) return null;
+      var r = Math.min(1, 600 / nw, 400 / nh), w = Math.max(10, Math.round(nw * r)), h = Math.max(10, Math.round(nh * r));
+      var n = copy(d), e = { id: uid(), type: "image", x: Math.round((W - w) / 2), y: Math.round((H - h) / 2), w: w, h: h, fill: "theme", text: typeof alt === "string" ? cut(alt, MAX_TEXT) : "", size: 32, img: hash };
+      n.slides[i].elements.push(e); return { deck: normVersion(n), id: e.id };
+    },
+    addElement: function (d, i, type) { var s = d.slides[i]; if (!s || s.elements.length >= MAX_EL || TYPES.indexOf(type) < 0 || type === "image") return null; var n = copy(d), e = newEl(type); n.slides[i].elements.push(e); return { deck: n, id: e.id }; },
     updateElement: function (d, i, id, patch) {
       var s = d.slides[i]; if (!s) return null; var k = -1; s.elements.forEach(function (e, x) { if (e.id === id) k = x; }); if (k < 0) return null;
       var n = copy(d), merged = Object.assign({}, n.slides[i].elements[k]);
@@ -112,7 +129,7 @@
       if (k < 0 || k + dir < 0 || k + dir >= s.elements.length) return null;
       var n = copy(d), a = n.slides[i].elements; var t = a[k]; a[k] = a[k + dir]; a[k + dir] = t; return n;
     },
-    deleteElement: function (d, i, id) { var s = d.slides[i]; if (!s) return null; var n = copy(d), l = n.slides[i].elements.length; n.slides[i].elements = n.slides[i].elements.filter(function (e) { return e.id !== id; }); return n.slides[i].elements.length === l ? null : n; },
+    deleteElement: function (d, i, id) { var s = d.slides[i]; if (!s) return null; var n = copy(d), l = n.slides[i].elements.length; n.slides[i].elements = n.slides[i].elements.filter(function (e) { return e.id !== id; }); return n.slides[i].elements.length === l ? null : normVersion(n); },
     setHideMaster: function (d, i, hide) { var s = d.slides[i]; if (!s || typeof hide !== "boolean" || (s.hideMaster === true) === hide) return null; var n = copy(d); if (hide) n.slides[i].hideMaster = true; else delete n.slides[i].hideMaster; return normVersion(n); },
     // how a slide appears in Present: "none" or "fade". The PDF and the editor are not animated.
     setTransition: function (d, i, name) { var s = d.slides[i]; if (!s || (name !== "none" && name !== "fade") || (s.transition === "fade" ? "fade" : "none") === name) return null; var n = copy(d); if (name === "fade") n.slides[i].transition = "fade"; else delete n.slides[i].transition; return normVersion(n); },
@@ -123,7 +140,7 @@
     var any = n.slides.some(function (s) { return s.hideMaster === true; }), trans = n.slides.some(function (s) { return s.transition === "fade"; });
     if (n.master && !n.master.elements.length) delete n.master;
     var sty = n.slides.some(function (s) { return s.elements.some(styled); }) || (n.master && n.master.elements.some(styled));
-    n.v = sty ? 4 : trans ? 3 : (n.master || any ? 2 : 1); return n;
+    var img = n.slides.some(function (s) { return s.elements.some(isImg); }); n.v = img ? 5 : sty ? 4 : trans ? 3 : (n.master || any ? 2 : 1); return n;
   }
   function viaMaster(d, fn, adding) {
     var els = d.master ? d.master.elements : [];
@@ -153,7 +170,7 @@
   function describe(deck, i) { return describeEls(deck.slides[i].elements); }
   function describeEls(els) {
     return els.map(function (e, k) {
-      var kind = e.type === "text" ? "Text" : e.type === "rect" ? "Rectangle" : "Ellipse";
+      var kind = e.type === "text" ? "Text" : e.type === "rect" ? "Rectangle" : e.type === "image" ? "Picture" : "Ellipse";
       return (k + 1) + ". " + kind + (e.text ? ": " + cut(e.text, 40) : "");
     });
   }

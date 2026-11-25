@@ -5,3 +5,5 @@ sheets_grid_page_3d0df75.js     = static/sheets/grid.js    at 3d0df75
 Used by tests/js/sheets_grid_compat.js, tests/js/sheets_tabs_marker.js and the sheets_old_page browser drill.
 
 slides_model_v3_before_style.js: byte-identical copy of static/slides/model.js at cb481e2 (before text styles). Used to prove the previous validator refuses a version 4 (styled) deck instead of dropping the styles.
+
+slides_model_v4_before_images.js: byte-identical copy of static/slides/model.js at bf87c5d (before pictures). Used to prove the previous validator refuses a version 5 (picture) deck instead of dropping the picture.
