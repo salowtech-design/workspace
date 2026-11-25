@@ -32,6 +32,7 @@ LOCAL_APPS = [
     "apps.events.apps.EventsConfig",
     "apps.finder.apps.FinderConfig",
     "apps.chat.apps.ChatConfig",
+    "apps.automation.apps.AutomationConfig",
 ]
 
 INSTALLED_APPS = DJANGO_APPS + LOCAL_APPS
