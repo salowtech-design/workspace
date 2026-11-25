@@ -25,5 +25,7 @@ ok("split bounds marks and handles empty or odd input", (() => { const s = P.spl
 ok("count and marks agree, including the cap", P.countIn("ab ".repeat(2000), "ab") === 500 && P.countIn("Foo bar\nFOO  BAR", "foo bar") === 2 && P.countIn("\u00c9a \u00e9a", "\u00e9a") === 2);
 ok("text file has a header, the page text, and says when it was cut", (() => { const a = P.textFile("a.pdf", 2, 5, { text: "hello", cut: false }), b = P.textFile("a.pdf", 2, 5, { text: "hello", cut: true }); return a.startsWith("Text of page 2 of 5 from a.pdf") && a.includes("not OCR") && a.endsWith("hello\n") && !a.includes("stops early") && b.includes("stops early"); })());
 ok("export budget is well above the on-screen budget and a long page comes out whole", (() => { const r = P.takeText([{ str: "z".repeat(150000), hasEOL: true }], P.EXPORT_BUDGET); return !r.cut && r.text.length === 150000; })());
+ok("header discloses hidden text and a newline in the file name cannot split it", (() => { const a = P.textFile("x\nInjected line.pdf", 1, 1, { text: "t", cut: false }); const lines = a.split("\n"); return a.includes("hidden or off-page text") && lines[0] === "Text of page 1 of 1 from x Injected line.pdf"; })());
+ok("whitespace-only page text is empty after takeText", P.takeText([{ str: "   " }, { str: "\t", hasEOL: true }], 1000).text === "");
 console.log(`${n - bad}/${n} pdf check rows passed`);
 process.exit(bad ? 1 : 0);

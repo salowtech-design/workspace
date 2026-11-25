@@ -56,8 +56,8 @@
   // on-screen budget, so a normal page comes out whole; r.cut says when even that was exceeded.
   var EXPORT_BUDGET = 1000000;
   function textFile(name, pageNo, total, r) {
-    var h = "Text of page " + pageNo + " of " + total + " from " + String(name).slice(0, 120) + "\n" +
-      "This is the text stored in the PDF for that page, in the order the file lists it. It is not OCR, and the order can differ from what you see.\n" +
+    var h = "Text of page " + pageNo + " of " + total + " from " + String(name).replace(/\s+/g, " ").trim().slice(0, 120) + "\n" +
+      "This is the text stored in the PDF for that page, in the order the file lists it. It is not OCR, the order can differ from what you see, and it may include text you cannot see on the page (hidden or off-page text kept in the file).\n" +
       (r.cut ? "The page had more text than the limit of " + EXPORT_BUDGET + " characters, so it stops early.\n" : "") + "\n";
     return h + r.text + "\n";
   }
