@@ -1,0 +1,91 @@
+(function () {
+  "use strict";
+  var root = document.getElementById("slide-root");
+  if (!root || !window.SalowSlides) return;
+  var S = SalowSlides, KEY = root.getAttribute("data-store-key"), NS = "http://www.w3.org/2000/svg";
+  var $ = function (id) { return document.getElementById(id); };
+  var status = $("sl-status"), cur = 0, selId = null;
+  var initial = S.newDeck();
+  try { var raw = localStorage.getItem(KEY); if (raw) { var v = S.validate(JSON.parse(raw)); if (v) initial = v; } } catch (e) { initial = S.newDeck(); }
+  var H = new S.History(initial, { save: function (d) { try { localStorage.setItem(KEY, JSON.stringify(d)); return true; } catch (e) { return false; } } });
+  function el(n, at, tx) { var x = document.createElementNS(NS, n); Object.keys(at || {}).forEach(function (k) { x.setAttribute(k, at[k]); }); if (tx !== undefined) x.textContent = tx; return x; }
+  function sel() { var s = H.deck.slides[cur]; if (!s) return null; for (var i = 0; i < s.elements.length; i++) if (s.elements[i].id === selId) return s.elements[i]; return null; }
+  function apply(next, note) { if (!next) return false; if (!H.change(next, note)) return false; cur = Math.min(cur, H.deck.slides.length - 1); render(); return true; }
+  function render() {
+    var d = H.deck, th = S.THEMES[d.theme];
+    if (!sel()) selId = null;
+    var list = $("sl-list"); list.textContent = "";
+    d.slides.forEach(function (s, i) {
+      var b = document.createElement("button"); b.type = "button"; b.setAttribute("role", "option"); b.setAttribute("aria-selected", i === cur ? "true" : "false");
+      var first = ""; s.elements.forEach(function (e) { if (!first && e.type === "text" && e.text) first = e.text; });
+      b.textContent = (i + 1) + ". " + (first ? first.slice(0, 18) : "Slide");
+      b.addEventListener("click", function () { cur = i; selId = null; render(); }); list.appendChild(b);
+    });
+    var wrap = $("sl-canvas-wrap"); wrap.textContent = "";
+    var svg = el("svg", { viewBox: "0 0 " + S.W + " " + S.H, tabindex: "0", role: "img", "aria-label": "Slide " + (cur + 1) + " of " + d.slides.length });
+    svg.appendChild(el("rect", { x: 0, y: 0, width: S.W, height: S.H, fill: th.bg }));
+    d.slides[cur].elements.forEach(function (e) {
+      var g = el("g", {}), c = S.color(d, e);
+      if (e.type === "rect") g.appendChild(el("rect", { x: e.x, y: e.y, width: e.w, height: e.h, fill: c }));
+      else if (e.type === "ellipse") g.appendChild(el("ellipse", { cx: e.x + e.w / 2, cy: e.y + e.h / 2, rx: e.w / 2, ry: e.h / 2, fill: c }));
+      if (e.text || e.type === "text") {
+        var t = el("text", { x: e.type === "text" ? e.x : e.x + e.w / 2, y: e.y + e.size, "font-size": e.size, fill: S.textColor(d, e), "text-anchor": e.type === "text" ? "start" : "middle", "font-family": "sans-serif" }, e.text);
+        if (e.type !== "text") t.setAttribute("y", e.y + e.h / 2 + e.size / 3);
+        g.appendChild(t);
+      }
+      var hit = el("rect", { x: e.x, y: e.y, width: e.w, height: e.h, fill: "transparent", stroke: e.id === selId ? "#2e6f95" : "none", "stroke-width": 3, "stroke-dasharray": "8 4", "data-id": e.id });
+      hit.addEventListener("pointerdown", function (ev) { ev.preventDefault(); selId = e.id; render(); wrap.querySelector("svg").focus(); });
+      g.appendChild(hit); svg.appendChild(g);
+    });
+    svg.addEventListener("pointerdown", function (ev) { if (ev.target === svg || ev.target.tagName === "rect" && !ev.target.getAttribute("data-id")) { selId = null; render(); } });
+    svg.addEventListener("keydown", function (ev) {
+      var e = sel(); if (!e) return; var dx = 0, dy = 0;
+      if (ev.key === "ArrowLeft") dx = -10; else if (ev.key === "ArrowRight") dx = 10; else if (ev.key === "ArrowUp") dy = -10; else if (ev.key === "ArrowDown") dy = 10;
+      else if (ev.key === "Delete" || ev.key === "Backspace") { ev.preventDefault(); apply(S.ops.deleteElement(H.deck, cur, e.id), "Item deleted."); return; } else return;
+      ev.preventDefault(); apply(S.ops.updateElement(H.deck, cur, e.id, { x: e.x + dx, y: e.y + dy }));
+      var s2 = $("sl-canvas-wrap").querySelector("svg"); if (s2) s2.focus();
+    });
+    wrap.appendChild(svg);
+    var e = sel(), props = $("sl-props"); props.disabled = !e; $("sl-del-el").disabled = !e;
+    ["text", "size", "x", "y", "w", "h", "fill"].forEach(function (f) { var inp = $("sl-" + f); if (document.activeElement !== inp) inp.value = e ? e[f] : ""; });
+    $("sl-theme").value = d.theme; $("sl-undo").disabled = !H.past.length; $("sl-redo").disabled = !H.future.length;
+    $("sl-up").disabled = cur === 0; $("sl-down").disabled = cur >= d.slides.length - 1; $("sl-del").disabled = d.slides.length <= 1;
+    status.textContent = H.note;
+  }
+  var fill = $("sl-fill"); S.FILLS.forEach(function (f) { var o = document.createElement("option"); o.value = f; o.textContent = f === "theme" ? "Theme color" : f; fill.appendChild(o); });
+  ["text", "size", "x", "y", "w", "h"].forEach(function (f) {
+    $("sl-" + f).addEventListener("change", function () { var e = sel(); if (!e) return; var p = {}; p[f] = this.value; apply(S.ops.updateElement(H.deck, cur, e.id, p)); });
+  });
+  fill.addEventListener("change", function () { var e = sel(); if (e) apply(S.ops.updateElement(H.deck, cur, e.id, { fill: fill.value })); });
+  ["text", "rect", "ellipse"].forEach(function (t) { $("sl-add-" + t).addEventListener("click", function () { var r = S.ops.addElement(H.deck, cur, t); if (!r) { status.textContent = "A slide holds up to " + S.MAX_EL + " items."; return; } selId = r.id; apply(r.deck); }); });
+  $("sl-del-el").addEventListener("click", function () { var e = sel(); if (e) apply(S.ops.deleteElement(H.deck, cur, e.id), "Item deleted."); });
+  $("sl-new").addEventListener("click", function () { var n = S.ops.addSlide(H.deck, cur); if (!n) { status.textContent = "A deck holds up to " + S.MAX_SLIDES + " slides."; return; } cur++; selId = null; apply(n); });
+  $("sl-del").addEventListener("click", function () { if (H.deck.slides[cur].elements.length && !window.confirm("Delete this slide and its items? You can undo until you reload.")) return; var n = S.ops.deleteSlide(H.deck, cur); if (n) { selId = null; apply(n, "Slide deleted."); } });
+  $("sl-up").addEventListener("click", function () { if (apply(S.ops.moveSlide(H.deck, cur, cur - 1))) { cur--; render(); } });
+  $("sl-down").addEventListener("click", function () { if (apply(S.ops.moveSlide(H.deck, cur, cur + 1))) { cur++; render(); } });
+  $("sl-theme").addEventListener("change", function () { apply(S.ops.setTheme(H.deck, this.value)); });
+  $("sl-undo").addEventListener("click", function () { if (H.undo()) { cur = Math.min(cur, H.deck.slides.length - 1); render(); } });
+  $("sl-redo").addEventListener("click", function () { if (H.redo()) { cur = Math.min(cur, H.deck.slides.length - 1); render(); } });
+  $("sl-export").addEventListener("click", function () {
+    var u = URL.createObjectURL(new Blob([JSON.stringify(H.deck)], { type: "application/json" })), l = document.createElement("a");
+    l.href = u; l.download = "deck.json"; document.body.appendChild(l); l.click(); l.remove(); URL.revokeObjectURL(u);
+  });
+  $("sl-import").addEventListener("change", function (e) {
+    var f = e.target.files[0]; if (!f) return;
+    if (f.size > 1000000) { status.textContent = "That file is too large. Your deck was not changed."; return; }
+    var rd = new FileReader();
+    rd.onload = function () {
+      var d = null; try { d = S.validate(JSON.parse(String(rd.result))); } catch (x) { d = null; }
+      if (!d) { status.textContent = "That file is not a usable deck. Your deck was not changed."; return; }
+      if (!window.confirm("Replace this deck with the " + d.slides.length + " slides in this file? You can undo it until you reload.")) { status.textContent = "Import cancelled. Your deck was not changed."; return; }
+      cur = 0; selId = null; apply(d, "Imported " + d.slides.length + " slides. You can undo this import.");
+    };
+    rd.readAsText(f); e.target.value = "";
+  });
+  document.addEventListener("keydown", function (e) {
+    if (!(e.ctrlKey || e.metaKey)) return; var k = e.key.toLowerCase(), t = e.target;
+    if ((k !== "z" && k !== "y") || !(t === document.body || t.tagName === "svg")) return;
+    e.preventDefault(); if (k === "y" || e.shiftKey) { if (H.redo()) render(); } else if (H.undo()) { cur = Math.min(cur, H.deck.slides.length - 1); render(); }
+  });
+  render(); status.textContent = "";
+})();

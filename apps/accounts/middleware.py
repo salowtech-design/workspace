@@ -68,6 +68,7 @@ class HostSecurityIsolationMiddleware:
                 "/search",
                 "/chat",
                 "/sheets",
+                "/slides",
             )
             if any(path.startswith(prefix) for prefix in workspace_prefixes):
                 return HttpResponseNotFound(

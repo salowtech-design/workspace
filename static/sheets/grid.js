@@ -50,8 +50,8 @@
   table.addEventListener("input", function (e) { if (e.target.dataset && e.target.dataset.addr === cur) bar.value = e.target.value; });
   table.addEventListener("keydown", function (e) {
     var t = e.target, k = e.key;
+    if (M.isComposing(e)) return;  // IME composition owns every key, including arrows and Esc
     if (k === "Escape") { t.value = orig; bar.value = orig; return; }
-    if (k === "Enter" && M.isComposing(e)) return;  // confirming IME text, not moving
     var mv = M.keyMove(k, e.shiftKey, t.selectionStart === 0, t.selectionEnd === t.value.length);
     if (mv) { e.preventDefault(); move(mv[0], mv[1]); }
   });
