@@ -14,14 +14,46 @@ APP = os.environ["DRILL_APP"]
 SECRETS = json.load(open(os.environ["DRILL_SECRETS"]))
 SHOTS = os.environ.get("DRILL_SHOTS", "")
 results = []
+_SECRET_VALUES = [v for v in SECRETS.values() if v]
+
+
+def scrub(text):
+    """Remove the run's secrets (and the current TOTP codes) from any text before it is printed.
+    Playwright errors can carry the values that were typed into a field, so nothing raw is printed."""
+    text = str(text)
+    vals = list(_SECRET_VALUES)
+    try:
+        t = pyotp.TOTP(SECRETS["emp"])
+        now = time.time()
+        vals += [t.at(now + d) for d in (-60, -30, 0, 30, 60)]
+    except Exception:  # noqa: S110 - scrubbing must never raise
+        pass
+    for v in sorted(vals, key=len, reverse=True):
+        text = text.replace(v, "[removed]")
+    return text
+
+
+def describe(ex):
+    """Exception type plus the first line of its scrubbed message. No repr, no call log."""
+    first = (str(ex).strip().splitlines() or [""])[0]
+    return type(ex).__name__ + ": " + scrub(first)[:200]
 
 
 def check(name, cond, detail=""):
     results.append(bool(cond))
     print(
-        ("PASS " if cond else "FAIL ") + name + ("" if cond else (": " + str(detail)[:300])),
+        ("PASS " if cond else "FAIL ") + name + ("" if cond else (": " + scrub(detail)[:300])),
         flush=True,
     )
+
+
+def fresh_totp():
+    """A code from a window with at least 5 s left, so it cannot expire between typing and submit."""
+    t = pyotp.TOTP(SECRETS["emp"])
+    left = t.interval - (time.time() % t.interval)
+    if left < 5:
+        time.sleep(left + 0.5)
+    return t.now()
 
 
 def login(pg):
@@ -31,7 +63,7 @@ def login(pg):
     pg.wait_for_timeout(500)
     pg.fill("#employee_id", "ST-LIVE-1")
     pg.fill("#password", SECRETS["emp_pw"])
-    pg.fill("#totp_code", pyotp.TOTP(SECRETS["emp"]).now())
+    pg.fill("#totp_code", fresh_totp())
     pg.click("#confirm-btn")
     pg.wait_for_load_state()
     pg.wait_for_timeout(1200)
@@ -266,7 +298,7 @@ def sheets_sort_filter(ctx):
     pg.wait_for_timeout(200)
     check(
         "sheets: editing a row out of the filter moves focus to a visible row",
-        active(pg) in ("B2", "B6", "C2", "C6") or active(pg).endswith(("2", "6")),
+        active(pg) == "B2",
         active(pg),
     )
     check(
@@ -283,7 +315,7 @@ def sheets_sort_filter(ctx):
     a = active(pg)
     check(
         "sheets: redo with grid focus that hides the row moves focus to a visible row",
-        a[0] in "AB" and a[1:].isdigit() and int(a[1:]) in (2, 6, 1),
+        a == "B2",
         a,
     )
     pg.click("#filter-clear")
@@ -300,15 +332,29 @@ def sheets_sort_filter(ctx):
     check("sheets: the filter resets on reload", vis() == [1, 2, 3, 4, 5, 6, 7], vis())
 
 
+def selftest_scrub(ctx):
+    """Forced failures that carry the real secrets. Only run when named; run.sh then greps the output for them."""
+    pg = ctx.pages[0]
+    check("selftest: scrub removes a password in a detail", False, "x " + SECRETS["emp_pw"] + " y")
+    try:
+        pg.fill("#does-not-exist", SECRETS["emp_pw"], timeout=300)
+    except Exception as ex:
+        check(
+            "selftest: playwright error is described without the typed value", False, describe(ex)
+        )
+    raise RuntimeError("boom " + SECRETS["emp"] + " " + SECRETS["emp_pw"])
+
+
 DRILLS = {
     "slides_show": slides_show,
     "slides_edit": slides_edit,
     "sheets_sort_filter": sheets_sort_filter,
+    "selftest_scrub": selftest_scrub,
 }
 
 
 def main():
-    names = sys.argv[1:] or list(DRILLS)
+    names = sys.argv[1:] or [n for n in DRILLS if n != "selftest_scrub"]
     unknown = [n for n in names if n not in DRILLS]
     if unknown:
         print("unknown drill:", ", ".join(unknown), "| known:", ", ".join(DRILLS))
@@ -316,20 +362,53 @@ def main():
     t0 = time.time()
     with sync_playwright() as p:
         b = p.chromium.launch(
-            channel="chromium", args=["--host-resolver-rules=MAP app.salowtech.com 127.0.0.1"]
+            channel="chromium",
+            args=[
+                "--no-proxy-server",
+                "--host-resolver-rules=MAP app.salowtech.com 127.0.0.1, EXCLUDE localhost",
+            ],
         )
         ctx = b.new_context(viewport={"width": 1100, "height": 900})
         ctx.set_default_timeout(8000)
         errs = []
+        remote = []
+
+        def only_loopback(route):
+            host = route.request.url.split("/")[2].split(":")[0]
+            if host in (
+                "app.salowtech.com",
+                "127.0.0.1",
+                "localhost",
+            ) or route.request.url.startswith(("data:", "blob:")):
+                route.continue_()
+            else:
+                remote.append(host)
+                route.abort()
+
+        ctx.route("**/*", only_loopback)
         pg = ctx.new_page()
-        pg.on("pageerror", lambda e: errs.append(str(e)))
-        login(pg)
+        pg.on("pageerror", lambda e: errs.append(scrub(e)))
+        try:
+            # Before any credential is typed: the server we reach must be on this machine.
+            r = pg.goto(APP + "/health")
+            addr = r.server_addr() if r else None
+            if not addr or addr["ipAddress"] not in ("127.0.0.1", "::1"):
+                print("ABORT: the app address is not loopback, nothing was typed")
+                return 2
+            login(pg)
+        except Exception as ex:
+            print("FAIL login:", describe(ex))
+            return 1
+        if "/sign-in" in pg.url:
+            print("FAIL login: still on the sign-in page")
+            return 1
         for n in names:
             try:
                 DRILLS[n](ctx)
             except Exception as ex:  # a crashed drill is a failure, not a skip
-                check(n + ": drill ran to the end", False, repr(ex)[:300])
+                check(n + ": drill ran to the end", False, describe(ex))
         check("no uncaught page errors", not errs, errs[:2])
+        check("no request left this machine", not remote, remote[:3])
         b.close()
     print("%d/%d checks passed in %.0f s" % (sum(results), len(results), time.time() - t0))
     return 0 if all(results) else 1

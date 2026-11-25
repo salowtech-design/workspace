@@ -7,7 +7,9 @@ Run:
     TIDB_SERVER=/path/to/tidb-server PYTHON=/path/to/python bash tests/browser/run.sh            # all drills
     TIDB_SERVER=... PYTHON=... bash tests/browser/run.sh sheets_sort_filter                       # one drill
 
-Optional: `DRILL_SHOTS=/some/dir` saves screenshots, `EXTRA_PYTHONPATH` for shims, `DRILL_DB_PORT`, `DRILL_APP_PORT`.
+Optional: `DRILL_SHOTS=/some/dir` saves screenshots, `EXTRA_PYTHONPATH` for shims, `DRILL_KEEP_LOGS=/some/dir` keeps secret-scrubbed logs after a failed run, `DRILL_DB_PORT`, `DRILL_APP_PORT` (default: free ports it picks itself).
+
+Safety: it refuses to start if a port is busy, stops only the two processes it started, and runs Python with a cleared environment (only PATH, HOME, LANG, TMPDIR, PLAYWRIGHT_BROWSERS_PATH and its own settings pass), so exported database or auth settings are ignored. Chromium runs with no proxy, requests to any host but the local app are blocked, and the server address must be loopback before anything is typed. Error text printed by the drills is scrubbed of this run's password, TOTP secret and recent codes. `run.sh selftest_scrub` forces failures that carry the real secrets to prove it; the run ends with a check of the output and app log for those secrets. `asgi_dev.py` is used only by this script; the production image starts gunicorn on config.wsgi and never references it.
 Needs the project's dependencies, `playwright` and a Chromium build (`channel="chromium"`). The app is served on `app.salowtech.com:<port>` through a host-resolver rule, so no DNS or hosts change is needed.
 
 Output is `PASS` or `FAIL <reason>` per check and a final count. Exit code 1 on any failure, 2 on bad input or a server that did not start.
