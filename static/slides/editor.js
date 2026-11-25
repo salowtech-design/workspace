@@ -5,8 +5,12 @@
   var S = SalowSlides, KEY = root.getAttribute("data-store-key"), NS = "http://www.w3.org/2000/svg";
   var $ = function (id) { return document.getElementById(id); };
   var status = $("sl-status"), cur = 0, selId = null;
-  var initial = S.newDeck();
-  try { var raw = localStorage.getItem(KEY); if (raw) { var v = S.validate(JSON.parse(raw)); if (v) initial = v; } } catch (e) { initial = S.newDeck(); }
+  var loaded; try { loaded = S.loadDeck(localStorage.getItem(KEY)); } catch (e) { loaded = { deck: S.newDeck(), unreadable: false, raw: null }; }
+  var initial = loaded.deck, unreadable = loaded.unreadable, rawKept = loaded.raw;
+  function lock(on) {
+    ["sl-editing"].forEach(function (id) { var n = $(id); if (on) n.setAttribute("inert", ""); else n.removeAttribute("inert"); });
+    $("sl-unreadable").hidden = !on;
+  }
   var H = new S.History(initial, { save: function (d) { try { localStorage.setItem(KEY, JSON.stringify(d)); return true; } catch (e) { return false; } } });
   function el(n, at, tx) { var x = document.createElementNS(NS, n); Object.keys(at || {}).forEach(function (k) { x.setAttribute(k, at[k]); }); if (tx !== undefined) x.textContent = tx; return x; }
   function sel() { var s = H.deck.slides[cur]; if (!s) return null; for (var i = 0; i < s.elements.length; i++) if (s.elements[i].id === selId) return s.elements[i]; return null; }
@@ -14,15 +18,18 @@
   function render() {
     var d = H.deck, th = S.THEMES[d.theme];
     if (!sel()) selId = null;
+    lock(unreadable);
     var list = $("sl-list"); list.textContent = "";
     d.slides.forEach(function (s, i) {
-      var b = document.createElement("button"); b.type = "button"; b.setAttribute("role", "option"); b.setAttribute("aria-selected", i === cur ? "true" : "false");
+      var b = document.createElement("button"); b.type = "button"; if (i === cur) b.setAttribute("aria-current", "true"); b.setAttribute("aria-pressed", i === cur ? "true" : "false");
       var first = ""; s.elements.forEach(function (e) { if (!first && e.type === "text" && e.text) first = e.text; });
       b.textContent = (i + 1) + ". " + (first ? first.slice(0, 18) : "Slide");
       b.addEventListener("click", function () { cur = i; selId = null; render(); }); list.appendChild(b);
     });
     var wrap = $("sl-canvas-wrap"); wrap.textContent = "";
     var svg = el("svg", { viewBox: "0 0 " + S.W + " " + S.H, tabindex: "0", role: "img", "aria-label": "Slide " + (cur + 1) + " of " + d.slides.length });
+    svg.appendChild(el("title", {}, "Slide " + (cur + 1) + " of " + d.slides.length));
+    svg.appendChild(el("desc", {}, S.describe(d, cur).join("; ") || "Empty slide"));
     svg.appendChild(el("rect", { x: 0, y: 0, width: S.W, height: S.H, fill: th.bg }));
     d.slides[cur].elements.forEach(function (e) {
       var g = el("g", {}), c = S.color(d, e);
@@ -46,6 +53,14 @@
       var s2 = $("sl-canvas-wrap").querySelector("svg"); if (s2) s2.focus();
     });
     wrap.appendChild(svg);
+    var il = $("sl-items"); il.textContent = "";
+    S.describe(d, cur).forEach(function (label, k) {
+      var id = d.slides[cur].elements[k].id, li = document.createElement("li"), b = document.createElement("button");
+      b.type = "button"; b.textContent = label; b.setAttribute("aria-pressed", id === selId ? "true" : "false");
+      b.addEventListener("click", function () { selId = id; render(); var again = $("sl-items").querySelectorAll("button")[k]; if (again) again.focus(); });
+      li.appendChild(b); il.appendChild(li);
+    });
+    $("sl-items-empty").hidden = d.slides[cur].elements.length > 0;
     var e = sel(), props = $("sl-props"); props.disabled = !e; $("sl-del-el").disabled = !e;
     ["text", "size", "x", "y", "w", "h", "fill"].forEach(function (f) { var inp = $("sl-" + f); if (document.activeElement !== inp) inp.value = e ? e[f] : ""; });
     $("sl-theme").value = d.theme; $("sl-undo").disabled = !H.past.length; $("sl-redo").disabled = !H.future.length;
@@ -54,7 +69,12 @@
   }
   var fill = $("sl-fill"); S.FILLS.forEach(function (f) { var o = document.createElement("option"); o.value = f; o.textContent = f === "theme" ? "Theme color" : f; fill.appendChild(o); });
   ["text", "size", "x", "y", "w", "h"].forEach(function (f) {
-    $("sl-" + f).addEventListener("change", function () { var e = sel(); if (!e) return; var p = {}; p[f] = this.value; apply(S.ops.updateElement(H.deck, cur, e.id, p)); });
+    $("sl-" + f).addEventListener("change", function () {
+      var e = sel(); if (!e) return; var p = {}; var asked = this.value; p[f] = asked;
+      var ok = apply(S.ops.updateElement(H.deck, cur, e.id, p)), now = sel(); if (now && f !== "text" && isFinite(Number(asked))) this.value = now[f];
+      if (now && f !== "text" && String(now[f]) !== String(Math.round(Number(asked)))) { status.textContent = "Adjusted " + f.toUpperCase() + " to " + now[f] + " so the item fits the slide and limits. " + H.note; }
+      else if (!ok && now && f !== "text" && !isFinite(Number(asked))) { status.textContent = "Enter a number for " + f.toUpperCase() + "."; }
+    });
   });
   fill.addEventListener("change", function () { var e = sel(); if (e) apply(S.ops.updateElement(H.deck, cur, e.id, { fill: fill.value })); });
   ["text", "rect", "ellipse"].forEach(function (t) { $("sl-add-" + t).addEventListener("click", function () { var r = S.ops.addElement(H.deck, cur, t); if (!r) { status.textContent = "A slide holds up to " + S.MAX_EL + " items."; return; } selId = r.id; apply(r.deck); }); });
@@ -66,6 +86,20 @@
   $("sl-theme").addEventListener("change", function () { apply(S.ops.setTheme(H.deck, this.value)); });
   $("sl-undo").addEventListener("click", function () { if (H.undo()) { cur = Math.min(cur, H.deck.slides.length - 1); render(); } });
   $("sl-redo").addEventListener("click", function () { if (H.redo()) { cur = Math.min(cur, H.deck.slides.length - 1); render(); } });
+  $("sl-clear").addEventListener("click", function () {
+    if (!window.confirm("Clear the whole deck? It becomes one empty slide. You can undo until you reload this page; after a reload the cleared deck cannot be brought back.")) return;
+    cur = 0; selId = null;
+    if (!apply(S.newDeck(), "Deck cleared. Undo works until you reload this page.")) status.textContent = "Nothing to clear.";
+  });
+  $("sl-dl-raw").addEventListener("click", function () {
+    var u = URL.createObjectURL(new Blob([rawKept || ""], { type: "application/json" })), l = document.createElement("a");
+    l.href = u; l.download = "unreadable-deck.json"; document.body.appendChild(l); l.click(); l.remove(); URL.revokeObjectURL(u);
+  });
+  $("sl-start-new").addEventListener("click", function () {
+    try { localStorage.setItem(KEY + ".backup", rawKept || ""); } catch (e) { status.textContent = "This browser would not keep a backup of the unreadable deck, so I did not replace it."; return; }
+    unreadable = false; rawKept = null; render();
+    status.textContent = "Started a new deck. The unreadable data is kept in this browser under a backup key and is replaced only if you start another new deck.";
+  });
   $("sl-export").addEventListener("click", function () {
     var u = URL.createObjectURL(new Blob([JSON.stringify(H.deck)], { type: "application/json" })), l = document.createElement("a");
     l.href = u; l.download = "deck.json"; document.body.appendChild(l); l.click(); l.remove(); URL.revokeObjectURL(u);
@@ -87,5 +121,5 @@
     if ((k !== "z" && k !== "y") || !(t === document.body || t.tagName === "svg")) return;
     e.preventDefault(); if (k === "y" || e.shiftKey) { if (H.redo()) render(); } else if (H.undo()) { cur = Math.min(cur, H.deck.slides.length - 1); render(); }
   });
-  render(); status.textContent = "";
+  render(); status.textContent = unreadable ? "Your stored deck could not be read, so it was left untouched." : "";
 })();

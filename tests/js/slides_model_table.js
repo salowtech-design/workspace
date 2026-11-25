@@ -49,4 +49,17 @@ ok("no-op is not a step", h.change(null) === false && h.change(S.copy(h.deck)) =
 st.on = true; h.change(S.ops.addSlide(h.deck), "Added.");
 ok("blocked storage failure stays with later notes", h.saveFailed && /would not store/.test(h.note) && /Added/.test(h.note) && (h.undo(), /would not store/.test(h.note) && /Undone/.test(h.note)));
 st.on = false; h.change(S.ops.addSlide(h.deck)); ok("success clears failure", !h.saveFailed && h.note === "Saved on this device.");
+ok("a deck marked with another version is refused", S.validate({ v: 2, slides: [{ id: "s", elements: [] }] }) === null && S.validate({ v: 1, slides: [{ id: "s", elements: [] }] }) !== null);
+ok("ids must be plain", S.validate({ slides: [{ id: "a b", elements: [] }] }) === null && S.validate({ slides: [{ id: 's"><x', elements: [] }] }) === null && S.validate({ slides: [{ id: "s", elements: [{ id: "e".repeat(41), type: "rect" }] }] }) === null && S.validate({ slides: [{ id: "s_1-A", elements: [] }] }) !== null);
+ok("loadDeck: nothing stored is a fresh deck, not unreadable", (() => { const r = S.loadDeck(null); return !r.unreadable && r.deck.slides.length === 1 && S.loadDeck("").unreadable === false; })());
+ok("loadDeck: good deck loads", (() => { const r = S.loadDeck(JSON.stringify(S.newDeck())); return !r.unreadable && r.raw === null; })());
+ok("loadDeck: broken json is unreadable and the raw text is kept", (() => { const r = S.loadDeck("{not json"); return r.unreadable && r.raw === "{not json"; })());
+ok("loadDeck: a newer format is unreadable, not blank", (() => { const raw = JSON.stringify({ v: 2, slides: [{ id: "s", elements: [] }] }); const r = S.loadDeck(raw); return r.unreadable && r.raw === raw; })());
+ok("loadDeck: one bad element makes the whole deck unreadable", S.loadDeck(JSON.stringify({ slides: [{ id: "s", elements: [{ id: "e", type: "bogus" }] }] })).unreadable);
+const cs = S.FILLS.concat([S.THEMES.light.accent, S.THEMES.dark.accent, S.THEMES.warm.accent]).filter((f) => f !== "theme");
+ok("text on every shape color has contrast of at least 4.5", cs.every((f) => S.contrast(f, S.onFill(f)) >= 4.5));
+ok("theme text on every theme background has contrast of at least 4.5", Object.values(S.THEMES).every((t) => S.contrast(t.fg, t.bg) >= 4.5));
+ok("light fills get dark text and dark fills get white", S.onFill("#ffffff") === "#111111" && S.onFill("#1f2430") === "#ffffff");
+ok("item descriptions give text content for non-visual use", (() => { let d = S.ops.addElement(S.newDeck(), 0, "text").deck; d = S.ops.addElement(d, 0, "rect").deck; const x = S.describe(d, 0); return x.length === 2 && /Text: Text/.test(x[0]) && /Rectangle/.test(x[1]); })());
+ok("history size is capped by deck size", (() => { let d = S.newDeck(); for (let i = 0; i < 29; i++) d = S.ops.addElement(d, 0, "text").deck; d.slides[0].elements.forEach((e) => (e.text = "x".repeat(1000))); const h2 = new S.History(d, mem(), 100); for (let i = 0; i < 60; i++) { const nd = S.copy(h2.deck); nd.slides[0].elements[0].x = i + 1; h2.change(nd); } return h2.past.length < 100 && h2.past.length >= 5; })());
 console.log(`${n - bad}/${n} slides model rows passed`); process.exit(bad ? 1 : 0);
