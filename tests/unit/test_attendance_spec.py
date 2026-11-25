@@ -154,10 +154,12 @@ class TestManualFallbackWorkflow:
     @pytest.mark.parametrize(
         ("instant_utc", "kolkata_date"),
         [
-            # 00:30 IST on 26 Nov is still 25 Nov in UTC: the business date is the IST one
+            # exact midnight IST: 18:30:00 UTC on 25 Nov is 00:00 IST on 26 Nov
+            (datetime(2026, 11, 25, 18, 30, 0, tzinfo=ZoneInfo("UTC")), date(2026, 11, 26)),
+            # one second before: 23:59:59 IST on 25 Nov
+            (datetime(2026, 11, 25, 18, 29, 59, tzinfo=ZoneInfo("UTC")), date(2026, 11, 25)),
+            # 00:30 IST on 26 Nov, still 25 Nov in UTC
             (datetime(2026, 11, 25, 19, 0, tzinfo=ZoneInfo("UTC")), date(2026, 11, 26)),
-            # 23:59 IST on 25 Nov
-            (datetime(2026, 11, 25, 18, 29, tzinfo=ZoneInfo("UTC")), date(2026, 11, 25)),
             # 12:00 IST, UTC and IST agree
             (datetime(2026, 11, 26, 6, 30, tzinfo=ZoneInfo("UTC")), date(2026, 11, 26)),
         ],
@@ -166,15 +168,19 @@ class TestManualFallbackWorkflow:
         self, employee, instant_utc, kolkata_date
     ):
         """Fixed instants, so the result does not depend on when the suite runs."""
-        wrong_date = kolkata_date + timedelta(days=1)
-        with pytest.raises(ValidationError, match="does not match"):
-            create_fallback_request(
-                user=employee,
-                request_type=AttendanceFallbackRequest.RequestType.CHECK_IN,
-                work_date=wrong_date,
-                requested_time=instant_utc,
-                reason="Boundary check",
-            )
+        utc_date = instant_utc.date()
+        refused = {kolkata_date + timedelta(days=1), kolkata_date - timedelta(days=1)}
+        if utc_date != kolkata_date:
+            refused.add(utc_date)  # the UTC date must be refused where it differs
+        for wrong_date in refused:
+            with pytest.raises(ValidationError, match="does not match"):
+                create_fallback_request(
+                    user=employee,
+                    request_type=AttendanceFallbackRequest.RequestType.CHECK_IN,
+                    work_date=wrong_date,
+                    requested_time=instant_utc,
+                    reason="Boundary check",
+                )
         req = create_fallback_request(
             user=employee,
             request_type=AttendanceFallbackRequest.RequestType.CHECK_IN,
@@ -186,12 +192,13 @@ class TestManualFallbackWorkflow:
 
     def test_fallback_request_requires_reason(self, employee):
         """Empty reason is rejected."""
+        now = timezone.now()
         with pytest.raises(ValidationError, match="Reason is required"):
             create_fallback_request(
                 user=employee,
                 request_type=AttendanceFallbackRequest.RequestType.CHECK_IN,
-                work_date=timezone.now().astimezone(KOLKATA_TZ).date(),
-                requested_time=timezone.now(),
+                work_date=now.astimezone(KOLKATA_TZ).date(),
+                requested_time=now,
                 reason="",
             )
 
@@ -224,11 +231,12 @@ class TestManualFallbackWorkflow:
 
     def test_employee_cannot_review_own_request(self, employee):
         """Non-manager cannot review fallback request."""
+        now = timezone.now()
         req = create_fallback_request(
             user=employee,
             request_type=AttendanceFallbackRequest.RequestType.CHECK_IN,
-            work_date=timezone.now().astimezone(KOLKATA_TZ).date(),
-            requested_time=timezone.now(),
+            work_date=now.astimezone(KOLKATA_TZ).date(),
+            requested_time=now,
             reason="Test reason",
         )
         with pytest.raises(PermissionDenied):
@@ -236,12 +244,13 @@ class TestManualFallbackWorkflow:
 
     def test_manager_rejects_fallback_request(self, employee, manager):
         """Manager rejects fallback request; no session created."""
+        now = timezone.now()
         _report_to(employee, manager)
         req = create_fallback_request(
             user=employee,
             request_type=AttendanceFallbackRequest.RequestType.CHECK_IN,
-            work_date=timezone.now().astimezone(KOLKATA_TZ).date(),
-            requested_time=timezone.now(),
+            work_date=now.astimezone(KOLKATA_TZ).date(),
+            requested_time=now,
             reason="Unsubstantiated request",
         )
         reviewed = review_fallback_request(
@@ -252,11 +261,12 @@ class TestManualFallbackWorkflow:
 
     def test_manager_cannot_review_a_non_report(self, employee, manager):
         """A Manager may review only their direct reports' requests."""
+        now = timezone.now()
         req = create_fallback_request(
             user=employee,
             request_type=AttendanceFallbackRequest.RequestType.CHECK_IN,
-            work_date=timezone.now().astimezone(KOLKATA_TZ).date(),
-            requested_time=timezone.now(),
+            work_date=now.astimezone(KOLKATA_TZ).date(),
+            requested_time=now,
             reason="Not my report",
         )
         with pytest.raises(PermissionDenied):
@@ -266,11 +276,12 @@ class TestManualFallbackWorkflow:
         assert get_open_session(employee) is None
 
     def test_manager_cannot_approve_own_request(self, manager):
+        now = timezone.now()
         req = create_fallback_request(
             user=manager,
             request_type=AttendanceFallbackRequest.RequestType.CHECK_IN,
-            work_date=timezone.now().astimezone(KOLKATA_TZ).date(),
-            requested_time=timezone.now(),
+            work_date=now.astimezone(KOLKATA_TZ).date(),
+            requested_time=now,
             reason="Self approval attempt",
         )
         with pytest.raises(PermissionDenied):
@@ -365,7 +376,7 @@ class TestAttendanceReporting:
 
         report = get_attendance_report(
             start_date=(base_time - timedelta(days=1)).date(),
-            end_date=timezone.now().date(),
+            end_date=timezone.now().astimezone(KOLKATA_TZ).date(),
             user=employee,
         )
 

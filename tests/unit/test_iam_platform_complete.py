@@ -8,6 +8,8 @@ Acceptance Test Suite for Complete Salow IAM Platform:
 6. Central IAM Security Invariants & Integration Guarantees.
 """
 
+from zoneinfo import ZoneInfo
+
 import pyotp
 import pytest
 from django.core.exceptions import PermissionDenied, ValidationError
@@ -308,11 +310,12 @@ def test_workspace_admin_panel_review_fallback_action(client, test_users):
     from apps.directory.models import ReportingRelationship
 
     ReportingRelationship.objects.create(manager=test_users["manager"], subordinate=emp)
+    now = timezone.now()
     req = AttendanceFallbackRequest.objects.create(
         user=emp,
         request_type=AttendanceFallbackRequest.RequestType.CHECK_IN,
-        work_date=timezone.now().date(),
-        requested_time=timezone.now(),
+        work_date=now.astimezone(ZoneInfo("Asia/Kolkata")).date(),
+        requested_time=now,
         reason="Camera failure on mobile device",
     )
 
