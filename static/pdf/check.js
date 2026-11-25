@@ -32,6 +32,20 @@
     while ((i = t.indexOf(k, i)) >= 0) { n++; i += k.length; }
     return n;
   }
+  // Splits text into [{t, hit}] segments around matches of q (case-insensitive, any run of whitespace in q
+  // matches any run of whitespace in text). At most 500 matches are marked. Segments joined equal text.
+  function splitMatches(text, q) {
+    if (typeof text !== "string" || typeof q !== "string" || !q.trim()) return [{ t: String(text || ""), hit: false }];
+    var re = new RegExp(q.trim().split(/\s+/).map(function (w) { return w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"); }).join("\\s+"), "gi");
+    var out = [], last = 0, m, n = 0;
+    while (n < 500 && (m = re.exec(text)) !== null) {
+      if (m[0].length === 0) { re.lastIndex++; continue; }
+      if (m.index > last) out.push({ t: text.slice(last, m.index), hit: false });
+      out.push({ t: m[0], hit: true }); last = m.index + m[0].length; n++;
+    }
+    if (last < text.length) out.push({ t: text.slice(last), hit: false });
+    return out.length ? out : [{ t: text, hit: false }];
+  }
   // Pages to look at: the page after cur first, wrapping, the current page last. At most MAX_SCAN pages.
   function pageOrder(cur, count) {
     var out = [];
@@ -40,6 +54,6 @@
   }
   // Newest-pick-wins sequence: begin() on each file pick or close, current(n) says whether n is still the newest.
   function Seq() { var n = 0; this.begin = function () { return ++n; }; this.current = function (m) { return m === n; }; }
-  var api = { normQuery: normQuery, countIn: countIn, pageOrder: pageOrder, MAX_SCAN: MAX_SCAN, takeText: takeText, Seq: Seq, MAX_BYTES: MAX_BYTES, check: check, pageIndex: pageIndex, zoomStep: zoomStep };
+  var api = { splitMatches: splitMatches, normQuery: normQuery, countIn: countIn, pageOrder: pageOrder, MAX_SCAN: MAX_SCAN, takeText: takeText, Seq: Seq, MAX_BYTES: MAX_BYTES, check: check, pageIndex: pageIndex, zoomStep: zoomStep };
   if (typeof module !== "undefined" && module.exports) module.exports = api; else root.SalowPdfCheck = api;
 })(typeof self !== "undefined" ? self : this);

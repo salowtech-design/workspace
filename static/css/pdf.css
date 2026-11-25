@@ -14,3 +14,4 @@
   .pdf-tools input[type="number"] { width: 3.5em; }
   .pdf-stage { padding: 4px; }
 }
+.pdf-text mark { background: #ffe08a; color: inherit; }

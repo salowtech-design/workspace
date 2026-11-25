@@ -4,6 +4,7 @@
   var status = $("pdf-status"), canvas = $("pdf-canvas"), ctx = canvas.getContext("2d");
   var BASE = "/static/pdf/vendor/";
   var lib = null, doc = null, loadTask = null, seq = new C.Seq(), page = 1, zoom = 1, task = null, token = 0, settle = Promise.resolve();
+  var mark = ""; // the query whose matches are marked in the page text, set by a successful find
   function nop() {}
   // Cancel the running render, and remember its settlement for every later draw and close.
   function cancelCurrent() {
@@ -42,7 +43,14 @@
       pg.getTextContent().then(function (tc) {
         if (my !== token) return;
         var r = C.takeText(tc.items, 20000), t = r.text;
-        tx.textContent = t ? t + (r.cut ? "\n[Shortened at 20000 characters.]" : "") : "This page has no text the viewer can read. It may be a scanned image.";
+        if (!t) { tx.textContent = "This page has no text the viewer can read. It may be a scanned image."; return; }
+        tx.textContent = "";
+        // matches are marked with real elements built from text nodes, never markup from the file
+        C.splitMatches(t, mark).forEach(function (s) {
+          if (!s.hit) { tx.appendChild(document.createTextNode(s.t)); return; }
+          var m = document.createElement("mark"); m.textContent = s.t; tx.appendChild(m);
+        });
+        if (r.cut) tx.appendChild(document.createTextNode("\n[Shortened at 20000 characters.]"));
       }, function () { if (my === token) tx.textContent = "The text of this page could not be read."; });
       task = pg.render({ canvasContext: ctx, viewport: vp });
       return task.promise.then(function () { if (my === token) status.textContent = ""; });
@@ -57,26 +65,28 @@
     if (!doc || finding) return;
     var q = C.normQuery($("pdf-q").value);
     if (!q) { fmsg("Type 2 to 100 characters to find."); return; }
-    var d = doc, mine = fseq.begin(), order = C.pageOrder(page, d.numPages), i = 0, partial = 0, unread = 0;
+    var d = doc, mine = fseq.begin(), order = C.pageOrder(page, d.numPages), i = 0, partial = 0, unread = 0, failed = 0;
     finding = true; $("pdf-fstop").disabled = false; $("pdf-find").disabled = true;
     var live = function () { return fseq.current(mine) && doc === d; };
     function done() {
       if (!live()) return;
       var more = d.numPages > order.length ? " Only the first " + order.length + " pages in this order were searched." : "";
-      var note = (partial ? " " + partial + " page(s) have more than 20000 characters, so only the first 20000 were searched." : "") + (unread ? " " + unread + " page(s) had no readable text (scans are not read)." : "");
-      fmsg("No match for \"" + q + "\" in " + order.length + " page(s)." + more + note); fend();
+      var note = (partial ? " " + partial + " page(s) have more than 20000 characters, so only the first 20000 were searched." : "") + (unread ? " " + unread + " page(s) had no extractable text (scans are not read)." : "") + (failed ? " " + failed + " page(s) could not be read." : "");
+      fmsg("No match found for \"" + q + "\" in " + order.length + " page(s)." + more + note + " This searches the extracted plain text only. A word split by the file's own layout can be missed, so this does not prove the text is absent."); fend();
     }
     function step() {
       if (!live()) return;
       if (i >= order.length) return done();
       var p = order[i++]; fmsg("Searching page " + p + " of " + d.numPages + "...");
-      d.getPage(p).then(function (pg) { return pg.getTextContent(); }).then(function (tc) {
+      var held = null;
+      d.getPage(p).then(function (pg) { held = pg; return pg.getTextContent(); }).then(function (tc) {
+        if (held) { try { held.cleanup(); } catch (x) { /* already released */ } }
         if (!live()) return;
         var r = C.takeText(tc.items, 20000); if (r.cut) partial++; if (!r.text) unread++;
         var n = C.countIn(r.text, q);
-        if (n > 0) { fmsg("Found \"" + q + "\" on page " + p + ": " + n + " match(es)" + (r.cut ? " in the first 20000 characters" : "") + ". Press Find again for the next page."); fend(); go(p); return; }
+        if (n > 0) { fmsg("Found \"" + q + "\" on page " + p + ": " + n + " match(es)" + (r.cut ? " in the first 20000 characters" : "") + ". Press Find again for the next page."); fend(); mark = q; go(p); return; }
         setTimeout(step, 0);
-      }, function () { if (!live()) return; unread++; setTimeout(step, 0); });
+      }, function () { if (held) { try { held.cleanup(); } catch (x) { /* already released */ } } if (!live()) return; failed++; setTimeout(step, 0); });
     }
     step();
   }
@@ -85,7 +95,7 @@
   $("pdf-fstop").addEventListener("click", function () { if (!finding) return; fseq.begin(); fmsg("Find stopped."); fend(); });
   function go(p) { if (!doc) return; page = C.pageIndex(p, 0, doc.numPages); controls(); draw(); }
   function closeDoc(msg) {
-    token++; cancelCurrent(); fseq.begin(); finding = false; $("pdf-fstop").disabled = true; fmsg(""); $("pdf-q").value = "";
+    token++; cancelCurrent(); fseq.begin(); finding = false; mark = ""; $("pdf-fstop").disabled = true; fmsg(""); $("pdf-q").value = "";
     var d = doc; doc = null; page = 1; zoom = 1; $("pdf-text").textContent = "";
     settle.then(function () { if (doc) return; canvas.width = 1; canvas.height = 1; canvas.style.width = "0"; canvas.style.height = "0"; });
     var lt = loadTask; loadTask = null; if (lt) { try { lt.destroy(); } catch (e) { /* already gone */ } }
