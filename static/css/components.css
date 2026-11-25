@@ -264,8 +264,23 @@ th {
 
   .nav-links {
     display: flex;
-    flex-wrap: wrap;
-    gap: var(--space-1) var(--space-3);
+    flex-direction: row;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    gap: var(--space-1) var(--space-2);
+    padding-bottom: var(--space-1);
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .nav-item a {
+    white-space: nowrap;
+    padding: var(--space-2) var(--space-3);
+  }
+
+  /* Profile and sign out sit in one compact row under the links, not pinned far below. */
+  .sidebar > div:last-child {
+    margin-top: var(--space-2) !important;
+    padding-top: var(--space-2) !important;
   }
 
   .main-content,
