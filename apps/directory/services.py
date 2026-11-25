@@ -229,21 +229,22 @@ def create_custom_field(
         raise ValidationError("Label must be 1 to 80 characters.")
     if field_type not in CustomFieldDefinition.FieldType.values:
         raise ValidationError("Unknown field type.")
-    try:
-        with transaction.atomic():
-            _require_admin(actor)
-            d = CustomFieldDefinition.objects.create(
-                key=key, label=label, field_type=field_type, required=bool(required)
-            )
-            record_audit_event(
-                event_type="directory.custom_field_created",
-                actor=actor,
-                target_entity="CustomFieldDefinition",
-                target_id=str(d.id),
-                details={"key": d.key, "type": d.field_type},
-            )
-    except IntegrityError:
-        raise ValidationError("A field with that key already exists.") from None
+    with transaction.atomic():
+        _require_admin(actor)
+        try:
+            with transaction.atomic():
+                d = CustomFieldDefinition.objects.create(
+                    key=key, label=label, field_type=field_type, required=bool(required)
+                )
+        except IntegrityError:
+            raise ValidationError("A field with that key already exists.") from None
+        record_audit_event(  # outside the try: an audit failure is not reported as a duplicate
+            event_type="directory.custom_field_created",
+            actor=actor,
+            target_entity="CustomFieldDefinition",
+            target_id=str(d.id),
+            details={"key": d.key, "type": d.field_type},
+        )
     return d
 
 
@@ -348,6 +349,7 @@ def add_onboarding_step(title, actor, owner_role="", due_after_days=0):
     if owner_role and owner_role not in valid_roles:
         raise ValidationError("Unknown role.")
     with transaction.atomic():
+        _require_admin(actor)
         last = (
             OnboardingStep.objects.order_by("-position").values_list("position", flat=True).first()
         )
@@ -376,8 +378,10 @@ def start_onboarding(user, actor, start_date=None):
     the person already has are skipped (unique per person and title). Returns tasks created."""
     from datetime import timedelta
 
+    from django.utils import timezone
+
     _require_admin(actor)
-    start_date = start_date or date.today()
+    start_date = start_date or timezone.localdate()
     created = []
     with transaction.atomic():
         _require_admin(actor)

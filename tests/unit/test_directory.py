@@ -235,7 +235,9 @@ def test_race_two_manager_changes_cannot_make_a_loop(monkeypatch, locked):
 
         def pause(barrier=barrier):
             try:
-                barrier.wait(timeout=1.5)  # both sides have passed the loop check
+                barrier.wait(
+                    timeout=1.5 if locked else 10
+                )  # lockless: both must arrive, no early timeout
             except threading.BrokenBarrierError:
                 pass  # the lock kept the other side out
 
@@ -503,3 +505,53 @@ def test_admin_demoted_between_early_check_and_write_is_refused(monkeypatch):
         ds.create_custom_field("late_key", "Late", "text", admin)
     assert not CustomFieldDefinition.objects.filter(key="late_key").exists()
     assert len(calls) == 2  # the second, in-transaction read is what refused it
+
+
+@pytest.mark.django_db
+def test_onboarding_step_admin_rechecked_in_transaction_and_audit_failure_not_a_duplicate(
+    monkeypatch,
+):
+    from django.core.exceptions import PermissionDenied
+
+    from apps.directory import services as ds
+    from apps.directory.models import CustomFieldDefinition, OnboardingStep
+
+    admin = _emp("OT-ADM", "Ot Admin", CustomUser.Role.ADMIN)
+    real, calls = ds._require_admin, []
+
+    def demote_after_first(actor):
+        calls.append(1)
+        r = real(actor)
+        if len(calls) == 1:
+            CustomUser.objects.filter(pk=actor.pk).update(role=CustomUser.Role.EMPLOYEE)
+        return r
+
+    monkeypatch.setattr(ds, "_require_admin", demote_after_first)
+    with pytest.raises(PermissionDenied):
+        ds.add_onboarding_step("Late step", admin)
+    assert not OnboardingStep.objects.filter(title="Late step").exists() and len(calls) == 2
+    monkeypatch.setattr(ds, "_require_admin", real)
+    admin2 = _emp("OT-ADM2", "Ot Admin2", CustomUser.Role.ADMIN)
+
+    def boom(**kw):
+        raise IntegrityError("audit table problem")
+
+    monkeypatch.setattr(ds, "record_audit_event", boom)
+    with pytest.raises(IntegrityError):  # not turned into "key already exists"
+        ds.create_custom_field("audit_key", "Audit", "text", admin2)
+    assert not CustomFieldDefinition.objects.filter(key="audit_key").exists()  # rolled back
+
+
+@pytest.mark.django_db
+def test_onboarding_default_start_date_uses_configured_timezone(monkeypatch):
+    from datetime import date
+
+    from django.utils import timezone
+
+    from apps.directory import services as ds
+
+    admin = _emp("TZ-ADM", "Tz Admin", CustomUser.Role.ADMIN)
+    new = _emp("TZ-NEW", "Tz New")
+    ds.add_onboarding_step("Day zero", admin)
+    monkeypatch.setattr(timezone, "localdate", lambda: date(2031, 1, 2))
+    assert ds.start_onboarding(new, admin)[0].due_date == date(2031, 1, 2)
