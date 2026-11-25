@@ -213,21 +213,64 @@ def test_assign_manager_authority_cycles_self_inactive_and_noop():
     assert ReportingRelationship.objects.count() == 2
 
 
+def _classify_outcomes(outcomes):
+    """Split thread outcomes: (rounds the database aborted with 1213, other errors). A 1213 is a
+    database-aborted interleaving: named, never swallowed."""
+    is_abort = lambda o: o.startswith("error:OperationalError:(1213")  # noqa: E731
+    aborted_rounds = [i for i, row in enumerate(outcomes) if any(is_abort(o) for o in row)]
+    other = [o for row in outcomes for o in row if "error" in o and not is_abort(o)]
+    return aborted_rounds, other
+
+
+def test_threads_formats_a_database_deadlock_the_way_the_race_test_classifies_it():
+    """Deterministic: the real _threads helper turns a raised 1213 into the outcome string that
+    _classify_outcomes recognises; a different database error is NOT classed as an abort."""
+    from django.db import OperationalError
+
+    from tests.unit.test_drive_services import _threads
+
+    def deadlock():
+        raise OperationalError(
+            1213, "Deadlock found when trying to get lock; try restarting transaction"
+        )
+
+    def other():
+        raise OperationalError(2013, "Lost connection")
+
+    out = _threads([deadlock, lambda: None])
+    assert out[1] == "ok" and out[0].startswith("error:OperationalError:(1213")
+    assert _classify_outcomes([out]) == ([0], [])
+    out2 = _threads([other, lambda: None])
+    aborted, rest = _classify_outcomes([out2])
+    assert aborted == [] and len(rest) == 1
+
+
 @pytest.mark.django_db(transaction=True)
-@pytest.mark.parametrize("locked", [True, False])
-def test_race_two_manager_changes_cannot_make_a_loop(monkeypatch, locked):
+@pytest.mark.parametrize(
+    ("locked", "lock_row"),
+    [(True, "seeded"), (True, "absent"), (False, "seeded")],
+)
+def test_race_two_manager_changes_cannot_make_a_loop(monkeypatch, locked, lock_row):  # noqa: C901
     import threading
 
     from django.db import connection
 
     from apps.directory import services as ds
+    from apps.directory.models import ReportingLock
     from tests.unit.test_drive_services import _threads
 
     if connection.vendor == "sqlite":
         pytest.skip("row locks are only meaningful on the TiDB/MySQL backend")
     if not locked:
         monkeypatch.setattr(ds, "_reporting_lock", lambda: None)
-    loops, outcomes = 0, []
+    # pin the lock row: the transaction=True flush may have removed the migration-seeded row
+    if lock_row == "seeded":
+        ReportingLock.objects.get_or_create(name="reporting")
+        assert ReportingLock.objects.filter(name="reporting").count() == 1
+    else:
+        ReportingLock.objects.all().delete()
+        assert ReportingLock.objects.count() == 0
+    loops, outcomes, pair_counts = 0, [], []
     for i in range(2 if locked else 3):
         admin = _emp(f"RL-ADM{i}{locked}", "Admin", CustomUser.Role.ADMIN)
         a, b = _emp(f"RL-A{i}{locked}", "A"), _emp(f"RL-B{i}{locked}", "B")
@@ -250,16 +293,56 @@ def test_race_two_manager_changes_cannot_make_a_loop(monkeypatch, locked):
                 ]
             )
         )
-        both = ReportingRelationship.objects.filter(subordinate__in=[a, b]).count() == 2
-        if both:
+        pair_counts.append(ReportingRelationship.objects.filter(subordinate__in=[a, b]).count())
+        if pair_counts[-1] == 2:
             loops += 1
-    assert all("error" not in o for row in outcomes for o in row), outcomes
+    aborted_rounds, other = _classify_outcomes(outcomes)
+    assert not other, outcomes
+    for i in aborted_rounds:  # a database-aborted round can never have stored both directions
+        assert pair_counts[i] <= 1, (i, pair_counts, outcomes)
+    if locked:
+        assert not aborted_rounds, outcomes  # production path: any 1213 is a real finding
+        assert (
+            ReportingLock.objects.filter(name="reporting").count() == 1
+        )  # absent start re-creates it
     if locked:
         assert loops == 0 and all(
             sorted(r) == ["ok", "refused:ValidationError"] for r in outcomes
         ), (loops, outcomes)
     else:
-        assert loops == 3, (loops, outcomes)
+        # the control must show real interference: every round stored the loop or was aborted
+        print(f"control: loops_stored={loops} database_aborted_rounds={len(aborted_rounds)}")
+        assert loops + len(aborted_rounds) == 3, (loops, aborted_rounds, outcomes)
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.parametrize("locked", [True, False])
+def test_an_injected_database_deadlock_is_not_swallowed_and_rolls_back(monkeypatch, locked):
+    """Deterministic: no timing. A 1213 raised after the checks must reach the caller (never swallowed,
+    locked or not) and leave nothing stored, so a retry can succeed and no loop can appear."""
+    from django.db import OperationalError
+
+    from apps.directory import services as ds
+
+    if not locked:
+        monkeypatch.setattr(ds, "_reporting_lock", lambda: None)
+    admin = _emp(f"INJ-ADM{locked}", "Admin", CustomUser.Role.ADMIN)
+    a, b = _emp(f"INJ-A{locked}", "A"), _emp(f"INJ-B{locked}", "B")
+
+    def deadlock():
+        raise OperationalError(
+            1213, "Deadlock found when trying to get lock; try restarting transaction"
+        )
+
+    monkeypatch.setattr(ds, "_pause", deadlock)
+    with pytest.raises(OperationalError):
+        ds.assign_reporting_manager(a, b, admin)
+    assert ReportingRelationship.objects.filter(subordinate__in=[a, b]).count() == 0
+    monkeypatch.setattr(ds, "_pause", lambda: None)
+    ds.assign_reporting_manager(a, b, admin)  # the retry works
+    with pytest.raises(ValidationError):
+        ds.assign_reporting_manager(b, a, admin)  # and the loop is still refused
+    assert ReportingRelationship.objects.filter(subordinate__in=[a, b]).count() == 1
 
 
 @pytest.mark.django_db
