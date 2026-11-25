@@ -1,5 +1,6 @@
-// A sheet written by the 26 x 100 grid must survive the previous 8 x 20 build (saved copies in fixtures/).
-// The old build hides cells outside A1:H20; what matters is that it neither refuses nor drops them on its own saves.
+// Scope: the previous 8 x 20 model.js and formula.js (byte-identical copies of static/sheets/{model,formula}.js at commit 3d0df75,
+// kept in fixtures/) are asked to read, save and undo a sheet that uses the 26 x 100 corner. This tests the old model/history
+// code path only (clean, History save, undo). It does not run the old grid.js page, which hides cells outside A1:H20.
 const Old = require("./fixtures/sheets_model_grid8x20.js");
 const OldF = require("./fixtures/sheets_formula_grid8x20.js");
 let fails = 0, n = 0;

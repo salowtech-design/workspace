@@ -1760,7 +1760,7 @@ def sheets_grid(ctx):
     check("grid: a formula in a lower row reads its row", val("D50") == "12", val("D50"))
     check(
         "grid: SUM across rows 50 to 100 reaches the new rows",
-        val("E50") in ("24", "12", "17"),
+        val("E50") == "24",
         val("E50"),
     )
     pg.click('input[data-addr="A100"]')
