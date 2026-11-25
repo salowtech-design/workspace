@@ -94,5 +94,7 @@ ok("sort treats numbers like 1e3, -2 and .5 as numbers but not 12abc or Infinity
   ok("filter refuses a bad operator, an empty value and a non-number", fr(1, "xx", "a", true).error !== undefined && fr(1, "contains", "  ", true).error !== undefined && fr(2, "gt", "abc", true).error !== undefined);
   ok("filter with no match shows zero rows without error", (() => { const r = fr(1, "contains", "zzz", true); return r.shown === 0 && !r.error && r.vis[1]; })());
 }
+ok("sort treats a cell as a formula exactly when the engine does (first character =, no trimming)", (() => { const c = mk({ A1: " =1+1", A2: "b", A3: "a" }); const r = M.sortRange(c, parseAddr, { c1: 1, c2: 1, r1: 1, r2: 3 }, 1, false, false); const sh = new F.Sheet({ A1: " =1+1" }); return !r.error && typeof sh.get("A1") === "string" && M.sortRange(mk({ A1: "=1", A2: "b" }), parseAddr, { c1: 1, c2: 1, r1: 1, r2: 2 }, 1, false, false).error !== undefined; })());
+ok("sort and the engine agree on which typed values are numbers", ["1", " 2 ", "-3", "+4", ".5", "6.", "1e3", "1E3", "1e999", "12abc", "Infinity", "NaN", "0x10", "1,5", "TRUE", "", " "].every((t) => { const v = new F.Sheet({ A1: t }).get("A1"); return (M.toNum(t) !== null) === (typeof v === "number"); }));
 console.log(`${n - fails}/${n} model rows passed`);
 process.exit(fails ? 1 : 0);

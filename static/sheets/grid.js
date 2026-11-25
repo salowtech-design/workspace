@@ -81,7 +81,7 @@
     if (!r) { status.textContent = "The sheet is empty, so nothing was downloaded."; return; }
     var u = URL.createObjectURL(new Blob([r.text], { type: "text/csv;charset=utf-8" })), l = document.createElement("a");
     l.href = u; l.download = "sheet.csv"; document.body.appendChild(l); l.click(); l.remove(); setTimeout(function () { URL.revokeObjectURL(u); }, 4000);
-    status.textContent = "Downloaded sheet.csv: " + r.rows + " rows by " + r.cols + " columns, with the values shown (not formulas). The file is UTF-8 without a byte-order mark, so some programs may need you to pick UTF-8 when importing. It has not been tried in a spreadsheet program." + (r.guarded ? " " + r.guarded + " text cell(s) looked like formulas (they start with = + - or @), so a leading apostrophe was added. The apostrophe is part of the text in the file, so it shows up when you open it. That lowers the chance a spreadsheet program runs them, but it is not a guarantee for every program." : "");
+    status.textContent = "Downloaded sheet.csv: " + r.rows + " rows by " + r.cols + " columns, with the values shown (not formulas)." + (filt ? " It includes the rows the filter hides." : "") + " The file is UTF-8 without a byte-order mark, so some programs may need you to pick UTF-8 when importing. It has not been tried in a spreadsheet program." + (r.guarded ? " " + r.guarded + " text cell(s) looked like formulas (they start with = + - or @), so a leading apostrophe was added. The apostrophe is part of the text in the file, so it shows up when you open it. That lowers the chance a spreadsheet program runs them, but it is not a guarantee for every program." : "");
   });
   document.getElementById("sheet-import").addEventListener("change", function (e) {
     var f = e.target.files[0]; if (!f) return;
@@ -155,6 +155,14 @@
     if (res.error) { fstat.textContent = res.error; return; }
     for (var i = 1; i <= last; i++) table.rows[i].hidden = !res.vis[i];
     fstat.textContent = "Showing " + res.shown + " of " + res.total + " rows. Hidden rows are only hidden on screen: nothing is deleted and the filter is not saved." + (res.shown === 0 ? " No rows match." : "");
+    var ae = document.activeElement, aeRow = ae && ae.dataset && ae.dataset.addr ? F.parseAddr(ae.dataset.addr).row : 0, curRow = cur ? F.parseAddr(cur).row : 0;
+    if ((aeRow && rowHidden(aeRow)) || (ae === document.body && curRow && rowHidden(curRow))) {
+      var hr = aeRow || curRow, best = 0, d;
+      for (d = 1; d <= ROWS && !best; d++) { if (hr - d >= 1 && !rowHidden(hr - d)) best = hr - d; else if (hr + d <= ROWS && !rowHidden(hr + d)) best = hr + d; }
+      var colL = cur ? cur.replace(/[0-9]+$/, "") : "A";
+      if (best) { inputs[colL + best].focus(); fstat.textContent = "Row " + hr + " no longer matches the filter and is hidden. Focus moved to row " + best + ". " + fstat.textContent; }
+      else { $("filter-clear").focus(); fstat.textContent = "Row " + hr + " no longer matches the filter and is hidden, and no row matches. " + fstat.textContent; }
+    }
   }
   $("filter-go").addEventListener("click", function () {
     var col = colNum($("filter-col").value);
@@ -165,13 +173,17 @@
     filt = f; applyFilter();
   });
   $("filter-clear").addEventListener("click", function () { filt = null; applyFilter(); fstat.textContent = "All rows are showing."; });
+  function outsideFormulas(rg) {
+    var n = 0; Object.keys(cells).forEach(function (k) { var p = F.parseAddr(k), v = cells[k]; if (!p || typeof v !== "string" || v[0] !== "=") return; if (p.col >= rg.c1 && p.col <= rg.c2 && p.row >= rg.r1 && p.row <= rg.r2) return; n++; });
+    return n ? " " + n + " formula" + (n === 1 ? "" : "s") + " outside the range keep their addresses, so any that refer to the sorted cells may now show different results." : "";
+  }
   $("sort-go").addEventListener("click", function () {
     var rg = parseRange($("sort-range").value), key = colNum($("sort-col").value);
     if (!rg) { status.textContent = "Enter a range like A1:C10."; return; }
     if ((rg.c2 - rg.c1 + 1) * (rg.r2 - rg.r1 + 1) > 2000 || rg.c2 > 26 || rg.r2 > 1000) { status.textContent = "A sort range can hold up to 2000 cells."; return; }
     var r = M.sortRange(cells, F.parseAddr, rg, key, $("sort-dir").value === "desc", $("sort-header").checked);
     if (r.error) { status.textContent = r.error; return; }
-    var note = "Sorted " + r.rows + " rows by column " + String.fromCharCode(64 + key) + "; " + r.moved + " moved. Undo restores the old order." + (filt ? " The filter is still on." : "");
+    var note = "Sorted " + r.rows + " rows by column " + String.fromCharCode(64 + key) + "; " + r.moved + " moved. Undo restores the old order." + (filt ? " The filter is still on." : "") + outsideFormulas(rg);
     if (!change(r.cells, note)) status.textContent = "Already in that order. Nothing changed.";
   });
   show(); buttons(); status.textContent = "";
