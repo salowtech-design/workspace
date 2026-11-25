@@ -279,3 +279,59 @@ def test_race_cancel_versus_response_no_answer_lands_after_the_cancel(monkeypatc
     else:
         assert saw_commit == [True, True], saw_commit
         assert late == 2, (late, outcomes)  # same final state as locked; the order differs
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.parametrize("locked", [True, False])
+def test_race_response_versus_edit_both_land_and_the_lock_only_orders_them(monkeypatch, locked):
+    """Respond and edit touch different rows (the guest row and the event row), so there is no
+    lost update to find here with or without the event lock. What the test shows: both changes
+    survive, and with the lock the response cannot run while the edit is mid-write."""
+    import threading
+
+    from django.db import connection
+
+    from tests.unit.test_drive_services import _threads
+
+    if connection.vendor == "sqlite":
+        pytest.skip("row locks are only meaningful on the TiDB/MySQL backend")
+    if not locked:
+        monkeypatch.setattr(es, "_lock_event", _plain_lock)
+    a = (D(2026, 12, 4, 10), D(2026, 12, 4, 11), IST)
+    org, g = _u(f"RE2-ORG{locked}"), _u(f"RE2-G{locked}")
+    ev = es.create_event(org, "Start", *a, guest_ids=[g.pk])
+    edit_paused, respond_reached, release = (threading.Event() for _ in range(3))
+    who = threading.local()
+
+    def pause():
+        if getattr(who, "name", "") == "edit":
+            edit_paused.set()  # the edit holds its checks and (locked) the event row
+            release.wait(timeout=10)
+        else:
+            respond_reached.set()
+
+    monkeypatch.setattr(es, "_pause", pause)
+
+    def edit():
+        who.name = "edit"
+        es.update_event(org, ev.public_id, 1, "Renamed", *a)
+
+    def respond():
+        who.name = "respond"
+        assert edit_paused.wait(timeout=10)
+        es.respond(g, ev.public_id, "accepted")
+
+    seen = []
+
+    def controller():
+        assert edit_paused.wait(timeout=10)
+        seen.append(respond_reached.wait(timeout=1.5))  # did the response get past its checks?
+        release.set()
+
+    out = _threads([edit, respond, controller])
+    ev.refresh_from_db()
+    assert out == ["ok", "ok", "ok"], out
+    assert (ev.title, ev.version) == ("Renamed", 2)
+    assert Guest.objects.get(event=ev).response == "accepted"
+    # locked: the response waited for the edit's commit; lockless: it ran alongside the edit
+    assert seen == [not locked], seen
