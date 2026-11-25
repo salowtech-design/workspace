@@ -3,7 +3,7 @@
  * unchecked. Elements without their own color inherit the theme, so a theme change restyles them. */
 (function (root) {
   "use strict";
-  var W = 960, H = 540, MAX_SLIDES = 50, MAX_EL = 30, MAX_TEXT = 1000, HIST = 100;
+  var W = 960, H = 540, MAX_SLIDES = 50, MAX_EL = 30, MAX_TEXT = 1000, MAX_NOTES = 2000, HIST = 100;
   var THEMES = { light: { bg: "#ffffff", fg: "#222222", accent: "#7a2e22" }, dark: { bg: "#1f2430", fg: "#f2f2f2", accent: "#e0a458" }, warm: { bg: "#faf5ec", fg: "#3b2a20", accent: "#a4472f" } };
   var FILLS = ["theme", "#7a2e22", "#2e6f95", "#3b7d4f", "#c28b1d", "#6b6b6b"];
   var TYPES = ["text", "rect", "ellipse"];
@@ -11,17 +11,19 @@
   var ID_RE = /^[A-Za-z0-9_-]{1,40}$/, MAX_SNAPSHOT_BYTES = 5000000;
   var seq = 0;
   function uid() { return "e" + Date.now().toString(36) + (seq++).toString(36); }
+  // cut to n code points, so a character made of two UTF-16 halves is never split
+  function cut(t, n) { return t.length <= n ? t : Array.from(t).slice(0, n).join(""); }
   function clamp(v, lo, hi) { v = Math.round(Number(v)); if (!isFinite(v)) v = lo; return Math.min(hi, Math.max(lo, v)); }
   function newEl(type) {
     var e = { id: uid(), type: type, x: 80, y: 80, w: type === "text" ? 400 : 200, h: type === "text" ? 80 : 120, fill: "theme", text: "", size: 32 };
     if (type === "text") e.text = "Text";
     return e;
   }
-  function newSlide() { return { id: uid(), elements: [] }; }
+  function newSlide() { return { id: uid(), elements: [], notes: "" }; }
   function newDeck() { return { v: 1, theme: "light", slides: [newSlide()] }; }
   function fixEl(e) {
     if (!e || typeof e !== "object" || TYPES.indexOf(e.type) < 0 || typeof e.id !== "string" || !ID_RE.test(e.id)) return null;
-    var text = typeof e.text === "string" ? e.text.slice(0, MAX_TEXT) : "";
+    var text = typeof e.text === "string" ? cut(e.text, MAX_TEXT) : "";
     var w = clamp(e.w, 10, W), h = clamp(e.h, 10, H);
     return { id: e.id, type: e.type, x: clamp(e.x, 0, W - w), y: clamp(e.y, 0, H - h), w: w, h: h, fill: FILLS.indexOf(e.fill) >= 0 ? e.fill : "theme", text: text, size: clamp(e.size, 8, 120) };
   }
@@ -34,7 +36,7 @@
       if (!s || typeof s !== "object" || typeof s.id !== "string" || !ID_RE.test(s.id) || !Array.isArray(s.elements) || s.elements.length > MAX_EL || ids[s.id]) return null;
       ids[s.id] = true; var els = [];
       for (var j = 0; j < s.elements.length; j++) { var e = fixEl(s.elements[j]); if (!e || ids[e.id]) return null; ids[e.id] = true; els.push(e); }
-      out.slides.push({ id: s.id, elements: els });
+      out.slides.push({ id: s.id, elements: els, notes: typeof s.notes === "string" ? cut(s.notes, MAX_NOTES) : "" });
     }
     return out;
   }
@@ -47,6 +49,8 @@
       var src = d.slides[i]; if (!src || d.slides.length >= MAX_SLIDES) return null;
       var n = copy(d), c = copy(src); c.id = uid(); c.elements.forEach(function (e) { e.id = uid(); }); n.slides.splice(i + 1, 0, c); return n;
     },
+    // speaker notes for slide i: plain text, cut at MAX_NOTES (the page also stops typing there, so nothing is cut silently)
+    setNotes: function (d, i, text) { if (!d.slides[i] || typeof text !== "string") return null; var n = copy(d); n.slides[i].notes = cut(text, MAX_NOTES); return n; },
     moveSlide: function (d, i, to) { if (!d.slides[i] || to < 0 || to >= d.slides.length || to === i) return null; var n = copy(d), s = n.slides.splice(i, 1)[0]; n.slides.splice(to, 0, s); return n; },
     addElement: function (d, i, type) { var s = d.slides[i]; if (!s || s.elements.length >= MAX_EL || TYPES.indexOf(type) < 0) return null; var n = copy(d), e = newEl(type); n.slides[i].elements.push(e); return { deck: n, id: e.id }; },
     updateElement: function (d, i, id, patch) {
@@ -79,7 +83,7 @@
   function describe(deck, i) {
     return deck.slides[i].elements.map(function (e, k) {
       var kind = e.type === "text" ? "Text" : e.type === "rect" ? "Rectangle" : "Ellipse";
-      return (k + 1) + ". " + kind + (e.text ? ": " + e.text.slice(0, 40) : "");
+      return (k + 1) + ". " + kind + (e.text ? ": " + cut(e.text, 40) : "");
     });
   }
   // store: { save(deck) -> true|false }
@@ -111,19 +115,27 @@
     if (key === "End") return n - 1;
     return null;
   }
-  // Wrap text to a width. Width of a character is estimated at 0.55 of the font size (sans-serif average), so this is an
-  // approximation, not a measurement. Words longer than a line are cut. Returns at most 60 lines.
+  function fmtClock(sec) { sec = Math.max(0, Math.floor(Number(sec) || 0)); var m = Math.floor(sec / 60), r = sec % 60; return m + ":" + (r < 10 ? "0" : "") + r; }
+  // Wrap text to a width. A character is estimated at 0.55 of the font size, and wide scripts and emoji at twice that.
+  // This is an approximation, not a measurement of the real font. Runs of white space (including newlines) count as one
+  // space, which is how the one-line drawing already treated them. Words longer than a line are cut by code point, so a
+  // pair of UTF-16 halves is never split. No text is dropped: item text is capped at 1000 characters.
+  function isWide(c) { return (c >= 0x1100 && c <= 0x115f) || (c >= 0x2e80 && c <= 0xa4cf) || (c >= 0xac00 && c <= 0xd7a3) || (c >= 0xf900 && c <= 0xfaff) || (c >= 0xfe30 && c <= 0xfe6f) || (c >= 0xff00 && c <= 0xff60) || (c >= 0xffe0 && c <= 0xffe6) || (c >= 0x1f300 && c <= 0x1faff) || (c >= 0x20000 && c <= 0x3fffd); }
+  function units(ch) { return isWide(ch.codePointAt(0)) ? 2 : 1; }
   function wrapLines(text, size, width) {
-    var per = Math.max(1, Math.floor(width / (size * 0.55))), out = [], line = "";
-    String(text).split(/\s+/).forEach(function (w) {
-      if (!w) return;
-      while (w.length > per) { if (line) { out.push(line); line = ""; } out.push(w.slice(0, per)); w = w.slice(per); }
-      if (!line) line = w; else if ((line + " " + w).length <= per) line += " " + w; else { out.push(line); line = w; }
+    var per = Math.max(2, Math.floor(width / (size * 0.55))), out = [], line = [], used = 0;
+    function flush() { if (line.length) out.push(line.join("")); line = []; used = 0; }
+    String(text).split(/\s+/).forEach(function (word) {
+      if (!word) return;
+      var cps = Array.from(word), wu = cps.reduce(function (t, ch) { return t + units(ch); }, 0);
+      if (line.length && used + 1 + wu <= per) { line.push(" "); used += 1; cps.forEach(function (ch) { line.push(ch); used += units(ch); }); return; }
+      flush();
+      cps.forEach(function (ch) { var u = units(ch); if (used + u > per && line.length) flush(); line.push(ch); used += u; });
     });
-    if (line) out.push(line);
-    return out.slice(0, 60);
+    flush();
+    return out;
   }
   function textHeight(lines, size) { return Math.ceil(lines.length * size * 1.2); }
-  var api = { wrapLines: wrapLines, textHeight: textHeight, showNav: showNav, W: W, H: H, THEMES: THEMES, FILLS: FILLS, MAX_SLIDES: MAX_SLIDES, MAX_EL: MAX_EL, newDeck: newDeck, validate: validate, ops: ops, color: color, textColor: textColor, onFill: onFill, contrast: contrast, loadDeck: loadDeck, describe: describe, History: History, copy: copy };
+  var api = { cut: cut, MAX_NOTES: MAX_NOTES, fmtClock: fmtClock, wrapLines: wrapLines, textHeight: textHeight, showNav: showNav, W: W, H: H, THEMES: THEMES, FILLS: FILLS, MAX_SLIDES: MAX_SLIDES, MAX_EL: MAX_EL, newDeck: newDeck, validate: validate, ops: ops, color: color, textColor: textColor, onFill: onFill, contrast: contrast, loadDeck: loadDeck, describe: describe, History: History, copy: copy };
   if (typeof module !== "undefined" && module.exports) module.exports = api; else root.SalowSlides = api;
 })(typeof self !== "undefined" ? self : this);

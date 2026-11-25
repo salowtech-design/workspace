@@ -23,3 +23,7 @@
 .slide-show-bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: center; margin: 8px 0 0; }
 .slide-show .cal-meta { color: #cfcfcf; }
 @media (max-height: 560px), (max-width: 480px) { .slide-show { padding: 6px; } .slide-show svg { max-height: 60vh; } .slide-show .cal-meta { display: none; } .slide-show-bar .btn { padding: 6px 10px; } }
+.slide-notes-label { display: block; margin-top: 8px; }
+.slide-notes-label textarea { display: block; width: 100%; box-sizing: border-box; }
+#sl-show-notes-wrap { margin: 8px 0 0; max-height: 18vh; overflow: auto; white-space: pre-wrap; }
+#sl-show-timer { font-variant-numeric: tabular-nums; font-weight: bold; margin-right: 8px; }

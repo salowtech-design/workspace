@@ -37,7 +37,7 @@
     d.slides.forEach(function (s, i) {
       var b = document.createElement("button"); b.type = "button"; if (i === cur) b.setAttribute("aria-current", "true"); b.setAttribute("aria-pressed", i === cur ? "true" : "false");
       var first = ""; s.elements.forEach(function (e) { if (!first && e.type === "text" && e.text) first = e.text; });
-      b.textContent = (i + 1) + ". " + (first ? first.slice(0, 18) : "Slide");
+      b.textContent = (i + 1) + ". " + (first ? S.cut(first, 18) : "Slide");
       b.addEventListener("click", function () { cur = i; selId = null; render(); }); list.appendChild(b);
     });
     var wrap = $("sl-canvas-wrap"); wrap.textContent = "";
@@ -71,16 +71,18 @@
     var e = sel(), props = $("sl-props"); props.disabled = !e; $("sl-del-el").disabled = !e;
     var pos = e ? d.slides[cur].elements.indexOf(e) : -1; $("sl-back").disabled = pos <= 0; $("sl-fwd").disabled = pos < 0 || pos >= d.slides[cur].elements.length - 1;
     ["text", "size", "x", "y", "w", "h", "fill"].forEach(function (f) { var inp = $("sl-" + f); if (document.activeElement !== inp) inp.value = e ? e[f] : ""; });
+    var nt = $("sl-notes"); if (document.activeElement !== nt) nt.value = d.slides[cur].notes || "";
     $("sl-theme").value = d.theme; $("sl-undo").disabled = !H.past.length; $("sl-redo").disabled = !H.future.length;
     $("sl-up").disabled = cur === 0; $("sl-down").disabled = cur >= d.slides.length - 1; $("sl-del").disabled = d.slides.length <= 1; $("sl-dup").disabled = d.slides.length >= S.MAX_SLIDES;
     status.textContent = H.note;
+    var cs = sel(); if (cs && cs.text) { var ln = S.wrapLines(cs.text, cs.size, cs.type === "text" ? cs.w : cs.w - 8); if (S.textHeight(ln, cs.size) > cs.h) status.textContent += " The text is estimated to run past the item's edges."; }
   }
+  $("sl-notes").addEventListener("change", function () { apply(S.ops.setNotes(H.deck, cur, this.value), "Notes saved on this device."); });
   var fill = $("sl-fill"); S.FILLS.forEach(function (f) { var o = document.createElement("option"); o.value = f; o.textContent = f === "theme" ? "Theme color" : f; fill.appendChild(o); });
   ["text", "size", "x", "y", "w", "h"].forEach(function (f) {
     $("sl-" + f).addEventListener("change", function () {
       var e = sel(); if (!e) return; var p = {}; var asked = this.value; p[f] = asked;
       var ok = apply(S.ops.updateElement(H.deck, cur, e.id, p)), now = sel();
-      if (now && (f === "text" || f === "size" || f === "w" || f === "h") && now.text) { var ln = S.wrapLines(now.text, now.size, now.type === "text" ? now.w : now.w - 8); if (S.textHeight(ln, now.size) > now.h) { setTimeout(function () { status.textContent += " The text is taller than this item and runs past its bottom edge."; }, 0); } } if (now && f !== "text" && isFinite(Number(asked))) this.value = now[f];
       if (now && f !== "text" && String(now[f]) !== String(Math.round(Number(asked)))) { status.textContent = "Adjusted " + f.toUpperCase() + " to " + now[f] + " so the item fits the slide and limits. " + H.note; }
       else if (now && f !== "text" && !isFinite(Number(asked))) { status.textContent = "Enter a number for " + f.toUpperCase() + ". Kept " + now[f] + "."; this.value = now[f]; }
     });
@@ -148,24 +150,32 @@
     svg.appendChild(el("rect", { x: 0, y: 0, width: S.W, height: S.H, fill: th.bg }));
     d.slides[showAt].elements.forEach(function (e) { var g = el("g", {}); drawEl(g, d, e); svg.appendChild(g); });
     box.appendChild(svg);
+    $("sl-show-notes").textContent = d.slides[showAt].notes || "No notes for this slide.";
     $("sl-show-count").textContent = "Slide " + (showAt + 1) + " of " + d.slides.length;
     $("sl-show-prev").disabled = showAt === 0; $("sl-show-next").disabled = showAt >= d.slides.length - 1;
     var ae = document.activeElement; if (!ae || ae === document.body || ae.disabled) show.focus(); // a disabled button cannot keep focus or keys
   }
   function showGo(i) { if (i === null || i === showAt) return; showAt = i; showDraw(); }
+  var clock = null, t0 = 0;
+  function tick() { $("sl-show-timer").textContent = "Time " + S.fmtClock((Date.now() - t0) / 1000); }
+  function showNotes(on) {
+    $("sl-show-notes-wrap").hidden = !on; if (clock) { clearInterval(clock); clock = null; }
+    if (on) { tick(); clock = setInterval(tick, 1000); }
+  }
+  $("sl-show-notes-on").addEventListener("change", function () { showNotes(this.checked); });
   $("sl-present").addEventListener("click", function () {
     if (unreadable || H.blocked || typeof show.showModal !== "function") { status.textContent = "The slide show is not available here."; return; }
-    showAt = Math.min(cur, H.deck.slides.length - 1); showDraw(); show.showModal(); $("sl-show-next").focus();
+    showAt = Math.min(cur, H.deck.slides.length - 1); t0 = Date.now(); showDraw(); show.showModal(); showNotes($("sl-show-notes-on").checked); $("sl-show-next").focus();
   });
   $("sl-show-prev").addEventListener("click", function () { showGo(S.showNav(showAt, H.deck.slides.length, "ArrowLeft")); });
   $("sl-show-next").addEventListener("click", function () { showGo(S.showNav(showAt, H.deck.slides.length, "ArrowRight")); });
   $("sl-show-exit").addEventListener("click", function () { show.close(); });
   $("sl-show-full").addEventListener("click", function () { if (show.requestFullscreen) show.requestFullscreen().catch(function () { $("sl-show-count").textContent += " (full screen was not allowed)"; }); });
   show.addEventListener("keydown", function (ev) {
-    if (ev.target.tagName === "BUTTON" && (ev.key === " " || ev.key === "Enter")) return; // a focused button keeps its own action
+    if ((ev.target.tagName === "BUTTON" || ev.target.tagName === "INPUT") && (ev.key === " " || ev.key === "Enter")) return; // a focused button keeps its own action
     var n = S.showNav(showAt, H.deck.slides.length, ev.key); if (n === null) return; ev.preventDefault(); showGo(n);
   });
-  show.addEventListener("close", function () { if (document.fullscreenElement) document.exitFullscreen().catch(function () {}); $("sl-present").focus(); });
+  show.addEventListener("close", function () { if (clock) { clearInterval(clock); clock = null; } if (document.fullscreenElement) document.exitFullscreen().catch(function () {}); $("sl-present").focus(); });
   show.addEventListener("click", function (ev) { var r = show.getBoundingClientRect(); if (ev.target === show && (ev.clientX < r.left || ev.clientX > r.right || ev.clientY < r.top || ev.clientY > r.bottom)) show.close(); });
   render(); status.textContent = unreadable ? "Your stored deck could not be read, so it was left untouched." : "";
 })();
