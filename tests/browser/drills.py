@@ -1655,14 +1655,17 @@ def sheets_format(ctx):  # noqa: C901
 def sheets_old_page(ctx):  # noqa: C901
     """The Sheets page as it was at 3d0df75 (before format rules) opened on a tab list marked version 2."""
     import re
-    import subprocess
     import tempfile
 
+    fx = os.path.join(os.getcwd(), "tests", "js", "fixtures")
     OLD = {}
-    for n in ("grid", "model", "formula"):
-        OLD[n] = subprocess.check_output(
-            ["git", "show", "3d0df75:static/sheets/%s.js" % n], cwd=os.getcwd()
-        ).decode()
+    for n, f in (
+        ("grid", "sheets_grid_page_3d0df75.js"),
+        ("model", "sheets_model_grid8x20.js"),
+        ("formula", "sheets_formula_grid8x20.js"),
+    ):
+        with open(os.path.join(fx, f)) as fh:
+            OLD[n] = fh.read()
     KEYJS = "document.getElementById('sheet-root').dataset.storeKey"
 
     def setc(pgx, a, v):
@@ -2251,6 +2254,34 @@ def sheets_grid(ctx):
         "grid: they are still there after a reload",
         val("Z100") == "far" and val("A100") == "deep" and val("D50") == "12",
     )
+
+    # Sticky formula row: at row 100 the formula bar and the selected address stay on screen and do not cover the focused cell.
+    def bar_state(pgx, a):
+        pgx.click('input[data-addr="%s"]' % a)
+        pgx.keyboard.press("ArrowDown")
+        pgx.wait_for_timeout(150)
+        return pgx.evaluate(
+            "(function(){var b=document.getElementById('sheet-barrow').getBoundingClientRect(),c=document.activeElement.getBoundingClientRect(),vh=innerHeight;"
+            "return {barTop:b.top,barBottom:b.bottom,cellTop:c.top,cellBottom:c.bottom,vh:vh,sel:document.getElementById('sheet-sel').textContent,addr:document.activeElement.dataset.addr};})()"
+        )
+
+    pg.locator('input[data-addr="A98"]').scroll_into_view_if_needed()
+    st = bar_state(pg, "A98")
+    check(
+        "grid: deep in the sheet the formula bar is still on screen with the selected address",
+        st["barTop"] >= -1
+        and st["barBottom"] < st["vh"]
+        and st["sel"] == st["addr"]
+        and st["addr"] == "A99",
+        str(st),
+    )
+    check(
+        "grid: the focused cell is not covered by the formula row",
+        st["cellTop"] >= st["barBottom"] - 1 and st["cellBottom"] <= st["vh"],
+        str(st),
+    )
+    if SHOTS:
+        pg.screenshot(path=os.path.join(SHOTS, "sheets-sticky-63.png"), full_page=False)
     if SHOTS:
         pg.locator('input[data-addr="Z100"]').scroll_into_view_if_needed()
         pg.screenshot(path=os.path.join(SHOTS, "sheets-grid-61.png"), full_page=False)
@@ -2258,6 +2289,19 @@ def sheets_grid(ctx):
     pg.wait_for_timeout(200)
     ov = pg.evaluate("document.documentElement.scrollWidth > document.documentElement.clientWidth")
     check("grid: no sideways page scroll at 390 px", not ov)
+    pg.locator('input[data-addr="A98"]').scroll_into_view_if_needed()
+    st2 = bar_state(pg, "A98")
+    check(
+        "grid: at 390 px the formula bar stays on screen and the focused cell is not covered",
+        st2["barTop"] >= -1
+        and st2["barBottom"] < st2["vh"]
+        and st2["cellTop"] >= st2["barBottom"] - 1
+        and st2["cellBottom"] <= st2["vh"]
+        and st2["sel"] == st2["addr"],
+        str(st2),
+    )
+    if SHOTS:
+        pg.screenshot(path=os.path.join(SHOTS, "sheets-sticky-63-phone.png"), full_page=False)
     if SHOTS:
         pg.locator('input[data-addr="Z100"]').scroll_into_view_if_needed()
         pg.screenshot(path=os.path.join(SHOTS, "sheets-grid-61-phone.png"), full_page=False)

@@ -1,0 +1,5 @@
+Saved copies of earlier static/sheets files, byte-identical to git show <commit>:<path>.
+sheets_model_grid8x20.js        = static/sheets/model.js   at 3d0df75
+sheets_formula_grid8x20.js      = static/sheets/formula.js at 3d0df75
+sheets_grid_page_3d0df75.js     = static/sheets/grid.js    at 3d0df75
+Used by tests/js/sheets_grid_compat.js, tests/js/sheets_tabs_marker.js and the sheets_old_page browser drill.
