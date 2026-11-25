@@ -428,7 +428,7 @@ def test_notification_value_errors_skip_but_database_errors_propagate(monkeypatc
     top = svc.create_folder(a, "Notif")
 
     def bad_link(*args, **kwargs):
-        raise ValueError("bad link")
+        raise RuntimeError("notify down")
 
     monkeypatch.setattr(svc, "notify", bad_link)
     svc.share(a, top, b, "viewer")
@@ -484,3 +484,12 @@ def test_relock_retries_only_allowed_errors_end_to_end(monkeypatch):
     with pytest.raises(ValidationError):
         flaky([OperationalError(1213, "Deadlock found")] * 9)()
     assert calls["n"] == 5
+
+
+@pytest.mark.django_db
+def test_page_limit_is_capped():
+    a, b = _u("L-A"), _u("L-B")
+    top = svc.create_folder(a, "Cap")
+    svc.share(a, top, b, "viewer")
+    out = svc.manifest_since(b, since=0, limit=10**9)
+    assert out["next_since"] <= svc.MANIFEST_PAGE_EPOCHS

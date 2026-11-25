@@ -9,7 +9,7 @@ import uuid
 
 from django.contrib.auth import get_user_model
 from django.core.exceptions import PermissionDenied, ValidationError
-from django.db import transaction
+from django.db import DatabaseError, transaction
 from django.utils import timezone
 
 from apps.core.foundation.audit import audit
@@ -181,6 +181,10 @@ def _is_lock_contention(exc):
 def _commit_failed(exc):
     """Errors raised while committing leave the outcome unknown, so they are never retried.
     Lock contention errors in this module come from statements inside the transaction."""
+    # LIMITATION: the driver gives no flag for "failed during COMMIT", so this matches the
+    # message text. A commit failure whose text omits "commit" would be retried; the retry
+    # re-runs the whole operation from a fresh transaction (compare-and-set and the unique
+    # epoch/item key make a repeat safe to detect, but this is not a proof).
     return "commit" in str(exc).lower() and "retry limit" not in str(exc).lower()
 
 
@@ -305,7 +309,7 @@ def manifest_since(user, since=0, limit=MANIFEST_PAGE_EPOCHS):
             "full_list_required": True,
             "changes": [],
         }
-    last = min(top, since + max(1, int(limit)))
+    last = min(top, since + min(max(1, int(limit)), MANIFEST_PAGE_EPOCHS))
     rows = ManifestChange.objects.filter(user=user, epoch__gt=since, epoch__lte=last).order_by(
         "epoch", "id"
     )
@@ -369,6 +373,9 @@ def reconcile_user(user, fix=False):  # noqa: C901 (one linear scan then one loc
             ):
                 _bump(user.pk, item, "reconcile")
                 corrected.append((kind, pid))
+                logger.warning(
+                    "drive manifest reconcile corrected %s %s for user %s", kind, pid, user.pk
+                )
     return corrected
 
 
@@ -636,9 +643,12 @@ def share(user, item, person, role):
                     link,
                     check=(kind, item),
                 )
-        except (PermissionError, ValueError):
-            # an invalid link or a refused view check: skip the notice, keep the share.
-            # Database errors are NOT caught: they must roll back and retry the whole operation.
+        except DatabaseError:
+            # a database error (deadlock, lock timeout) may already have rolled the server
+            # transaction back: never continue past it, let the outer rollback and retry run
+            raise
+        except Exception:  # noqa: BLE001
+            # any other notice failure never undoes the share
             logger.exception("drive share notification skipped")
     return obj
 
