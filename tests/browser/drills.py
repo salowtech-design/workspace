@@ -1479,6 +1479,28 @@ def sheets_format(ctx):  # noqa: C901
     if SHOTS:
         pg.locator(sel("A1")).scroll_into_view_if_needed()
         pg.screenshot(path=os.path.join(SHOTS, "sheets-format-62.png"), full_page=False)
+        pg.set_viewport_size({"width": 390, "height": 800})
+        pg.wait_for_timeout(200)
+        pg.locator(sel("A1")).scroll_into_view_if_needed()
+        pg.screenshot(path=os.path.join(SHOTS, "sheets-format-62-phone.png"), full_page=False)
+        pg.set_viewport_size({"width": 1100, "height": 900})
+    pg.set_viewport_size({"width": 390, "height": 800})
+    pg.wait_for_timeout(200)
+    check(
+        "format: no sideways page scroll at 390 px",
+        not pg.evaluate(
+            "document.documentElement.scrollWidth > document.documentElement.clientWidth"
+        ),
+    )
+    pg.set_viewport_size({"width": 1100, "height": 900})
+    helptxt = pg.text_content("#fmt-help")
+    check(
+        "format: the help text is complete on the page",
+        helptxt.strip().endswith("reload it.")
+        and "importing an export brings back the values only" in helptxt
+        and "A cell's tooltip" in helptxt,
+        helptxt[-120:],
+    )
     pg.reload()
     pg.wait_for_timeout(400)
     check(
@@ -1628,6 +1650,150 @@ def sheets_format(ctx):  # noqa: C901
         t2 not in ids and pg.evaluate("localStorage.getItem(%s)" % json.dumps(fk2)) is not None,
         str(ids),
     )
+
+
+def sheets_old_page(ctx):  # noqa: C901
+    """The Sheets page as it was at 3d0df75 (before format rules) opened on a tab list marked version 2."""
+    import re
+    import subprocess
+    import tempfile
+
+    OLD = {}
+    for n in ("grid", "model", "formula"):
+        OLD[n] = subprocess.check_output(
+            ["git", "show", "3d0df75:static/sheets/%s.js" % n], cwd=os.getcwd()
+        ).decode()
+    KEYJS = "document.getElementById('sheet-root').dataset.storeKey"
+
+    def setc(pgx, a, v):
+        pgx.click('input[data-addr="%s"]' % a)
+        pgx.fill('input[data-addr="%s"]' % a, v)
+        pgx.press('input[data-addr="%s"]' % a, "Tab")
+
+    def snap(pgx):
+        return pgx.evaluate(
+            "(function(){var o={};for(var i=0;i<localStorage.length;i++){var k=localStorage.key(i);o[k]=localStorage.getItem(k);}return o;})()"
+        )
+
+    def changed(a, b):
+        return sorted(k for k in set(a) | set(b) if a.get(k) != b.get(k))
+
+    def go_old(pgx):
+        def h(route):
+            m = re.search(r"/static/sheets/(grid|model|formula)\.js", route.request.url)
+            route.fulfill(status=200, content_type="application/javascript", body=OLD[m.group(1)])
+
+        pgx.route(re.compile(r"/static/sheets/(grid|model|formula)\.js"), h)
+        pgx.reload()
+        pgx.wait_for_timeout(500)
+
+    def go_new(pgx):
+        pgx.unroute(re.compile(r"/static/sheets/(grid|model|formula)\.js"))
+        pgx.reload()
+        pgx.wait_for_timeout(400)
+
+    for case in ("t0 present", "t0 deleted"):
+        pg = fresh(ctx, "/sheets/")
+        key = pg.evaluate(KEYJS)
+        if case == "t0 present":
+            setc(pg, "A1", "legacy")
+        pg.click("#tab-add")
+        pg.wait_for_timeout(100)
+        setc(pg, "A1", "tab2")
+        pg.fill("#fmt-range", "A1:A2")
+        pg.select_option("#fmt-bold", "on")
+        pg.click("#fmt-add")
+        if case == "t0 deleted":
+            pg.click('#sheet-tabs button[data-tab="t0"]')
+            pg.once("dialog", lambda d: d.accept())
+            pg.click("#tab-del")
+            pg.wait_for_timeout(200)
+        before = snap(pg)
+        tabs = before.get(key + ".tabs", "")
+        check(
+            "old page (%s): setup is a version 2 list with a format key" % case,
+            '"v":2' in tabs and any(k.endswith(".fmt") for k in before),
+            tabs,
+        )
+        go_old(pg)
+        st = pg.inner_text("#tab-status")
+        check(
+            "old page (%s): says the tab list could not be read and tab changes are off" % case,
+            "could not be read" in st
+            and pg.is_disabled("#tab-add")
+            and pg.is_disabled("#tab-rename"),
+            st,
+        )
+        check(
+            "old page (%s): nothing was written just by opening it" % case,
+            changed(before, snap(pg)) == [],
+            str(changed(before, snap(pg))),
+        )
+        shown_a1 = pg.input_value('input[data-addr="A1"]')
+        check(
+            "old page (%s): the t0 tab shows the legacy key's cells" % case,
+            shown_a1 == ("legacy" if case == "t0 present" else ""),
+            shown_a1,
+        )
+
+        def acc(d):
+            try:
+                d.accept()
+            except Exception as e:  # a second listener already took this dialog
+                print("note: dialog already handled:", type(e).__name__, flush=True)
+
+        pg.once("dialog", acc)
+        # edit
+        setc(pg, "A1", "3")
+        setc(pg, "A2", "1")
+        a = snap(pg)
+        ch = changed(before, a)
+        check("old page (%s): an edit writes only the legacy t0 key" % case, ch == [key], str(ch))
+        # sort
+        pg.fill("#sort-range", "A1:A2")
+        pg.fill("#sort-col", "A")
+        pg.uncheck("#sort-header")
+        pg.click("#sort-go")
+        b = snap(pg)
+        check(
+            "old page (%s): sort writes only the legacy t0 key" % case,
+            changed(before, b) == [key],
+            str(changed(before, b)),
+        )
+        # import
+        with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as f:
+            f.write('{"B2":"imp"}')
+        pg.set_input_files("#sheet-import", f.name)
+        pg.wait_for_timeout(400)
+        c = snap(pg)
+        check(
+            "old page (%s): import writes only the legacy t0 key" % case,
+            changed(before, c) == [key] and "imp" in c.get(key, ""),
+            str(changed(before, c)),
+        )
+        # clear
+        pg.click("#sheet-clear")
+        pg.wait_for_timeout(200)
+        d = snap(pg)
+        check(
+            "old page (%s): clear writes only the legacy t0 key" % case,
+            changed(before, d) == [key],
+            str(changed(before, d)),
+        )
+        keep = [k for k in before if k != key]
+        check(
+            "old page (%s): the tab list, the other tab's cells and the format key are byte-identical"
+            % case,
+            all(before[k] == d.get(k) for k in keep) and any(k.endswith(".fmt") for k in keep),
+            str(changed(before, d)),
+        )
+        go_new(pg)
+        after = snap(pg)
+        check(
+            "old page (%s): the current page reads the list and the format rule again" % case,
+            all(before[k] == after.get(k) for k in keep) and pg.is_enabled("#tab-add"),
+            str(changed(before, after)),
+        )
 
 
 def slides_master(ctx):  # noqa: C901
@@ -2278,6 +2444,7 @@ DRILLS = {
     "sheets_validation": sheets_validation,
     "sheets_colour": sheets_colour,
     "sheets_format": sheets_format,
+    "sheets_old_page": sheets_old_page,
     "sheets_pivot": sheets_pivot,
     "sheets_grid": sheets_grid,
     "slides_master": slides_master,
