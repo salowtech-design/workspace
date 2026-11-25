@@ -303,7 +303,7 @@ class HtmxSessionExpiryMiddleware:
             request.headers.get("HX-Request") == "true"
             and not request.user.is_authenticated
             and response.status_code in (301, 302)
-            and response.get("Location", "").startswith(settings.LOGIN_URL)
+            and response.get("Location", "").startswith((settings.LOGIN_URL, "/iam/login"))
         ):
             return HttpResponse(status=401)
         return response

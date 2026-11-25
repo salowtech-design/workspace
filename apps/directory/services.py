@@ -393,10 +393,11 @@ def start_onboarding(user, actor, start_date=None):
 
     try:
         return _start_onboarding(user, actor, start_date)
-    except IntegrityError:
-        # Absorb only a lost race: after the rollback, every step of the template must already
-        # be on the person (the other start made them). Anything else is a real failure.
-        if _CATCH_DUPLICATE:
+    except IntegrityError as exc:
+        # Absorb only the unique key (person, title) firing because another start already made
+        # the steps: the error must name that key, and after the rollback every step of the
+        # template must already be on the person. Any other integrity failure is a real one.
+        if _CATCH_DUPLICATE and _is_onboarding_duplicate(exc):
             want = set(OnboardingStep.objects.values_list("title", flat=True))
             have = set(
                 OnboardingTask.objects.filter(user_id=user.pk).values_list("title", flat=True)
@@ -404,6 +405,11 @@ def start_onboarding(user, actor, start_date=None):
             if want and want <= have:
                 return []
         raise
+
+
+def _is_onboarding_duplicate(exc):
+    text = str(exc)
+    return "onboarding_task_unique" in text or "directory_onboardingtask.user_id" in text
 
 
 def _start_onboarding(user, actor, start_date):

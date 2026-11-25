@@ -610,6 +610,7 @@ def test_race_two_onboarding_starts_make_each_step_once(monkeypatch, mode):
     if mode == "lockless_raw":
         # the anomaly the backstop absorbs: the loser fails on the unique key
         assert "IntegrityError" in "".join(out), out
+        assert "onboarding_task_unique" in "".join(out), out  # the exact key TiDB names
     else:
         assert out == ["ok", "ok"] and sorted(made) == [0, 3], (out, made)
 
@@ -634,9 +635,21 @@ def test_onboarding_start_does_not_mask_an_unrelated_integrity_failure(monkeypat
     with pytest.raises(IntegrityError):
         ds.start_onboarding(person, admin)
     assert OnboardingTask.objects.filter(user=person).count() == 0  # rolled back, not "started"
-    # a duplicate that really is a lost race (steps already there) is still absorbed
+    # the template is already fully on the person, then an unrelated integrity failure: raised
     OnboardingTask.objects.create(user=person, title="Only step", due_date="2026-12-01")
-    monkeypatch.setattr(
-        ds, "_start_onboarding", lambda *a, **k: (_ for _ in ()).throw(IntegrityError("dup"))
-    )
+
+    def other(*a, **k):
+        raise IntegrityError("audit table constraint")
+
+    monkeypatch.setattr(ds, "_start_onboarding", other)
+    with pytest.raises(IntegrityError):
+        ds.start_onboarding(person, admin)
+
+    # the real unique-key message with the steps present: a lost race, absorbed
+    def dup(*a, **k):
+        raise IntegrityError(
+            "UNIQUE constraint failed: directory_onboardingtask.user_id, directory_onboardingtask.title"
+        )
+
+    monkeypatch.setattr(ds, "_start_onboarding", dup)
     assert ds.start_onboarding(person, admin) == []

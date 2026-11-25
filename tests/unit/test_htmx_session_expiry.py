@@ -36,3 +36,23 @@ def test_signed_in_background_call_is_unchanged_and_login_page_keeps_working():
     r = c.get("/auth/devices/approval/pending-check/", **HX)
     assert r.status_code == 200 and b"<html" not in r.content
     assert Client(HTTP_HOST=HOST).get("/auth/login/", **HX).status_code == 200
+
+
+@pytest.mark.django_db
+def test_iam_host_background_call_without_a_session_also_gets_401_and_login_still_loads():
+    iam = Client(HTTP_HOST="iam.salowtech.com")
+    plain = iam.get("/")
+    assert plain.status_code == 302 and "/iam/login" in plain["Location"]
+    hx = iam.get("/", **HX)
+    assert hx.status_code == 401 and hx.content == b""
+    assert iam.get("/iam/login/", **HX).status_code == 200
+    assert iam.get("/iam/login/").status_code == 200
+
+
+@pytest.mark.django_db
+def test_prelogin_approval_wait_poll_is_unaffected_by_the_expiry_rule():
+    import uuid
+
+    anon = Client(HTTP_HOST=HOST)
+    r = anon.get(f"/auth/devices/approval/{uuid.uuid4()}/status/", **HX)
+    assert r.status_code == 404 and b"Request not found" in r.content  # its own answer, not 401
