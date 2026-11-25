@@ -2310,7 +2310,7 @@ def slides_drag(ctx):  # noqa: C901
 
     def geom():
         return pg.evaluate(
-            "(()=>{const s=document.querySelector('#sl-canvas-wrap svg').getBoundingClientRect();return {x:s.left,y:s.top,k:s.width/960};})()"
+            "(()=>{document.getElementById('sl-canvas-wrap').scrollIntoView({block:'center'});const s=document.querySelector('#sl-canvas-wrap svg').getBoundingClientRect();return {x:s.left,y:s.top,k:s.width/960};})()"
         )
 
     def drag(frm, to, steps=8):
@@ -2408,6 +2408,139 @@ def slides_drag(ctx):  # noqa: C901
     )
     pg.keyboard.press("ArrowLeft")
     check("drag: Arrow still moves by 10", item()[0] == pos[0] - 10, item())
+    # pointercancel (a touch gesture taken over by the browser) drops the drag like Esc
+    pos = item()
+    pg.mouse.move(cx, cy)
+    pg.mouse.down()
+    pg.mouse.move(cx - 80 * g["k"], cy - 30 * g["k"], steps=5)
+    pg.evaluate(
+        "document.getElementById('sl-canvas-wrap').dispatchEvent(new PointerEvent('pointercancel',{pointerId:1,bubbles:true}))"
+    )
+    pg.mouse.up()
+    pg.wait_for_timeout(120)
+    check(
+        "drag: a cancelled pointer drops the drag, nothing is stored",
+        item() == pos and "Drag cancelled" in pg.inner_text("#sl-status"),
+        (item(), pg.inner_text("#sl-status")),
+    )
+    # emulated touch (Chromium DevTools touch events, not a real device): drag to move, corner square to resize, cancel
+    cdp = pg.context.new_cdp_session(pg)
+
+    def touch(frm, to, cancel=False):
+        cdp.send(
+            "Input.dispatchTouchEvent",
+            {"type": "touchStart", "touchPoints": [{"x": frm[0], "y": frm[1]}]},
+        )
+        for n in range(1, 7):
+            cdp.send(
+                "Input.dispatchTouchEvent",
+                {
+                    "type": "touchMove",
+                    "touchPoints": [
+                        {
+                            "x": frm[0] + (to[0] - frm[0]) * n / 6,
+                            "y": frm[1] + (to[1] - frm[1]) * n / 6,
+                        }
+                    ],
+                },
+            )
+        cdp.send(
+            "Input.dispatchTouchEvent",
+            {"type": "touchCancel" if cancel else "touchEnd", "touchPoints": []},
+        )
+        pg.wait_for_timeout(150)
+
+    pos = item()
+    cx, cy = g["x"] + (pos[0] + pos[2] / 2) * g["k"], g["y"] + (pos[1] + pos[3] / 2) * g["k"]
+    touch((cx, cy), (cx + 60 * g["k"], cy + 30 * g["k"]))
+    check(
+        "drag: an emulated touch drag moves the item and stores it",
+        near(item(), [pos[0] + 60, pos[1] + 30, pos[2], pos[3]]),
+        (pos, item()),
+    )
+    pos = item()
+    hx, hy = g["x"] + (pos[0] + pos[2]) * g["k"], g["y"] + (pos[1] + pos[3]) * g["k"]
+    touch((hx, hy), (hx + 30 * g["k"], hy + 20 * g["k"]))
+    check(
+        "drag: an emulated touch drag on the corner square resizes",
+        near(item(), [pos[0], pos[1], pos[2] + 30, pos[3] + 20]),
+        (pos, item()),
+    )
+    pos = item()
+    cx, cy = g["x"] + (pos[0] + pos[2] / 2) * g["k"], g["y"] + (pos[1] + pos[3] / 2) * g["k"]
+    touch((cx, cy), (cx + 90 * g["k"], cy), cancel=True)
+    check(
+        "drag: an emulated touch cancel drops the drag",
+        item() == pos and "Drag cancelled" in pg.inner_text("#sl-status"),
+        item(),
+    )
+    pos = item()
+    pg.mouse.move(cx, cy)
+    pg.mouse.down()
+    pg.mouse.move(cx + 30 * g["k"], cy, steps=4)
+    pg.keyboard.press("ArrowDown")
+    pg.mouse.up()
+    pg.wait_for_timeout(150)
+    check(
+        "drag: an arrow key pressed during a drag is ignored, the drop is the only change",
+        near(item(), [pos[0] + 30, pos[1], pos[2], pos[3]]),
+        (pos, item()),
+    )
+    pg.click("#sl-master")
+    pg.click("#sl-add-rect")
+    pg.wait_for_timeout(150)
+    mst = lambda: pg.evaluate(  # noqa: E731
+        "(()=>{const d=JSON.parse(localStorage.getItem(%s));const e=d.master.elements;const x=e[e.length-1];return [x.x,x.y,x.w,x.h];})()"
+        % KEY
+    )
+    g = geom()
+    m0 = mst()
+    mx, my = g["x"] + (m0[0] + m0[2] / 2) * g["k"], g["y"] + (m0[1] + m0[3] / 2) * g["k"]
+    drag((mx, my), (mx + 70 * g["k"], my + 20 * g["k"]))
+    check(
+        "drag: dragging a master item moves it in the master",
+        near(mst(), [m0[0] + 70, m0[1] + 20, m0[2], m0[3]]),
+        (m0, mst()),
+    )
+    pg.click("#sl-undo")
+    check("drag: one Undo puts the master item back", mst() == m0, mst())
+    pg.click("#sl-master")
+    pg.wait_for_timeout(150)
+    g = geom()
+    # the browser will not store: the move stays on screen and the status says so
+    pg.evaluate(
+        "(function(k){var o=Storage.prototype.setItem;Storage.prototype.setItem=function(a,b){if(a===k)throw new Error('full');return o.call(this,a,b);};})(document.getElementById('slide-root').dataset.storeKey)"
+    )
+    pg.click("#sl-items button")
+    pos = item()
+    cx, cy = g["x"] + (pos[0] + pos[2] / 2) * g["k"], g["y"] + (pos[1] + pos[3] / 2) * g["k"]
+    drag((cx, cy), (cx - 40 * g["k"], cy))
+    check(
+        "drag: if the browser will not store the drag, the status says so, the move shows on screen and the stored deck is unchanged",
+        "would not store the deck" in pg.inner_text("#sl-status")
+        and item() == pos
+        and pg.input_value("#sl-x") == str(pos[0] - 40),
+        (pg.inner_text("#sl-status"), item(), pg.input_value("#sl-x")),
+    )
+    pg.reload()
+    pg.wait_for_timeout(300)
+    # an unreadable deck: no handle, a drag writes nothing, the stored bytes stay
+    pg.evaluate("localStorage.setItem(%s,'{bad')" % KEY)
+    pg.reload()
+    pg.wait_for_timeout(400)
+    g2 = geom()
+    drag((g2["x"] + 200, g2["y"] + 100), (g2["x"] + 300, g2["y"] + 150))
+    check(
+        "drag: with an unreadable deck there is no corner square, the editor is locked and a drag writes nothing",
+        pg.locator("#sl-canvas-wrap rect[data-handle]").count() == 0
+        and pg.evaluate("document.getElementById('sl-editing').hasAttribute('inert')")
+        and pg.evaluate("localStorage.getItem(%s)" % KEY) == "{bad",
+    )
+    pg.evaluate("localStorage.removeItem(%s)" % KEY)
+    pg.reload()
+    pg.wait_for_timeout(400)
+    pg.click("#sl-add-rect")
+    pg.wait_for_timeout(150)
     # phone: the corner square is big enough to touch
     pg.set_viewport_size({"width": 390, "height": 800})
     pg.wait_for_timeout(250)

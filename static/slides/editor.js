@@ -33,7 +33,7 @@
   function apply(next, note) { if (!next) return false; if (!H.change(next, note)) return false; cur = Math.min(cur, H.deck.slides.length - 1); render(); return true; }
   // Dragging an item moves it, dragging the blue corner square resizes it. Nothing is stored until the pointer is released, so a drag is one Undo step; Esc or a cancelled pointer drops it.
   var drag = null;
-  function endDrag() { document.removeEventListener("pointermove", onDragMove); document.removeEventListener("pointerup", onDragUp); document.removeEventListener("pointercancel", onDragCancel); document.removeEventListener("keydown", onDragKey, true); drag = null; }
+  function endDrag() { var w = wrap(); w.removeEventListener("pointermove", onDragMove); w.removeEventListener("pointerup", onDragUp); w.removeEventListener("pointercancel", onDragCancel); w.removeEventListener("lostpointercapture", onDragCancel); document.removeEventListener("keydown", onDragKey, true); try { if (drag) w.releasePointerCapture(drag.id); } catch (e) { /* already released */ } drag = null; }
   function dragDelta(ev) { var m = drag.svg.getScreenCTM(); if (!m || !m.a) return { dx: 0, dy: 0 }; return { dx: (ev.clientX - drag.sx) / m.a, dy: (ev.clientY - drag.sy) / m.d }; }
   function onDragMove(ev) {
     if (!drag || ev.pointerId !== drag.id) return; var d = dragDelta(ev); drag.moved = drag.moved || Math.abs(ev.clientX - drag.sx) + Math.abs(ev.clientY - drag.sy) > 4;
@@ -52,7 +52,8 @@
     var s2 = wrap().querySelector("svg"); if (s2) s2.focus();
   }
   function onDragCancel(ev) { if (!drag || ev.pointerId !== drag.id) return; endDrag(); render(); status.textContent = "Drag cancelled. Nothing changed."; }
-  function onDragKey(ev) { if (drag && ev.key === "Escape") { ev.preventDefault(); ev.stopPropagation(); endDrag(); render(); status.textContent = "Drag cancelled. Nothing changed."; } }
+  function onDragKey(ev) { if (drag && ev.key !== "Escape") { ev.preventDefault(); ev.stopPropagation(); return; }  // no other edit while a drag is open, so it cannot be overwritten by the drop
+  if (drag && ev.key === "Escape") { ev.preventDefault(); ev.stopPropagation(); endDrag(); render(); status.textContent = "Drag cancelled. Nothing changed."; } }
   function wrap() { return $("sl-canvas-wrap"); }
   function beginDrag(ev, e, mode) {
     if (drag) endDrag();
@@ -62,7 +63,9 @@
     var svg = wrap().querySelector("svg"), hit = svg.querySelector('rect[data-id="' + e.id + '"]');
     if (!hit) return;
     drag = { id: ev.pointerId, sx: ev.clientX, sy: ev.clientY, e: { id: e.id, x: e.x, y: e.y, w: e.w, h: e.h }, mode: mode, svg: svg, g: hit.parentNode, hit: hit, moved: false };
-    document.addEventListener("pointermove", onDragMove); document.addEventListener("pointerup", onDragUp); document.addEventListener("pointercancel", onDragCancel); document.addEventListener("keydown", onDragKey, true);
+    // The canvas container is never replaced by render(), so it owns the pointer for the whole gesture (mouse, touch and pen alike).
+    var w = wrap(); try { w.setPointerCapture(ev.pointerId); } catch (e) { /* the pointer is gone: the gesture just does not start */ endDrag(); return; }
+    w.addEventListener("pointermove", onDragMove); w.addEventListener("pointerup", onDragUp); w.addEventListener("pointercancel", onDragCancel); w.addEventListener("lostpointercapture", onDragCancel); document.addEventListener("keydown", onDragKey, true);
     svg.focus();
   }
   function render() {
