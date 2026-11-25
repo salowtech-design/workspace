@@ -60,6 +60,7 @@ urlpatterns = [
     path("chat/", include("apps.chat.urls", namespace="chat")),
     path("sheets/", include("apps.sheets.urls", namespace="sheets")),
     path("slides/", include("apps.slides.urls", namespace="slides")),
+    path("pdf/", include("apps.pdfview.urls", namespace="pdfview")),
     path("attendance/", include("apps.attendance.urls", namespace="attendance")),
     path("posts/", include("apps.posts.urls", namespace="posts")),
     path("certificates/", include("apps.certificates.urls", namespace="certificates")),

@@ -34,6 +34,7 @@ LOCAL_APPS = [
     "apps.chat.apps.ChatConfig",
     "apps.sheets.apps.SheetsConfig",
     "apps.slides.apps.SlidesConfig",
+    "apps.pdfview.apps.PdfViewConfig",
     "apps.automation.apps.AutomationConfig",
 ]
 

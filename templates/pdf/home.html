@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+{% block title %}PDF: Salow{% endblock %}
+{% block extra_head %}<link rel="stylesheet" href="/static/css/pdf.css">{% endblock %}
+{% block content %}
+<div class="card cal">
+<div class="cal-head"><h2>PDF</h2></div>
+<p class="cal-meta">Opens a PDF from this device in this browser only. The file is not uploaded, stored or shared. This page is a first step: it checks the file, but page display, zoom and navigation are not built yet. Files up to 50 MB are accepted by this viewer, which is a browser memory limit and not a storage rule.</p>
+<p><label>Open a PDF <input type="file" id="pdf-open" accept=".pdf,application/pdf"></label></p>
+<p class="cal-meta" id="pdf-status" role="status"></p>
+</div>
+<script src="/static/pdf/check.js"></script>
+<script src="/static/pdf/viewer.js"></script>
+{% endblock %}
