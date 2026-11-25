@@ -3,7 +3,7 @@ from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.http import Http404
 from django.shortcuts import redirect, render
-from django.views.decorators.http import require_POST
+from django.views.decorators.http import require_http_methods, require_POST
 
 from apps.core.foundation.throttle import throttled
 from apps.tasks import projects as pj
@@ -100,4 +100,49 @@ def move_project_task(request, task_id):
     except ValueError:
         raise Http404 from None
     _guarded(request, t.project, pj.move_task, t, col, ver)
+    return redirect("tasks:project", project_id=t.project.public_id)
+
+
+@login_required
+@require_http_methods(["GET", "POST"])
+def edit_project_task(request, task_id):
+    t = pj.get_task(request.user, task_id)
+    if not _is_lead(request.user, t.project):
+        raise Http404  # members see tasks but only leads reach the edit form
+    ctx = {"task": t, "tab": "projects", "project_task": True}
+    if request.method == "GET":
+        return render(request, "tasks/edit.html", ctx)
+    sent = {k: request.POST.get(k, "") for k in ("title", "notes", "due")}
+    try:
+        import datetime
+
+        version = int(request.POST.get("version", ""))
+        changes = {k: request.POST[k] for k in ("title", "notes") if k in request.POST}
+        if "due" in request.POST:
+            raw = request.POST["due"].strip()
+            try:
+                changes["due_date"] = datetime.date.fromisoformat(raw) if raw else None
+            except ValueError:
+                raise ValidationError("Use a date like 2026-12-31.") from None
+        pj.edit_task(request.user, t, version, **changes)
+    except pj.StaleVersion as exc:
+        messages.error(request, " ".join(exc.messages))
+        t.refresh_from_db()
+        if t.deleted_at is not None:
+            raise Http404 from None
+        return render(
+            request,
+            "tasks/edit.html",
+            {**ctx, "task": t, "sent": sent, "conflict": True},
+            status=409,
+        )
+    except (ValueError, ValidationError) as exc:
+        messages.error(
+            request, " ".join(getattr(exc, "messages", ["Check the fields and try again."]))
+        )
+        t.refresh_from_db()
+        return render(request, "tasks/edit.html", {**ctx, "task": t, "sent": sent}, status=400)
+    except PermissionDenied:
+        raise Http404 from None
+    messages.success(request, "Saved.")
     return redirect("tasks:project", project_id=t.project.public_id)

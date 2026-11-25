@@ -9,7 +9,7 @@ from django.http import Http404
 
 from apps.core.foundation.audit import audit
 from apps.tasks.models import Column, Project, ProjectMember, ProjectTask
-from apps.tasks.services import StaleVersion, _clean_notes, _clean_title
+from apps.tasks.services import StaleVersion, _clean_notes, _clean_title, _due
 
 DEFAULT_COLUMNS = ("To do", "Doing", "Done")  # build default, not policy
 
@@ -169,4 +169,34 @@ def get_task(user, public_id):
     t = ProjectTask.objects.filter(public_id=public_id).select_related("project").first()
     if t is None or not can_view(user, t.project):
         raise Http404
+    return t
+
+
+_EDITABLE = {"title", "notes", "due_date"}
+
+
+@transaction.atomic
+def edit_task(user, task, expected_version, **changes):
+    unknown = set(changes) - _EDITABLE
+    if unknown:
+        raise ValidationError("That field cannot be edited.")
+    p = _lock_as_lead(user, task.project)
+    t = _fresh_task(p, task)
+    if not changes:
+        return t  # nothing sent: no version bump, no audit
+    fields = {}
+    if "title" in changes:
+        fields["title"] = _clean_title(changes["title"])
+    if "notes" in changes:
+        fields["notes"] = _clean_notes(changes["notes"])
+    if "due_date" in changes:
+        fields["due_date"] = _due(changes["due_date"])
+    _pause()
+    done = ProjectTask.objects.filter(pk=t.pk, version=expected_version).update(
+        version=F("version") + 1, **fields
+    )
+    if not done:
+        raise StaleVersion("This task changed while you were editing.")
+    audit(user, "tasks.project_task.update", "project_task", t.pk, fields=sorted(fields))
+    t.refresh_from_db()
     return t

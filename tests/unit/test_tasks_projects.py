@@ -329,3 +329,33 @@ def test_race_task_positions_are_unique_per_column(monkeypatch, locked):
     pos = list(ProjectTask.objects.filter(project=p).values_list("position", flat=True))
     dup = len(pos) != len(set(pos))
     assert (not dup) if locked else dup, pos
+
+
+@pytest.mark.django_db
+def test_project_task_edit_version_preserve_and_lead_only():
+    from apps.tasks.models import ProjectTask
+
+    a, m = _u("PE-A"), _u("PE-M")
+    p = pj.create_project(a, "P")
+    _member(p, m)
+    t = pj.add_task(a, p, p.columns.first().pk, "old")
+    ca, cm = _c(a), _c(m)
+    url = reverse("tasks:project_edit", args=[t.public_id])
+    page = ca.get(url)
+    assert page.status_code == 200 and b'name="version" value="1"' in page.content
+    assert (
+        cm.get(url).status_code == 404
+        and cm.post(url, {"version": 1, "title": "x"}).status_code == 404
+    )
+    ca.post(url, {"version": 1, "title": "new"})  # notes and due not sent: kept
+    t.refresh_from_db()
+    assert (t.title, t.version) == ("new", 2)
+    pj.edit_task(a, t, 2)  # empty edit: nothing changes
+    t.refresh_from_db()
+    assert t.version == 2
+    r = ca.post(url, {"version": 1, "title": 'mine"><script>x</script>'})
+    body = r.content.decode()
+    assert r.status_code == 409 and "tasks-conflict" in body and "<script>x</script>" not in body
+    r = ca.post(url, {"version": 2, "title": "  "})
+    assert r.status_code == 400 and "tasks-conflict" not in r.content.decode()
+    assert ProjectTask.objects.get(pk=t.pk).title == "new"
