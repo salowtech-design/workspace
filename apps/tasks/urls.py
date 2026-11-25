@@ -30,4 +30,14 @@ urlpatterns = [
         project_views.delete_project_task,
         name="project_delete",
     ),
+    path(
+        "projects/<uuid:project_id>/milestones/new/",
+        project_views.add_milestone,
+        name="milestone_add",
+    ),
+    path(
+        "projects/task/<uuid:task_id>/milestone/",
+        project_views.task_milestone,
+        name="project_milestone",
+    ),
 ]

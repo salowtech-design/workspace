@@ -100,6 +100,18 @@ class Column(models.Model):
         ordering = ["position", "id"]
 
 
+class Milestone(models.Model):
+    public_id = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
+    project = models.ForeignKey(Project, on_delete=models.PROTECT, related_name="milestones")
+    name = models.CharField(max_length=120)
+    due_date = models.DateField(null=True, blank=True)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="+"
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    deleted_at = models.DateTimeField(null=True, blank=True)
+
+
 class ProjectTask(models.Model):
     """A task that belongs to a project. Not a personal-list Task and never shown outside the
     project's members."""
@@ -116,6 +128,9 @@ class ProjectTask(models.Model):
         blank=True,
         on_delete=models.PROTECT,
         related_name="+",
+    )
+    milestone = models.ForeignKey(
+        Milestone, null=True, blank=True, on_delete=models.PROTECT, related_name="tasks"
     )
     position = models.PositiveIntegerField(default=0)
     version = models.PositiveIntegerField(default=1)

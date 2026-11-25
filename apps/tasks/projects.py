@@ -2,6 +2,8 @@
 Member add/remove, project tasks and milestones are NOT built: what membership reveals and who
 may add people is an open policy choice. Nothing here notifies anyone."""
 
+import datetime
+
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import transaction
 from django.db.models import F, Max
@@ -9,7 +11,7 @@ from django.http import Http404
 from django.utils import timezone
 
 from apps.core.foundation.audit import audit
-from apps.tasks.models import Column, Project, ProjectMember, ProjectTask
+from apps.tasks.models import Column, Milestone, Project, ProjectMember, ProjectTask
 from apps.tasks.services import StaleVersion, _clean_notes, _clean_title, _due
 
 DEFAULT_COLUMNS = ("To do", "Doing", "Done")  # build default, not policy
@@ -167,8 +169,10 @@ def assign_task(user, task, person, expected_version=None):
 
 
 def tasks_by_column(project):
-    rows = ProjectTask.objects.filter(project=project, deleted_at__isnull=True).order_by(
-        "position", "id"
+    rows = (
+        ProjectTask.objects.filter(project=project, deleted_at__isnull=True)
+        .select_related("milestone")
+        .order_by("position", "id")
     )
     out = {}
     for t in rows:
@@ -227,3 +231,60 @@ def delete_task(user, task):
         deleted_at=timezone.now(), updated_at=timezone.now()
     )
     audit(user, "tasks.project_task.delete", "project_task", t.pk, project=p.pk)
+
+
+@transaction.atomic
+def create_milestone(user, project, name, due=None):
+    p = _lock_as_lead(user, project)
+    name = (name or "").strip()
+    if not name or len(name) > 120:
+        raise ValidationError("A milestone needs a name of up to 120 characters.")
+    if due is not None and not isinstance(due, datetime.date):
+        raise ValidationError("Use a date like 2026-12-31.")
+    m = Milestone.objects.create(project=p, name=name, due_date=due, created_by=user)
+    audit(user, "tasks.milestone.create", "milestone", m.pk, project=p.pk)
+    return m
+
+
+@transaction.atomic
+def set_milestone(user, task, milestone_id, expected_version=None):
+    """Point a task at a milestone of its own project, or clear it (empty id)."""
+    p = _lock_as_lead(user, task.project)
+    t = _fresh_task(p, task)
+    ms = None
+    if milestone_id not in (None, ""):
+        ms = Milestone.objects.filter(pk=milestone_id, project=p, deleted_at__isnull=True).first()
+        if ms is None:
+            raise ValidationError("Pick a milestone of this project.")
+    if t.milestone_id == getattr(ms, "pk", None):
+        return t  # no-op: no version bump, no audit
+    _pause()
+    q = ProjectTask.objects.filter(pk=t.pk)
+    if expected_version is not None:
+        q = q.filter(version=expected_version)
+    if not q.update(milestone=ms, version=F("version") + 1, updated_at=timezone.now()):
+        raise StaleVersion("This task changed while you were looking at it.")
+    audit(
+        user,
+        "tasks.project_task.milestone",
+        "project_task",
+        t.pk,
+        milestone=getattr(ms, "pk", None),
+    )
+    t.refresh_from_db()
+    return t
+
+
+def milestones_of(project):
+    from django.db.models import Count, Q
+
+    return (
+        Milestone.objects.filter(project=project, deleted_at__isnull=True)
+        .annotate(
+            total=Count("tasks", filter=Q(tasks__deleted_at__isnull=True)),
+            in_done=Count(
+                "tasks", filter=Q(tasks__deleted_at__isnull=True, tasks__column__name="Done")
+            ),
+        )
+        .order_by("due_date", "id")
+    )

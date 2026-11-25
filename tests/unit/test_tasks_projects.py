@@ -464,3 +464,106 @@ def test_project_task_delete_needs_confirmation_and_is_lead_only():
     from apps.core.models import AuditLog
 
     assert AuditLog.objects.filter(action="tasks.project_task.delete").count() == 1
+
+
+@pytest.mark.django_db
+def test_milestones_lead_only_same_project_noop_version_and_progress():
+    from django.core.exceptions import PermissionDenied
+    from django.http import Http404
+
+    from apps.tasks.models import ProjectTask
+    from apps.tasks.services import StaleVersion
+
+    a, m, x = _u("PM1-A"), _u("PM1-M"), _u("PM1-X")
+    p = pj.create_project(a, "P")
+    other = pj.create_project(a, "Other")
+    _member(p, m)
+    ms = pj.create_milestone(a, p, " Beta ", None)
+    foreign = pj.create_milestone(a, other, "Elsewhere")
+    assert ms.name == "Beta"
+    for bad in ("", "  ", "x" * 121):
+        with pytest.raises(ValidationError):
+            pj.create_milestone(a, p, bad)
+    with pytest.raises(PermissionDenied):
+        pj.create_milestone(m, p, "no")
+    with pytest.raises(Http404):
+        pj.create_milestone(x, p, "no")
+    todo, _doing, done = list(p.columns.all())
+    t1 = pj.add_task(a, p, todo.pk, "t1")
+    t2 = pj.add_task(a, p, todo.pk, "t2")
+    with pytest.raises(ValidationError):  # a milestone of another project
+        pj.set_milestone(a, t1, foreign.pk)
+    t1 = pj.set_milestone(a, t1, ms.pk, expected_version=1)
+    assert (t1.milestone_id, t1.version) == (ms.pk, 2)
+    assert pj.set_milestone(a, t1, ms.pk, expected_version=1).version == 2  # same: no-op
+    with pytest.raises(StaleVersion):
+        pj.set_milestone(a, t1, None, expected_version=1)  # real change, stale version
+    pj.set_milestone(a, t2, ms.pk)
+    pj.move_task(a, t1, done.pk, 2)
+    row = pj.milestones_of(p).get()
+    assert (row.total, row.in_done) == (2, 1)
+    assert pj.set_milestone(a, t2, "").milestone_id is None
+    assert ProjectTask.objects.get(pk=t1.pk).milestone_id == ms.pk
+
+
+@pytest.mark.django_db
+def test_every_project_post_enforces_csrf_and_refuses_non_leads():
+    a, m = _u("PC-A"), _u("PC-M")
+    p = pj.create_project(a, "P")
+    _member(p, m)
+    col = p.columns.first()
+    t = pj.add_task(a, p, col.pk, "t")
+    ms = pj.create_milestone(a, p, "M")
+    posts = [
+        (reverse("tasks:new_project"), {"name": "z"}),
+        (reverse("tasks:project_add", args=[p.public_id]), {"column": col.pk, "title": "z"}),
+        (reverse("tasks:project_move", args=[t.public_id]), {"column": col.pk, "version": 1}),
+        (reverse("tasks:project_edit", args=[t.public_id]), {"version": 1, "title": "z"}),
+        (reverse("tasks:project_delete", args=[t.public_id]), {"confirm": "yes"}),
+        (reverse("tasks:milestone_add", args=[p.public_id]), {"name": "z"}),
+        (reverse("tasks:project_milestone", args=[t.public_id]), {"milestone": ms.pk}),
+    ]
+    strict = Client(enforce_csrf_checks=True)
+    strict.force_login(a)
+    anon = Client()
+    cm = _c(m)
+    for url, data in posts:
+        assert strict.post(url, data).status_code == 403, url
+        r = anon.post(url, data)
+        assert r.status_code == 302 and ("login" in r["Location"] or "sign" in r["Location"]), url
+    assert Project.objects.count() == 1 and pj.milestones_of(p).count() == 1  # nothing was created
+    # a plain member's forced POSTs change nothing
+    for url, data in posts[1:]:
+        cm.post(url, data)
+    t.refresh_from_db()
+    assert (t.title, t.deleted_at, t.milestone_id, t.version) == ("t", None, None, 1)
+    assert p.tasks.count() == 1 and pj.milestones_of(p).count() == 1
+
+
+@pytest.mark.django_db
+def test_milestone_views_escape_and_bad_ids_404():
+    a = _u("PV2-A")
+    p = pj.create_project(a, "P")
+    t = pj.add_task(a, p, p.columns.first().pk, "t")
+    ca = _c(a)
+    ca.post(
+        reverse("tasks:milestone_add", args=[p.public_id]),
+        {"name": "<i>x</i>", "due": "2026-12-31"},
+    )
+    page = ca.get(reverse("tasks:project", args=[p.public_id])).content
+    assert b"&lt;i&gt;x&lt;/i&gt;" in page and b"<i>x</i>" not in page and b"0 of 0 in Done" in page
+    r = ca.post(
+        reverse("tasks:milestone_add", args=[p.public_id]),
+        {"name": "d", "due": "31/12/2026"},
+        follow=True,
+    )
+    assert (
+        any("Use a date" in str(x) for x in r.context["messages"])
+        and pj.milestones_of(p).count() == 1
+    )
+    assert (
+        ca.post(
+            reverse("tasks:project_milestone", args=[t.public_id]), {"milestone": "abc"}
+        ).status_code
+        == 404
+    )

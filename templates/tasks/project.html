@@ -7,13 +7,22 @@
   {% include "tasks/_nav.html" %}
   <div class="tasks-board">{% for c, items in columns %}<div class="tasks-col"><h3>{{ c.name }}</h3>
     {% for t in items %}<div class="task-card"><span class="task-title">{{ t.title }}</span>{% if is_lead %}<a class="btn btn-outline btn-small" href="{% url 'tasks:project_edit' t.public_id %}">Edit</a><a class="btn btn-outline btn-small" href="{% url 'tasks:project_delete' t.public_id %}">Delete</a>{% endif %}{% if t.due_date %}<span class="task-meta">Due {{ t.due_date|date:"j M Y" }}</span>{% endif %}
-      {% if is_lead %}<form method="post" action="{% url 'tasks:project_move' t.public_id %}" class="tasks-inline">{% csrf_token %}<input type="hidden" name="version" value="{{ t.version }}">
+      {% if t.milestone %}<span class="task-meta">Milestone: {{ t.milestone.name }}</span>{% endif %}
+      {% if is_lead %}<form method="post" action="{% url 'tasks:project_milestone' t.public_id %}" class="tasks-inline">{% csrf_token %}
+        <select name="milestone" aria-label="Milestone"><option value="">No milestone</option>{% for ms in milestones %}<option value="{{ ms.pk }}"{% if ms.pk == t.milestone_id %} selected{% endif %}>{{ ms.name }}</option>{% endfor %}</select>
+        <button class="btn btn-outline btn-small" type="submit">Set</button></form>
+      <form method="post" action="{% url 'tasks:project_move' t.public_id %}" class="tasks-inline">{% csrf_token %}<input type="hidden" name="version" value="{{ t.version }}">
         <select name="column" aria-label="Move to">{% for c2, _x in columns %}<option value="{{ c2.pk }}"{% if c2.pk == c.pk %} selected{% endif %}>{{ c2.name }}</option>{% endfor %}</select>
         <button class="btn btn-outline btn-small" type="submit">Move</button></form>{% endif %}</div>
     {% empty %}<p class="task-meta">No tasks.</p>{% endfor %}
     {% if is_lead %}<form method="post" action="{% url 'tasks:project_add' project.public_id %}" class="tasks-inline">{% csrf_token %}<input type="hidden" name="column" value="{{ c.pk }}">
       <input type="text" name="title" maxlength="1024" placeholder="Add a task" required><button class="btn btn-outline btn-small" type="submit">Add</button></form>{% endif %}
   </div>{% endfor %}</div>
+  <h3>Milestones</h3>
+  {% for ms in milestones %}<div class="task-row"><span class="task-title">{{ ms.name }}</span><span class="task-meta">{% if ms.due_date %}Due {{ ms.due_date|date:"j M Y" }} · {% endif %}{{ ms.in_done }} of {{ ms.total }} in Done</span></div>
+  {% empty %}<p class="task-meta">No milestones yet.</p>{% endfor %}
+  {% if is_lead %}<form method="post" action="{% url 'tasks:milestone_add' project.public_id %}" class="tasks-inline">{% csrf_token %}
+    <input type="text" name="name" maxlength="120" placeholder="New milestone" required><input type="date" name="due"><button class="btn btn-outline btn-small" type="submit">Add milestone</button></form>{% endif %}
   <h3>Members</h3>
   <p class="task-meta">Everyone listed here can see this project and its tasks. Adding people is not built yet.</p>
   {% for m in members %}<div class="task-row"><span class="task-title">{{ m.person.full_name }}</span><span class="task-meta">{{ m.get_role_display }}</span></div>{% endfor %}

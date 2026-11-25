@@ -48,6 +48,7 @@ def project_view(request, project_id):
             "columns": [(c, by.get(c.pk, [])) for c in p.columns.all()],
             "is_lead": _is_lead(request.user, p),
             "members": pj.members_of(p),
+            "milestones": pj.milestones_of(p),
             "tab": "projects",
         },
     )
@@ -169,3 +170,34 @@ def delete_project_task(request, task_id):
         raise Http404 from None
     messages.success(request, "Task deleted.")
     return redirect(back)
+
+
+@login_required
+@require_POST
+def add_milestone(request, project_id):
+    import datetime
+
+    p = pj.get_project(request.user, project_id)
+    raw = (request.POST.get("due") or "").strip()
+    try:
+        due = datetime.date.fromisoformat(raw) if raw else None
+    except ValueError:
+        messages.error(request, "Use a date like 2026-12-31.")
+        return redirect("tasks:project", project_id=p.public_id)
+    _guarded(
+        request, p, pj.create_milestone, p, request.POST.get("name", ""), due, ok="Milestone added."
+    )
+    return redirect("tasks:project", project_id=p.public_id)
+
+
+@login_required
+@require_POST
+def task_milestone(request, task_id):
+    t = pj.get_task(request.user, task_id)
+    raw = request.POST.get("milestone", "")
+    try:
+        mid = int(raw) if raw else ""
+    except ValueError:
+        raise Http404 from None
+    _guarded(request, t.project, pj.set_milestone, t, mid)
+    return redirect("tasks:project", project_id=t.project.public_id)
