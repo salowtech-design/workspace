@@ -78,6 +78,18 @@ def get_attendance_report(
     }
 
 
+def _out_label(s, kolkata):
+    """Check-out as Kolkata wall time; when it falls on a later calendar day than the check-in,
+    the day is named so an overnight session does not read as a few hours."""
+    if not s.check_out_at:
+        return None
+    out = s.check_out_at.astimezone(kolkata)
+    text = out.strftime("%H:%M")
+    if out.date() != s.check_in_at.astimezone(kolkata).date():
+        text += f" on {out.strftime('%a')} {out.day} {out.strftime('%b')}"
+    return text
+
+
 def get_month_history(user: CustomUser, year: int, month: int) -> dict:
     """The person's own sessions for one calendar month (by business date, Asia/Kolkata),
     oldest first, with day totals. Open sessions are listed but add no hours."""
@@ -101,9 +113,7 @@ def get_month_history(user: CustomUser, year: int, month: int) -> dict:
             {
                 "date": s.work_date,
                 "check_in": s.check_in_at.astimezone(kolkata).strftime("%H:%M"),
-                "check_out": s.check_out_at.astimezone(kolkata).strftime("%H:%M")
-                if s.check_out_at
-                else None,
+                "check_out": _out_label(s, kolkata),
                 "hours": round(secs / 3600.0, 2) if secs is not None else None,
                 "method": s.get_verification_method_display(),
                 "state": s.get_state_display(),

@@ -183,3 +183,20 @@ def test_a_refused_approval_writes_no_audit_row_and_an_applied_one_writes_one():
     at.check_out(emp, instant=now - timedelta(hours=2))
     at.review_fallback_request(req.id, mgr, True)
     assert AuditEvent.objects.filter(action="attendance.fallback.approved").count() == before + 1
+
+
+@pytest.mark.django_db
+def test_history_names_the_day_when_a_session_runs_past_midnight():
+    import datetime as dt
+
+    from django.test import Client
+
+    me = _u("AT-H3")
+    kol = ZoneInfo("Asia/Kolkata")
+    start = dt.datetime(2026, 10, 14, 23, 30, tzinfo=kol)
+    at.check_in(me, OK, instant=start)
+    at.check_out(me, instant=start + timedelta(hours=8))  # 07:30 the next day
+    c = Client(HTTP_HOST="app.salowtech.com")
+    c.force_login(me)
+    html = c.get("/attendance/history/?month=2026-10").content.decode()
+    assert "23:30 to 07:30 on Thu 15 Oct" in html and "8.0 h" in html
