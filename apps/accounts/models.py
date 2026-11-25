@@ -629,6 +629,7 @@ class IAMAdminIdentity(models.Model):
         ACTIVE = "active", "Active"
         SUSPENDED = "suspended", "Suspended"
         LOCKED = "locked", "Locked"
+        PENDING = "pending", "Pending setup"
 
     admin_id = models.CharField(
         max_length=32,
@@ -656,6 +657,11 @@ class IAMAdminIdentity(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
     last_login_at = models.DateTimeField(null=True, blank=True)
 
+    def has_usable_password_hash(self) -> bool:
+        from django.contrib.auth.hashers import is_password_usable
+
+        return is_password_usable(self.password_hash)
+
     class Meta:
         verbose_name = "IAM Admin Identity"
         verbose_name_plural = "IAM Admin Identities"
@@ -663,6 +669,36 @@ class IAMAdminIdentity(models.Model):
 
     def __str__(self):
         return f"{self.admin_id} ({self.role}) [{self.status}]"
+
+
+class IAMSetupToken(models.Model):
+    """Short-lived single-use link that lets one pending IAM admin set up (or replace) the authenticator.
+    Only the keyed hash of the token is stored."""
+
+    class Purpose(models.TextChoices):
+        ENROLL = "enroll", "First setup"
+        REPLACE_FACTOR = "replace_factor", "Replace authenticator"
+
+    iam_admin = models.ForeignKey(
+        "IAMAdminIdentity", on_delete=models.CASCADE, related_name="setup_tokens"
+    )
+    token_hash = models.CharField(max_length=64, unique=True)
+    purpose = models.CharField(max_length=32, choices=Purpose.choices)
+    expires_at = models.DateTimeField()
+    used_at = models.DateTimeField(null=True, blank=True)
+    failed_attempts = models.PositiveSmallIntegerField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+
+class IAMRecoveryCode(models.Model):
+    """Single-use IAM recovery code (keyed hash only)."""
+
+    iam_admin = models.ForeignKey(
+        "IAMAdminIdentity", on_delete=models.CASCADE, related_name="recovery_codes"
+    )
+    keyed_hash = models.CharField(max_length=64, db_index=True)
+    used_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
 
 
 class IAMSession(models.Model):
@@ -1221,6 +1257,7 @@ class PrivilegeElevation(models.Model):
     class Kind(models.TextChoices):
         SUDO = "sudo", "Step-up (sudo)"
         BREAK_GLASS = "break_glass", "Break-glass"
+        SUDO_EPOCH = "sudo_epoch", "Sudo revoked at (epoch)"
 
     user_id_ref = models.BigIntegerField(db_index=True)
     kind = models.CharField(max_length=16, choices=Kind.choices)

@@ -746,3 +746,6 @@
 .inv-tx-reason { word-break: break-word; }
 
 .iam-actor-claimed { font-style: italic; color: #B45309; }
+.iam-claim-hidden { display: none; }
+.iam-qr-box { max-width: 240px; margin: 0 auto 12px; }
+.iam-codes-list { font-family: monospace; list-style: none; padding: 0; }

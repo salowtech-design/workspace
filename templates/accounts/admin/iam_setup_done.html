@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+
+{% block title %}IAM setup complete — Salow Tech{% endblock %}
+
+{% block content %}
+<div class="s-58581f24 card">
+    <div class="s-485c3355">
+        <h2 class="s-017b15e1">Setup complete</h2>
+    </div>
+    <p class="s-3dee2687">Your authenticator is confirmed and IAM sign-in is now on. Save these recovery codes somewhere safe. They are shown only once. Each works one time.</p>
+    <ul data-testid="iam-recovery-codes" class="iam-codes-list">
+        {% for c in codes %}<li>{{ c }}</li>{% endfor %}
+    </ul>
+    <p class="s-3dee2687">A recovery code together with your IAM password lets you replace a lost authenticator. It does not sign you in.</p>
+    <a class="btn btn-primary s-281cf788" href="{% url 'iam:login' %}">Go to IAM sign-in</a>
+</div>
+{% endblock %}

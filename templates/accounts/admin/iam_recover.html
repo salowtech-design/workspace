@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+
+{% block title %}IAM recovery — Salow Tech{% endblock %}
+
+{% block content %}
+<div class="s-58581f24 card">
+    <div class="s-485c3355">
+        <h2 class="s-017b15e1">Replace a lost authenticator</h2>
+    </div>
+    <p class="s-3dee2687">Enter the IAM admin ID, the IAM password and one unused recovery code. This does not sign you in. It closes your current IAM sessions and takes you to set up a new authenticator.</p>
+    {% if error %}
+    <div class="alert alert-danger s-f0b24eea" role="alert">{{ error }}</div>
+    {% endif %}
+    <form method="post" class="s-5921cf57" autocomplete="off">
+        {% csrf_token %}
+        <div><label for="admin_id" class="s-19b2c137">IAM admin ID</label>
+            <input type="text" id="admin_id" name="admin_id" required class="s-ae3353bf"></div>
+        <div><label for="password" class="s-19b2c137">IAM password</label>
+            <input type="password" id="password" name="password" required class="s-4e4a961a"></div>
+        <div><label for="recovery_code" class="s-19b2c137">Recovery code</label>
+            <input type="text" id="recovery_code" name="recovery_code" required class="s-ae3353bf" placeholder="XXXXX-XXXXX"></div>
+        <button type="submit" class="btn btn-primary s-281cf788">Continue</button>
+    </form>
+</div>
+{% endblock %}

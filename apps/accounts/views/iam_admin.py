@@ -289,3 +289,101 @@ def iam_dashboard_view(request):
     from apps.accounts.views.admin_iam import admin_iam_dashboard_view
 
     return admin_iam_dashboard_view(request)
+
+
+def _no_store(response):
+    response["Cache-Control"] = "no-store"
+    response["Pragma"] = "no-cache"
+    response["Referrer-Policy"] = "same-origin"
+    return response
+
+
+SETUP_COOKIE = "iam_setup_token"
+
+
+def _set_setup_cookie(response, raw):
+    response.set_cookie(
+        SETUP_COOKIE,
+        raw,
+        max_age=600,
+        httponly=True,
+        secure=getattr(settings, "SESSION_COOKIE_SECURE", False),
+        samesite="Strict",
+        path=reverse("iam:setup"),
+    )
+    return response
+
+
+def iam_setup_view(request):  # noqa: C901
+    """Setup steps, driven by the cookie-held token: password, authenticator QR, first code, recovery codes."""
+    from apps.accounts.auth import iam_setup
+
+    token = request.COOKIES.get(SETUP_COOKIE, "")
+    if request.method == "POST" and request.POST.get("action") == "exchange":
+        # The emailed or printed link keeps its token in the URL fragment, which browsers never send
+        # to a server. The page script posts it here once; it is swapped for a cookie-only token.
+        try:
+            fresh = iam_setup.exchange_link(request.POST.get("token", ""))
+        except iam_setup.SetupError:
+            return _no_store(
+                render(request, "accounts/admin/iam_setup.html", {"step": "invalid", "error": None})
+            )
+        return _no_store(_set_setup_cookie(redirect("iam:setup"), fresh))
+    if not token:
+        return _no_store(
+            render(request, "accounts/admin/iam_setup.html", {"step": "claim", "error": None})
+        )
+    client_ip = getattr(request, "client_ip", None) or request.META.get("REMOTE_ADDR", "127.0.0.1")
+    ctx = {"error": None, "step": None}
+
+    def fill():
+        state = iam_setup.setup_state(token)
+        ctx["step"] = state["step"]
+        ctx["admin_id"] = state["admin"].admin_id
+        if state["step"] == "authenticator":
+            ctx.update(iam_setup.qr_for(token))
+
+    try:
+        if request.method == "POST":
+            action = request.POST.get("action", "")
+            if action == "password":
+                iam_setup.set_password(
+                    token, request.POST.get("password", ""), request.POST.get("confirm", "")
+                )
+            elif action == "confirm":
+                codes = iam_setup.confirm_authenticator(
+                    token, request.POST.get("totp_code", ""), client_ip
+                )
+                response = render(request, "accounts/admin/iam_setup_done.html", {"codes": codes})
+                response.delete_cookie(SETUP_COOKIE, path=reverse("iam:setup"))
+                return _no_store(response)
+        fill()
+    except iam_setup.SetupError as exc:
+        ctx["error"] = str(exc)
+        try:
+            fill()
+        except iam_setup.SetupError:
+            ctx["step"] = "invalid"
+    return _no_store(render(request, "accounts/admin/iam_setup.html", ctx))
+
+
+def iam_recover_view(request):
+    """Recovery code + IAM password. Opens no session: leads to a new authenticator enrollment."""
+    from apps.accounts.auth import iam_setup
+
+    error = None
+    if request.method == "POST":
+        client_ip = getattr(request, "client_ip", None) or request.META.get(
+            "REMOTE_ADDR", "127.0.0.1"
+        )
+        try:
+            raw = iam_setup.recover_with_code(
+                request.POST.get("admin_id", ""),
+                request.POST.get("password", ""),
+                request.POST.get("recovery_code", ""),
+                client_ip,
+            )
+            return _no_store(_set_setup_cookie(redirect("iam:setup"), raw))
+        except AuthException as exc:
+            error = exc.user_message
+    return _no_store(render(request, "accounts/admin/iam_recover.html", {"error": error}))

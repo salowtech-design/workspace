@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+
+{% block title %}IAM Administrator Setup — Salow Tech{% endblock %}
+
+{% block content %}
+<div class="s-58581f24 card">
+    <div class="s-485c3355">
+        <div class="s-91d65e26"><img src="/static/img/salow-mascot-128.webp" alt="Salowtech" width="56" height="56"></div>
+        <h2 class="s-017b15e1">IAM administrator setup</h2>
+        {% if admin_id %}<div class="s-9964c04b">Account {{ admin_id }}</div>{% endif %}
+    </div>
+
+    {% if error %}
+    <div class="alert alert-danger s-f0b24eea" role="alert">{{ error }}</div>
+    {% endif %}
+
+    <form method="post" id="iam-claim-form" class="iam-claim-hidden">
+        {% csrf_token %}
+        <input type="hidden" name="action" value="exchange">
+        <input type="hidden" name="token" id="iam-claim-token" value="">
+    </form>
+    <script src="/static/iam-setup.js" defer></script>
+    {% if step == "claim" %}
+    <p class="s-3dee2687" id="iam-claim-msg">Opening your setup link...</p>
+    <noscript><p class="s-3dee2687">This page needs JavaScript to open your setup link.</p></noscript>
+    {% elif step == "invalid" %}
+    <p class="s-3dee2687">This setup link is not valid or has expired. Ask the operator for a new one.</p>
+    {% elif step == "password" %}
+    <p class="s-3dee2687">Step 1 of 2. Choose the IAM password (at least 16 characters). It is separate from your Workspace password.</p>
+    <form method="post" class="s-5921cf57" autocomplete="off">
+        {% csrf_token %}
+        <input type="hidden" name="action" value="password">
+        <div>
+            <label for="password" class="s-19b2c137">IAM password</label>
+            <input type="password" id="password" name="password" required minlength="16" class="s-4e4a961a" autocomplete="new-password">
+        </div>
+        <div>
+            <label for="confirm" class="s-19b2c137">Repeat the IAM password</label>
+            <input type="password" id="confirm" name="confirm" required minlength="16" class="s-4e4a961a" autocomplete="new-password">
+        </div>
+        <button type="submit" class="btn btn-primary s-281cf788">Save password and continue</button>
+    </form>
+    {% elif step == "authenticator" %}
+    <p class="s-3dee2687">Scan this code with your authenticator app, then enter the 6-digit code it shows. Sign-in stays off until you confirm.</p>
+    <div data-testid="iam-setup-qr" class="iam-qr-box">{{ svg|safe }}</div>
+    <p class="s-3dee2687">No camera? Enter this key by hand: <code data-testid="iam-setup-key">{{ secret }}</code></p>
+    <form method="post" class="s-5921cf57" autocomplete="off">
+        {% csrf_token %}
+        <input type="hidden" name="action" value="confirm">
+        <div>
+            <label for="totp_code" class="s-19b2c137">Authenticator code</label>
+            <input type="text" id="totp_code" name="totp_code" required maxlength="6" pattern="[0-9]{6}" inputmode="numeric" autocomplete="one-time-code" class="s-5040ab4f">
+        </div>
+        <button type="submit" class="btn btn-primary s-281cf788">Confirm and finish setup</button>
+    </form>
+    {% endif %}
+</div>
+{% endblock %}

@@ -69,6 +69,25 @@ class _SharedGrantStore:
 _USER_SUDO_CACHE = _SharedGrantStore("sudo", with_details=False)
 
 
+def sudo_revoked_after(user_id) -> float:
+    """Time (epoch seconds) before which every sudo marker of this user is void; 0 when never set."""
+    from apps.accounts.models import PrivilegeElevation
+
+    row = PrivilegeElevation.objects.filter(user_id_ref=user_id, kind="sudo_epoch").first()
+    return row.granted_at if row else 0.0
+
+
+def mark_sudo_revoked(user_id) -> float:
+    """Persistently void every earlier sudo marker, including those held in a Django session."""
+    from apps.accounts.models import PrivilegeElevation
+
+    now_ts = timezone.now().timestamp()
+    PrivilegeElevation.objects.update_or_create(
+        user_id_ref=user_id, kind="sudo_epoch", defaults={"granted_at": now_ts}
+    )
+    return now_ts
+
+
 def is_sudo_active(target: Union[object, CustomUser]) -> bool:
     """
     Check if current session or user has active sudo authorization within last 10 minutes.
@@ -82,7 +101,11 @@ def is_sudo_active(target: Union[object, CustomUser]) -> bool:
         if not target.is_authenticated:
             return False
         cached_ts = _USER_SUDO_CACHE.get(target.id)
-        if cached_ts and (now_ts - cached_ts < window_sec):
+        if (
+            cached_ts
+            and (now_ts - cached_ts < window_sec)
+            and cached_ts > sudo_revoked_after(target.id)
+        ):
             return True
         return False
 
@@ -94,12 +117,18 @@ def is_sudo_active(target: Union[object, CustomUser]) -> bool:
     if hasattr(request, "session") and SUDO_GRANTED_TIMESTAMP_KEY in request.session:
         granted_at = request.session.get(SUDO_GRANTED_TIMESTAMP_KEY)
         if granted_at is not None:
-            return (now_ts - granted_at) < window_sec
+            return (now_ts - granted_at) < window_sec and granted_at > sudo_revoked_after(
+                request.user.id
+            )
         return False
 
     # Fallback to in-process cache by user ID (e.g. CLI or elevate_sudo(user) calls)
     cached_ts = _USER_SUDO_CACHE.get(request.user.id)
-    if cached_ts and (now_ts - cached_ts < window_sec):
+    if (
+        cached_ts
+        and (now_ts - cached_ts < window_sec)
+        and cached_ts > sudo_revoked_after(request.user.id)
+    ):
         return True
 
     return False

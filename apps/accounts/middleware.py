@@ -70,7 +70,17 @@ class HostSecurityIsolationMiddleware:
                 return redirect("iam:login")
 
             # Allow public IAM endpoints
-            if path.startswith(("/iam/login", "/login", "/auth/login")):
+            if path.startswith(
+                (
+                    "/iam/login",
+                    "/login",
+                    "/auth/login",
+                    "/setup/",
+                    "/recover/",
+                    "/iam/setup/",
+                    "/iam/recover/",
+                )
+            ):
                 return self.get_response(request)
 
             # Require active IAM session for all other IAM host endpoints

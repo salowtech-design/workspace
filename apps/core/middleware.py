@@ -63,6 +63,10 @@ class RateLimitMiddleware:
         "/auth/activate",
         "/auth/recovery",
         "/auth/passkeys",
+        "/setup/",
+        "/recover/",
+        "/iam/setup/",
+        "/iam/recover/",
         "/auth/security/password/change",
         "/verify",
     )
@@ -189,7 +193,17 @@ class RateLimitMiddleware:
         is_sensitive = False
         if any(path.startswith(prefix) for prefix in self.SENSITIVE_PREFIXES):
             if (
-                path.startswith(("/auth/activate", "/auth/login", "/auth/recovery"))
+                path.startswith(
+                    (
+                        "/auth/activate",
+                        "/auth/login",
+                        "/auth/recovery",
+                        "/setup/",
+                        "/recover/",
+                        "/iam/setup/",
+                        "/iam/recover/",
+                    )
+                )
                 and request.method == "GET"
             ):
                 is_sensitive = False

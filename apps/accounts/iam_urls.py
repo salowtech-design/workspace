@@ -19,6 +19,8 @@ from apps.accounts.views.iam_admin import (
     iam_dashboard_view,
     iam_login_view,
     iam_logout_view,
+    iam_recover_view,
+    iam_setup_view,
     iam_stepup_view,
 )
 
@@ -27,6 +29,8 @@ app_name = "iam"
 urlpatterns = [
     # Core IAM Auth & Session
     path("login/", iam_login_view, name="login"),
+    path("setup/", iam_setup_view, name="setup"),
+    path("recover/", iam_recover_view, name="recover"),
     path("logout/", iam_logout_view, name="logout"),
     path("stepup/", iam_stepup_view, name="stepup"),
     path("dashboard/", iam_dashboard_view, name="dashboard"),
