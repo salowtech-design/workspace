@@ -448,7 +448,9 @@ def test_version_compare_and_set_sequential():
             svc.add_version(a, f, 2, size, digest)
     keys = list(FileVersion.objects.values_list("storage_key", flat=True))
     assert len(keys) == len(set(keys)) == 2 and all(len(k) == 64 for k in keys)
-    with pytest.raises(Exception):  # the database refuses a reused key even if code were wrong
+    from django.db import IntegrityError, transaction
+
+    with pytest.raises(IntegrityError), transaction.atomic():  # database refuses a reused key
         FileVersion.objects.create(file=f, number=99, storage_key=keys[0], sha256=_hex(7))
     svc.trash(a, f)
     with pytest.raises((ValidationError, PermissionDenied)):
