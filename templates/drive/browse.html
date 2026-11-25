@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+{% block title %}Drive: Salow Workspace{% endblock %}
+{% block extra_head %}<link rel="stylesheet" href="/static/css/drive.css">{% endblock %}
+{% block content %}
+<div class="card drive">
+  <div class="drive-head"><h2>Drive</h2></div>
+  {% include "drive/_nav.html" with tab="mine" %}
+  <div class="crumbs">
+    <a href="{% url 'drive:home' %}">My Drive</a>
+    {% for c in crumbs %} / <a href="{% url 'drive:folder' c.pk %}">{{ c.name }}</a>{% endfor %}
+  </div>
+  {% if can_edit %}
+  <form method="post" action="{% url 'drive:new_folder' %}" class="drive-inline">
+    {% csrf_token %}
+    {% if folder %}<input type="hidden" name="parent" value="{{ folder.pk }}">{% endif %}
+    <input type="text" name="name" class="form-input" placeholder="New folder name" maxlength="200" required>
+    <button type="submit" class="btn btn-primary btn-small">Create folder</button>
+  </form>
+  {% endif %}
+  {% for f in folders %}
+  <div class="drive-row">
+    <a class="drive-name" href="{% url 'drive:folder' f.pk %}">{{ f.name }}</a>
+    <span class="drive-meta">Folder</span>
+    {% if can_edit %}
+    <form method="post" action="{% url 'drive:rename' 'folder' f.pk %}" class="drive-inline">{% csrf_token %}<input type="text" name="name" class="form-input" value="{{ f.name }}" maxlength="200" aria-label="New name"><button class="btn btn-secondary btn-small" type="submit">Rename</button></form>
+    <form method="post" action="{% url 'drive:trash_item' 'folder' f.pk %}" class="drive-inline">{% csrf_token %}<button class="btn btn-secondary btn-small" type="submit">Move to trash</button></form>
+    {% endif %}
+  </div>
+  {% endfor %}
+  {% for f in files %}
+  <div class="drive-row">
+    <span class="drive-name">{{ f.name }}</span>
+    <span class="drive-meta">File</span>
+    {% if can_edit %}
+    <form method="post" action="{% url 'drive:rename' 'file' f.pk %}" class="drive-inline">{% csrf_token %}<input type="text" name="name" class="form-input" value="{{ f.name }}" maxlength="200" aria-label="New name"><button class="btn btn-secondary btn-small" type="submit">Rename</button></form>
+    <form method="post" action="{% url 'drive:trash_item' 'file' f.pk %}" class="drive-inline">{% csrf_token %}<button class="btn btn-secondary btn-small" type="submit">Move to trash</button></form>
+    {% endif %}
+  </div>
+  {% endfor %}
+  {% if not folders and not files %}<div class="drive-empty">Nothing here yet.</div>{% endif %}
+  {% if folder and is_owner %}
+  <div class="drive-share">
+    <h3>Sharing</h3>
+    {% for s in shares %}
+    <div class="drive-row">
+      <span class="drive-name">{{ s.user.full_name }} ({{ s.user.employee_id }})</span>
+      <span class="drive-meta">{{ s.get_role_display }}</span>
+      <form method="post" action="{% url 'drive:unshare' 'folder' folder.pk %}" class="drive-inline">{% csrf_token %}<input type="hidden" name="user_id" value="{{ s.user_id }}"><button class="btn btn-secondary btn-small" type="submit">Remove access</button></form>
+    </div>
+    {% empty %}<div class="drive-empty">Not shared with anyone.</div>{% endfor %}
+    <form method="post" action="{% url 'drive:share' 'folder' folder.pk %}" class="drive-inline">
+      {% csrf_token %}
+      <input type="text" name="employee_id" class="form-input" placeholder="Employee ID" required>
+      <select name="role" class="form-input"><option value="viewer">Viewer</option><option value="editor">Editor</option></select>
+      <button class="btn btn-primary btn-small" type="submit">Share folder</button>
+    </form>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

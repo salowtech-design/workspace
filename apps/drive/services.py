@@ -41,10 +41,19 @@ def _journal(user, item, action, subject=None):
     )
 
 
+def _lock_users(*user_ids):
+    """Lock account rows in ascending id order, always, so two writers can never wait on
+    each other in a circle (A shares to B while B shares to A)."""
+    ids = sorted({i for i in user_ids if i is not None})
+    list(get_user_model().objects.select_for_update().filter(pk__in=ids).order_by("pk"))
+
+
 def _lock_tree(owner_id):
     """One lock per owner. Every write below takes it first, so moves, creates, trashes and
-    restores inside one person's tree run one at a time and always read fresh state."""
-    get_user_model().objects.select_for_update().filter(pk=owner_id).first()
+    restores inside one person's tree run one at a time and always read fresh state.
+    Plain reads after the lock are current under Django's default READ COMMITTED level
+    (a test asserts the level so a settings change cannot silently break this)."""
+    _lock_users(owner_id)
 
 
 def _fresh(item):
@@ -256,7 +265,7 @@ def restore(user, item):
 
 @transaction.atomic
 def share(user, item, person, role):
-    _lock_tree(item.owner_id)
+    _lock_users(item.owner_id, person.pk)
     _fresh(item)
     kind = _kind(item)
     require(user, "share", kind, item)
@@ -264,7 +273,7 @@ def share(user, item, person, role):
         raise ValidationError("Share as viewer or editor.")  # commenting is not built yet
     if item.trashed_at is not None:
         raise ValidationError("Restore it from the trash before sharing.")
-    person = type(person).objects.select_for_update().get(pk=person.pk)
+    person = type(person).objects.get(pk=person.pk)
     if person.pk == item.owner_id:
         raise ValidationError("The owner already has full access.")
     if not person.is_active or getattr(person, "status", "active") != "active":

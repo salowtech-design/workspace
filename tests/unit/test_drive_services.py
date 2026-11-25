@@ -1,3 +1,4 @@
+# ruff: noqa: B023  (each lambda runs inside its own loop round; threads are joined before the next)
 """Drive metadata, permissions and services (no file bytes: storage is not configured)."""
 
 import pytest
@@ -347,3 +348,72 @@ def test_control_without_the_tree_lock_the_same_name_race_is_visible(monkeypatch
     a = _u("D-RD")
     res = _threads([lambda: svc.create_folder(a, "Same")] * 6)
     assert res.count("ok") > 1, res
+
+
+@pytest.mark.django_db(transaction=True)
+def test_isolation_level_is_read_committed_so_reads_after_the_lock_are_current():
+    _need_mysql()
+    from django.db import connection
+
+    with connection.cursor() as cur:
+        cur.execute("SELECT @@transaction_isolation")
+        level = cur.fetchone()[0]
+    assert level.upper().replace("-", " ").replace("_", " ") == "READ COMMITTED", level
+
+
+@pytest.mark.django_db(transaction=True)
+def test_opposite_moves_never_cycle_over_many_rounds():
+    _need_mysql()
+    a = _u("D-RE")
+    ok_rounds = 0
+    for i in range(20):
+        fa, fb = svc.create_folder(a, f"A{i}"), svc.create_folder(a, f"B{i}")
+        res = _threads(
+            [
+                lambda: svc.move(a, Folder.objects.get(pk=fa.pk), Folder.objects.get(pk=fb.pk)),
+                lambda: svc.move(a, Folder.objects.get(pk=fb.pk), Folder.objects.get(pk=fa.pk)),
+            ]
+        )
+        fa.refresh_from_db()
+        fb.refresh_from_db()
+        assert res.count("ok") == 1, res
+        assert fa.parent_id is None or fb.parent_id is None
+        ok_rounds += 1
+    assert ok_rounds == 20
+
+
+@pytest.mark.django_db(transaction=True)
+def test_control_without_the_tree_lock_opposite_moves_can_cycle(monkeypatch):
+    """Sensitivity control for the cycle race: with no lock, a cycle shows up in some round."""
+    _need_mysql()
+    monkeypatch.setattr(svc, "_lock_users", lambda *ids: None)
+    a = _u("D-RF")
+    cycles = 0
+    for i in range(30):
+        fa, fb = svc.create_folder(a, f"A{i}"), svc.create_folder(a, f"B{i}")
+        _threads(
+            [
+                lambda: svc.move(a, Folder.objects.get(pk=fa.pk), Folder.objects.get(pk=fb.pk)),
+                lambda: svc.move(a, Folder.objects.get(pk=fb.pk), Folder.objects.get(pk=fa.pk)),
+            ]
+        )
+        fa.refresh_from_db()
+        fb.refresh_from_db()
+        if fa.parent_id is not None and fb.parent_id is not None:
+            cycles += 1
+    assert cycles >= 1, "no cycle appeared in 30 unlocked rounds; the control cannot show the race"
+
+
+@pytest.mark.django_db(transaction=True)
+def test_mutual_shares_do_not_deadlock():
+    _need_mysql()
+    a, b = _u("D-RG"), _u("D-RH")
+    for i in range(10):
+        fa, fb = svc.create_folder(a, f"FA{i}"), svc.create_folder(b, f"FB{i}")
+        res = _threads(
+            [
+                lambda: svc.share(a, Folder.objects.get(pk=fa.pk), b, "viewer"),
+                lambda: svc.share(b, Folder.objects.get(pk=fb.pk), a, "viewer"),
+            ]
+        )
+        assert res == ["ok", "ok"], res

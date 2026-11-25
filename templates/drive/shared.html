@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% block title %}Shared with me: Salow Drive{% endblock %}
+{% block extra_head %}<link rel="stylesheet" href="/static/css/drive.css">{% endblock %}
+{% block content %}
+<div class="card drive">
+  <div class="drive-head"><h2>Drive</h2></div>
+  {% include "drive/_nav.html" with tab="shared" %}
+  {% for item, role, is_folder in items %}
+  <div class="drive-row">
+    {% if is_folder %}<a class="drive-name" href="{% url 'drive:folder' item.pk %}">{{ item.name }}</a>{% else %}<span class="drive-name">{{ item.name }}</span>{% endif %}
+    <span class="drive-meta">{{ role|title }} access from {{ item.owner.full_name }}</span>
+  </div>
+  {% empty %}<div class="drive-empty">Nothing has been shared with you.</div>{% endfor %}
+</div>
+{% endblock %}

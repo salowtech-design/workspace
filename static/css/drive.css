@@ -1,0 +1,17 @@
+/* Salow Drive: scoped under .drive */
+.drive .drive-head { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between; margin-bottom: 16px; }
+.drive .drive-tabs { display: flex; gap: 8px; margin-bottom: 16px; }
+.drive .drive-tabs a { padding: 6px 14px; border-radius: 999px; background: #f4ece6; color: #5c2018; text-decoration: none; font-weight: 600; font-size: 14px; }
+.drive .drive-tabs a.active { background: #7a2e22; color: #fff; }
+.drive .crumbs { font-size: 14px; color: #6b5d57; margin-bottom: 12px; }
+.drive .crumbs a { color: #7a2e22; text-decoration: none; }
+.drive .drive-notice { background: #fff7e0; border: 1px solid #ecd9a0; color: #6b4e00; border-radius: 10px; padding: 10px 14px; font-size: 14px; margin-bottom: 16px; }
+.drive .drive-row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; padding: 10px 0; border-bottom: 1px solid #efe6df; }
+.drive .drive-name { flex: 1 1 220px; font-weight: 600; color: #3a1d17; text-decoration: none; word-break: break-word; }
+.drive .drive-meta { font-size: 13px; color: #8a7a72; }
+.drive .drive-inline { display: inline-flex; gap: 6px; align-items: center; margin: 0; }
+.drive .drive-inline input[type=text] { width: 150px; }
+.drive .drive-empty { color: #8a7a72; padding: 18px 0; }
+.drive .drive-share { margin-top: 18px; padding-top: 14px; border-top: 1px solid #efe6df; }
+.drive .btn-small { padding: 4px 10px; font-size: 13px; }
+@media (max-width: 480px) { .drive .drive-inline input[type=text] { width: 110px; } }

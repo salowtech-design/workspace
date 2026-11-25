@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{% block title %}Trash: Salow Drive{% endblock %}
+{% block extra_head %}<link rel="stylesheet" href="/static/css/drive.css">{% endblock %}
+{% block content %}
+<div class="card drive">
+  <div class="drive-head"><h2>Drive</h2></div>
+  {% include "drive/_nav.html" with tab="trash" %}
+  <p class="drive-meta">Items stay in the trash until you restore them. Nothing is deleted automatically.</p>
+  {% for f in folders %}
+  <div class="drive-row"><span class="drive-name">{{ f.name }}</span><span class="drive-meta">Folder</span>
+    <form method="post" action="{% url 'drive:restore_item' 'folder' f.pk %}" class="drive-inline">{% csrf_token %}<button class="btn btn-secondary btn-small" type="submit">Restore</button></form></div>
+  {% endfor %}
+  {% for f in files %}
+  <div class="drive-row"><span class="drive-name">{{ f.name }}</span><span class="drive-meta">File</span>
+    <form method="post" action="{% url 'drive:restore_item' 'file' f.pk %}" class="drive-inline">{% csrf_token %}<button class="btn btn-secondary btn-small" type="submit">Restore</button></form></div>
+  {% endfor %}
+  {% if not folders and not files %}<div class="drive-empty">The trash is empty.</div>{% endif %}
+</div>
+{% endblock %}

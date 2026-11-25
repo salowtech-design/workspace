@@ -1,0 +1,6 @@
+<div class="drive-tabs">
+  <a href="{% url 'drive:home' %}" class="{% if tab == 'mine' %}active{% endif %}">My Drive</a>
+  <a href="{% url 'drive:shared' %}" class="{% if tab == 'shared' %}active{% endif %}">Shared with me</a>
+  <a href="{% url 'drive:trash' %}" class="{% if tab == 'trash' %}active{% endif %}">Trash</a>
+</div>
+<div class="drive-notice">File upload and download are not available yet: file storage is not set up. Folders, names, sharing and trash work now.</div>

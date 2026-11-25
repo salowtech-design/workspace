@@ -53,6 +53,7 @@ urlpatterns = [
     # Application modules
     path("auth/", include("apps.accounts.urls", namespace="accounts")),
     path("directory/", include("apps.directory.urls", namespace="directory")),
+    path("drive/", include("apps.drive.urls", namespace="drive")),
     path("attendance/", include("apps.attendance.urls", namespace="attendance")),
     path("posts/", include("apps.posts.urls", namespace="posts")),
     path("certificates/", include("apps.certificates.urls", namespace="certificates")),
