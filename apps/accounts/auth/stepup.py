@@ -267,6 +267,7 @@ def activate_break_glass(
             f"EMERGENCY BREAK-GLASS ACTIVATED by {target_user.employee_id}. "
             f"Reason: {reason.strip()} [Ticket: {justification_ticket or 'N/A'}]"
         ),
+        actor_employee_id=(target_user.employee_id if hasattr(request_or_user, "META") else ""),
     )
 
 
@@ -321,6 +322,7 @@ def revoke_break_glass(request_or_user, user: Optional[CustomUser] = None) -> No
             step="privileged_break_glass",
             employee_id=target_user.employee_id,
             message=f"Emergency break-glass mode terminated for {target_user.employee_id}",
+            actor_employee_id=(target_user.employee_id if hasattr(request_or_user, "META") else ""),
         )
 
 
