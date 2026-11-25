@@ -20,8 +20,10 @@
     if (e.type === "rect") g.appendChild(el("rect", { x: e.x, y: e.y, width: e.w, height: e.h, fill: c }));
     else if (e.type === "ellipse") g.appendChild(el("ellipse", { cx: e.x + e.w / 2, cy: e.y + e.h / 2, rx: e.w / 2, ry: e.h / 2, fill: c }));
     if (e.text || e.type === "text") {
-      var t = el("text", { x: e.type === "text" ? e.x : e.x + e.w / 2, y: e.y + e.size, "font-size": e.size, fill: S.textColor(d, e), "text-anchor": e.type === "text" ? "start" : "middle", "font-family": "sans-serif" }, e.text);
-      if (e.type !== "text") t.setAttribute("y", e.y + e.h / 2 + e.size / 3);
+      var lines = S.wrapLines(e.text, e.size, e.type === "text" ? e.w : e.w - 8), lh = e.size * 1.2, shape = e.type !== "text";
+      var top = shape ? e.y + e.h / 2 - (lines.length * lh) / 2 : e.y;
+      var t = el("text", { x: shape ? e.x + e.w / 2 : e.x, "font-size": e.size, fill: S.textColor(d, e), "text-anchor": shape ? "middle" : "start", "font-family": "sans-serif" });
+      lines.forEach(function (ln, k) { t.appendChild(el("tspan", { x: shape ? e.x + e.w / 2 : e.x, y: top + e.size + k * lh }, ln)); });
       g.appendChild(t);
     }
   }
@@ -77,7 +79,8 @@
   ["text", "size", "x", "y", "w", "h"].forEach(function (f) {
     $("sl-" + f).addEventListener("change", function () {
       var e = sel(); if (!e) return; var p = {}; var asked = this.value; p[f] = asked;
-      var ok = apply(S.ops.updateElement(H.deck, cur, e.id, p)), now = sel(); if (now && f !== "text" && isFinite(Number(asked))) this.value = now[f];
+      var ok = apply(S.ops.updateElement(H.deck, cur, e.id, p)), now = sel();
+      if (now && (f === "text" || f === "size" || f === "w" || f === "h") && now.text) { var ln = S.wrapLines(now.text, now.size, now.type === "text" ? now.w : now.w - 8); if (S.textHeight(ln, now.size) > now.h) { setTimeout(function () { status.textContent += " The text is taller than this item and runs past its bottom edge."; }, 0); } } if (now && f !== "text" && isFinite(Number(asked))) this.value = now[f];
       if (now && f !== "text" && String(now[f]) !== String(Math.round(Number(asked)))) { status.textContent = "Adjusted " + f.toUpperCase() + " to " + now[f] + " so the item fits the slide and limits. " + H.note; }
       else if (now && f !== "text" && !isFinite(Number(asked))) { status.textContent = "Enter a number for " + f.toUpperCase() + ". Kept " + now[f] + "."; this.value = now[f]; }
     });
@@ -92,7 +95,8 @@
   $("sl-del").addEventListener("click", function () { if (H.deck.slides[cur].elements.length && !window.confirm("Delete this slide and its items? You can undo until you reload.")) return; var n = S.ops.deleteSlide(H.deck, cur); if (n) { selId = null; apply(n, "Slide deleted."); } });
   $("sl-dup").addEventListener("click", function () {
     var n = S.ops.duplicateSlide(H.deck, cur); if (!n) { status.textContent = "A deck holds up to " + S.MAX_SLIDES + " slides."; return; }
-    var prev = cur, prevSel = selId; cur++; selId = null; if (!apply(n, "Slide duplicated.")) { cur = prev; selId = prevSel; }
+    var prev = cur, prevSel = selId; cur++; selId = null; if (!apply(n, "Slide duplicated.")) { cur = prev; selId = prevSel; return; }
+    var cb = $("sl-list").querySelector("button[aria-current=true]"); if (cb) cb.focus();
   });
   $("sl-up").addEventListener("click", function () { if (apply(S.ops.moveSlide(H.deck, cur, cur - 1))) { cur--; render(); } });
   $("sl-down").addEventListener("click", function () { if (apply(S.ops.moveSlide(H.deck, cur, cur + 1))) { cur++; render(); } });

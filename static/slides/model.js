@@ -111,6 +111,19 @@
     if (key === "End") return n - 1;
     return null;
   }
-  var api = { showNav: showNav, W: W, H: H, THEMES: THEMES, FILLS: FILLS, MAX_SLIDES: MAX_SLIDES, MAX_EL: MAX_EL, newDeck: newDeck, validate: validate, ops: ops, color: color, textColor: textColor, onFill: onFill, contrast: contrast, loadDeck: loadDeck, describe: describe, History: History, copy: copy };
+  // Wrap text to a width. Width of a character is estimated at 0.55 of the font size (sans-serif average), so this is an
+  // approximation, not a measurement. Words longer than a line are cut. Returns at most 60 lines.
+  function wrapLines(text, size, width) {
+    var per = Math.max(1, Math.floor(width / (size * 0.55))), out = [], line = "";
+    String(text).split(/\s+/).forEach(function (w) {
+      if (!w) return;
+      while (w.length > per) { if (line) { out.push(line); line = ""; } out.push(w.slice(0, per)); w = w.slice(per); }
+      if (!line) line = w; else if ((line + " " + w).length <= per) line += " " + w; else { out.push(line); line = w; }
+    });
+    if (line) out.push(line);
+    return out.slice(0, 60);
+  }
+  function textHeight(lines, size) { return Math.ceil(lines.length * size * 1.2); }
+  var api = { wrapLines: wrapLines, textHeight: textHeight, showNav: showNav, W: W, H: H, THEMES: THEMES, FILLS: FILLS, MAX_SLIDES: MAX_SLIDES, MAX_EL: MAX_EL, newDeck: newDeck, validate: validate, ops: ops, color: color, textColor: textColor, onFill: onFill, contrast: contrast, loadDeck: loadDeck, describe: describe, History: History, copy: copy };
   if (typeof module !== "undefined" && module.exports) module.exports = api; else root.SalowSlides = api;
 })(typeof self !== "undefined" ? self : this);
