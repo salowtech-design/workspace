@@ -90,6 +90,16 @@
     h.undo = function () { if (h.blocked) { h.note = BLOCK; return false; } if (!h.past.length) return false; h.future.push(copy(h.deck)); h.deck = h.past.pop(); h.persist("Undone."); return true; };
     h.redo = function () { if (h.blocked) { h.note = BLOCK; return false; } if (!h.future.length) return false; h.past.push(copy(h.deck)); h.deck = h.future.pop(); h.persist("Redone."); return true; };
   }
-  var api = { W: W, H: H, THEMES: THEMES, FILLS: FILLS, MAX_SLIDES: MAX_SLIDES, MAX_EL: MAX_EL, newDeck: newDeck, validate: validate, ops: ops, color: color, textColor: textColor, onFill: onFill, contrast: contrast, loadDeck: loadDeck, describe: describe, History: History, copy: copy };
+  // Slide show keys: returns the new slide index, or null when the key does nothing here. Escape is handled by the dialog.
+  function showNav(i, n, key) {
+    var next = ["ArrowRight", "ArrowDown", "PageDown", " ", "Enter"], prev = ["ArrowLeft", "ArrowUp", "PageUp", "Backspace"];
+    if (!(n > 0) || !(i >= 0 && i < n)) return null;
+    if (next.indexOf(key) >= 0) return Math.min(n - 1, i + 1);
+    if (prev.indexOf(key) >= 0) return Math.max(0, i - 1);
+    if (key === "Home") return 0;
+    if (key === "End") return n - 1;
+    return null;
+  }
+  var api = { showNav: showNav, W: W, H: H, THEMES: THEMES, FILLS: FILLS, MAX_SLIDES: MAX_SLIDES, MAX_EL: MAX_EL, newDeck: newDeck, validate: validate, ops: ops, color: color, textColor: textColor, onFill: onFill, contrast: contrast, loadDeck: loadDeck, describe: describe, History: History, copy: copy };
   if (typeof module !== "undefined" && module.exports) module.exports = api; else root.SalowSlides = api;
 })(typeof self !== "undefined" ? self : this);

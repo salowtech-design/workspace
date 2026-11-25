@@ -9,11 +9,22 @@
   var initial = loaded.deck, unreadable = loaded.unreadable, rawKept = loaded.raw;
   function lock(on) {
     ["sl-editing"].forEach(function (id) { var n = $(id); if (on) n.setAttribute("inert", ""); else n.removeAttribute("inert"); });
-    $("sl-unreadable").hidden = !on;
+    $("sl-unreadable").hidden = !on; $("sl-present").disabled = on;
   }
   var H = new S.History(initial, { save: function (d) { try { localStorage.setItem(KEY, JSON.stringify(d)); return true; } catch (e) { return false; } } });
   H.blocked = unreadable;
   function el(n, at, tx) { var x = document.createElementNS(NS, n); Object.keys(at || {}).forEach(function (k) { x.setAttribute(k, at[k]); }); if (tx !== undefined) x.textContent = tx; return x; }
+  // Shape and text of one item, shared by the editor and the slide show.
+  function drawEl(g, d, e) {
+    var c = S.color(d, e);
+    if (e.type === "rect") g.appendChild(el("rect", { x: e.x, y: e.y, width: e.w, height: e.h, fill: c }));
+    else if (e.type === "ellipse") g.appendChild(el("ellipse", { cx: e.x + e.w / 2, cy: e.y + e.h / 2, rx: e.w / 2, ry: e.h / 2, fill: c }));
+    if (e.text || e.type === "text") {
+      var t = el("text", { x: e.type === "text" ? e.x : e.x + e.w / 2, y: e.y + e.size, "font-size": e.size, fill: S.textColor(d, e), "text-anchor": e.type === "text" ? "start" : "middle", "font-family": "sans-serif" }, e.text);
+      if (e.type !== "text") t.setAttribute("y", e.y + e.h / 2 + e.size / 3);
+      g.appendChild(t);
+    }
+  }
   function sel() { var s = H.deck.slides[cur]; if (!s) return null; for (var i = 0; i < s.elements.length; i++) if (s.elements[i].id === selId) return s.elements[i]; return null; }
   function apply(next, note) { if (!next) return false; if (!H.change(next, note)) return false; cur = Math.min(cur, H.deck.slides.length - 1); render(); return true; }
   function render() {
@@ -33,14 +44,7 @@
     svg.appendChild(el("desc", {}, S.describe(d, cur).join("; ") || "Empty slide"));
     svg.appendChild(el("rect", { x: 0, y: 0, width: S.W, height: S.H, fill: th.bg }));
     d.slides[cur].elements.forEach(function (e) {
-      var g = el("g", {}), c = S.color(d, e);
-      if (e.type === "rect") g.appendChild(el("rect", { x: e.x, y: e.y, width: e.w, height: e.h, fill: c }));
-      else if (e.type === "ellipse") g.appendChild(el("ellipse", { cx: e.x + e.w / 2, cy: e.y + e.h / 2, rx: e.w / 2, ry: e.h / 2, fill: c }));
-      if (e.text || e.type === "text") {
-        var t = el("text", { x: e.type === "text" ? e.x : e.x + e.w / 2, y: e.y + e.size, "font-size": e.size, fill: S.textColor(d, e), "text-anchor": e.type === "text" ? "start" : "middle", "font-family": "sans-serif" }, e.text);
-        if (e.type !== "text") t.setAttribute("y", e.y + e.h / 2 + e.size / 3);
-        g.appendChild(t);
-      }
+      var g = el("g", {}); drawEl(g, d, e);
       var hit = el("rect", { x: e.x, y: e.y, width: e.w, height: e.h, fill: "transparent", stroke: e.id === selId ? "#2e6f95" : "none", "stroke-width": 3, "stroke-dasharray": "8 4", "data-id": e.id });
       hit.addEventListener("pointerdown", function (ev) { ev.preventDefault(); selId = e.id; render(); wrap.querySelector("svg").focus(); });
       g.appendChild(hit); svg.appendChild(g);
@@ -122,5 +126,33 @@
     if ((k !== "z" && k !== "y") || !(t === document.body || t.tagName === "svg")) return;
     e.preventDefault(); if (k === "y" || e.shiftKey) { if (H.redo()) render(); } else if (H.undo()) { cur = Math.min(cur, H.deck.slides.length - 1); render(); }
   });
+  // Slide show: a read-only modal dialog. It never changes the deck. The browser's dialog traps focus, makes the page behind inert and closes on Escape.
+  var show = $("sl-show"), showAt = 0;
+  function showDraw() {
+    var d = H.deck, th = S.THEMES[d.theme], box = $("sl-show-canvas"); box.textContent = "";
+    var svg = el("svg", { viewBox: "0 0 " + S.W + " " + S.H, role: "img", "aria-label": "Slide " + (showAt + 1) + " of " + d.slides.length });
+    svg.appendChild(el("desc", {}, S.describe(d, showAt).join("; ") || "Empty slide"));
+    svg.appendChild(el("rect", { x: 0, y: 0, width: S.W, height: S.H, fill: th.bg }));
+    d.slides[showAt].elements.forEach(function (e) { var g = el("g", {}); drawEl(g, d, e); svg.appendChild(g); });
+    box.appendChild(svg);
+    $("sl-show-count").textContent = "Slide " + (showAt + 1) + " of " + d.slides.length;
+    $("sl-show-prev").disabled = showAt === 0; $("sl-show-next").disabled = showAt >= d.slides.length - 1;
+    var ae = document.activeElement; if (!ae || ae === document.body || ae.disabled) show.focus(); // a disabled button cannot keep focus or keys
+  }
+  function showGo(i) { if (i === null || i === showAt) return; showAt = i; showDraw(); }
+  $("sl-present").addEventListener("click", function () {
+    if (unreadable || H.blocked || typeof show.showModal !== "function") { status.textContent = "The slide show is not available here."; return; }
+    showAt = Math.min(cur, H.deck.slides.length - 1); showDraw(); show.showModal(); $("sl-show-next").focus();
+  });
+  $("sl-show-prev").addEventListener("click", function () { showGo(S.showNav(showAt, H.deck.slides.length, "ArrowLeft")); });
+  $("sl-show-next").addEventListener("click", function () { showGo(S.showNav(showAt, H.deck.slides.length, "ArrowRight")); });
+  $("sl-show-exit").addEventListener("click", function () { show.close(); });
+  $("sl-show-full").addEventListener("click", function () { if (show.requestFullscreen) show.requestFullscreen().catch(function () { $("sl-show-count").textContent += " (full screen was not allowed)"; }); });
+  show.addEventListener("keydown", function (ev) {
+    if (ev.target.tagName === "BUTTON" && (ev.key === " " || ev.key === "Enter")) return; // a focused button keeps its own action
+    var n = S.showNav(showAt, H.deck.slides.length, ev.key); if (n === null) return; ev.preventDefault(); showGo(n);
+  });
+  show.addEventListener("close", function () { if (document.fullscreenElement) document.exitFullscreen().catch(function () {}); $("sl-present").focus(); });
+  show.addEventListener("click", function (ev) { if (ev.target === show) show.close(); });
   render(); status.textContent = unreadable ? "Your stored deck could not be read, so it was left untouched." : "";
 })();
