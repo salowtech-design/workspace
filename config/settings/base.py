@@ -28,6 +28,7 @@ LOCAL_APPS = [
     "apps.posts.apps.PostsConfig",
     "apps.certificates.apps.CertificatesConfig",
     "apps.drive.apps.DriveConfig",
+    "apps.tasks.apps.TasksConfig",
 ]
 
 INSTALLED_APPS = DJANGO_APPS + LOCAL_APPS
