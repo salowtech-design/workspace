@@ -277,6 +277,27 @@
     l.href = u; l.download = "unreadable-colour-rules.txt"; document.body.appendChild(l); l.click(); l.remove(); setTimeout(function () { URL.revokeObjectURL(u); }, 4000);
   });
   reloadCf();
+  // ---- Pivot: a read-only summary table, built when asked from the values shown now ----
+  var pvOut = $("pivot-out"), pvSt = $("pivot-status");
+  $("pivot-build").addEventListener("click", function () {
+    pvOut.textContent = "";
+    var sp = M.makePivot($("pivot-range").value, $("pivot-key").value, $("pivot-val").value, $("pivot-agg").value, $("pivot-header").checked, F.parseAddr);
+    if (sp.error) { pvSt.textContent = sp.error; return; }
+    var spec = sp.spec, sh = new F.Sheet(cells), pairs = [];
+    for (var r = spec.r1; r <= spec.r2; r++) {
+      var ka = String.fromCharCode(64 + spec.kc) + r, va = String.fromCharCode(64 + spec.vc) + r, kv = sh.get(ka), vv = sh.get(va);
+      pairs.push({ k: F.isErr(kv) ? kv.code : String(kv), v: F.isErr(vv) ? vv.code : vv });
+    }
+    var res = M.pivot(pairs, spec.agg); if (res.error) { pvSt.textContent = res.error; return; }
+    if (!res.groups.length) { pvSt.textContent = "There are no rows with a value in " + spec.label + " right now."; return; }
+    var names = { count: "Rows", sum: "Sum", average: "Average", min: "Smallest", max: "Largest" }, tbl = document.createElement("table"), cap = document.createElement("caption");
+    var kh = $("pivot-header").checked ? cells[String.fromCharCode(64 + spec.kc) + (spec.r1 - 1)] : "", vh = $("pivot-header").checked && spec.agg !== "count" ? cells[String.fromCharCode(64 + spec.vc) + (spec.r1 - 1)] : "";
+    cap.textContent = names[spec.agg] + (spec.agg === "count" ? "" : " of column " + String.fromCharCode(64 + spec.vc)) + " by column " + String.fromCharCode(64 + spec.kc) + ", rows " + spec.r1 + " to " + spec.r2; tbl.appendChild(cap);
+    var hr = tbl.insertRow(); [kh || "Group", names[spec.agg] + (vh ? " (" + vh + ")" : "")].forEach(function (t) { var th = document.createElement("th"); th.scope = "col"; th.textContent = t; hr.appendChild(th); });
+    res.groups.forEach(function (g) { var tr = tbl.insertRow(), td = tr.insertCell(), td2 = tr.insertCell(); td.textContent = g.key; td2.textContent = g.value === null ? "no numbers" : String(g.value); });
+    pvOut.appendChild(tbl);
+    pvSt.textContent = "Built from " + res.rows + " rows as they are now." + (res.skipped ? " " + res.skipped + " non-number value" + (res.skipped === 1 ? " was" : "s were") + " not added." : "") + " This table does not update when cells change.";
+  });
   // ---- Sort and filter (see model.js) ----
   var $ = function (id) { return document.getElementById(id); }, fstat = $("filter-status"), filt = null;
   function parseRange(str) {

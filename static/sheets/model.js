@@ -303,6 +303,44 @@
     }
     return null;
   }
-  var api = { parseRange: parseRange, makeRule: makeRule, addRule: addRule, removeRule: removeRule, loadRules: loadRules, rulesJson: rulesJson, checkValue: checkValue, makeCf: makeCf, addCf: addCf, loadCf: loadCf, cfJson: cfJson, cfColor: cfColor, MAX_RULES: MAX_RULES, loadTabs: loadTabs, addTab: addTab, renameTab: renameTab, deleteTab: deleteTab, setActive: setActive, cleanName: cleanName, MAX_TABS: MAX_TABS, sortRange: sortRange, filterRows: filterRows, toNum: toNum, toCsv: toCsv, clean: clean, History: History, chartPoints: chartPoints, pieSlices: pieSlices, isComposing: isComposing, keyMove: keyMove, copy: copy, same: same };
+  // ---- Pivot: group rows of a range by one column and total another. Read only: it never writes to cells. ----
+  var PIVOT_AGGS = ["count", "sum", "average", "min", "max"], MAX_GROUPS = 20;
+  function colNo(t) { var m = /^\s*([A-Za-z])\s*$/.exec(String(t)); return m ? m[1].toUpperCase().charCodeAt(0) - 64 : null; }
+  // Returns { spec } or { error }. keyCol and valCol are single letters that must lie inside the range.
+  function makePivot(rangeText, keyCol, valCol, agg, header, parseAddr) {
+    var g = parseRange(rangeText, parseAddr); if (!g) return { error: "Enter a range like A1:C10." };
+    var kc = colNo(keyCol), vc = colNo(valCol);
+    if (!kc || !vc) return { error: "Enter a column letter for the group column and for the value column." };
+    if (kc < g.c1 || kc > g.c2 || vc < g.c1 || vc > g.c2) return { error: "Both columns must be inside " + rangeLabel(g) + "." };
+    if (PIVOT_AGGS.indexOf(agg) < 0) return { error: "Choose how to total." };
+    var r1 = g.r1 + (header ? 1 : 0); if (r1 > g.r2) return { error: "The range has no rows below the header." };
+    return { spec: { r1: r1, r2: g.r2, kc: kc, vc: vc, agg: agg, label: rangeLabel(g), header: !!header } };
+  }
+  // pairs: [{ k: shown text of the group cell, v: the value cell's value }]. Groups keep first-seen order. Only real numbers are
+  // added, averaged or compared; other values in a group are counted in "skipped". Count counts rows, not numbers.
+  function pivot(pairs, agg) {
+    var idx = Object.create(null), groups = [], skipped = 0, rows = 0;
+    for (var i = 0; i < pairs.length; i++) {
+      var k = String(pairs[i].k).trim(), v = pairs[i].v, blankV = v === "" || v === null || v === undefined;
+      if (k === "" && blankV) continue;
+      rows++;
+      var key = k === "" ? "(blank)" : k, gi = idx[key];
+      if (gi === undefined) { if (groups.length >= MAX_GROUPS) return { error: "There are more than " + MAX_GROUPS + " different groups, so no pivot was made. Use a smaller range." }; gi = groups.length; idx[key] = gi; groups.push({ key: key, rows: 0, nums: [] }); }
+      groups[gi].rows++;
+      if (typeof v === "number" && isFinite(v)) groups[gi].nums.push(v); else if (!blankV) skipped++;
+    }
+    var out = groups.map(function (g) {
+      var n = g.nums, val;
+      if (agg === "count") val = g.rows;
+      else if (!n.length) val = null;
+      else if (agg === "sum") val = n.reduce(function (a, b) { return a + b; }, 0);
+      else if (agg === "average") val = n.reduce(function (a, b) { return a + b; }, 0) / n.length;
+      else if (agg === "min") val = Math.min.apply(null, n);
+      else val = Math.max.apply(null, n);
+      return { key: g.key, rows: g.rows, numbers: n.length, value: val === null ? null : +val.toPrecision(12) };
+    });
+    return { groups: out, skipped: skipped, rows: rows };
+  }
+  var api = { parseRange: parseRange, makeRule: makeRule, addRule: addRule, removeRule: removeRule, loadRules: loadRules, rulesJson: rulesJson, checkValue: checkValue, makePivot: makePivot, pivot: pivot, MAX_GROUPS: MAX_GROUPS, makeCf: makeCf, addCf: addCf, loadCf: loadCf, cfJson: cfJson, cfColor: cfColor, MAX_RULES: MAX_RULES, loadTabs: loadTabs, addTab: addTab, renameTab: renameTab, deleteTab: deleteTab, setActive: setActive, cleanName: cleanName, MAX_TABS: MAX_TABS, sortRange: sortRange, filterRows: filterRows, toNum: toNum, toCsv: toCsv, clean: clean, History: History, chartPoints: chartPoints, pieSlices: pieSlices, isComposing: isComposing, keyMove: keyMove, copy: copy, same: same };
   if (typeof module !== "undefined" && module.exports) module.exports = api; else root.SalowSheetModel = api;
 })(typeof self !== "undefined" ? self : this);

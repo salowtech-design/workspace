@@ -1723,6 +1723,114 @@ def slides_transition(ctx):
     )
 
 
+def sheets_pivot(ctx):
+    pg = fresh(ctx, "/sheets/")
+    KEYJS = "document.getElementById('sheet-root').dataset.storeKey"
+
+    def setc(a, v):
+        pg.click('input[data-addr="%s"]' % a)
+        pg.fill('input[data-addr="%s"]' % a, v)
+        pg.press('input[data-addr="%s"]' % a, "Tab")
+
+    rows = [
+        ("Team", "Pts"),
+        ("a", "10"),
+        ("b", "5"),
+        ("a", "7"),
+        ("b", "n/a"),
+        ("c", "=2+3"),
+        ("a", ""),
+    ]
+    for i, (k, v) in enumerate(rows, start=1):
+        setc("A%d" % i, k)
+        if v:
+            setc("B%d" % i, v)
+    before = pg.evaluate("localStorage.getItem(%s)" % KEYJS)
+
+    def table():
+        return pg.evaluate(
+            "Array.from(document.querySelectorAll('#pivot-out tr')).map(function(r){return Array.from(r.children).map(function(c){return c.textContent}).join('=')}).join(' | ')"
+        )
+
+    pg.fill("#pivot-range", "A1:B7")
+    pg.click("#pivot-build")
+    check(
+        "pivot: sum groups by team, with the header name and a formula result",
+        table() == "Team=Sum (Pts) | a=17 | b=5 | c=5",
+        table(),
+    )
+    check(
+        "pivot: the status counts rows, names the skipped text and says it does not update",
+        "6 rows" in pg.inner_text("#pivot-status")
+        and "1 non-number value was not added" in pg.inner_text("#pivot-status")
+        and "does not update" in pg.inner_text("#pivot-status"),
+        pg.inner_text("#pivot-status"),
+    )
+    check(
+        "pivot: the caption says what was built",
+        "Sum of column B by column A, rows 2 to 7" in pg.inner_text("#pivot-out caption"),
+        pg.inner_text("#pivot-out caption"),
+    )
+    if SHOTS:
+        pg.locator("#pivot-out").scroll_into_view_if_needed()
+        pg.screenshot(path=os.path.join(SHOTS, "sheets-pivot-60.png"), full_page=False)
+    pg.select_option("#pivot-agg", "count")
+    pg.click("#pivot-build")
+    check(
+        "pivot: count counts every row of a group",
+        table() == "Team=Rows | a=3 | b=2 | c=1",
+        table(),
+    )
+    pg.select_option("#pivot-agg", "average")
+    pg.click("#pivot-build")
+    check(
+        "pivot: average uses numbers only",
+        table() == "Team=Average (Pts) | a=8.5 | b=5 | c=5",
+        table(),
+    )
+    setc("B2", "20")
+    check(
+        "pivot: the table does not change when a cell changes",
+        "Average" in table() and "a=8.5" in table(),
+        table(),
+    )
+    pg.click("#pivot-build")
+    check("pivot: rebuilding reads the new value", "a=13.5" in table(), table())
+    check(
+        "pivot: building wrote nothing to the sheet",
+        pg.evaluate("JSON.parse(localStorage.getItem(%s))" % KEYJS)["B2"] == "20"
+        and len(pg.evaluate("JSON.parse(localStorage.getItem(%s))" % KEYJS))
+        == len(json.loads(before)),
+    )
+    pg.fill("#pivot-key", "D")
+    pg.click("#pivot-build")
+    check(
+        "pivot: a column outside the range is refused with a message and no table",
+        "inside A1:B7" in pg.inner_text("#pivot-status") and table() == "",
+        pg.inner_text("#pivot-status"),
+    )
+    pg.fill("#pivot-key", "A")
+    pg.fill("#pivot-range", "H18:H19")
+    pg.fill("#pivot-val", "H")
+    pg.fill("#pivot-key", "H")
+    pg.click("#pivot-build")
+    check(
+        "pivot: an empty range says there are no rows",
+        "no rows with a value" in pg.inner_text("#pivot-status") and table() == "",
+        pg.inner_text("#pivot-status"),
+    )
+    pg.fill("#pivot-range", "A1:B7")
+    pg.fill("#pivot-key", "A")
+    pg.fill("#pivot-val", "B")
+    pg.click("#pivot-build")
+    pg.reload()
+    pg.wait_for_timeout(400)
+    check("pivot: nothing is kept after a reload", table() == "")
+    pg.fill("#pivot-range", "A1:B7")
+    pg.click("#pivot-build")
+    check("pivot: it builds again from the stored cells after a reload", "a=" in table(), table())
+
+
 DRILLS = {
     "slides_show": slides_show,
     "slides_edit": slides_edit,
@@ -1734,6 +1842,7 @@ DRILLS = {
     "sheets_chart": sheets_chart,
     "sheets_validation": sheets_validation,
     "sheets_colour": sheets_colour,
+    "sheets_pivot": sheets_pivot,
     "slides_master": slides_master,
     "slides_transition": slides_transition,
     "sheets_validation_paths": sheets_validation_paths,
