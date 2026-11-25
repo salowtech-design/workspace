@@ -5,7 +5,7 @@
 <div class="card cal pdf-card">
 <div class="cal-head"><h2>PDF</h2></div>
 <p class="cal-meta">Opens a PDF from this device in this browser only. The file is read in this tab and is not uploaded, stored or shared. It is gone when you close it or leave the page.</p>
-<details class="cal-meta"><summary>Limits</summary><p>Files up to 50 MB open; that is a browser memory limit, not a storage rule. Password-protected files, some scanned-image formats (JBIG2, JPEG 2000) and some East Asian fonts are not supported yet. Find searches the extracted text of the open file only (no scans or images), so it can miss words and a "no match" does not prove the text is absent. No annotation, form filling, signing or printing yet. The page text below the picture can be selected and read by a screen reader.</p></details>
+<details class="cal-meta"><summary>Limits</summary><p>Files up to 50 MB open; that is a browser memory limit, not a storage rule. Password-protected files, some scanned-image formats (JBIG2, JPEG 2000) and some East Asian fonts are not supported yet. Find searches the extracted text of the open file only (no scans or images), so it can miss words and a "no match" does not prove the text is absent. Notes you add stay in this browser for this file only: they are not written into the PDF, and a copy of the file opened on another device will not have them. Download notes as text to keep them elsewhere. No highlights drawn on the page, form filling, signing or printing yet. The page text below the picture can be selected and read by a screen reader.</p></details>
 <p class="pdf-tools"><label>Open a PDF <input type="file" id="pdf-open" accept=".pdf,application/pdf"></label>
 <button class="btn" type="button" id="pdf-prev" disabled>Previous</button>
 <label>Page <input type="number" id="pdf-page" min="1" step="1" disabled></label>
@@ -18,10 +18,19 @@
 <button class="btn" type="button" id="pdf-fstop" disabled>Stop</button></p>
 <p class="cal-meta" id="pdf-fstatus" role="status"></p>
 <p class="cal-meta"><span id="pdf-name"></span> <span id="pdf-where" role="status">No file open.</span></p>
-<div id="pdf-stage" class="pdf-stage"><canvas id="pdf-canvas" width="1" height="1" role="img" aria-label="Current PDF page as a picture. Its extracted text is in the block below."></canvas></div>
+<div id="pdf-stage" class="pdf-stage"><div class="pdf-pagewrap" id="pdf-pagewrap"><canvas id="pdf-canvas" width="1" height="1" role="img" aria-label="Current PDF page as a picture. Its extracted text is in the block below."></canvas><div id="pdf-pins" class="pdf-pins"></div></div></div>
+<div class="pdf-notes" id="pdf-notes" data-prefix="{{ notes_prefix }}">
+<p class="pdf-tools"><button class="btn" type="button" id="pdf-addnote" disabled aria-pressed="false">Add a note</button>
+<button class="btn" type="button" id="pdf-exportnotes" disabled>Download notes (text)</button>
+<button class="btn" type="button" id="pdf-clearnotes" disabled>Delete all notes for this file</button></p>
+<form id="pdf-noteform" class="pdf-tools" hidden><label>Note for page <span id="pdf-noteformpage"></span> <input type="text" id="pdf-notetext" maxlength="500" autocomplete="off"></label>
+<button class="btn" type="submit">Save note</button> <button class="btn" type="button" id="pdf-notecancel">Cancel</button></form>
+<p class="cal-meta" id="pdf-notestatus" role="status"></p>
+<ol class="pdf-notelist" id="pdf-notelist"></ol></div>
 <details class="cal-meta" id="pdf-text-wrap" open><summary>Text of this page</summary><pre id="pdf-text" class="pdf-text" tabindex="0" aria-label="Text of the current page"></pre></details>
 <p class="cal-meta" id="pdf-status" role="status"></p>
 </div>
 <script src="/static/pdf/check.js"></script>
+<script src="/static/pdf/notes.js"></script>
 <script src="/static/pdf/viewer.js"></script>
 {% endblock %}

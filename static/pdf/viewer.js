@@ -1,6 +1,6 @@
 (function () {
   "use strict";
-  var C = window.SalowPdfCheck, $ = function (i) { return document.getElementById(i); };
+  var N = window.SalowPdfNotes, C = window.SalowPdfCheck, $ = function (i) { return document.getElementById(i); };
   var status = $("pdf-status"), canvas = $("pdf-canvas"), ctx = canvas.getContext("2d");
   var BASE = "/static/pdf/vendor/";
   var lib = null, doc = null, loadTask = null, seq = new C.Seq(), page = 1, zoom = 1, task = null, token = 0, settle = Promise.resolve();
@@ -41,7 +41,7 @@
   }
   function draw() {
     if (!doc) return;
-    var my = ++token; cancelCurrent();
+    var my = ++token, pageNo = page; cancelCurrent(); drawn = 0; $("pdf-pins").textContent = "";
     // wait for every cancelled render to settle before the canvas is resized and reused
     settle.then(function () { return my === token ? doc.getPage(page) : null; }).then(function (pg) {
       if (!pg || my !== token) return;
@@ -59,7 +59,7 @@
         shown = t; shownCut = r.cut; paintText();
       }, function () { if (my === token) tx.textContent = "The text of this page could not be read."; });
       task = pg.render({ canvasContext: ctx, viewport: vp });
-      return task.promise.then(function () { if (my === token) status.textContent = ""; });
+      return task.promise.then(function () { if (my === token) { status.textContent = ""; drawn = pageNo; renderPins(); } });
     }).catch(function (e) { if (my !== token || (e && e.name === "RenderingCancelledException")) return; status.textContent = "This page could not be drawn."; });
   }
   var fseq = new C.Seq(), finding = false;
@@ -100,10 +100,110 @@
   $("pdf-find").addEventListener("click", find);
   $("pdf-q").addEventListener("keydown", function (e) { if (e.key === "Enter") { e.preventDefault(); find(); } });
   $("pdf-fstop").addEventListener("click", function () { if (!finding) return; fseq.begin(); fmsg("Find stopped."); fend(); });
+  // ---- Notes: pinned text labels kept in this browser for this file only; never written into the PDF.
+  var drawn = 0, nDoc = null, nKey = "", notes = [], nState = "off", pending = null, adding = false, clearArmed = false;
+  var prefix = $("pdf-notes").getAttribute("data-prefix") || "salow.pdfnotes.";
+  function nmsg(t) { $("pdf-notestatus").textContent = t; }
+  function sorted() { return notes.slice().sort(function (a, b) { return a.page - b.page || a.y - b.y || a.x - b.x; }); }
+  function nControls() {
+    var on = nState === "ok" && !!doc;
+    $("pdf-addnote").disabled = !on; $("pdf-exportnotes").disabled = !on || !notes.length;
+    $("pdf-clearnotes").disabled = !(nState === "ok" || nState === "bad") || !doc;
+    $("pdf-addnote").setAttribute("aria-pressed", adding ? "true" : "false");
+    $("pdf-stage").classList.toggle("pdf-adding", adding);
+  }
+  function renderPins() {
+    var layer = $("pdf-pins"); layer.textContent = "";
+    if (!doc || nState !== "ok" || drawn !== page) return;
+    var all = sorted();
+    all.forEach(function (n, i) {
+      if (n.page !== page) return;
+      var b = document.createElement("button"); b.type = "button"; b.className = "pdf-pin";
+      b.style.left = (n.x * 100) + "%"; b.style.top = (n.y * 100) + "%"; b.textContent = String(i + 1);
+      b.title = n.text; b.setAttribute("aria-label", "Note " + (i + 1) + " on page " + n.page + ": " + n.text);
+      b.addEventListener("click", function () { var li = document.getElementById("pdf-note-" + n.id); if (li) li.scrollIntoView({ block: "nearest" }); });
+      layer.appendChild(b);
+    });
+  }
+  function renderNotes() {
+    var ol = $("pdf-notelist"); ol.textContent = "";
+    sorted().forEach(function (n, i) {
+      var li = document.createElement("li"); li.id = "pdf-note-" + n.id;
+      li.appendChild(document.createTextNode("Page " + n.page + ": " + n.text + " "));
+      var del = document.createElement("button"); del.type = "button"; del.className = "btn"; del.textContent = "Delete";
+      del.setAttribute("aria-label", "Delete note " + (i + 1) + " on page " + n.page);
+      del.addEventListener("click", function () { removeNote(n.id); });
+      li.appendChild(del); ol.appendChild(li);
+    });
+    nControls(); renderPins();
+  }
+  function persist(next) {
+    try { localStorage.setItem(nKey, N.dump(next)); return true; } catch (e) { return false; }
+  }
+  function removeNote(id) {
+    if (!doc || doc !== nDoc || nState !== "ok") return;
+    var next = N.remove(notes, id);
+    if (!persist(next)) { nmsg("This browser would not save that change, so the note was not deleted."); return; }
+    notes = next; nmsg("Note deleted."); renderNotes();
+  }
+  function notesClose() {
+    nDoc = null; nKey = ""; notes = []; nState = "off"; pending = null; adding = false; clearArmed = false;
+    $("pdf-noteform").hidden = true; $("pdf-notetext").value = ""; nmsg(""); renderNotes();
+  }
+  function notesOpen(d) {
+    notesClose(); nDoc = d;
+    var fp = d.fingerprints && d.fingerprints[0];
+    if (typeof fp !== "string" || !/^[0-9a-f]{16,64}$/.test(fp)) { nmsg("Notes are not available for this file because the viewer could not identify it."); return; }
+    nKey = prefix + fp;
+    var raw; try { raw = localStorage.getItem(nKey); } catch (e) { nmsg("This browser will not keep notes, so notes are off."); return; }
+    if (raw === null) {
+      var count = 0; try { for (var i = 0; i < localStorage.length; i++) if ((localStorage.key(i) || "").indexOf(prefix) === 0) count++; } catch (e) { /* counted as zero */ }
+      if (count >= N.MAX_FILES) { nmsg("Notes are kept for up to " + N.MAX_FILES + " files on this device. Open a file you no longer need and use Delete all notes for this file first."); return; }
+    }
+    var l = N.load(raw);
+    if (l.unreadable) { nState = "bad"; nmsg("The saved notes for this file could not be read. They were left as they are and notes are off for this file. Delete all notes for this file to start again."); nControls(); return; }
+    notes = l.notes; nState = "ok"; nmsg(notes.length ? notes.length + " saved note(s) for this file on this device." : "No notes yet for this file."); renderNotes();
+  }
+  $("pdf-addnote").addEventListener("click", function () {
+    if (nState !== "ok") return; adding = !adding; pending = null; $("pdf-noteform").hidden = true;
+    nmsg(adding ? "Click the page where the note belongs." : ""); nControls();
+  });
+  $("pdf-pagewrap").addEventListener("click", function (e) {
+    if (!adding || nState !== "ok" || !doc || doc !== nDoc) return;
+    if (drawn !== page) { nmsg("Wait for the page to finish drawing, then click again."); return; }
+    var r = canvas.getBoundingClientRect(); if (!(r.width > 0 && r.height > 0)) return;
+    pending = { page: page, x: (e.clientX - r.left) / r.width, y: (e.clientY - r.top) / r.height, doc: doc };
+    $("pdf-noteformpage").textContent = String(page); $("pdf-noteform").hidden = false; $("pdf-notetext").focus(); nmsg("");
+  });
+  $("pdf-noteform").addEventListener("submit", function (e) {
+    e.preventDefault();
+    if (!pending || pending.doc !== doc || doc !== nDoc || nState !== "ok") { nmsg("That page changed. Click the page again."); return; }
+    var res = N.add(notes, pending.page, pending.x, pending.y, $("pdf-notetext").value);
+    if (res.error) { nmsg(res.error); return; }
+    if (!persist(res.notes)) { nmsg("This browser would not save the note, so it was not added."); return; }
+    notes = res.notes; pending = null; adding = false; $("pdf-noteform").hidden = true; $("pdf-notetext").value = "";
+    nmsg("Note saved on this device."); renderNotes();
+  });
+  $("pdf-notecancel").addEventListener("click", function () { pending = null; adding = false; $("pdf-noteform").hidden = true; $("pdf-notetext").value = ""; nmsg(""); nControls(); });
+  $("pdf-exportnotes").addEventListener("click", function () {
+    if (!doc || nState !== "ok" || !notes.length) return;
+    var nameText = $("pdf-name").textContent || "PDF file";
+    var blob = new Blob([N.toText(notes, nameText)], { type: "text/plain;charset=utf-8" }), url = URL.createObjectURL(blob);
+    var a = document.createElement("a"); a.href = url; a.download = nameText.replace(/[^A-Za-z0-9._-]+/g, "_").slice(0, 80) + "-notes.txt";
+    document.body.appendChild(a); a.click(); a.remove(); setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
+    nmsg("Notes downloaded as a text file. The PDF itself was not changed.");
+  });
+  $("pdf-clearnotes").addEventListener("click", function () {
+    if (!doc || doc !== nDoc || !(nState === "ok" || nState === "bad")) return;
+    if (!clearArmed) { clearArmed = true; nmsg("Press Delete all notes for this file again to remove them from this device."); return; }
+    clearArmed = false;
+    try { localStorage.removeItem(nKey); } catch (x) { nmsg("This browser would not remove them."); return; }
+    notes = []; nState = "ok"; nmsg("All notes for this file were deleted from this device."); renderNotes();
+  });
   function go(p) { if (!doc) return; page = C.pageIndex(p, 0, doc.numPages); controls(); draw(); }
   function closeDoc(msg) {
     token++; cancelCurrent(); fseq.begin(); finding = false; mark = ""; $("pdf-fstop").disabled = true; fmsg(""); $("pdf-q").value = "";
-    var d = doc; doc = null; page = 1; zoom = 1; $("pdf-text").textContent = ""; shown = "";
+    var d = doc; doc = null; page = 1; zoom = 1; notesClose(); $("pdf-text").textContent = ""; shown = "";
     settle.then(function () { if (doc) return; canvas.width = 1; canvas.height = 1; canvas.style.width = "0"; canvas.style.height = "0"; });
     var lt = loadTask; loadTask = null; if (lt) { try { lt.destroy(); } catch (e) { /* already gone */ } }
     controls(); status.textContent = msg || "";
@@ -114,7 +214,7 @@
       return t.promise.then(function (d) { return { d: d, t: t }; }, function (e) { try { t.destroy(); } catch (x) { /* gone */ } throw e; });
     }).then(function (r) {
       if (!seq.current(mine)) { try { r.t.destroy(); } catch (x) { /* superseded by a newer open */ } return; }
-      var d = r.d; closeDoc(""); doc = d; loadTask = r.t; page = 1; zoom = 1; $("pdf-name").textContent = name; controls(); draw();
+      var d = r.d; closeDoc(""); doc = d; loadTask = r.t; page = 1; zoom = 1; $("pdf-name").textContent = name; notesOpen(d); controls(); draw();
     }).catch(function (e) {
       if (!seq.current(mine)) return;
       status.textContent = e && e.name === "PasswordException" ? "This PDF is password protected. Password files are not supported yet." : e && e.name === "InvalidPDFException" ? "That PDF is damaged or not readable." : "The viewer could not open that file.";

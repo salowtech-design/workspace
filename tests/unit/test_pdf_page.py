@@ -28,6 +28,11 @@ def test_pdf_page_is_workspace_host_only_signed_in_only_and_says_what_it_does():
     html = r.content.decode()
     assert r.status_code == 200 and "not uploaded" in html and "Password-protected" in html
     assert "no-store" in r["Cache-Control"]
+    assert f'data-prefix="salow.pdfnotes.{a.pk}."' in html and "not written into the PDF" in html
+    b = _u("PD-2")
+    cb = Client(HTTP_HOST=HOST)
+    cb.force_login(b)
+    assert f"salow.pdfnotes.{a.pk}." not in cb.get("/pdf/").content.decode()
     assert 'href="/pdf/"' in ca.get("/chat/").content.decode()
     assert ca.get("/pdf/", HTTP_HOST="iam.salowtech.com").status_code == 404
 
@@ -42,6 +47,17 @@ def test_pdf_check_table_passes_in_node():
     )
     assert r.returncode == 0, r.stdout + r.stderr
     assert "22/22 pdf check rows passed" in r.stdout
+
+
+def test_pdf_notes_table_passes_in_node():
+    r = subprocess.run(  # noqa: S603 - fixed argv, repo-owned script
+        [shutil.which("node"), str(ROOT / "tests/js/pdf_notes_table.js")],
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert "9/9 pdf notes rows passed" in r.stdout
 
 
 def test_vendor_files_are_tracked_and_match_recorded_checksums():
