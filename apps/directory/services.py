@@ -373,9 +373,33 @@ def add_onboarding_step(title, actor, owner_role="", due_after_days=0):
     return step
 
 
+def _lock_person(pk):
+    return CustomUser.objects.select_for_update().filter(pk=pk).first()
+
+
+def _pause_onboarding():
+    """Test hook after the existing steps are read. A no-op."""
+
+
+_CATCH_DUPLICATE = True  # tests switch it off to see the raw error the backstop absorbs
+
+
 def start_onboarding(user, actor, start_date=None):
-    """Copy the template into tasks for one person. Administrators only. Safe to repeat: steps
-    the person already has are skipped (unique per person and title). Returns tasks created."""
+    """Copy the template into tasks for one person. Administrators only. Safe to repeat and safe
+    to run twice at once: the person's row is locked, and if a duplicate still slips through the
+    unique key (person, title) the whole attempt is rolled back and reported as nothing created,
+    because the other start already made the steps. Returns tasks created."""
+    from django.db import IntegrityError
+
+    try:
+        return _start_onboarding(user, actor, start_date)
+    except IntegrityError:
+        if not _CATCH_DUPLICATE:
+            raise
+        return []
+
+
+def _start_onboarding(user, actor, start_date):
     from datetime import timedelta
 
     from django.utils import timezone
@@ -385,10 +409,11 @@ def start_onboarding(user, actor, start_date=None):
     created = []
     with transaction.atomic():
         _require_admin(actor)
-        target = CustomUser.objects.select_for_update().filter(pk=user.pk).first()
+        target = _lock_person(user.pk)
         if target is None or target.status not in _LIVE:
             raise ValidationError("Onboarding needs an active or onboarding person.")
         have = set(OnboardingTask.objects.filter(user=target).values_list("title", flat=True))
+        _pause_onboarding()
         for step in OnboardingStep.objects.all():
             if step.title in have:
                 continue

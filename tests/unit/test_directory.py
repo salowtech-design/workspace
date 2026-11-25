@@ -555,3 +555,60 @@ def test_onboarding_default_start_date_uses_configured_timezone(monkeypatch):
     ds.add_onboarding_step("Day zero", admin)
     monkeypatch.setattr(timezone, "localdate", lambda: date(2031, 1, 2))
     assert ds.start_onboarding(new, admin)[0].due_date == date(2031, 1, 2)
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.parametrize("mode", ["locked", "lockless_backstop", "lockless_raw"])
+def test_race_two_onboarding_starts_make_each_step_once(monkeypatch, mode):
+    import threading
+
+    from django.db import connection
+
+    from apps.directory import services as ds
+    from apps.directory.models import OnboardingStep, OnboardingTask
+    from tests.unit.test_drive_services import _threads
+
+    if connection.vendor == "sqlite":
+        pytest.skip("concurrent writers are only meaningful on the TiDB/MySQL backend")
+    admin = CustomUser.objects.create(
+        employee_id=f"OB-AD-{mode}",
+        full_name="Adm",
+        role="super_admin",
+        status="active",
+        is_active=True,
+    )
+    person = CustomUser.objects.create(
+        employee_id=f"OB-P-{mode}",
+        full_name="Pat",
+        role="employee",
+        status="active",
+        is_active=True,
+    )
+    for i in range(3):
+        OnboardingStep.objects.create(title=f"Step {mode} {i}", due_after_days=i, position=i)
+    if mode != "locked":
+        monkeypatch.setattr(ds, "_lock_person", lambda pk: CustomUser.objects.filter(pk=pk).first())
+    monkeypatch.setattr(ds, "_CATCH_DUPLICATE", mode != "lockless_raw")
+    barrier = threading.Barrier(2)
+
+    def pause():
+        try:
+            barrier.wait(timeout=1.5 if mode == "locked" else 10)  # both read "nothing yet"
+        except threading.BrokenBarrierError:
+            pass  # locked: the other start is held at the row lock
+
+    monkeypatch.setattr(ds, "_pause_onboarding", pause)
+    made = []
+    out = _threads(
+        [
+            lambda: made.append(len(ds.start_onboarding(person, admin))),
+            lambda: made.append(len(ds.start_onboarding(person, admin))),
+        ]
+    )
+    rows = OnboardingTask.objects.filter(user=person).count()
+    assert rows == 3  # never a duplicate step, in any mode
+    if mode == "lockless_raw":
+        # the anomaly the backstop absorbs: the loser fails on the unique key
+        assert "IntegrityError" in "".join(out), out
+    else:
+        assert out == ["ok", "ok"] and sorted(made) == [0, 3], (out, made)
