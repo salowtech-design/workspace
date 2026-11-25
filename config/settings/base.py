@@ -30,6 +30,7 @@ LOCAL_APPS = [
     "apps.drive.apps.DriveConfig",
     "apps.tasks.apps.TasksConfig",
     "apps.events.apps.EventsConfig",
+    "apps.finder.apps.FinderConfig",
 ]
 
 INSTALLED_APPS = DJANGO_APPS + LOCAL_APPS

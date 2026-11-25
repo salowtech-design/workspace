@@ -6,7 +6,7 @@
 {% localtime off %}
 <div class="card cal"><div class="cal-head"><h2>Calendar</h2></div>
 <div class="cal-tabs"><a href="{% url 'events:home' %}">Agenda</a><a href="{% url 'events:new' %}">New event</a><a href="{% url 'events:busy' %}">Free or busy</a></div>
-<p class="cal-meta">Your events and invitations for the next {{ days }} days, in {{ tz }}. Declined and cancelled events are not shown. Invitations only appear here; nobody is emailed or notified.</p>
+<p class="cal-meta">Your events and invitations for the next {{ days }} days. Each time is in that event's own time zone, shown in brackets. Declined and cancelled events are not shown. Invitations only appear here; nobody is emailed or notified.</p>
 {% for r in rows %}<div class="cal-row"><span class="cal-when">{{ r.start|date:"D j M, H:i" }} to {{ r.end|date:"H:i" }} ({{ r.e.tz }})</span>
 <a class="cal-title" href="{% url 'events:detail' r.e.public_id %}">{{ r.e.title }}</a>
 {% if r.response %}<span class="cal-meta">Your answer: {{ r.response }}</span>{% else %}<span class="cal-meta">You organise this</span>{% endif %}</div>

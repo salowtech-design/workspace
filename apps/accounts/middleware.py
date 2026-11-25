@@ -65,6 +65,7 @@ class HostSecurityIsolationMiddleware:
                 "/drive",
                 "/tasks",
                 "/calendar",
+                "/search",
             )
             if any(path.startswith(prefix) for prefix in workspace_prefixes):
                 return HttpResponseNotFound(

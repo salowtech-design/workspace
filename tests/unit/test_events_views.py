@@ -170,7 +170,8 @@ def test_event_in_another_zone_shows_that_zones_clock_time_everywhere():
         agenda = c.get(reverse("events:home")).content.decode()
     finally:
         views.timezone = views_timezone
-    assert "10:00 to 11:00" in agenda
+    assert "10:00 to 11:00 (America/New_York)" in agenda
+    assert "in Asia/Kolkata" not in agenda and "own time zone" in agenda
     # agenda uses a window around now, so check the same formatting through the busy page too
     # (busy always shows the site zone, Asia/Kolkata: 10:00 New York is 20:30 in Kolkata)
     r = cg.get(reverse("events:busy"), {"date": "2026-12-01", "people": "Z-ORG"}).content.decode()

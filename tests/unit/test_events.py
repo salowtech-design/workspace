@@ -231,3 +231,51 @@ def test_race_cancel_cannot_be_undone_by_an_edit_that_checked_first(monkeypatch,
     else:
         assert saw_commit == [True, True], saw_commit
         assert revived == 2, (revived, outcomes)  # the stale save() wrote "confirmed" back
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.parametrize("locked", [True, False])
+def test_race_cancel_versus_response_no_answer_lands_after_the_cancel(monkeypatch, locked):
+    import threading
+
+    from django.db import connection
+
+    from tests.unit.test_drive_services import _threads
+
+    if connection.vendor == "sqlite":
+        pytest.skip("row locks are only meaningful on the TiDB/MySQL backend")
+    if not locked:
+        monkeypatch.setattr(es, "_lock_event", _plain_lock)
+    a = (D(2026, 12, 3, 10), D(2026, 12, 3, 11), IST)
+    late, outcomes, saw_commit = 0, [], []
+    for i in range(2):
+        org, g = _u(f"RR-ORG{i}{locked}"), _u(f"RR-G{i}{locked}")
+        ev = es.create_event(org, "Start", *a, guest_ids=[g.pk])
+        paused, committed = threading.Event(), threading.Event()
+
+        def pause(paused=paused, committed=committed):
+            paused.set()  # the response has passed its checks (event still confirmed)
+            saw_commit.append(committed.wait(timeout=2.0))
+
+        def cancel(ev=ev, org=org, paused=paused, committed=committed):
+            assert paused.wait(timeout=10)
+            try:
+                es.cancel_event(org, ev.public_id)
+            finally:
+                committed.set()  # after cancel_event returned, i.e. after its commit
+
+        monkeypatch.setattr(es, "_pause", pause)
+        outcomes.append(
+            _threads([lambda ev=ev, g=g: es.respond(g, ev.public_id, "accepted"), cancel])
+        )
+        ev.refresh_from_db()
+        if ev.status == "cancelled" and Guest.objects.get(event=ev).response == "accepted":
+            late += 1  # final state only; saw_commit is what shows the order
+    assert all("error" not in x for o in outcomes for x in o), outcomes
+    if locked:
+        assert saw_commit == [False, False], saw_commit
+        # the answer committed first, then the cancel: the answer is not "after" the cancel
+        assert all(sorted(o) == ["ok", "ok"] for o in outcomes), outcomes
+    else:
+        assert saw_commit == [True, True], saw_commit
+        assert late == 2, (late, outcomes)  # same final state as locked; the order differs

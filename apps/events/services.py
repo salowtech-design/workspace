@@ -170,6 +170,7 @@ def respond(actor, public_id, response):
             raise ValidationError("This event was cancelled.")
         if g.response == response:
             return g
+        _pause()
         g.response = response
         g.save(update_fields=["response"])
         audit(me, "events.respond", "event", ev.pk, response=response)

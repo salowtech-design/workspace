@@ -32,6 +32,7 @@
           <li class="nav-item"><a href="{% url 'drive:home' %}">Drive</a></li>
           <li class="nav-item"><a href="{% url 'tasks:home' %}">Tasks</a></li>
           <li class="nav-item"><a href="{% url 'events:home' %}">Calendar</a></li>
+          <li class="nav-item"><a href="{% url 'finder:search' %}">Search</a></li>
           <li class="nav-item"><a href="{% url 'directory:list' %}">Directory</a></li>
           <li class="nav-item"><a href="{% url 'accounts:security' %}">Security & Sessions</a></li>
           {% if request.user.role in 'super_admin,admin,hr,manager' %}

@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% block title %}Search: Salow{% endblock %}
+{% block extra_head %}<link rel="stylesheet" href="/static/css/events.css">{% endblock %}
+{% block content %}
+<div class="card cal"><div class="cal-head"><h2>Search</h2></div>
+<form method="get" class="cal-form" role="search"><label>Search your workspace<input type="text" name="q" maxlength="100" value="{{ q }}" autofocus></label>
+<label>Where<select name="in"><option value="">Everywhere</option><option value="drive"{% if scope == "drive" %} selected{% endif %}>Drive</option><option value="tasks"{% if scope == "tasks" %} selected{% endif %}>Tasks</option><option value="calendar"{% if scope == "calendar" %} selected{% endif %}>Calendar</option><option value="people"{% if scope == "people" %} selected{% endif %}>People</option></select></label>
+<button class="btn" type="submit">Search</button></form>
+<p class="cal-meta">Finds only what you can already open. Chat, Sheets, Slides and PDF are not part of search yet.</p>
+{% if ran %}{% for name, items in groups %}<h3>{{ name }}</h3>
+{% for h in items %}<div class="cal-row"><a class="cal-title" href="{{ h.url }}">{{ h.title }}</a></div>{% endfor %}
+{% empty %}<p class="cal-meta">No results.</p>{% endfor %}{% endif %}
+</div>
+{% endblock %}
