@@ -39,7 +39,7 @@
   // returns a clean deck or null; unknown fields are dropped and numbers are clamped
   function validate(d) {
     if (!d || typeof d !== "object" || Array.isArray(d) || (has(d, "v") && d.v !== 1 && d.v !== 2) || !Array.isArray(d.slides) || !d.slides.length || d.slides.length > MAX_SLIDES) return null;
-    var ids = Object.create(null), out = { v: 1, theme: has(THEMES, d.theme) ? d.theme : "light", slides: [] }, masterEls = [], anyHide = false;
+    var TRANS = ["none", "fade"], ids = Object.create(null), out = { v: 1, theme: has(THEMES, d.theme) ? d.theme : "light", slides: [] }, masterEls = [], anyHide = false;
     if (has(d, "master")) {
       var m = d.master; if (!m || typeof m !== "object" || Array.isArray(m) || !Array.isArray(m.elements) || m.elements.length > MAX_MASTER) return null;
       for (var k = 0; k < m.elements.length; k++) { var me = fixEl(m.elements[k]); if (!me || ids[me.id]) return null; ids[me.id] = true; masterEls.push(me); }
@@ -52,6 +52,7 @@
       if (has(s, "hideMaster") && typeof s.hideMaster !== "boolean") return null;
       var ns = { id: s.id, elements: els, notes: typeof s.notes === "string" ? cut(s.notes, MAX_NOTES) : "" };
       if (s.hideMaster === true) { ns.hideMaster = true; anyHide = true; }
+      if (has(s, "transition")) { if (TRANS.indexOf(s.transition) < 0) return null; if (s.transition === "fade") { ns.transition = "fade"; anyHide = true; } }
       out.slides.push(ns);
     }
     // Version 2 only when something needs it, so a deck without a master is still a version 1 deck that older code opens.
@@ -97,11 +98,13 @@
     },
     deleteElement: function (d, i, id) { var s = d.slides[i]; if (!s) return null; var n = copy(d), l = n.slides[i].elements.length; n.slides[i].elements = n.slides[i].elements.filter(function (e) { return e.id !== id; }); return n.slides[i].elements.length === l ? null : n; },
     setHideMaster: function (d, i, hide) { var s = d.slides[i]; if (!s || typeof hide !== "boolean" || (s.hideMaster === true) === hide) return null; var n = copy(d); if (hide) n.slides[i].hideMaster = true; else delete n.slides[i].hideMaster; return normVersion(n); },
+    // how a slide appears in Present: "none" or "fade". The PDF and the editor are not animated.
+    setTransition: function (d, i, name) { var s = d.slides[i]; if (!s || (name !== "none" && name !== "fade") || (s.transition === "fade" ? "fade" : "none") === name) return null; var n = copy(d); if (name === "fade") n.slides[i].transition = "fade"; else delete n.slides[i].transition; return normVersion(n); },
     setTheme: function (d, name) { if (!has(THEMES, name) || d.theme === name) return null; var n = copy(d); n.theme = name; return n; }
   };
   // The master is edited through the same item operations as a slide, on a one-slide stand-in deck.
   function normVersion(n) {
-    var any = n.slides.some(function (s) { return s.hideMaster === true; });
+    var any = n.slides.some(function (s) { return s.hideMaster === true || s.transition === "fade"; });
     if (n.master && !n.master.elements.length) delete n.master;
     n.v = n.master || any ? 2 : 1; return n;
   }

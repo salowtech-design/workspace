@@ -77,6 +77,7 @@
     var nt = $("sl-notes"); if (document.activeElement !== nt) nt.value = d.slides[cur].notes || "";
     $("sl-theme").value = d.theme; $("sl-undo").disabled = !H.past.length; $("sl-redo").disabled = !H.future.length;
     $("sl-up").disabled = cur === 0; $("sl-down").disabled = cur >= d.slides.length - 1; $("sl-del").disabled = d.slides.length <= 1; $("sl-dup").disabled = d.slides.length >= S.MAX_SLIDES;
+    $("sl-trans").value = d.slides[cur] && d.slides[cur].transition === "fade" ? "fade" : "none"; $("sl-trans").disabled = editMaster;
     $("sl-master").textContent = editMaster ? "Back to slides" : "Edit master"; $("sl-master").setAttribute("aria-pressed", editMaster ? "true" : "false");
     $("sl-master-on").checked = !(d.slides[cur] && d.slides[cur].hideMaster === true); $("sl-master-on").disabled = editMaster;
     $("sl-master-state").textContent = editMaster ? "Editing the master: its items appear on every slide that shows the master (" + tgt().length + " of " + S.MAX_MASTER + " items)." : (d.master ? "This deck has a master with " + d.master.elements.length + " item" + (d.master.elements.length === 1 ? "" : "s") + ". Its items are drawn under this slide's items" + (d.slides[cur].hideMaster ? ", but this slide hides them." : ".") : "This deck has no master.");
@@ -87,6 +88,7 @@
     status.textContent = H.note;
     var cs = sel(); if (cs && cs.text) { var ln = S.wrapLines(cs.text, cs.size, cs.type === "text" ? cs.w : cs.w - 8); if (S.textHeight(ln, cs.size) > cs.h) status.textContent += " The text is estimated to run past the item's edges."; }
   }
+  $("sl-trans").addEventListener("change", function () { var n = S.ops.setTransition(H.deck, cur, this.value); if (!n || !apply(n, this.value === "fade" ? "This slide now fades in during Present." : "This slide has no transition.")) render(); });
   $("sl-master").addEventListener("click", function () { editMaster = !editMaster; selId = null; render(); status.textContent = editMaster ? "Editing the master. Items you add here appear on every slide that shows the master." : "Back to editing slides."; });
   $("sl-master-on").addEventListener("change", function () { var n = S.ops.setHideMaster(H.deck, cur, !this.checked); if (!n || !apply(n, this.checked ? "This slide now shows the master." : "This slide now hides the master.")) render(); });
   $("sl-notes").addEventListener("change", function () { apply(S.ops.setNotes(H.deck, cur, this.value), "Notes saved on this device."); });
@@ -171,19 +173,21 @@
   });
   // Slide show: a read-only modal dialog. It never changes the deck. The browser's dialog traps focus, makes the page behind inert and closes on Escape.
   var show = $("sl-show"), showAt = 0;
-  function showDraw() {
+  function reduced() { try { return window.matchMedia("(prefers-reduced-motion: reduce)").matches; } catch (e) { return true; } }
+  function showDraw(animate) {
     var d = H.deck, th = S.THEMES[d.theme], box = $("sl-show-canvas"); box.textContent = "";
     var svg = el("svg", { viewBox: "0 0 " + S.W + " " + S.H, role: "img", "aria-label": "Slide " + (showAt + 1) + " of " + d.slides.length });
     svg.appendChild(el("desc", {}, S.describe(d, showAt).join("; ") || "Empty slide"));
     svg.appendChild(el("rect", { x: 0, y: 0, width: S.W, height: S.H, fill: th.bg }));
     S.masterOf(d, showAt).concat(d.slides[showAt].elements).forEach(function (e) { var g = el("g", {}); drawEl(g, d, e); svg.appendChild(g); });
+    if (animate && H.deck.slides[showAt].transition === "fade" && !reduced()) svg.setAttribute("class", "sl-fade");
     box.appendChild(svg);
     $("sl-show-notes").textContent = d.slides[showAt].notes || "No notes for this slide.";
     $("sl-show-count").textContent = "Slide " + (showAt + 1) + " of " + d.slides.length;
     $("sl-show-prev").disabled = showAt === 0; $("sl-show-next").disabled = showAt >= d.slides.length - 1;
     var ae = document.activeElement; if (!ae || ae === document.body || ae.disabled) show.focus(); // a disabled button cannot keep focus or keys
   }
-  function showGo(i) { if (i === null || i === showAt) return; showAt = i; showDraw(); }
+  function showGo(i) { if (i === null || i === showAt) return; showAt = i; showDraw(true); }
   var clock = null, t0 = 0;
   function tick() { $("sl-show-timer").textContent = "Time " + S.fmtClock((Date.now() - t0) / 1000); }
   function showNotes(on) {

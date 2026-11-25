@@ -1630,6 +1630,83 @@ def slides_master(ctx):  # noqa: C901
     )
 
 
+def slides_transition(ctx):
+    pg = fresh(ctx, "/slides/")
+    KEY = pg.evaluate("document.getElementById('slide-root').dataset.storeKey")
+
+    def stored():
+        return json.loads(pg.evaluate("localStorage.getItem(%s)" % json.dumps(KEY)))
+
+    def cls():
+        return pg.evaluate(
+            "document.querySelector('#sl-show-canvas svg').getAttribute('class') || ''"
+        )
+
+    pg.click("#sl-add-text")
+    pg.fill("#sl-text", "One")
+    pg.press("#sl-text", "Tab")
+    pg.click("#sl-new")
+    pg.click("#sl-add-text")
+    pg.fill("#sl-text", "Two")
+    pg.press("#sl-text", "Tab")
+    check("transition: a deck without one is version 1", stored()["v"] == 1)
+    pg.select_option("#sl-trans", "fade")
+    s = stored()
+    check(
+        "transition: choosing fade on slide 2 only saves version 2 with the flag on that slide",
+        s["v"] == 2
+        and s["slides"][1].get("transition") == "fade"
+        and "transition" not in s["slides"][0],
+        s,
+    )
+    pg.click("#sl-list button:nth-child(1)")
+    check("transition: slide 1 shows None", pg.input_value("#sl-trans") == "none")
+    pg.reload()
+    pg.wait_for_timeout(400)
+    pg.click("#sl-list button:nth-child(2)")
+    check("transition: the choice survives a reload", pg.input_value("#sl-trans") == "fade")
+    pg.click("#sl-list button:nth-child(1)")
+    pg.emulate_media(reduced_motion="no-preference")
+    pg.click("#sl-present")
+    pg.wait_for_timeout(200)
+    check("transition: the first slide shown does not animate", cls() == "", cls())
+    op0 = pg.evaluate(
+        "document.getElementById('sl-show-next').click(); parseFloat(getComputedStyle(document.querySelector('#sl-show-canvas svg')).opacity)"
+    )
+    pg.wait_for_timeout(700)
+    op1 = pg.evaluate(
+        "parseFloat(getComputedStyle(document.querySelector('#sl-show-canvas svg')).opacity)"
+    )
+    check(
+        "transition: the fade starts below full opacity and ends at 1",
+        op0 < 1 and op1 == 1,
+        (op0, op1),
+    )
+    check("transition: moving to the fade slide fades it in", cls() == "sl-fade", cls())
+    pg.click("#sl-show-prev")
+    check(
+        "transition: going back to a slide with no transition does not animate", cls() == "", cls()
+    )
+    pg.click("#sl-show-exit")
+    pg.emulate_media(reduced_motion="reduce")
+    pg.click("#sl-present")
+    pg.click("#sl-show-next")
+    check("transition: with reduced motion requested no fade runs", cls() == "", cls())
+    check(
+        "transition: the slide still shows its text",
+        "Two" in pg.evaluate("document.getElementById('sl-show-canvas').textContent"),
+    )
+    pg.click("#sl-show-exit")
+    pg.emulate_media(reduced_motion="no-preference")
+    pg.click("#sl-list button:nth-child(2)")
+    pg.select_option("#sl-trans", "none")
+    check(
+        "transition: choosing None on the only fade slide returns to version 1",
+        stored()["v"] == 1 and "transition" not in stored()["slides"][1],
+        stored(),
+    )
+
+
 DRILLS = {
     "slides_show": slides_show,
     "slides_edit": slides_edit,
@@ -1642,6 +1719,7 @@ DRILLS = {
     "sheets_validation": sheets_validation,
     "sheets_colour": sheets_colour,
     "slides_master": slides_master,
+    "slides_transition": slides_transition,
     "sheets_validation_paths": sheets_validation_paths,
     "sheets_tabs_stale": sheets_tabs_stale,
     "sheets_tabs_safety": sheets_tabs_safety,

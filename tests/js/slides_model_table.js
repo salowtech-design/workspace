@@ -129,4 +129,12 @@ ok("master: the new code also refuses a stored deck with an unknown version and 
 ok("master: duplicating a slide keeps its hide flag", S.ops.duplicateSlide(S.ops.setHideMaster(S.newDeck(), 0, true), 0).slides[1].hideMaster === true);
 ok("master: describeEls lists items like describe", S.describeEls([mel("a", "Hello")]).join() === "1. Text: Hello" && S.describe({ slides: [{ elements: [mel("a", "Hello")] }] }, 0).join() === "1. Text: Hello");
 ok("master: import counts master text over 1000 characters as cut", S.countCut(MK([mel("m1", "x".repeat(1500))])) === 1 && S.countCut(MK([mel("m1", "x".repeat(10))])) === 0);
+{
+  const t1 = S.ops.setTransition(S.newDeck(), 0, "fade");
+  ok("transition: fade sets the flag and makes a version 2 deck, none returns to version 1", t1.slides[0].transition === "fade" && t1.v === 2 && S.ops.setTransition(t1, 0, "none").v === 1 && !("transition" in S.ops.setTransition(t1, 0, "none").slides[0]));
+  ok("transition: bad names and no-change are refused", S.ops.setTransition(S.newDeck(), 0, "spin") === null && S.ops.setTransition(S.newDeck(), 0, "none") === null && S.ops.setTransition(t1, 0, "fade") === null && S.ops.setTransition(S.newDeck(), 5, "fade") === null);
+  ok("transition: validate keeps fade and round-trips, 'none' is dropped, unknown names refuse the deck", S.validate(JSON.parse(JSON.stringify(t1))).slides[0].transition === "fade" && JSON.stringify(S.validate(JSON.parse(JSON.stringify(t1)))) === JSON.stringify(t1) && !("transition" in S.validate({ v: 1, slides: [{ id: "s", elements: [], transition: "none" }] }).slides[0]) && S.validate({ v: 2, slides: [{ id: "s", elements: [], transition: "spin" }] }) === null && S.validate({ v: 2, slides: [{ id: "s", elements: [], transition: 1 }] }) === null);
+  ok("transition: the previous version refuses a deck that uses one and keeps the stored text", (() => { const raw = JSON.stringify(t1); const r = OLD.loadDeck(raw); return r.unreadable === true && r.raw === raw; })());
+  ok("transition: duplicating keeps it and a deck with a master and a fade stays valid", S.ops.duplicateSlide(t1, 0).slides[1].transition === "fade" && S.validate(S.ops.master_addElement(t1, "text").deck) !== null);
+}
 console.log(`${n - bad}/${n} slides model rows passed`); process.exit(bad ? 1 : 0);
