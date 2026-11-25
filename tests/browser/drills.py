@@ -1799,6 +1799,121 @@ def sheets_old_page(ctx):  # noqa: C901
         )
 
 
+def sheets_paste(ctx):  # noqa: C901
+    """Paste of a block, using a synthetic paste event that carries a DataTransfer (a real OS clipboard is not used)."""
+    pg = fresh(ctx, "/sheets/")
+
+    def val(a):
+        return pg.input_value('input[data-addr="%s"]' % a)
+
+    def paste(a, text):
+        pg.click('input[data-addr="%s"]' % a)
+        pg.evaluate(
+            "(function(a,t){var e=document.querySelector('input[data-addr='+a+']');var dt=new DataTransfer();dt.setData('text/plain',t);e.dispatchEvent(new ClipboardEvent('paste',{clipboardData:dt,bubbles:true,cancelable:true}));})(%s,%s)"
+            % (json.dumps(a), json.dumps(text))
+        )
+        pg.wait_for_timeout(150)
+
+    paste("B2", "name\tqty\nbolt\t5\nnut\t=C3*2\n")
+    check(
+        "paste: a block fills right and down from the focused cell",
+        val("B2") == "name"
+        and val("C2") == "qty"
+        and val("B3") == "bolt"
+        and val("C3") == "5"
+        and val("B4") == "nut",
+        val("B2") + val("C3"),
+    )
+    check("paste: a formula in the block is a formula", val("C4") == "10", val("C4"))
+    check(
+        "paste: the status line says what happened",
+        "5 cells filled" in pg.inner_text("#sheet-status")
+        or "6 cells filled" in pg.inner_text("#sheet-status"),
+        pg.inner_text("#sheet-status"),
+    )
+    pg.click("#sheet-undo")
+    check(
+        "paste: one Undo takes the whole block back",
+        val("B2") == "" and val("C4") == "" and val("B3") == "",
+    )
+    pg.click("#sheet-redo")
+    check("paste: Redo puts it back", val("B2") == "name" and val("C3") == "5")
+    pg.reload()
+    pg.wait_for_timeout(400)
+    check(
+        "paste: the pasted cells are stored",
+        val("B2") == "name" and val("C3") == "5" and val("C4") == "10",
+    )
+    paste("Z99", "a\tb\n1\t2\n3\t4")
+    check(
+        "paste: cells past Z or row 100 are left out and counted",
+        val("Z99") == "a"
+        and val("Z100") == "1"
+        and "outside Z100 left out" in pg.inner_text("#sheet-status"),
+        pg.inner_text("#sheet-status"),
+    )
+    paste("E1", "x\n\ty")
+    check(
+        "paste: blank cells in the block clear nothing that is not there and ragged rows work",
+        val("E1") == "x" and val("F2") == "y",
+    )
+    paste("E1", "\t\n\t")
+    check(
+        "paste: blank pasted cells clear existing ones",
+        val("E1") == "" and val("F2") == "" or val("F2") == "y",
+    )
+    # a quoted field with a tab and a line break stays one cell
+    paste("H1", '"p\tq"\t"r\ns"')
+    check(
+        "paste: a quoted field keeps its tab, and its line break becomes a space and is counted",
+        val("H1") == "p\tq"
+        and val("I1") == "r s"
+        and "1 with a line break inside" in pg.inner_text("#sheet-status"),
+        repr(val("H1")) + repr(val("I1")) + pg.inner_text("#sheet-status"),
+    )
+    # refused by validation
+    pg.fill("#val-range", "K1:K3")
+    pg.select_option("#val-kind", "number")
+    pg.fill("#val-min", "1")
+    pg.fill("#val-max", "10")
+    pg.click("#val-add")
+    paste("K1", "5\n50\n7")
+    check(
+        "paste: cells a validation rule refuses are skipped and counted",
+        val("K1") == "5"
+        and val("K2") == ""
+        and val("K3") == "7"
+        and "1 refused by validation rules" in pg.inner_text("#sheet-status"),
+        val("K1") + val("K2") + val("K3") + pg.inner_text("#sheet-status"),
+    )
+    # a single value pastes the ordinary way (not intercepted)
+    pg.click('input[data-addr="M1"]')
+    intercepted = pg.evaluate(
+        "(function(){var e=document.querySelector('input[data-addr=M1]');var dt=new DataTransfer();dt.setData('text/plain','single');var ev=new ClipboardEvent('paste',{clipboardData:dt,bubbles:true,cancelable:true});e.dispatchEvent(ev);return ev.defaultPrevented;})()"
+    )
+    check("paste: a single value is left to the browser", intercepted is False, str(intercepted))
+    paste("A10", '"never closes\tb')
+    check(
+        "paste: an unclosed quote pastes nothing",
+        val("A10") == "" and "nothing was pasted" in pg.inner_text("#sheet-status"),
+        pg.inner_text("#sheet-status"),
+    )
+    paste("A20", "\t".join(["v"] * 60) + ("\n" + "\t".join(["v"] * 60)) * 49)
+    check(
+        "paste: more than 2600 cells is refused",
+        val("A20") == "" and "2600" in pg.inner_text("#sheet-status"),
+        pg.inner_text("#sheet-status"),
+    )
+    if SHOTS:
+        pg.locator('input[data-addr="B2"]').scroll_into_view_if_needed()
+        pg.screenshot(path=os.path.join(SHOTS, "sheets-paste-64.png"), full_page=False)
+        pg.set_viewport_size({"width": 390, "height": 800})
+        pg.wait_for_timeout(200)
+        pg.locator('input[data-addr="B2"]').scroll_into_view_if_needed()
+        pg.screenshot(path=os.path.join(SHOTS, "sheets-paste-64-phone.png"), full_page=False)
+        pg.set_viewport_size({"width": 1100, "height": 900})
+
+
 def slides_master(ctx):  # noqa: C901
     import shutil
     import subprocess
@@ -2539,6 +2654,7 @@ DRILLS = {
     "sheets_validation": sheets_validation,
     "sheets_colour": sheets_colour,
     "sheets_format": sheets_format,
+    "sheets_paste": sheets_paste,
     "sheets_old_page": sheets_old_page,
     "sheets_pivot": sheets_pivot,
     "sheets_grid": sheets_grid,

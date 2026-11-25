@@ -363,6 +363,48 @@
     else return shown;
     return /^-0(\.0+)?%?$/.test(t) ? t.slice(1) : t;
   }
+  // ---- Paste a block of tab and newline separated text (as copied from another spreadsheet) at a start cell. ----
+  // Quoted fields may hold tabs and line breaks ("" is a quote). Cells outside the grid are clipped and counted. Nothing is guessed:
+  // every value is kept as the text it is, a leading = is a formula exactly as if typed. Returns { rows, cols, items } or { error }.
+  var MAX_PASTE_CHARS = 200000, MAX_PASTE_CELLS = 2600;
+  function parseTsv(text) {
+    var rows = [], row = [], f = "", i = 0, q = false, n = text.length, c;
+    while (i < n) {
+      c = text.charAt(i);
+      if (q) { if (c === '"') { if (text.charAt(i + 1) === '"') { f += '"'; i += 2; continue; } q = false; i++; continue; } f += c; i++; continue; }
+      if (c === '"' && f === "") { q = true; i++; continue; }
+      if (c === "\t") { row.push(f); f = ""; i++; continue; }
+      if (c === "\r" || c === "\n") { row.push(f); rows.push(row); row = []; f = ""; if (c === "\r" && text.charAt(i + 1) === "\n") i++; i++; continue; }
+      f += c; i++;
+    }
+    if (q) return null;  // a quote that never closes: refuse rather than guess
+    if (f !== "" || row.length) { row.push(f); rows.push(row); }
+    return rows;
+  }
+  function parsePaste(text, parseAddr) {
+    if (typeof text !== "string" || text.length > MAX_PASTE_CHARS) return { error: "That is more than " + MAX_PASTE_CHARS + " characters, so nothing was pasted." };
+    var rows = parseTsv(text); if (!rows) return { error: "The pasted text has a quote that never closes, so nothing was pasted." };
+    var cols = rows.reduce(function (m, r) { return Math.max(m, r.length); }, 0);
+    if (rows.length * cols > MAX_PASTE_CELLS) return { error: "That is more than " + MAX_PASTE_CELLS + " cells, so nothing was pasted." };
+    return { rows: rows.length, cols: cols, items: rows };
+  }
+  // True when the text is a block (more than one cell) rather than a single value.
+  function isBlock(text) { return typeof text === "string" && /[\t\r\n]/.test(text.replace(/(\r\n|\r|\n)$/, "")); }
+  // Apply a parsed paste to cells at (col, row). maxCol/maxRow clip; check(addr, value) returns null or a reason. Returns the new cells and counts.
+  function applyPaste(cells, parsed, col, row, maxCol, maxRow, maxCell, check, addrOf) {
+    var n = copy(cells), set = 0, cleared = 0, clipped = 0, refused = 0, tooLong = 0, formulas = 0, breaks = 0;
+    for (var r = 0; r < parsed.items.length; r++) for (var c = 0; c < parsed.items[r].length; c++) {
+      var cc = col + c, rr = row + r, v = parsed.items[r][c];
+      if (cc > maxCol || rr > maxRow) { clipped++; continue; }
+      var a = addrOf(cc, rr);
+      // A cell box holds one line, so a line break inside a pasted cell would be lost on the next edit: it becomes a space, and is counted.
+      if (/[\r\n]/.test(v)) { v = v.replace(/\r\n|\r|\n/g, " "); breaks++; }
+      if (v.length > maxCell) { tooLong++; continue; }
+      if (check && check(a, v)) { refused++; continue; }
+      if (v === "") { if (a in n) { delete n[a]; cleared++; } } else { n[a] = v; set++; if (v.charAt(0) === "=") formulas++; }
+    }
+    return { cells: n, set: set, cleared: cleared, clipped: clipped, refused: refused, tooLong: tooLong, formulas: formulas, breaks: breaks };
+  }
   // ---- Pivot: group rows of a range by one column and total another. Read only: it never writes to cells. ----
   var PIVOT_AGGS = ["count", "sum", "average", "min", "max"], MAX_GROUPS = 20;
   function colNo(t) { var m = /^\s*([A-Za-z])\s*$/.exec(String(t)); return m ? m[1].toUpperCase().charCodeAt(0) - 64 : null; }
@@ -404,6 +446,6 @@
     });
     return { groups: out, skipped: skipped, rows: rows };
   }
-  var api = { parseRange: parseRange, makeRule: makeRule, addRule: addRule, removeRule: removeRule, loadRules: loadRules, rulesJson: rulesJson, checkValue: checkValue, makePivot: makePivot, pivot: pivot, MAX_GROUPS: MAX_GROUPS, makeCf: makeCf, addCf: addCf, loadCf: loadCf, cfJson: cfJson, cfColor: cfColor, makeFmt: makeFmt, addFmt: addFmt, loadFmt: loadFmt, fmtJson: fmtJson, fmtFor: fmtFor, fmtText: fmtText, MAX_FMT: MAX_FMT, MAX_RULES: MAX_RULES, loadTabs: loadTabs, addTab: addTab, markFmt: markFmt, renameTab: renameTab, deleteTab: deleteTab, setActive: setActive, cleanName: cleanName, MAX_TABS: MAX_TABS, sortRange: sortRange, filterRows: filterRows, toNum: toNum, toCsv: toCsv, clean: clean, History: History, chartPoints: chartPoints, pieSlices: pieSlices, isComposing: isComposing, keyMove: keyMove, copy: copy, same: same };
+  var api = { parseRange: parseRange, makeRule: makeRule, addRule: addRule, removeRule: removeRule, loadRules: loadRules, rulesJson: rulesJson, checkValue: checkValue, makePivot: makePivot, pivot: pivot, MAX_GROUPS: MAX_GROUPS, makeCf: makeCf, addCf: addCf, loadCf: loadCf, cfJson: cfJson, cfColor: cfColor, parsePaste: parsePaste, isBlock: isBlock, applyPaste: applyPaste, MAX_PASTE_CELLS: MAX_PASTE_CELLS, makeFmt: makeFmt, addFmt: addFmt, loadFmt: loadFmt, fmtJson: fmtJson, fmtFor: fmtFor, fmtText: fmtText, MAX_FMT: MAX_FMT, MAX_RULES: MAX_RULES, loadTabs: loadTabs, addTab: addTab, markFmt: markFmt, renameTab: renameTab, deleteTab: deleteTab, setActive: setActive, cleanName: cleanName, MAX_TABS: MAX_TABS, sortRange: sortRange, filterRows: filterRows, toNum: toNum, toCsv: toCsv, clean: clean, History: History, chartPoints: chartPoints, pieSlices: pieSlices, isComposing: isComposing, keyMove: keyMove, copy: copy, same: same };
   if (typeof module !== "undefined" && module.exports) module.exports = api; else root.SalowSheetModel = api;
 })(typeof self !== "undefined" ? self : this);

@@ -117,6 +117,19 @@
   });
   table.addEventListener("focusout", function (e) { var a = e.target.dataset && e.target.dataset.addr; if (a) commit(a, e.target.value); show(); });
   table.addEventListener("input", function (e) { if (e.target.dataset && e.target.dataset.addr === cur) bar.value = e.target.value; });
+  // Paste a block (tabs and line breaks) from another spreadsheet at the focused cell. A single value pastes normally.
+  table.addEventListener("paste", function (e) {
+    var t = e.target, a = t.dataset && t.dataset.addr; if (!a) return;
+    var text = e.clipboardData ? e.clipboardData.getData("text/plain") : ""; if (!M.isBlock(text)) return;
+    e.preventDefault();
+    var parsed = M.parsePaste(text, F.parseAddr); if (parsed.error) { status.textContent = parsed.error; return; }
+    var p = F.parseAddr(a);
+    var res = M.applyPaste(cells, parsed, p.col, p.row, COLS, ROWS, MAXCELL, function (addr, v) { return rulesLocked ? null : M.checkValue(rules, addr, v, F.parseAddr); }, function (c, r) { return String.fromCharCode(64 + c) + r; });
+    var bits = [res.set + " cells filled"]; if (res.cleared) bits.push(res.cleared + " cleared"); if (res.clipped) bits.push(res.clipped + " outside Z100 left out"); if (res.refused) bits.push(res.refused + " refused by validation rules"); if (res.tooLong) bits.push(res.tooLong + " too long (over " + MAXCELL + " characters) left out"); if (res.breaks) bits.push(res.breaks + " with a line break inside, shown with a space instead"); if (res.formulas) bits.push(res.formulas + " start with = and are formulas");
+    if (!res.set && !res.cleared) { status.textContent = "Nothing was pasted: " + bits.slice(1).join(", ") + "."; return; }
+    if (!change(res.cells, "Pasted " + parsed.rows + " rows by " + parsed.cols + " columns at " + a + ": " + bits.join(", ") + ". Undo works.")) return;
+    orig = cells[a] || ""; t.value = orig; bar.value = orig;
+  });
   table.addEventListener("keydown", function (e) {
     var t = e.target, k = e.key;
     if (M.isComposing(e)) return;  // IME composition owns every key, including arrows and Esc
