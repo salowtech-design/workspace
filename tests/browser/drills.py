@@ -1084,6 +1084,114 @@ def sheets_validation(ctx):
     )
 
 
+def sheets_validation_paths(ctx):
+    pg = fresh(ctx, "/sheets/")
+    KEYJS = "document.getElementById('sheet-root').dataset.storeKey"
+
+    def setc(pgx, a, v):
+        pgx.click('input[data-addr="%s"]' % a)
+        pgx.fill('input[data-addr="%s"]' % a, v)
+        pgx.press('input[data-addr="%s"]' % a, "Tab")
+
+    def val(pgx, a):
+        return pgx.input_value('input[data-addr="%s"]' % a)
+
+    def addrule(pgx, rng, items):
+        pgx.select_option("#val-kind", "list")
+        pgx.fill("#val-range", rng)
+        pgx.fill("#val-items", items)
+        pgx.click("#val-add")
+
+    # An existing value is kept when a rule is added; a new bad value is refused and the old one stays.
+    setc(pg, "A1", "purple")
+    addrule(pg, "A1:A2", "red, blue")
+    check(
+        "paths: adding a rule does not change an existing value",
+        val(pg, "A1") == "purple",
+        val(pg, "A1"),
+    )
+    setc(pg, "A1", "orange")
+    check(
+        "paths: a refused edit leaves the old value in the cell",
+        val(pg, "A1") == "purple",
+        val(pg, "A1"),
+    )
+    # A tab deleted in another window cannot gain rules.
+    pg.click("#tab-add")
+    pg.wait_for_timeout(100)
+    tid = pg.evaluate("JSON.parse(localStorage.getItem(%s+'.tabs')).active" % KEYJS)
+    rkey = pg.evaluate("%s+'.tab.%s.rules'" % (KEYJS, tid))
+    p2 = ctx.new_page()
+    p2.goto(APP + "/sheets/")
+    p2.wait_for_timeout(400)
+    p2.click('#sheet-tabs button[data-tab="%s"]' % tid)
+    p2.once("dialog", lambda d: d.accept())
+    p2.click("#tab-del")
+    p2.wait_for_timeout(200)
+    addrule(pg, "A1:A2", "x")
+    check(
+        "paths: a stale tab is refused new rules and no rules key appears",
+        "not changed" in pg.inner_text("#val-status")
+        and pg.evaluate("localStorage.getItem(%s)" % json.dumps(rkey)) is None,
+        pg.inner_text("#val-status"),
+    )
+    p2.close()
+    # Leftover rules keep their tab id from being reused.
+    pg.reload()
+    pg.wait_for_timeout(400)
+    pg.click("#tab-add")
+    pg.wait_for_timeout(100)
+    t2 = pg.evaluate("JSON.parse(localStorage.getItem(%s+'.tabs')).active" % KEYJS)
+    addrule(pg, "B1:B2", "y")
+    rk2 = pg.evaluate("%s+'.tab.%s.rules'" % (KEYJS, t2))
+    pg.evaluate(
+        "(function(){var k=%s+'.tabs',m=JSON.parse(localStorage.getItem(k));m.tabs=m.tabs.filter(function(t){return t.id!=%s});m.active='t0';localStorage.setItem(k,JSON.stringify(m));})();0"
+        % (KEYJS, json.dumps(t2))
+    )
+    pg.reload()
+    pg.wait_for_timeout(400)
+    ids = set()
+    for _ in range(3):
+        pg.click("#tab-add")
+        pg.wait_for_timeout(100)
+        ids.add(pg.evaluate("JSON.parse(localStorage.getItem(%s+'.tabs')).active" % KEYJS))
+    check(
+        "paths: a new tab never reuses an id whose rules are still stored",
+        t2 not in ids and pg.evaluate("localStorage.getItem(%s)" % json.dumps(rk2)) is not None,
+        str(ids),
+    )
+    # Restore with a failing rules write restores nothing and keeps the deleted tab.
+    pg.evaluate("localStorage.removeItem(%s+'.tabs');0" % KEYJS)
+    pg = fresh(ctx, "/sheets/")
+    pg.click("#tab-add")
+    pg.wait_for_timeout(100)
+    setc(pg, "A1", "keep")
+    addrule(pg, "B1:B2", "y")
+    pg.once("dialog", lambda d: d.accept())
+    pg.click("#tab-del")
+    pg.wait_for_timeout(200)
+    pg.evaluate(
+        "(function(){var o=Storage.prototype.setItem;window.__o=o;Storage.prototype.setItem=function(k,v){if(/[.]rules$/.test(k))throw new Error('full');return o.call(this,k,v);};})();0"
+    )
+    pg.click("#tab-restore")
+    ntabs = pg.evaluate("JSON.parse(localStorage.getItem(%s+'.tabs')).tabs.length" % KEYJS)
+    msg = pg.inner_text("#tab-status")
+    check(
+        "paths: a failed rules write restores nothing and says so",
+        ntabs == 1 and "would not store the tab's validation rules" in msg,
+        msg,
+    )
+    pg.evaluate("Storage.prototype.setItem=window.__o;0")
+    pg.click("#tab-restore")
+    pg.wait_for_timeout(200)
+    check(
+        "paths: Restore works again afterwards with its rules",
+        pg.evaluate("JSON.parse(localStorage.getItem(%s+'.tabs')).tabs.length" % KEYJS) == 2
+        and "y" in pg.inner_text("#val-list"),
+        pg.inner_text("#tab-status"),
+    )
+
+
 DRILLS = {
     "slides_show": slides_show,
     "slides_edit": slides_edit,
@@ -1094,6 +1202,7 @@ DRILLS = {
     "sheets_tabs": sheets_tabs,
     "sheets_chart": sheets_chart,
     "sheets_validation": sheets_validation,
+    "sheets_validation_paths": sheets_validation_paths,
     "sheets_tabs_stale": sheets_tabs_stale,
     "sheets_tabs_safety": sheets_tabs_safety,
     "selftest_scrub": selftest_scrub,

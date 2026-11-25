@@ -215,6 +215,8 @@
   }
   function saveRules(next, msg) {
     if (rulesLocked || !next) return;
+    var lt = null; try { lt = M.loadTabs(localStorage.getItem(KEY + ".tabs")); } catch (e) { lt = null; }
+    if (!lt || lt.unreadable || !lt.meta.tabs.some(function (t) { return t.id === meta.active; })) { $("val-status").textContent = "This tab was deleted or changed in another window, or the tab list cannot be read, so the rules were not changed. Reload this page."; return; }
     try { if (next.length) localStorage.setItem(rulesKey(meta.active), M.rulesJson(next)); else localStorage.removeItem(rulesKey(meta.active)); }
     catch (e) { $("val-status").textContent = "This browser would not store the rules, so nothing was changed."; return; }
     rules = next; renderRules(); $("val-status").textContent = msg;
@@ -294,7 +296,7 @@
     if (!saveMeta(next)) { tabMsg.textContent = "This browser would not store the tab list, so nothing was changed."; return false; }
     meta = next; return true;
   }
-  function keyUsed(id) { try { return localStorage.getItem(tabKey(id)) !== null; } catch (e) { return true; } }
+  function keyUsed(id) { try { return localStorage.getItem(tabKey(id)) !== null || localStorage.getItem(rulesKey(id)) !== null; } catch (e) { return true; } }
   function renderTabs() {
     tabBar.textContent = "";
     meta.tabs.forEach(function (t) {
@@ -344,7 +346,7 @@
     var saved = bad ? null : M.copy(H.cells);
     if (!commitMeta(r.meta)) return;
     if (!bad) { try { localStorage.removeItem(tabKey(id)); } catch (e) { /* the tab is out of the list; its id will not be reused while the cells remain */ } }
-    delete hist[id]; delete unreadableTabs[id]; if (!bad) { var rr = null; try { rr = localStorage.getItem(rulesKey(id)); if (rr !== null && !M.loadRules(rr, F.parseAddr).unreadable) localStorage.removeItem(rulesKey(id)); else rr = null; } catch (e) { rr = null; } lastDeleted = { name: nm, cells: saved, rules: rr }; }
+    delete hist[id]; delete unreadableTabs[id]; if (!bad) { var rr = null, rulesWasThere = false; try { rr = localStorage.getItem(rulesKey(id)); rulesWasThere = rr !== null; if (rr !== null && !M.loadRules(rr, F.parseAddr).unreadable) localStorage.removeItem(rulesKey(id)); else rr = null; } catch (e) { rr = null; } lastDeleted = { name: nm, cells: saved, rules: rr, rulesLeft: rr === null && rulesWasThere }; }
     H = histFor(meta.active); chartRange = null; out.textContent = ""; cur = null; filt = null; sync(); renderTabs();
     tabMsg.textContent = bad ? "Removed the tab " + nm + " from the list. Its unreadable stored cells were not deleted." : "Deleted the tab " + nm + ". Restore deleted tab brings back only this one, until you reload; after a reload it cannot be brought back.";
   });
@@ -354,11 +356,14 @@
     var nm = lastDeleted.name, rn = M.renameTab(next, next.active, nm); if (!rn.error) next = rn.meta;
     var key = tabKey(next.active);
     try { localStorage.setItem(key, JSON.stringify(lastDeleted.cells)); } catch (e) { tabMsg.textContent = "This browser would not store the restored tab, so nothing was restored. The deleted tab is still kept until you reload."; return; }
-    if (!commitMeta(next)) { try { localStorage.removeItem(key); } catch (e) { /* nothing else points at this key */ } return; }
-    if (lastDeleted.rules) { try { localStorage.setItem(rulesKey(meta.active), lastDeleted.rules); } catch (e) { /* the cells are back; the rules are not */ } }
-    H = histFor(meta.active); lastDeleted = null;
+    if (lastDeleted.rules) {
+      try { localStorage.setItem(rulesKey(next.active), lastDeleted.rules); }
+      catch (e) { try { localStorage.removeItem(key); } catch (e2) { /* nothing else points at this key */ } tabMsg.textContent = "This browser would not store the tab's validation rules, so nothing was restored. The deleted tab and its rules are still kept until you reload. Try Restore again."; return; }
+    }
+    if (!commitMeta(next)) { try { localStorage.removeItem(key); if (lastDeleted.rules) localStorage.removeItem(rulesKey(next.active)); } catch (e) { /* nothing else points at these keys */ } return; }
+    var left = lastDeleted.rulesLeft; H = histFor(meta.active); lastDeleted = null;
     chartRange = null; out.textContent = ""; cur = null; filt = null; sync(); renderTabs();
-    tabMsg.textContent = "Restored the tab" + (rn.error ? " under a new name, because " + nm + " is in use." : " " + nm + ".");
+    tabMsg.textContent = "Restored the tab" + (rn.error ? " under a new name, because " + nm + " is in use." : " " + nm + ".") + (left ? " Its validation rules were unreadable or could not be removed, so they were not restored." : "");
   });
   status.textContent = H.note;
   if (tabsLocked) tabMsg.textContent = "The stored tab list could not be read, so tab changes are off. Your cells were not touched.";
