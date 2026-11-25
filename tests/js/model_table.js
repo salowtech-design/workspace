@@ -114,6 +114,8 @@ ok("sort and the engine agree on which typed values are numbers", ["1", " 2 ", "
   ok("tabs: a new tab never reuses the id of a deleted first tab", (() => { const r = M.deleteTab(a1, "t0").meta; const n = M.addTab(r); return n.tabs.every((t) => t.id !== "t0") && new Set(n.tabs.map((t) => t.id)).size === 2; })());
   ok("tabs: setActive switches only to an existing, different tab", M.setActive(a1, "t0").active === "t0" && M.setActive(a1, "t1") === null && M.setActive(a1, "nope") === null);
   ok("tabs: saved meta round-trips through loadTabs", (() => { const m = M.renameTab(a1, "t0", "Budget").meta; const r = M.loadTabs(JSON.stringify(m)); return !r.unreadable && JSON.stringify(r.meta) === JSON.stringify(m); })());
+  ok("tabs: addTab skips ids whose stored cells still exist", (() => { const n = M.addTab(d0.meta, (id) => id === "t1" || id === "t2"); return n.active === "t3" && n.tabs.length === 2; })());
+  ok("tabs: addTab without a callback behaves as before", M.addTab(d0.meta).active === "t1");
 }
 console.log(`${n - fails}/${n} model rows passed`);
 process.exit(fails ? 1 : 0);

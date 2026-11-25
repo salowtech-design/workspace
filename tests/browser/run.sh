@@ -53,11 +53,11 @@ if [ "$PORT_DB" = "$PORT_APP" ] || [ "$PORT_DB" = "$PORT_ST" ] || [ "$PORT_APP" 
 # Clean environment for everything below. Only these variables pass through.
 E=(env -i PATH="$PATH" HOME="${HOME:-/tmp}" LANG=C.UTF-8 TMPDIR="$TMP" NO_PROXY=127.0.0.1,localhost,app.salowtech.com no_proxy=127.0.0.1,localhost,app.salowtech.com
    ${PLAYWRIGHT_BROWSERS_PATH:+PLAYWRIGHT_BROWSERS_PATH="$PLAYWRIGHT_BROWSERS_PATH"}
-   AUDIT_CHECKPOINT_DIR="$TMP/audit" DJANGO_SETTINGS_MODULE=config.settings.test_tidb TIDB_TEST_DB_NAME=drill_db
+   AUDIT_CHECKPOINT_DIR="$TMP/audit" DJANGO_SETTINGS_MODULE=drill_settings TIDB_TEST_DB_NAME=drill_db
    TIDB_TEST_USER=root TIDB_TEST_PASSWORD= TIDB_TEST_HOST=127.0.0.1 TIDB_TEST_PORT="$PORT_DB"
    PYTHONPATH="$ROOT:$ROOT/tests/browser${EXTRA_PYTHONPATH:+:$EXTRA_PYTHONPATH}")
 mkdir -p "$TMP/audit"
-echo "Planned target: DB 127.0.0.1:$PORT_DB (new throwaway store), app 127.0.0.1:$PORT_APP, settings config.settings.test_tidb"
+echo "Planned target: DB 127.0.0.1:$PORT_DB (new throwaway store), app 127.0.0.1:$PORT_APP, settings drill_settings (config.settings.test_tidb plus a temp audit folder)"
 "$TIDB_SERVER" --store=unistore --path="$TMP/tidb" -P "$PORT_DB" --host 127.0.0.1 --status "$PORT_ST" --log-file="$TMP/tidb.log" > "$TMP/tidb.out" 2>&1 &
 TIDB_PID=$!
 ready=0

@@ -1,6 +1,7 @@
 """Run before any migration or seed write. Fails unless Django's effective database settings are the throwaway TiDB this run started.
 Prints only non-secret target facts (engine, host, port, names). Arguments: expected port."""
 
+import os
 import sys
 
 import django
@@ -18,14 +19,19 @@ facts = {
     "test_name": db.get("TEST", {}).get("NAME"),
     "user": db["USER"],
 }
+print(
+    "Audit folder under the run temp dir:",
+    str(settings.AUDIT_CHECKPOINT_DIR).startswith(os.environ.get("TMPDIR", "\0")),
+)
 print("Django target:", ", ".join("%s=%s" % kv for kv in facts.items()))
 ok = (
-    settings.SETTINGS_MODULE == "config.settings.test_tidb"
+    settings.SETTINGS_MODULE == "drill_settings"
     and facts["host"] == "127.0.0.1"
     and int(facts["port"]) == want_port
     and facts["name"] == "drill_db"
     and facts["test_name"] == "test_drill_db"
     and list(settings.DATABASES) == ["default"]
+    and str(settings.AUDIT_CHECKPOINT_DIR).startswith(os.environ.get("TMPDIR", "\0"))
 )
 if not ok:
     print("ABORT: Django would not use the throwaway database. Nothing was written.")

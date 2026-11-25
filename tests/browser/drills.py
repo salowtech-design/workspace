@@ -428,12 +428,233 @@ def sheets_tabs(ctx):
         == "{broken",
     )
 
+    # Data isolation across tabs: undo, CSV and import on the second tab.
+    pg.evaluate("localStorage.clear()")
+    pg.goto(APP + "/sheets/")
+    pg.wait_for_timeout(400)
+    setc("A1", "first")
+    pg.click("#tab-add")
+    setc("A1", "second")
+    setc("A1", "second-edited")
+    pg.click('#sheet-tabs button[data-tab="t0"]')
+    check("tabs: switching back shows the first tab as it was", val("A1") == "first", val("A1"))
+    pg.click("#sheet-undo")
+    pg.wait_for_timeout(100)
+    check("tabs: Undo on the first tab undoes only the first tab", val("A1") == "", val("A1"))
+    pg.click("#sheet-tabs button:nth-child(2)")
+    check(
+        "tabs: the second tab was not touched by that Undo", val("A1") == "second-edited", val("A1")
+    )
+    pg.click("#sheet-undo")
+    pg.wait_for_timeout(100)
+    check(
+        "tabs: Undo on the second tab goes back one step on that tab",
+        val("A1") == "second",
+        val("A1"),
+    )
+    pg.click('#sheet-tabs button[data-tab="t0"]')
+    check(
+        "tabs: the first tab keeps its own state after the second tab's Undo",
+        val("A1") == "",
+        val("A1"),
+    )
+    pg.click("#sheet-redo")
+    pg.wait_for_timeout(100)
+    check("tabs: Redo on the first tab brings back its own edit", val("A1") == "first", val("A1"))
+    pg.click("#sheet-tabs button:nth-child(2)")
+    setc("B2", "7")
+    with pg.expect_download() as dl:
+        pg.click("#sheet-csv")
+    csv = open(dl.value.path(), newline="").read()
+    check(
+        "tabs: CSV holds the current (second) tab only",
+        "second" in csv and "first" not in csv and "7" in csv,
+        csv,
+    )
+    pg.once("dialog", lambda d: d.accept())
+    pg.set_input_files(
+        "#sheet-import",
+        files=[
+            {
+                "name": "t.json",
+                "mimeType": "application/json",
+                "buffer": b'{"A1":"imported","C3":"9"}',
+            }
+        ],
+    )
+    pg.wait_for_timeout(300)
+    check(
+        "tabs: Import replaces the current (second) tab",
+        val("A1") == "imported" and val("B2") == "",
+        (val("A1"), val("B2")),
+    )
+    pg.click('#sheet-tabs button[data-tab="t0"]')
+    check("tabs: Import left the first tab alone", val("A1") == "first", val("A1"))
+    pg.click("#sheet-tabs button:nth-child(2)")
+    pg.click("#sheet-undo")
+    pg.wait_for_timeout(100)
+    check(
+        "tabs: Undo after Import restores the second tab only",
+        val("B2") == "7" and val("A1") == "second",
+        (val("A1"), val("B2")),
+    )
+    pg.set_viewport_size({"width": 390, "height": 800})
+    pg.wait_for_timeout(200)
+    shot(pg, "sheets-tabs-41-phone")
+    ov = pg.evaluate("document.documentElement.scrollWidth > document.documentElement.clientWidth")
+    check("tabs: no sideways page scroll at 390 px", not ov)
+    pg.set_viewport_size({"width": 1100, "height": 900})
+
+
+def sheets_tabs_safety(ctx):
+    pg = fresh(ctx, "/sheets/")
+    KEYJS = "document.getElementById('sheet-root').dataset.storeKey"
+
+    def names():
+        return pg.eval_on_selector_all("#sheet-tabs button", "bs=>bs.map(b=>b.textContent)")
+
+    def setc(a, v):
+        pg.click('input[data-addr="%s"]' % a)
+        pg.fill('input[data-addr="%s"]' % a, v)
+        pg.press('input[data-addr="%s"]' % a, "Tab")
+
+    def val(a):
+        return pg.input_value('input[data-addr="%s"]' % a)
+
+    def tab(n):
+        pg.click("#sheet-tabs button:nth-child(%d)" % n)
+
+    def rename(n):
+        pg.fill("#tab-name", n)
+        pg.click("#tab-rename")
+
+    # Sequential delete and restore: only the most recent one comes back, and the confirm says so.
+    rename("A")
+    setc("A1", "a-data")
+    pg.click("#tab-add")
+    rename("B")
+    setc("A1", "b-data")
+    pg.click("#tab-add")
+    rename("C")
+    setc("A1", "c-data")
+    msgs = []
+    pg.on("dialog", lambda d: (msgs.append(d.message), d.accept()))
+    tab(1)
+    pg.click("#tab-del")
+    pg.click("#sheet-tabs button:nth-child(1)")
+    pg.click("#tab-del")
+    check(
+        "tabs: deleting a second tab warns that it replaces the restorable one",
+        len(msgs) == 2 and "replaces the restorable tab A" in msgs[1],
+        msgs,
+    )
+    pg.click("#tab-restore")
+    check(
+        "tabs: restore brings back only the last deleted tab",
+        "B" in names() and "A" not in names(),
+        names(),
+    )
+    tab(names().index("B") + 1)
+    check("tabs: the restored tab has its cells", val("A1") == "b-data", val("A1"))
+    check("tabs: restore is off once the copy is used", pg.is_disabled("#tab-restore"))
+    # Restore while the browser refuses to store: nothing changes and the copy is kept.
+    pg.click("#tab-del")
+    pg.evaluate(
+        "window.__si=Storage.prototype.setItem;Storage.prototype.setItem=function(){throw new Error('full')};0"
+    )
+    before = names()
+    pg.click("#tab-restore")
+    check("tabs: a refused restore changes nothing", names() == before, names())
+    check(
+        "tabs: a refused restore says so and keeps the copy",
+        "would not store" in pg.inner_text("#tab-status") and not pg.is_disabled("#tab-restore"),
+        pg.inner_text("#tab-status"),
+    )
+    pg.evaluate("Storage.prototype.setItem=window.__si;0")
+    pg.click("#tab-restore")
+    tab(names().index("B") + 1)
+    check(
+        "tabs: restore works once storage works again, with the data",
+        val("A1") == "b-data",
+        (names(), val("A1")),
+    )
+
+    # A second window changing the tab list stops this one instead of overwriting it.
+    p2 = ctx.new_page()
+    p2.goto(APP + "/sheets/")
+    p2.wait_for_timeout(400)
+    p2.click("#tab-add")
+    p2.wait_for_timeout(200)
+    n_after_p2 = p2.eval_on_selector_all("#sheet-tabs button", "bs=>bs.length")
+    pg.click("#tab-add")
+    msg = pg.inner_text("#tab-status")
+    check("tabs: a stale window is refused with a reload message", "another window" in msg, msg)
+    stored = pg.evaluate("JSON.parse(localStorage.getItem(%s+'.tabs')).tabs.length" % KEYJS)
+    check(
+        "tabs: the other window's tab list was not overwritten",
+        stored == n_after_p2,
+        (stored, n_after_p2),
+    )
+    p2.close()
+    pg.reload()
+    pg.wait_for_timeout(400)
+    check(
+        "tabs: after a reload the page follows the stored list", len(names()) == n_after_p2, names()
+    )
+
+    # A file chosen on one tab is not applied to another tab if you switch while it loads.
+    pg.evaluate(
+        "window.__rt=FileReader.prototype.readAsText;FileReader.prototype.readAsText=function(f){var s=this;setTimeout(function(){window.__rt.call(s,f)},900)};0"
+    )
+    tab(1)
+    first = val("A1")
+    pg.set_input_files(
+        "#sheet-import",
+        files=[
+            {"name": "t.json", "mimeType": "application/json", "buffer": b'{"A1":"late-import"}'}
+        ],
+    )
+    tab(2)
+    pg.wait_for_timeout(1500)
+    check(
+        "tabs: switching while a file loads cancels the import",
+        "cancelled" in pg.inner_text("#sheet-status"),
+        pg.inner_text("#sheet-status"),
+    )
+    check("tabs: the new tab did not get the file", val("A1") != "late-import", val("A1"))
+    tab(1)
+    check("tabs: the first tab did not get the file either", val("A1") == first, val("A1"))
+    pg.evaluate("FileReader.prototype.readAsText=window.__rt;0")
+
+    # Unreadable stored cells are never written over (checked on the tab that is active now).
+    akey = pg.evaluate(
+        "(()=>{const b=%s,m=JSON.parse(localStorage.getItem(b+'.tabs'));return m.active==='t0'?b:b+'.tab.'+m.active})()"
+        % KEYJS
+    )
+    pg.evaluate("localStorage.setItem(%s,'{not json')" % json.dumps(akey))
+    pg.reload()
+    pg.wait_for_timeout(400)
+    check(
+        "tabs: an unreadable tab opens empty and says the stored cells were left alone",
+        "could not be read" in pg.inner_text("#sheet-status") and val("A1") == "",
+        pg.inner_text("#sheet-status"),
+    )
+    setc("A1", "typed")
+    raw = pg.evaluate("localStorage.getItem(%s)" % json.dumps(akey))
+    check("tabs: typing into it does not overwrite the stored value", raw == "{not json", raw)
+    check(
+        "tabs: ...and the page says the edit is not saved",
+        "lost on reload" in pg.inner_text("#sheet-status"),
+        pg.inner_text("#sheet-status"),
+    )
+
 
 DRILLS = {
     "slides_show": slides_show,
     "slides_edit": slides_edit,
     "sheets_sort_filter": sheets_sort_filter,
     "sheets_tabs": sheets_tabs,
+    "sheets_tabs_safety": sheets_tabs_safety,
     "selftest_scrub": selftest_scrub,
 }
 

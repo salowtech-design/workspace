@@ -163,9 +163,11 @@
     return { meta: { v: 1, active: seen[m.active] ? m.active : out[0].id, tabs: out }, unreadable: false };
   }
   function nameTaken(meta, name, exceptId) { var l = name.toLowerCase(); return meta.tabs.some(function (t) { return t.id !== exceptId && t.name.toLowerCase() === l; }); }
-  function addTab(meta) {
+  // inUse(id) is optional: ids whose stored cells still exist (for example after a failed removal) are never handed out again.
+  function addTab(meta, inUse) {
     if (meta.tabs.length >= MAX_TABS) return null;
     var n = meta.tabs.reduce(function (mx, t) { return Math.max(mx, Number(t.id.slice(1))); }, 0) + 1, k = meta.tabs.length + 1, name;
+    while (typeof inUse === "function" && inUse("t" + n) && n < 10000) n++;
     do { name = "Sheet " + k++; } while (nameTaken(meta, name));
     var next = cloneMeta(meta); next.tabs.push({ id: "t" + n, name: name }); next.active = "t" + n; return next;
   }

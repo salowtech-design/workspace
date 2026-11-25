@@ -11,10 +11,19 @@
   var tabsRaw = null, tabsRead = true; try { tabsRaw = localStorage.getItem(KEY + ".tabs"); } catch (e) { tabsRead = false; }
   var tl = M.loadTabs(tabsRaw), meta = tl.meta, tabsLocked = tl.unreadable || !tabsRead, hist = Object.create(null), lastDeleted = null;
   function tabKey(id) { return id === "t0" ? KEY : KEY + ".tab." + id; }
+  var unreadableTabs = Object.create(null);
   function makeHist(id) {
-    var init = Object.create(null);
-    try { var st0 = clean(JSON.parse(localStorage.getItem(tabKey(id)) || "{}")); if (st0) init = st0.cells; } catch (e) { init = Object.create(null); }
-    return new M.History(init, { save: function (c) { try { localStorage.setItem(tabKey(id), JSON.stringify(c)); return true; } catch (e) { return false; } } }, HIST);
+    var init = Object.create(null), raw = null, bad = false;
+    try { raw = localStorage.getItem(tabKey(id)); } catch (e) { bad = true; }
+    if (raw !== null && !bad) { try { var st0 = clean(JSON.parse(raw)); if (st0) init = st0.cells; else bad = true; } catch (e) { bad = true; } }
+    var h = new M.History(init, { save: function (c) { try { localStorage.setItem(tabKey(id), JSON.stringify(c)); return true; } catch (e) { return false; } } }, HIST);
+    if (bad) {
+      // The stored cells are kept exactly as they are: this tab opens empty and never writes over them.
+      unreadableTabs[id] = true;
+      h.note = "The stored cells for this tab could not be read, so they were left untouched. Edits here are on screen only and are lost on reload.";
+      h.persist = function (note) { h.saveFailed = true; h.note = "The stored cells for this tab could not be read and were left untouched, so these changes are on screen only and will be lost on reload." + (note ? " " + note : ""); return false; };
+    }
+    return h;
   }
   function histFor(id) { if (!hist[id]) hist[id] = makeHist(id); return hist[id]; }
   var H = histFor(meta.active);
@@ -93,9 +102,11 @@
   });
   document.getElementById("sheet-import").addEventListener("change", function (e) {
     var f = e.target.files[0]; if (!f) return;
+    var impTab = meta.active, impH = H;
     if (f.size > 1000000) { status.textContent = "That file is too large. Your sheet was not changed."; return; }
     var rd = new FileReader();
     rd.onload = function () {
+      if (H !== impH || meta.active !== impTab) { status.textContent = "You switched tabs while the file was loading, so the import was cancelled. Nothing was changed."; return; }
       var p = null; try { p = clean(JSON.parse(String(rd.result))); } catch (x) { p = null; }
       if (!p || !p.count) { status.textContent = "That file has no usable cells. Your sheet was not changed."; return; }
       if (Object.keys(cells).length && !window.confirm("Replace the " + Object.keys(cells).length + " cells in this tab with the " + p.count + " cells in this file? You can undo it afterwards.")) { status.textContent = "Import cancelled. Your sheet was not changed."; return; }
@@ -199,9 +210,13 @@
   function saveMeta(m) { try { localStorage.setItem(KEY + ".tabs", JSON.stringify(m)); return true; } catch (e) { return false; } }
   function commitMeta(next) {
     if (tabsLocked) { tabMsg.textContent = "The stored tab list could not be read, so tab changes are off. Your cells were not touched."; return false; }
+    var curRaw = null, readOk = true; try { curRaw = localStorage.getItem(KEY + ".tabs"); } catch (e) { readOk = false; }
+    var other = readOk ? M.loadTabs(curRaw) : null;
+    if (!other || other.unreadable || JSON.stringify(other.meta.tabs) !== JSON.stringify(meta.tabs)) { tabMsg.textContent = "The tab list was changed in another window or tab of this browser. Reload this page to continue. Nothing was changed here."; return false; }
     if (!saveMeta(next)) { tabMsg.textContent = "This browser would not store the tab list, so nothing was changed."; return false; }
     meta = next; return true;
   }
+  function keyUsed(id) { try { return localStorage.getItem(tabKey(id)) !== null; } catch (e) { return true; } }
   function renderTabs() {
     tabBar.textContent = "";
     meta.tabs.forEach(function (t) {
@@ -222,7 +237,7 @@
     var again = keep && tabBar.querySelector('button[data-tab="' + id + '"]'); if (again) again.focus();
   }
   $("tab-add").addEventListener("click", function () {
-    var next = M.addTab(meta); if (!next) { tabMsg.textContent = "A file holds up to " + M.MAX_TABS + " tabs."; return; }
+    var next = M.addTab(meta, keyUsed); if (!next) { tabMsg.textContent = "A file holds up to " + M.MAX_TABS + " tabs."; return; }
     if (!commitMeta(next)) return;
     H = histFor(meta.active); chartRange = null; out.textContent = ""; cur = null; filt = null; sync(); renderTabs();
     tabMsg.textContent = "Added a tab. Formulas read only cells on their own tab."; tabName.focus(); tabName.select();
@@ -233,26 +248,34 @@
   });
   tabName.addEventListener("keydown", function (e) { if (e.key === "Enter") { e.preventDefault(); $("tab-rename").click(); } });
   $("tab-del").addEventListener("click", function () {
-    var id = meta.active, n = Object.keys(H.cells).length, nm = meta.tabs.filter(function (t) { return t.id === id; })[0].name;
+    var id = meta.active, n = Object.keys(H.cells).length, nm = meta.tabs.filter(function (t) { return t.id === id; })[0].name, bad = !!unreadableTabs[id];
     var r = M.deleteTab(meta, id); if (r.error) { tabMsg.textContent = r.error; return; }
-    if (n && !window.confirm("Delete the tab " + nm + " and its " + n + " cells? You can bring it back with Restore deleted tab until you reload this page. After a reload it cannot be brought back.")) { tabMsg.textContent = "Delete cancelled."; return; }
-    var saved = M.copy(H.cells);
+    var q = "";
+    if (bad) q += "The stored cells of the tab " + nm + " could not be read. They stay in this browser's storage but will no longer be shown, and cannot be restored here. ";
+    else if (n) q += "Delete the tab " + nm + " and its " + n + " cells? ";
+    if (lastDeleted && !bad) q += (q ? "" : "Delete the tab " + nm + "? ") + "Only the most recently deleted tab can be restored, so this replaces the restorable tab " + lastDeleted.name + ", which will be lost. ";
+    if (q && !bad) q += "You can bring this tab back with Restore deleted tab until you reload this page. After a reload it cannot be brought back.";
+    if (q && !window.confirm(q)) { tabMsg.textContent = "Delete cancelled."; return; }
+    var saved = bad ? null : M.copy(H.cells);
     if (!commitMeta(r.meta)) return;
-    try { localStorage.removeItem(tabKey(id)); } catch (e) { /* the tab is already out of the list; the stored cells are unreachable */ }
-    delete hist[id]; lastDeleted = { name: nm, cells: saved };
+    if (!bad) { try { localStorage.removeItem(tabKey(id)); } catch (e) { /* the tab is out of the list; its id will not be reused while the cells remain */ } }
+    delete hist[id]; delete unreadableTabs[id]; if (!bad) lastDeleted = { name: nm, cells: saved };
     H = histFor(meta.active); chartRange = null; out.textContent = ""; cur = null; filt = null; sync(); renderTabs();
-    tabMsg.textContent = "Deleted the tab " + nm + ". Restore deleted tab brings it back until you reload; after a reload it cannot be brought back.";
+    tabMsg.textContent = bad ? "Removed the tab " + nm + " from the list. Its unreadable stored cells were not deleted." : "Deleted the tab " + nm + ". Restore deleted tab brings back only this one, until you reload; after a reload it cannot be brought back.";
   });
   $("tab-restore").addEventListener("click", function () {
     if (!lastDeleted) return;
-    var next = M.addTab(meta); if (!next) { tabMsg.textContent = "A file holds up to " + M.MAX_TABS + " tabs."; return; }
+    var next = M.addTab(meta, keyUsed); if (!next) { tabMsg.textContent = "A file holds up to " + M.MAX_TABS + " tabs. The deleted tab is still kept until you reload."; return; }
     var nm = lastDeleted.name, rn = M.renameTab(next, next.active, nm); if (!rn.error) next = rn.meta;
-    if (!commitMeta(next)) return;
-    H = histFor(meta.active); H.change(lastDeleted.cells, "Restored the deleted tab."); lastDeleted = null;
+    var key = tabKey(next.active);
+    try { localStorage.setItem(key, JSON.stringify(lastDeleted.cells)); } catch (e) { tabMsg.textContent = "This browser would not store the restored tab, so nothing was restored. The deleted tab is still kept until you reload."; return; }
+    if (!commitMeta(next)) { try { localStorage.removeItem(key); } catch (e) { /* nothing else points at this key */ } return; }
+    H = histFor(meta.active); lastDeleted = null;
     chartRange = null; out.textContent = ""; cur = null; filt = null; sync(); renderTabs();
     tabMsg.textContent = "Restored the tab" + (rn.error ? " under a new name, because " + nm + " is in use." : " " + nm + ".");
   });
+  status.textContent = H.note;
   if (tabsLocked) tabMsg.textContent = "The stored tab list could not be read, so tab changes are off. Your cells were not touched.";
   renderTabs();
-  show(); buttons(); status.textContent = "";
+  show(); buttons();
 })();

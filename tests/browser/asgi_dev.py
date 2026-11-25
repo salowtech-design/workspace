@@ -2,7 +2,7 @@
 
 import os
 
-os.environ.setdefault("DJANGO_SETTINGS_MODULE", "config.settings.test_tidb")
+os.environ.setdefault("DJANGO_SETTINGS_MODULE", "drill_settings")
 from django.contrib.staticfiles.handlers import ASGIStaticFilesHandler  # noqa: E402
 from django.core.asgi import get_asgi_application  # noqa: E402
 
