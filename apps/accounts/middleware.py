@@ -66,6 +66,7 @@ class HostSecurityIsolationMiddleware:
                 "/tasks",
                 "/calendar",
                 "/search",
+                "/chat",
             )
             if any(path.startswith(prefix) for prefix in workspace_prefixes):
                 return HttpResponseNotFound(

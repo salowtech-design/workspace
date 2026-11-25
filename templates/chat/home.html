@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% block title %}Chat: Salow{% endblock %}
+{% block extra_head %}<link rel="stylesheet" href="/static/css/events.css">{% endblock %}
+{% block content %}
+<div class="card cal"><div class="cal-head"><h2>Chat</h2></div>
+{% for s in spaces %}<div class="cal-row"><a class="cal-title" href="{% url 'chat:space' s.space.public_id %}">{{ s.label }}</a>{% if s.unread %}<span class="cal-meta"><strong>{{ s.unread }} unread</strong></span>{% endif %}</div>
+{% empty %}<p class="cal-meta">No conversations yet.</p>{% endfor %}
+<h3>New direct message</h3>
+<form method="post" action="{% url 'chat:dm' %}" class="cal-form">{% csrf_token %}<label>Employee ID<input type="text" name="person" maxlength="40" required></label><button class="btn" type="submit">Open</button></form>
+<h3>New group</h3>
+<form method="post" action="{% url 'chat:group' %}" class="cal-form">{% csrf_token %}<label>Name<input type="text" name="name" maxlength="120" required></label>
+<label>Other people (employee IDs, separated by commas, at least two)<textarea name="people" rows="2" required></textarea></label><button class="btn" type="submit">Create group</button></form>
+<p class="cal-meta">Build defaults, not company policy: anyone can message or add anyone active.</p>
+</div>
+{% endblock %}
