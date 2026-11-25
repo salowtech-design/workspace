@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block extra_head %}<link rel="stylesheet" href="/static/css/events.css">{% endblock %}
+{% block title %}{{ e.title }}: Salow Calendar{% endblock %}
+{% block content %}
+<div class="card cal{% if e.status == 'cancelled' %} cal-cancelled{% endif %}"><div class="cal-head"><h2>{{ e.title }}</h2></div>
+<div class="cal-tabs"><a href="{% url 'events:home' %}">Agenda</a><a href="{% url 'events:new' %}">New event</a><a href="{% url 'events:busy' %}">Free or busy</a></div>
+{% if e.status == 'cancelled' %}<p><strong>Cancelled</strong></p>{% endif %}
+<p class="cal-when">{{ start|date:"D j M Y, H:i" }} to {{ end|date:"H:i" }} ({{ e.tz }})</p>
+<p class="cal-meta">Organiser: {{ e.organizer.employee_id }}</p>
+<h3>Guests</h3>
+{% for g in guests %}<div class="cal-row"><span class="cal-title">{{ g.person.employee_id }}</span><span class="cal-meta">{{ g.response }}</span></div>{% empty %}<p class="cal-meta">No guests.</p>{% endfor %}
+{% if e.status != 'cancelled' %}
+{% if mine %}<div class="cal-actions">
+<form method="post" action="{% url 'events:respond' e.public_id %}">{% csrf_token %}<input type="hidden" name="response" value="accepted"><button class="btn btn-small" type="submit">Accept</button></form>
+<form method="post" action="{% url 'events:respond' e.public_id %}">{% csrf_token %}<input type="hidden" name="response" value="tentative"><button class="btn btn-outline btn-small" type="submit">Maybe</button></form>
+<form method="post" action="{% url 'events:respond' e.public_id %}">{% csrf_token %}<input type="hidden" name="response" value="declined"><button class="btn btn-outline btn-small" type="submit">Decline</button></form></div>
+<p class="cal-meta">Your answer: {{ mine.response }}</p>{% endif %}
+{% if is_organizer %}<div class="cal-actions"><a class="btn btn-outline btn-small" href="{% url 'events:edit' e.public_id %}">Edit</a><a class="btn btn-outline btn-small" href="{% url 'events:cancel' e.public_id %}">Cancel event</a></div>{% endif %}
+{% endif %}
+</div>
+{% endblock %}

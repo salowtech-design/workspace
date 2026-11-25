@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+{% block extra_head %}<link rel="stylesheet" href="/static/css/events.css">{% endblock %}
+{% block title %}Cancel event: Salow Calendar{% endblock %}
+{% block content %}
+<div class="card cal"><div class="cal-head"><h2>Cancel this event?</h2></div>
+<p><strong>{{ e.title }}</strong></p>
+<p class="cal-meta">It stays visible to you and its guests, marked cancelled, and drops off everyone's agenda and busy times. Guests are not notified. Un-cancelling is not built.</p>
+<form method="post" class="cal-actions">{% csrf_token %}<input type="hidden" name="confirm" value="yes"><button class="btn btn-small" type="submit">Cancel event</button>
+<a class="btn btn-outline btn-small" href="{% url 'events:detail' e.public_id %}">Keep it</a></form>
+</div>
+{% endblock %}
