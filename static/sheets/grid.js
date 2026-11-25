@@ -5,27 +5,17 @@
   var F = SalowFormula, KEY = root.getAttribute("data-store-key"), COLS = 8, ROWS = 20, MAXCELL = 2000, HIST = 100;
   var status = document.getElementById("sheet-status"), bar = document.getElementById("sheet-bar"), sel = document.getElementById("sheet-sel");
   var undoBtn = document.getElementById("sheet-undo"), redoBtn = document.getElementById("sheet-redo");
-  var has = function (o, k) { return Object.prototype.hasOwnProperty.call(o, k); };
-  function clean(obj) {  // own keys, valid addresses, bounded strings only
-    var n = Object.create(null), skipped = 0, k;
-    if (!obj || typeof obj !== "object" || Array.isArray(obj)) return null;
-    for (k in obj) { if (!has(obj, k)) continue; if (typeof obj[k] === "string" && obj[k].length <= MAXCELL && F.parseAddr(k)) n[k] = obj[k]; else skipped++; }
-    return { cells: n, count: Object.keys(n).length, skipped: skipped };
-  }
-  var cells = Object.create(null);
-  try { var st = clean(JSON.parse(localStorage.getItem(KEY) || "{}")); if (st) cells = st.cells; } catch (e) { cells = Object.create(null); }
-  function copy(c) { var o = Object.create(null); Object.keys(c).forEach(function (k) { o[k] = c[k]; }); return o; }
-  function same(a, b) { var ka = Object.keys(a), kb = Object.keys(b); return ka.length === kb.length && ka.every(function (k) { return b[k] === a[k]; }); }
-  function save() { try { localStorage.setItem(KEY, JSON.stringify(cells)); status.textContent = "Saved on this device."; } catch (e) { status.textContent = "This browser would not store the sheet."; } }
-  var past = [], future = [];
-  function buttons() { undoBtn.disabled = !past.length; redoBtn.disabled = !future.length; }
-  function change(next, note) {  // every edit, clear and import goes through here so it can be undone
-    if (same(cells, next)) return false;
-    past.push(copy(cells)); if (past.length > HIST) past.shift(); future = [];
-    cells = next; save(); show(); buttons(); if (note) status.textContent = note; return true;
-  }
-  function undo() { if (!past.length) return; future.push(copy(cells)); cells = past.pop(); save(); show(); buttons(); status.textContent = "Undone."; }
-  function redo() { if (!future.length) return; past.push(copy(cells)); cells = future.pop(); save(); show(); buttons(); status.textContent = "Redone."; }
+  var M = SalowSheetModel, has = function (o, k) { return Object.prototype.hasOwnProperty.call(o, k); };
+  var clean = function (o) { return M.clean(o, F.parseAddr, MAXCELL); };
+  var initial = Object.create(null);
+  try { var st0 = clean(JSON.parse(localStorage.getItem(KEY) || "{}")); if (st0) initial = st0.cells; } catch (e) { initial = Object.create(null); }
+  var H = new M.History(initial, { save: function (c) { try { localStorage.setItem(KEY, JSON.stringify(c)); return true; } catch (e) { return false; } } }, HIST);
+  var cells = H.cells, chartRange = null;
+  function sync() { cells = H.cells; show(); buttons(); drawChart(); status.textContent = H.note; }
+  function buttons() { undoBtn.disabled = !H.past.length; redoBtn.disabled = !H.future.length; }
+  function change(next, note) { if (!H.change(next, note)) return false; sync(); return true; }
+  function undo() { if (H.undo()) sync(); }
+  function redo() { if (H.redo()) sync(); }
   undoBtn.addEventListener("click", undo); redoBtn.addEventListener("click", redo);
 
   var table = document.createElement("table"), inputs = Object.create(null), cur = null, orig = "";
@@ -47,7 +37,7 @@
       var v = sh.get(a); inputs[a].value = F.isErr(v) ? v.code : String(v); inputs[a].title = cells[a] || "";
     });
   }
-  function commit(a, v) { var n = copy(cells); if (v === "") delete n[a]; else n[a] = v; change(n); }
+  function commit(a, v) { var n = M.copy(cells); if (v === "") delete n[a]; else n[a] = v; change(n); }
   function move(dc, dr) {
     if (!cur) return; var p = F.parseAddr(cur), nc = Math.min(COLS, Math.max(1, p.col + dc)), nr = Math.min(ROWS, Math.max(1, p.row + dr));
     inputs[String.fromCharCode(64 + nc) + nr].focus();
@@ -61,11 +51,9 @@
   table.addEventListener("keydown", function (e) {
     var t = e.target, k = e.key;
     if (k === "Escape") { t.value = orig; bar.value = orig; return; }
-    if (k === "Enter") { e.preventDefault(); move(0, e.shiftKey ? -1 : 1); return; }
-    if (k === "ArrowDown") { e.preventDefault(); move(0, 1); return; }
-    if (k === "ArrowUp") { e.preventDefault(); move(0, -1); return; }
-    if (k === "ArrowLeft" && t.selectionStart === 0) { e.preventDefault(); move(-1, 0); return; }
-    if (k === "ArrowRight" && t.selectionEnd === t.value.length) { e.preventDefault(); move(1, 0); return; }
+    if (k === "Enter" && M.isComposing(e)) return;  // confirming IME text, not moving
+    var mv = M.keyMove(k, e.shiftKey, t.selectionStart === 0, t.selectionEnd === t.value.length);
+    if (mv) { e.preventDefault(); move(mv[0], mv[1]); }
   });
   document.addEventListener("keydown", function (e) {
     if (!(e.ctrlKey || e.metaKey)) return;
@@ -78,7 +66,8 @@
   bar.addEventListener("keydown", function (e) { if (e.key === "Escape") bar.value = cells[cur] || ""; });
 
   document.getElementById("sheet-clear").addEventListener("click", function () {
-    if (change(Object.create(null), "Cleared from this device. You can undo this.")) return; status.textContent = "Nothing to clear.";
+    if (!change(Object.create(null), "Sheet cleared. Undo works until you reload this page.")) { status.textContent = "Nothing to clear."; return; }
+    if (!H.saveFailed) status.textContent += " The stored copy is now empty; after a reload the cleared content cannot be brought back.";
   });
   function outside(c) { return Object.keys(c).filter(function (k) { return !has(inputs, k); }).length; }
   document.getElementById("sheet-export").addEventListener("click", function () {
@@ -102,36 +91,41 @@
   // Chart: bars from one row or column of the sheet, computed here from the same formula engine.
   var out = document.getElementById("chart-out"), NS = "http://www.w3.org/2000/svg";
   function el(n, at, tx) { var x = document.createElementNS(NS, n); Object.keys(at || {}).forEach(function (k) { x.setAttribute(k, at[k]); }); if (tx !== undefined) x.textContent = tx; return x; }
+  var outP = null;
+  function drawChart() {
+    out.textContent = ""; if (!chartRange) return;
+    var rg = chartRange, sh = new F.Sheet(cells), vals = [], rr, cc;
+    for (rr = rg.r1; rr <= rg.r2; rr++) for (cc = rg.c1; cc <= rg.c2; cc++) { var ad = String.fromCharCode(64 + cc) + rr; vals.push({ a: ad, v: sh.get(ad) }); }
+    var ch = M.chartPoints(vals);
+    if (!ch) { out.textContent = "No numbers in " + rg.label + " right now."; return; }
+    var W = 560, H2 = 260, L = 48, B = 30, T = 14, lo = ch.lo, hi = ch.hi;
+    var y = function (v) { return T + (H2 - T - B) * (hi - v) / (hi - lo); }, bw = (W - L - 10) / ch.bars.length;
+    var svg = el("svg", { viewBox: "0 0 " + W + " " + H2, role: "img", "aria-label": "Bar chart of " + rg.label });
+    svg.appendChild(el("line", { x1: L, y1: y(0), x2: W - 6, y2: y(0), stroke: "#555" }));
+    svg.appendChild(el("text", { x: 4, y: y(hi) + 4, "font-size": 11 }, String(+hi.toPrecision(4))));
+    svg.appendChild(el("text", { x: 4, y: y(lo), "font-size": 11 }, String(+lo.toPrecision(4))));
+    ch.bars.forEach(function (q, i) {
+      var x = L + i * bw + bw * 0.15, g = el("g", {});
+      if (q.bar) { var rc = el("rect", { x: x, y: Math.min(y(q.v), y(0)), width: bw * 0.7, height: Math.abs(y(q.v) - y(0)), fill: "#7a2e22" }); rc.appendChild(el("title", {}, q.a + ": " + q.v)); g.appendChild(rc); }
+      else { var zt = el("text", { x: x + bw * 0.35, y: y(0) - 4, "font-size": 10, "text-anchor": "middle" }, "0"); zt.appendChild(el("title", {}, q.a + ": 0")); g.appendChild(zt); }
+      g.appendChild(el("text", { x: x + bw * 0.35, y: H2 - 12, "font-size": 10, "text-anchor": "middle" }, q.a));
+      svg.appendChild(g);
+    });
+    out.appendChild(svg);
+    var note = document.createElement("p"); note.className = "cal-meta";
+    note.textContent = ch.pts.length + " values charted from " + rg.label + (ch.skipped ? ", " + ch.skipped + " cells skipped (blank, text or error)" : "") + ". The chart follows the sheet as you edit and is not saved.";
+    out.appendChild(note);
+  }
   document.getElementById("chart-draw").addEventListener("click", function () {
-    out.textContent = "";
     var m = /^\s*([A-Za-z]{1,2}[0-9]{1,4})\s*:\s*([A-Za-z]{1,2}[0-9]{1,4})\s*$/.exec(document.getElementById("chart-range").value);
     var p1 = m && F.parseAddr(m[1].toUpperCase()), p2 = m && F.parseAddr(m[2].toUpperCase());
+    chartRange = null; out.textContent = "";
     if (!p1 || !p2) { out.textContent = "Enter a range like A1:A8."; return; }
     var c1 = Math.min(p1.col, p2.col), c2 = Math.max(p1.col, p2.col), r1 = Math.min(p1.row, p2.row), r2 = Math.max(p1.row, p2.row);
     if (c1 !== c2 && r1 !== r2) { out.textContent = "Use one row or one column."; return; }
     if ((c2 - c1 + 1) * (r2 - r1 + 1) > 50) { out.textContent = "A chart takes up to 50 cells."; return; }
-    var sh = new F.Sheet(cells), pts = [], skipped = 0, rr, cc;
-    for (rr = r1; rr <= r2; rr++) for (cc = c1; cc <= c2; cc++) {
-      var ad = String.fromCharCode(64 + cc) + rr, v = sh.get(ad);
-      if (typeof v === "number" && isFinite(v)) pts.push({ a: ad, v: v }); else skipped++;
-    }
-    if (!pts.length) { out.textContent = "No numbers in that range."; return; }
-    var W = 560, H = 260, L = 48, B = 30, T = 14, lo = Math.min(0, Math.min.apply(null, pts.map(function (q) { return q.v; }))), hi = Math.max(0, Math.max.apply(null, pts.map(function (q) { return q.v; })));
-    if (hi === lo) hi = lo + 1;
-    var y = function (v) { return T + (H - T - B) * (hi - v) / (hi - lo); }, bw = (W - L - 10) / pts.length;
-    var svg = el("svg", { viewBox: "0 0 " + W + " " + H, role: "img", "aria-label": "Bar chart of " + m[1].toUpperCase() + " to " + m[2].toUpperCase() });
-    svg.appendChild(el("line", { x1: L, y1: y(0), x2: W - 6, y2: y(0), stroke: "#555" }));
-    svg.appendChild(el("text", { x: 4, y: y(hi) + 4, "font-size": 11 }, String(+hi.toPrecision(4))));
-    svg.appendChild(el("text", { x: 4, y: y(lo), "font-size": 11 }, String(+lo.toPrecision(4))));
-    pts.forEach(function (q, i) {
-      var x = L + i * bw + bw * 0.15, top = Math.min(y(q.v), y(0)), h = Math.abs(y(q.v) - y(0));
-      var bar1 = el("rect", { x: x, y: top, width: bw * 0.7, height: Math.max(h, 1), fill: "#7a2e22" }); bar1.appendChild(el("title", {}, q.a + ": " + q.v));
-      svg.appendChild(bar1); svg.appendChild(el("text", { x: x + bw * 0.35, y: H - 12, "font-size": 10, "text-anchor": "middle" }, q.a));
-    });
-    out.appendChild(svg);
-    var note = document.createElement("p"); note.className = "cal-meta";
-    note.textContent = pts.length + " values charted" + (skipped ? ", " + skipped + " cells skipped (blank, text or error)" : "") + ". The chart is drawn from the current sheet and is not saved.";
-    out.appendChild(note);
+    chartRange = { c1: c1, c2: c2, r1: r1, r2: r2, label: m[1].toUpperCase() + ":" + m[2].toUpperCase() };
+    drawChart();
   });
-  show(); buttons();
+  show(); buttons(); status.textContent = "";
 })();
