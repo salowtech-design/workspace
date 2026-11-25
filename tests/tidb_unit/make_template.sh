@@ -22,4 +22,4 @@ PYEOF
 kill $TP; for i in $(seq 1 30); do kill -0 $TP 2>/dev/null || break; sleep 1; done
 if kill -0 $TP 2>/dev/null; then echo "FAIL: tidb-server still alive after 30 s, template NOT usable"; rm -rf "$WORK"/tidb_template; exit 1; fi
 echo "template shutdown confirmed (pid $TP exited)"
-rm -f "$WORK"/tidb_template.meta; echo "template head=$(git log --oneline -1 | cut -c1-7) identity_sha=$(find apps \( -path '*migrations/0*.py' -o -name models.py \) | sort | xargs sha256sum | sha256sum | cut -c1-16) tidb=$TVER" > "$WORK"/tidb_template.meta; rm -rf $TMP; du -sh "$WORK"/tidb_template
+rm -f "$WORK"/tidb_template.meta; echo "template head=$(git log --oneline -1 | cut -c1-7) identity_sha=$(find apps \( -path '*migrations/0*.py' -o -name models.py -o -path '*/models/*.py' \) | sort | xargs sha256sum | sha256sum | cut -c1-16) tidb=$TVER" > "$WORK"/tidb_template.meta; rm -rf $TMP; du -sh "$WORK"/tidb_template
