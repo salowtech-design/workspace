@@ -22,10 +22,13 @@
     if (e.type === "rect") g.appendChild(el("rect", { x: e.x, y: e.y, width: e.w, height: e.h, fill: c }));
     else if (e.type === "ellipse") g.appendChild(el("ellipse", { cx: e.x + e.w / 2, cy: e.y + e.h / 2, rx: e.w / 2, ry: e.h / 2, fill: c }));
     if (e.text || e.type === "text") {
-      var lines = S.wrapLines(e.text, e.size, e.type === "text" ? e.w : e.w - 8), lh = e.size * 1.2, shape = e.type !== "text";
+      var lines = S.wrapLines(e.text, e.size, e.type === "text" ? e.w : e.w - 8, e.b === true), lh = e.size * 1.2, shape = e.type !== "text";
       var top = shape ? e.y + e.h / 2 - (lines.length * lh) / 2 : e.y;
-      var t = el("text", { x: shape ? e.x + e.w / 2 : e.x, "font-size": e.size, fill: S.textColor(d, e), "text-anchor": shape ? "middle" : "start", "font-family": "sans-serif" });
-      lines.forEach(function (ln, k) { t.appendChild(el("tspan", { x: shape ? e.x + e.w / 2 : e.x, y: top + e.size + k * lh }, ln)); });
+      var al = e.al || (shape ? "center" : "left"), tx = al === "center" ? e.x + e.w / 2 : al === "right" ? e.x + e.w - (shape ? 4 : 0) : e.x + (shape ? 4 : 0);
+      var ta = { x: tx, "font-size": e.size, fill: S.textColor(d, e), "text-anchor": al === "center" ? "middle" : al === "right" ? "end" : "start", "font-family": "sans-serif" };
+      if (e.b) ta["font-weight"] = "bold"; if (e.i) ta["font-style"] = "italic";
+      var t = el("text", ta);
+      lines.forEach(function (ln, k) { t.appendChild(el("tspan", { x: tx, y: top + e.size + k * lh }, ln)); });
       g.appendChild(t);
     }
   }
@@ -118,6 +121,7 @@
     var e = sel(), props = $("sl-props"); props.disabled = !e; $("sl-del-el").disabled = !e;
     var pos = e ? tgt().indexOf(e) : -1; $("sl-back").disabled = pos <= 0; $("sl-fwd").disabled = pos < 0 || pos >= tgt().length - 1;
     ["text", "size", "x", "y", "w", "h", "fill"].forEach(function (f) { var inp = $("sl-" + f); if (document.activeElement !== inp) inp.value = e ? e[f] : ""; });
+    $("sl-bold").checked = !!(e && e.b); $("sl-italic").checked = !!(e && e.i); $("sl-align").value = e && e.al ? e.al : "default";
     var nt = $("sl-notes"); if (document.activeElement !== nt) nt.value = d.slides[cur].notes || "";
     $("sl-theme").value = d.theme; $("sl-undo").disabled = !H.past.length; $("sl-redo").disabled = !H.future.length;
     $("sl-up").disabled = cur === 0; $("sl-down").disabled = cur >= d.slides.length - 1; $("sl-del").disabled = d.slides.length <= 1; $("sl-dup").disabled = d.slides.length >= S.MAX_SLIDES;
@@ -130,7 +134,7 @@
     $("sl-notes-label").textContent = editMaster ? "Speaker notes (not available while editing the master; leave the master to edit this slide's notes)" : "Speaker notes for this slide";
     var mu = editMaster ? [] : S.masterOf(d, cur); $("sl-master-under").textContent = mu.length ? "Master items drawn under this slide (not selectable here): " + S.describeEls(mu).join("; ") : "";
     status.textContent = H.note;
-    var cs = sel(); if (cs && cs.text) { var ln = S.wrapLines(cs.text, cs.size, cs.type === "text" ? cs.w : cs.w - 8); if (S.textHeight(ln, cs.size) > cs.h) status.textContent += " The text is estimated to run past the item's edges."; }
+    var cs = sel(); if (cs && cs.text) { var ln = S.wrapLines(cs.text, cs.size, cs.type === "text" ? cs.w : cs.w - 8, cs.b === true); if (S.textHeight(ln, cs.size) > cs.h) status.textContent += " The text is estimated to run past the item's edges."; }
   }
   $("sl-trans").addEventListener("change", function () { var n = S.ops.setTransition(H.deck, cur, this.value); if (!n || !apply(n, this.value === "fade" ? "This slide now fades in during Present." : "This slide has no transition.")) render(); });
   $("sl-master").addEventListener("click", function () { editMaster = !editMaster; selId = null; render(); status.textContent = editMaster ? "Editing the master. Items you add here appear on every slide that shows the master." : "Back to editing slides."; });
@@ -145,6 +149,9 @@
       else if (now && f !== "text" && !isFinite(Number(asked))) { status.textContent = "Enter a number for " + f.toUpperCase() + ". Kept " + now[f] + "."; this.value = now[f]; }
     });
   });
+  $("sl-bold").addEventListener("change", function () { var e = sel(); if (e) apply(eop("updateElement", e.id, { b: this.checked }), this.checked ? "Bold on." : "Bold off."); });
+  $("sl-italic").addEventListener("change", function () { var e = sel(); if (e) apply(eop("updateElement", e.id, { i: this.checked }), this.checked ? "Italic on." : "Italic off."); });
+  $("sl-align").addEventListener("change", function () { var e = sel(); if (e) apply(eop("updateElement", e.id, { al: this.value }), "Align set to " + this.value + "."); });
   fill.addEventListener("change", function () { var e = sel(); if (e) apply(eop("updateElement", e.id, { fill: fill.value })); });
   ["text", "rect", "ellipse"].forEach(function (t) { $("sl-add-" + t).addEventListener("click", function () { var r = eop("addElement", t); if (!r) { status.textContent = editMaster ? "The master holds up to " + S.MAX_MASTER + " items." : "A slide holds up to " + S.MAX_EL + " items."; return; } selId = r.id; apply(r.deck); }); });
   [["sl-back", -1, "Item sent backward."], ["sl-fwd", 1, "Item brought forward."]].forEach(function (c) {

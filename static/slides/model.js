@@ -30,25 +30,32 @@
     return { id: uid(), elements: L.items.map(function (it) { var e = newEl("text"); ["text", "x", "y", "w", "h", "size"].forEach(function (k) { e[k] = it[k]; }); return e; }), notes: "" };
   }
   function newDeck() { return { v: 1, theme: "light", slides: [newSlide()] }; }
+  var ALIGNS = ["left", "center", "right"];
+  function styled(e) { return e.b === true || e.i === true || has(e, "al"); }
   function fixEl(e) {
     if (!e || typeof e !== "object" || TYPES.indexOf(e.type) < 0 || typeof e.id !== "string" || !ID_RE.test(e.id)) return null;
     var text = typeof e.text === "string" ? cut(e.text, MAX_TEXT) : "";
     var w = clamp(e.w, 10, W), h = clamp(e.h, 10, H);
-    return { id: e.id, type: e.type, x: clamp(e.x, 0, W - w), y: clamp(e.y, 0, H - h), w: w, h: h, fill: FILLS.indexOf(e.fill) >= 0 ? e.fill : "theme", text: text, size: clamp(e.size, 8, 120) };
+    var o = { id: e.id, type: e.type, x: clamp(e.x, 0, W - w), y: clamp(e.y, 0, H - h), w: w, h: h, fill: FILLS.indexOf(e.fill) >= 0 ? e.fill : "theme", text: text, size: clamp(e.size, 8, 120) };
+    // Text style. Only set fields are kept, so an unstyled item serialises exactly as before and an unstyled deck stays version 1 to 3.
+    if (e.b === true) o.b = true;
+    if (e.i === true) o.i = true;
+    if (ALIGNS.indexOf(e.al) >= 0) o.al = e.al;  // unset means left for text items and centre for shapes
+    return o;
   }
   // returns a clean deck or null; unknown fields are dropped and numbers are clamped
   function validate(d) {
-    if (!d || typeof d !== "object" || Array.isArray(d) || (has(d, "v") && d.v !== 1 && d.v !== 2 && d.v !== 3) || !Array.isArray(d.slides) || !d.slides.length || d.slides.length > MAX_SLIDES) return null;
-    var TRANS = ["none", "fade"], ids = Object.create(null), out = { v: 1, theme: has(THEMES, d.theme) ? d.theme : "light", slides: [] }, masterEls = [], anyHide = false, anyTrans = false;
+    if (!d || typeof d !== "object" || Array.isArray(d) || (has(d, "v") && d.v !== 1 && d.v !== 2 && d.v !== 3 && d.v !== 4) || !Array.isArray(d.slides) || !d.slides.length || d.slides.length > MAX_SLIDES) return null;
+    var TRANS = ["none", "fade"], ids = Object.create(null), out = { v: 1, theme: has(THEMES, d.theme) ? d.theme : "light", slides: [] }, masterEls = [], anyHide = false, anyTrans = false, anyStyle = false;
     if (has(d, "master")) {
       var m = d.master; if (!m || typeof m !== "object" || Array.isArray(m) || !Array.isArray(m.elements) || m.elements.length > MAX_MASTER) return null;
-      for (var k = 0; k < m.elements.length; k++) { var me = fixEl(m.elements[k]); if (!me || ids[me.id]) return null; ids[me.id] = true; masterEls.push(me); }
+      for (var k = 0; k < m.elements.length; k++) { var me = fixEl(m.elements[k]); if (!me || ids[me.id]) return null; ids[me.id] = true; masterEls.push(me); if (styled(me)) anyStyle = true; }
     }
     for (var i = 0; i < d.slides.length; i++) {
       var s = d.slides[i];
       if (!s || typeof s !== "object" || typeof s.id !== "string" || !ID_RE.test(s.id) || !Array.isArray(s.elements) || s.elements.length > MAX_EL || ids[s.id]) return null;
       ids[s.id] = true; var els = [];
-      for (var j = 0; j < s.elements.length; j++) { var e = fixEl(s.elements[j]); if (!e || ids[e.id]) return null; ids[e.id] = true; els.push(e); }
+      for (var j = 0; j < s.elements.length; j++) { var e = fixEl(s.elements[j]); if (!e || ids[e.id]) return null; ids[e.id] = true; els.push(e); if (styled(e)) anyStyle = true; }
       if (has(s, "hideMaster") && typeof s.hideMaster !== "boolean") return null;
       var ns = { id: s.id, elements: els, notes: typeof s.notes === "string" ? cut(s.notes, MAX_NOTES) : "" };
       if (s.hideMaster === true) { ns.hideMaster = true; anyHide = true; }
@@ -60,6 +67,8 @@
     // Version 3 when a transition is used: the previous (master) version only knows 1 and 2 and refuses 3, so it never drops a transition silently.
     if (masterEls.length || anyHide) out.v = 2;
     if (anyTrans) out.v = 3;
+    // Version 4 when any item is styled: older code only knows 1 to 3 and refuses 4, so it never drops a style silently.
+    if (anyStyle) out.v = 4;
     return out;
   }
   // how many text fields in a raw (unvalidated) deck are longer than the limits and so will be shortened
@@ -89,8 +98,13 @@
     updateElement: function (d, i, id, patch) {
       var s = d.slides[i]; if (!s) return null; var k = -1; s.elements.forEach(function (e, x) { if (e.id === id) k = x; }); if (k < 0) return null;
       var n = copy(d), merged = Object.assign({}, n.slides[i].elements[k]);
-      ["x", "y", "w", "h", "size", "fill", "text"].forEach(function (f) { if (has(patch, f)) merged[f] = patch[f]; });
-      var fixed = fixEl(merged); n.slides[i].elements[k] = fixed; return n;
+      ["x", "y", "w", "h", "size", "fill", "text", "b", "i", "al"].forEach(function (f) { if (has(patch, f)) merged[f] = patch[f]; });
+      if (has(patch, "al") && ALIGNS.indexOf(patch.al) < 0 && patch.al !== "default") return null;
+      if ((has(patch, "b") && typeof patch.b !== "boolean") || (has(patch, "i") && typeof patch.i !== "boolean")) return null;
+      if (has(patch, "b") && !patch.b) delete merged.b;
+      if (has(patch, "i") && !patch.i) delete merged.i;
+      if (has(patch, "al") && patch.al === "default") delete merged.al;
+      var fixed = fixEl(merged); n.slides[i].elements[k] = fixed; return normVersion(n);
     },
     // dir -1 sends the item one step back (drawn earlier, underneath), +1 brings it one step forward. Null at the ends.
     moveElement: function (d, i, id, dir) {
@@ -108,7 +122,8 @@
   function normVersion(n) {
     var any = n.slides.some(function (s) { return s.hideMaster === true; }), trans = n.slides.some(function (s) { return s.transition === "fade"; });
     if (n.master && !n.master.elements.length) delete n.master;
-    n.v = trans ? 3 : (n.master || any ? 2 : 1); return n;
+    var sty = n.slides.some(function (s) { return s.elements.some(styled); }) || (n.master && n.master.elements.some(styled));
+    n.v = sty ? 4 : trans ? 3 : (n.master || any ? 2 : 1); return n;
   }
   function viaMaster(d, fn, adding) {
     var els = d.master ? d.master.elements : [];
@@ -178,8 +193,9 @@
   // pair of UTF-16 halves is never split. No text is dropped: item text is capped at 1000 characters.
   function isWide(c) { return (c >= 0x1100 && c <= 0x115f) || (c >= 0x2e80 && c <= 0xa4cf) || (c >= 0xac00 && c <= 0xd7a3) || (c >= 0xf900 && c <= 0xfaff) || (c >= 0xfe30 && c <= 0xfe6f) || (c >= 0xff00 && c <= 0xff60) || (c >= 0xffe0 && c <= 0xffe6) || (c >= 0x1f300 && c <= 0x1faff) || (c >= 0x20000 && c <= 0x3fffd); }
   function units(ch) { return isWide(ch.codePointAt(0)) ? 2 : 1; }
-  function wrapLines(text, size, width) {
-    var per = Math.max(2, Math.floor(width / (size * 0.55))), out = [], line = [], used = 0;
+  // bold is wider, so a bold item is wrapped with a wider estimate. Wrapping is approximate either way.
+  function wrapLines(text, size, width, bold) {
+    var per = Math.max(2, Math.floor(width / (size * (bold ? 0.6 : 0.55)))), out = [], line = [], used = 0;
     function flush() { if (line.length) out.push(line.join("")); line = []; used = 0; }
     String(text).split(/\s+/).forEach(function (word) {
       if (!word) return;

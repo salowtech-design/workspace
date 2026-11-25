@@ -31,7 +31,10 @@
   // L is the pdf-lib global, S the SalowSlides model. Returns Promise<Uint8Array>, or rejects with an Error whose code is "chars".
   function build(L, S, deck) {
     return L.PDFDocument.create().then(function (doc) {
-      return doc.embedFont(L.StandardFonts.Helvetica).then(function (font) {
+      var SF = L.StandardFonts;
+      // Regular plus the three styled standard fonts (no font file is embedded); all four share one character set.
+      return Promise.all([doc.embedFont(SF.Helvetica), doc.embedFont(SF.HelveticaBold), doc.embedFont(SF.HelveticaOblique), doc.embedFont(SF.HelveticaBoldOblique)]).then(function (fs) {
+        var font = fs[0], fontFor = function (e) { return e.b && e.i ? fs[3] : e.b ? fs[1] : e.i ? fs[2] : fs[0]; };
         var bad = unsupported(font, deck);
         if (bad.length) { var err = new Error(refusal(bad)); err.code = "chars"; err.items = bad; throw err; }
         var th = S.THEMES[deck.theme], W = S.W, H = S.H;
@@ -44,11 +47,12 @@
             if (e.type === "rect") pg.drawRectangle({ x: e.x, y: H - e.y - e.h, width: e.w, height: e.h, color: rgbOf(L, c) });
             else if (e.type === "ellipse") pg.drawEllipse({ x: e.x + e.w / 2, y: H - e.y - e.h / 2, xScale: e.w / 2, yScale: e.h / 2, color: rgbOf(L, c) });
             if (!e.text) return;
-            var shape = e.type !== "text", lines = S.wrapLines(e.text, e.size, shape ? e.w - 8 : e.w), lh = e.size * 1.2;
+            var shape = e.type !== "text", lines = S.wrapLines(e.text, e.size, shape ? e.w - 8 : e.w, e.b === true), lh = e.size * 1.2, ef = fontFor(e), al = e.al || (shape ? "center" : "left");
             var top = shape ? e.y + e.h / 2 - (lines.length * lh) / 2 : e.y, col = rgbOf(L, S.textColor(deck, e));
             lines.forEach(function (ln, k) {
-              var x = shape ? e.x + e.w / 2 - font.widthOfTextAtSize(ln, e.size) / 2 : e.x;
-              pg.drawText(ln, { x: x, y: H - (top + e.size + k * lh), size: e.size, font: font, color: col });
+              var lw = ef.widthOfTextAtSize(ln, e.size), inset = shape ? 4 : 0;
+              var x = al === "center" ? e.x + e.w / 2 - lw / 2 : al === "right" ? e.x + e.w - inset - lw : e.x + inset;
+              pg.drawText(ln, { x: x, y: H - (top + e.size + k * lh), size: e.size, font: ef, color: col });
             });
           });
         });

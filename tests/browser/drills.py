@@ -2556,6 +2556,107 @@ def slides_drag(ctx):  # noqa: C901
     pg.set_viewport_size({"width": 1100, "height": 900})
 
 
+def slides_style(ctx):  # noqa: C901
+    """Bold, italic and alignment: stored as deck version 4 only when used, drawn on the canvas, in Present and in the PDF."""
+    pg = fresh(ctx, "/slides/")
+    KEY = "document.getElementById('slide-root').dataset.storeKey"
+
+    def deck():
+        return pg.evaluate("JSON.parse(localStorage.getItem(%s))" % KEY)
+
+    def last():
+        return deck()["slides"][0]["elements"][-1]
+
+    pg.click("#sl-add-text")
+    pg.fill("#sl-text", "Styled words")
+    pg.press("#sl-text", "Tab")
+    check(
+        "style: an unstyled deck is stored as version 1 without style fields",
+        deck()["v"] == 1 and "b" not in last() and "al" not in last(),
+    )
+    pg.check("#sl-bold")
+    pg.check("#sl-italic")
+    pg.select_option("#sl-align", "center")
+    e = last()
+    check(
+        "style: bold, italic and centre are stored and the deck becomes version 4",
+        deck()["v"] == 4 and e.get("b") is True and e.get("i") is True and e.get("al") == "center",
+        str((deck()["v"], e)),
+    )
+    t = pg.evaluate(
+        "(()=>{const t=document.querySelector('#sl-canvas-wrap svg text');return [t.getAttribute('font-weight'),t.getAttribute('font-style'),t.getAttribute('text-anchor')];})()"
+    )
+    check(
+        "style: the canvas draws bold, italic and centred text",
+        t == ["bold", "italic", "middle"],
+        str(t),
+    )
+    pg.click("#sl-undo")
+    pg.click("#sl-undo")
+    pg.click("#sl-undo")
+    check(
+        "style: three Undos remove the three styles and the deck goes back to version 1",
+        deck()["v"] == 1 and "b" not in last() and "i" not in last() and "al" not in last(),
+        str(last()),
+    )
+    pg.click("#sl-redo")
+    pg.click("#sl-redo")
+    pg.click("#sl-redo")
+    pg.reload()
+    pg.wait_for_timeout(400)
+    pg.click("#sl-items button")
+    check(
+        "style: the styles survive a reload and the controls show them",
+        deck()["v"] == 4
+        and pg.is_checked("#sl-bold")
+        and pg.is_checked("#sl-italic")
+        and pg.input_value("#sl-align") == "center",
+    )
+    if SHOTS:
+        pg.evaluate("document.getElementById('sl-canvas-wrap').scrollIntoView({block:'center'})")
+        pg.screenshot(path=os.path.join(SHOTS, "slides-style-68.png"), full_page=False)
+        pg.set_viewport_size({"width": 390, "height": 800})
+        pg.wait_for_timeout(200)
+        pg.evaluate("document.getElementById('sl-canvas-wrap').scrollIntoView({block:'start'})")
+        pg.screenshot(path=os.path.join(SHOTS, "slides-style-68-phone.png"), full_page=False)
+        pg.set_viewport_size({"width": 1100, "height": 900})
+
+    pg.select_option("#sl-align", "right")
+    pg.select_option("#sl-align", "default")
+    check("style: Default align drops the field", "al" not in last(), str(last()))
+    # Present draws the styles
+    pg.click("#sl-present")
+    pg.wait_for_timeout(300)
+    ps = pg.evaluate(
+        "(()=>{const t=document.querySelector('#sl-show-canvas text');return t?[t.getAttribute('font-weight'),t.getAttribute('font-style')]:null;})()"
+    )
+    check("style: Present draws bold and italic", ps == ["bold", "italic"], str(ps))
+    pg.click("#sl-show-exit")
+    pg.wait_for_timeout(200)
+    # the PDF uses the bold-oblique standard font
+    with pg.expect_download() as dl:
+        pg.click("#sl-pdf")
+    raw = open(dl.value.path(), "rb").read()
+    if SHOTS:
+        open(f"{SHOTS}/slides-style-68.pdf", "wb").write(raw)
+    check(
+        "style: the PDF names Helvetica-BoldOblique for a bold italic item",
+        b"Helvetica-BoldOblique" in raw,
+    )
+    pg.reload()
+    pg.wait_for_timeout(300)
+    # a master item can be styled too
+    pg.click("#sl-master")
+    pg.click("#sl-add-text")
+    pg.check("#sl-bold")
+    d = pg.evaluate("JSON.parse(localStorage.getItem(%s))" % KEY)
+    check(
+        "style: a styled master item makes the deck version 4",
+        d["v"] == 4 and d["master"]["elements"][0].get("b") is True,
+        str(d["v"]),
+    )
+
+
 def slides_master(ctx):  # noqa: C901
     import shutil
     import subprocess
@@ -3294,6 +3395,7 @@ DRILLS = {
     "sheets_fill": sheets_fill,
     "sheets_headers": sheets_headers,
     "slides_drag": slides_drag,
+    "slides_style": slides_style,
     "sheets_tabs": sheets_tabs,
     "sheets_chart": sheets_chart,
     "sheets_validation": sheets_validation,
