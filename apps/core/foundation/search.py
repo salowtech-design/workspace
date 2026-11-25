@@ -45,3 +45,29 @@ def search(user: Any, query: str, *, types: Optional[Iterable[str]] = None, limi
                 if len(hits) >= limit:
                     return hits
     return hits
+
+
+def search_grouped(
+    user: Any, query: str, *, types: Optional[Iterable[str]] = None, per_module: int = 20
+):
+    """Fair allocation: each searcher gets its own cap, so one module cannot starve another.
+
+    Returns {searcher_name: (hits, truncated)} in name order. truncated is True when that module
+    had more permitted matches than per_module (the extras are not shown). The same can() backstop
+    runs on every hit."""
+    query = (query or "").strip()
+    out: dict[str, tuple[list[SearchHit], bool]] = {}
+    if len(query) < 2:
+        return out
+    wanted = set(types) if types else None
+    for name, fn in sorted(_SEARCHERS.items()):
+        if wanted and name not in wanted:
+            continue
+        hits: list[SearchHit] = []
+        for rtype, obj, title, url in fn(user, query, (per_module + 1) * 3):
+            if can(user, "view", rtype, obj):
+                hits.append(SearchHit(rtype, str(getattr(obj, "pk", "")), title, url))
+                if len(hits) > per_module:
+                    break
+        out[name] = (hits[:per_module], len(hits) > per_module)
+    return out

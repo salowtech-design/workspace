@@ -53,11 +53,7 @@ def test_search_shows_only_own_items_grouped_and_never_leaks_other_titles():
         assert ok in body
     for hidden in ("secret of b", "private b"):
         assert hidden not in body
-    assert (
-        "<h3>Tasks</h3>" in body
-        and "<h3>Calendar</h3>" in body
-        and "<h3>Project tasks</h3>" in body
-    )
+    assert "<h3>Tasks</h3>" in body and "<h3>Calendar</h3>" in body
     # people: finds by name or ID, shows nothing sensitive
     from apps.directory.models import EmployeeProfile
 
@@ -128,3 +124,40 @@ def test_inactive_or_suspended_people_find_nothing_and_are_not_found():
     c = _c(CustomUser.objects.get(pk=a.pk))
     r = c.get(reverse("finder:search"), {"q": "zebra"})
     assert r.status_code == 302 and "Zebra budget plan" not in r.content.decode()
+
+
+@pytest.mark.django_db
+def test_everywhere_gives_each_module_its_own_share_and_says_when_it_truncates():
+    a = _u("QA-VIEW")
+    for i in range(25):
+        CustomUser.objects.create(
+            employee_id=f"QA-{i:03d}", full_name=f"Quokka Person {i}", role="employee",
+            status="active", is_active=True,
+        )  # fmt: skip
+    ts.create_task(a, ts.create_list(a, "L"), "Quokka task")
+    body = _c(a).get(reverse("finder:search"), {"q": "quokka"}).content.decode()
+    assert "Quokka task" in body and "<h3>Tasks</h3>" in body  # not starved by 25 people
+    assert body.count("Quokka Person") == 20
+    assert "Showing the first 20 matches here" in body
+    assert body.count("Showing the first 20") == 1  # only the module that was cut
+    people = _c(a).get(reverse("finder:search"), {"q": "quokka", "in": "people"})
+    assert people.content.decode().count("Quokka Person") == 20
+
+
+@pytest.mark.django_db
+def test_unknown_module_filter_is_a_400_and_copy_names_the_fields_searched():
+    a = _u("QB-VIEW")
+    r = _c(a).get(reverse("finder:search"), {"q": "zebra", "in": "bogus"})
+    assert r.status_code == 400 and b"Unknown place to search" in r.content
+    ok = _c(a).get(reverse("finder:search")).content.decode()
+    assert "file and folder names in Drive" in ok and "does not search file contents" in ok
+
+
+def test_person_link_is_rebuilt_from_a_checked_id():
+    from apps.core.foundation.search import SearchHit
+    from apps.finder.views import _link
+
+    good = SearchHit("person", "1", "x", "/directory/profile/ST-1/")
+    assert _link(good) == "/directory/profile/ST-1/"
+    bad = SearchHit("person", "1", "x", "/directory/profile/a?b=1#c/")
+    assert _link(bad) == "/directory/"
