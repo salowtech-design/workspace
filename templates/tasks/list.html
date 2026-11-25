@@ -20,9 +20,10 @@
   <div class="task-row{% if t.status == 'completed' %} done{% endif %}">
     <form method="post" action="{% url 'tasks:toggle' t.public_id %}" class="tasks-inline">{% csrf_token %}
       <button class="task-check" type="submit" aria-label="{% if t.status == 'completed' %}Mark open{% else %}Mark done{% endif %}">{% if t.status == 'completed' %}&#10003;{% else %}&#9675;{% endif %}</button></form>
-    <span class="task-title">{{ t.title }}</span>
+    <span class="task-title">{{ t.title }}{% if t.notes %}<span class="task-notes">{{ t.notes|truncatechars:160 }}</span>{% endif %}</span>
     {% if t.due_date %}<span class="task-meta">Due {{ t.due_date|date:"j M Y" }}</span>{% endif %}
     {% if t.assignee %}<span class="task-meta">Given to {{ t.assignee.full_name }}</span>{% endif %}
+    <a class="btn btn-outline btn-small" href="{% url 'tasks:edit' t.public_id %}">Edit</a>
     <a class="btn btn-outline btn-small" href="{% url 'tasks:delete' t.public_id %}">Delete</a>
     {% if not subs and not t.assignee %}
     <form method="post" action="{% url 'tasks:assign' t.public_id %}" class="tasks-inline">{% csrf_token %}

@@ -121,6 +121,8 @@ def update_task(user, task, expected_version, **changes):
         raise ValidationError("That field cannot be edited.")
     task = _locked_task(user, task, "edit")
     fields = {}
+    if not changes:
+        return task  # nothing sent: no version bump, no audit row
     if "title" in changes:
         fields["title"] = _clean_title(changes["title"])
     if "notes" in changes:

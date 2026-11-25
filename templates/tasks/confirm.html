@@ -5,7 +5,7 @@
 <div class="card tasks">
   <div class="tasks-head"><h2>Delete this {{ what }}?</h2></div>
   <p><strong>{{ name }}</strong></p>
-  <p class="task-meta">{% if what == "list" %}This hides the list and its {{ extra }} task{{ extra|pluralize }} from everyone, including anyone it was given to.{% else %}This hides the task{% if extra %} and its {{ extra }} subtask{{ extra|pluralize }}{% endif %} from everyone, including anyone it was given to.{% endif %}
+  <p class="task-meta">{% if what == "list" %}This hides the list and every task in it (about {{ extra }} right now; anything added before you confirm goes too) from everyone, including anyone it was given to.{% else %}This hides the task and its subtasks{% if extra %} (about {{ extra }} right now){% endif %} from everyone, including anyone it was given to.{% endif %}
   Nothing is permanently erased. A way to bring deleted items back is not built yet, so for now only the records remain.</p>
   <form method="post" action="{{ post_url }}" class="tasks-inline">{% csrf_token %}<input type="hidden" name="confirm" value="yes">
     <button class="btn btn-small" type="submit">Delete</button>

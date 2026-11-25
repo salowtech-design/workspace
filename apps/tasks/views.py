@@ -141,9 +141,11 @@ def toggle(request, task_id):
 
 
 @login_required
-@require_POST
+@require_http_methods(["GET", "POST"])
 def edit(request, task_id):
     task = svc.get_task(request.user, task_id, "edit")
+    if request.method == "GET":
+        return render(request, "tasks/edit.html", {"task": task, "tab": "mine"})
     try:
         version = int(request.POST.get("version", ""))
         changes = {k: request.POST[k] for k in ("title", "notes") if k in request.POST}
@@ -153,22 +155,24 @@ def edit(request, task_id):
         messages.error(
             request, " ".join(getattr(exc, "messages", ["Check the fields and try again."]))
         )
-        return _back(request, task)
-    _run(request, svc.update_task, request.user, task, version, ok="Saved.", **changes)
+        return redirect("tasks:edit", task_id=task.public_id)
+    done = _run(request, svc.update_task, request.user, task, version, ok="Saved.", **changes)
+    if done is None:  # refused or stale: stay on the form with the message
+        return redirect("tasks:edit", task_id=task.public_id)
     return _back(request, task)
 
 
-ASSIGN_LIMIT = 30  # give actions per person per minute (shares the Drive limiter)
+ASSIGN_LIMIT = 30  # give actions per person per minute (own counter, same core limiter as Drive)
 NEUTRAL = "That person cannot be given tasks. Check the employee ID."
 
 
 @login_required
 @require_POST
 def assign_task(request, task_id):
-    from apps.drive.views import _share_throttled
+    from apps.core.foundation.throttle import throttled
 
     task = svc.get_task(request.user, task_id, "assign")
-    if _share_throttled(request.user, prefix="tasks-assign"):
+    if throttled(request.user, "tasks-assign", ASSIGN_LIMIT):
         messages.error(request, "Too many changes in a minute. Wait and try again.")
         return _back(request, task)
     eid = (request.POST.get("employee_id") or "").strip()

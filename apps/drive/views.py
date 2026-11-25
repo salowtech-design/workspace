@@ -164,39 +164,12 @@ SHARE_LIMIT = 30  # share/unshare actions per person per window
 SHARE_WINDOW_SECONDS = 60
 
 
-def _share_throttled(user, prefix="drive-share"):
-    """Per-person durable counter on the shared RateLimitBucket table (row-locked, so it holds across workers)."""
-    from datetime import timedelta
+def _share_throttled(user):
+    from apps.core.foundation.throttle import throttled
 
-    from django.db import IntegrityError, transaction
-    from django.utils import timezone
-
-    from apps.core.models import RateLimitBucket
-
-    key = f"{prefix}:{user.pk}"
-    now = timezone.now()
-    for _ in range(2):
-        with transaction.atomic():
-            bucket = RateLimitBucket.objects.select_for_update().filter(bucket_key=key).first()
-            if bucket is None:
-                try:
-                    with transaction.atomic():
-                        RateLimitBucket.objects.create(
-                            bucket_key=key,
-                            count=1,
-                            reset_at=now + timedelta(seconds=SHARE_WINDOW_SECONDS),
-                        )
-                    return False
-                except IntegrityError:
-                    continue
-            if now >= bucket.reset_at:
-                bucket.count = 1
-                bucket.reset_at = now + timedelta(seconds=SHARE_WINDOW_SECONDS)
-            else:
-                bucket.count += 1
-            bucket.save(update_fields=["count", "reset_at", "updated_at"])
-            return bucket.count > SHARE_LIMIT
-    return True  # could not take a slot twice in a row: refuse rather than skip the limit
+    return throttled(
+        user, "drive-share", SHARE_LIMIT, SHARE_WINDOW_SECONDS
+    )  # limits read at call time
 
 
 def _person(employee_id):

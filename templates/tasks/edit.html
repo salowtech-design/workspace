@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block title %}Edit task: Salow Tasks{% endblock %}
+{% block extra_head %}<link rel="stylesheet" href="/static/css/tasks.css">{% endblock %}
+{% block content %}
+<div class="card tasks">
+  <div class="tasks-head"><h2>Edit task</h2></div>
+  <form method="post" action="{% url 'tasks:edit' task.public_id %}" class="tasks-form">{% csrf_token %}
+    <input type="hidden" name="version" value="{{ task.version }}">
+    <label>Title<input type="text" name="title" maxlength="1024" value="{{ task.title }}" required></label>
+    <label>Notes<textarea name="notes" maxlength="8192" rows="5">{{ task.notes }}</textarea></label>
+    <label>Due date<input type="date" name="due" value="{{ task.due_date|date:'Y-m-d' }}"></label>
+    <div class="tasks-inline"><button class="btn btn-small" type="submit">Save</button>
+      <a class="btn btn-outline btn-small" href="{% url 'tasks:list' task.task_list.public_id %}">Cancel</a></div>
+  </form>
+</div>
+{% endblock %}

@@ -142,13 +142,11 @@ def test_assign_is_throttled(monkeypatch):
     tl = svc.lists_for(a).get()
     ca.post(reverse("tasks:add", args=[tl.public_id]), {"title": "T"})
     t = Task.objects.get()
-    import apps.drive.views as dv
-
-    monkeypatch.setattr(dv, "SHARE_LIMIT", 2)
+    monkeypatch.setattr(views, "ASSIGN_LIMIT", 2)
     for _ in range(3):
         ca.post(reverse("tasks:assign", args=[t.public_id]), {"employee_id": "H-B"})
     r = ca.post(reverse("tasks:assign", args=[t.public_id]), {"employee_id": "H-B"}, follow=True)
-    assert any("Too many" in str(m) for m in r.context["messages"]) and views.ASSIGN_LIMIT
+    assert any("Too many" in str(m) for m in r.context["messages"])
 
 
 @pytest.mark.django_db
@@ -179,3 +177,83 @@ def test_workspace_host_serves_tasks_and_iam_host_does_not():
     assert (
         c.get("/attendance/", HTTP_HOST="app.salowtech.com").status_code != 500
     )  # nav link resolves there too
+
+
+@pytest.mark.django_db
+def test_edit_page_saves_and_a_stale_form_is_refused():
+    a = _u("E-A")
+    ca = _c(a)
+    ca.post(reverse("tasks:new_list"), {"name": "L"})
+    tl = svc.lists_for(a).get()
+    ca.post(reverse("tasks:add", args=[tl.public_id]), {"title": "Old"})
+    t = Task.objects.get()
+    page = ca.get(reverse("tasks:edit", args=[t.public_id]))
+    assert page.status_code == 200 and b'name="version" value="1"' in page.content
+    ca.post(
+        reverse("tasks:edit", args=[t.public_id]),
+        {"version": 1, "title": "New", "notes": "<b>n</b>", "due": "2026-12-01"},
+    )
+    t.refresh_from_db()
+    assert (t.title, t.notes, str(t.due_date)) == ("New", "<b>n</b>", "2026-12-01")
+    r = ca.post(
+        reverse("tasks:edit", args=[t.public_id]), {"version": 1, "title": "Stale"}, follow=True
+    )
+    t.refresh_from_db()
+    assert t.title == "New" and any(
+        "changed while you were editing" in str(m) for m in r.context["messages"]
+    )
+    assert (
+        b"&lt;b&gt;n&lt;/b&gt;" in ca.get(reverse("tasks:list", args=[tl.public_id])).content
+    )  # notes escaped
+    b = _u("E-B")
+    assert _c(b).get(reverse("tasks:edit", args=[t.public_id])).status_code == 404
+
+
+@pytest.mark.django_db
+def test_every_sidebar_link_resolves_on_the_workspace_host_urlconf():
+    """A nav entry missing from config/urls_workspace.py breaks every page on that host."""
+    import re
+    from pathlib import Path
+
+    from django.urls import reverse as rev
+
+    html = Path("templates/base.html").read_text()
+    names = set(re.findall(r"\{% url '([a-z_]+:[a-z_]+)' %\}", html))
+    assert "tasks:home" in names and "drive:home" in names
+    for name in sorted(names):
+        try:
+            rev(name, urlconf="config.urls_workspace")
+        except Exception as exc:  # noqa: BLE001
+            if name.startswith(("accounts:admin", "attendance:admin")):
+                continue  # role-only links outside this check's scope are still reversed below
+            raise AssertionError(f"{name} does not resolve on the workspace host: {exc}") from exc
+
+
+@pytest.mark.django_db
+def test_every_main_page_renders_with_the_tasks_link_on_the_workspace_host():
+    a = _u("S-A")
+    c = _c(a)
+    for url in (
+        "/tasks/",
+        "/tasks/assigned/",
+        "/drive/",
+        "/attendance/",
+        "/posts/",
+        "/directory/",
+        "/certificates/",
+        "/auth/security/",
+    ):
+        r = c.get(url, HTTP_HOST="app.salowtech.com")
+        assert r.status_code in (200, 302), (url, r.status_code)
+        if r.status_code == 200:
+            assert b'href="/tasks/"' in r.content, url
+
+
+@pytest.mark.django_db
+def test_an_empty_edit_changes_nothing():
+    a = _u("Q-A")
+    tl = svc.create_list(a, "L")
+    t = svc.create_task(a, tl, "x")
+    svc.update_task(a, t, 1)
+    t.refresh_from_db()
+    assert t.version == 1
