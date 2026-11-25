@@ -15,5 +15,9 @@ ok("text budget spans items and stops", (() => { const items = Array.from({ leng
 ok("text under the budget is whole, not cut, and tolerates junk items", (() => { const r = P.takeText([{ str: "a" }, null, { str: 5 }, { str: "b", hasEOL: true }, { str: "c" }], 100); return r.text === "a b\nc" && !r.cut; })());
 ok("late file read: the older pick loses even if its read finishes last", (() => { const s = new P.Seq(); const a = s.begin(), b = s.begin(); const shown = []; const finish = (id) => { if (s.current(id)) shown.push(id); }; finish(b); finish(a); return shown.length === 1 && shown[0] === b; })());
 ok("a close invalidates an open in flight", (() => { const s = new P.Seq(); const a = s.begin(); s.begin(); return !s.current(a); })());
+ok("query is trimmed, collapsed and bounded", P.normQuery("  a   b ") === "a b" && P.normQuery("a") === null && P.normQuery("") === null && P.normQuery("x".repeat(101)) === null && P.normQuery(5) === null && P.normQuery("x".repeat(100)).length === 100);
+ok("count is case-insensitive, non-overlapping, whitespace-tolerant", P.countIn("Total total\nTOTAL", "total") === 3 && P.countIn("aaaa", "aa") === 2 && P.countIn("a  b", "a b") === 1 && P.countIn("abc", "") === 0 && P.countIn(null, "a") === 0);
+ok("page order starts after the current page, wraps, ends on it", JSON.stringify(P.pageOrder(3, 5)) === "[4,5,1,2,3]" && JSON.stringify(P.pageOrder(1, 1)) === "[1]" && JSON.stringify(P.pageOrder(5, 5)) === "[1,2,3,4,5]");
+ok("page order is bounded", P.pageOrder(1, 100000).length === P.MAX_SCAN);
 console.log(`${n - bad}/${n} pdf check rows passed`);
 process.exit(bad ? 1 : 0);

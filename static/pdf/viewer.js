@@ -21,7 +21,7 @@
     var on = !!doc;
     $("pdf-prev").disabled = !on || page <= 1; $("pdf-next").disabled = !on || page >= doc.numPages;
     $("pdf-zin").disabled = !on || zoom >= 3; $("pdf-zout").disabled = !on || zoom <= 0.5;
-    $("pdf-close").disabled = !on; $("pdf-page").disabled = !on;
+    $("pdf-close").disabled = !on; $("pdf-page").disabled = !on; $("pdf-q").disabled = !on; $("pdf-find").disabled = !on || finding;
     $("pdf-where").textContent = on ? "Page " + page + " of " + doc.numPages + ", zoom " + Math.round(zoom * 100) + "%" : "No file open.";
     if (on) $("pdf-page").value = page;
   }
@@ -48,9 +48,44 @@
       return task.promise.then(function () { if (my === token) status.textContent = ""; });
     }).catch(function (e) { if (my !== token || (e && e.name === "RenderingCancelledException")) return; status.textContent = "This page could not be drawn."; });
   }
+  var fseq = new C.Seq(), finding = false;
+  function fmsg(t) { $("pdf-fstatus").textContent = t; }
+  function fend() { finding = false; $("pdf-fstop").disabled = true; controls(); }
+  // Reads the text of each page in turn, stops at the first page with a match. Any file change, close,
+  // new find or Stop makes the older find stale, and a stale find never writes anything.
+  function find() {
+    if (!doc || finding) return;
+    var q = C.normQuery($("pdf-q").value);
+    if (!q) { fmsg("Type 2 to 100 characters to find."); return; }
+    var d = doc, mine = fseq.begin(), order = C.pageOrder(page, d.numPages), i = 0, partial = 0, unread = 0;
+    finding = true; $("pdf-fstop").disabled = false; $("pdf-find").disabled = true;
+    var live = function () { return fseq.current(mine) && doc === d; };
+    function done() {
+      if (!live()) return;
+      var more = d.numPages > order.length ? " Only the first " + order.length + " pages in this order were searched." : "";
+      var note = (partial ? " " + partial + " page(s) have more than 20000 characters, so only the first 20000 were searched." : "") + (unread ? " " + unread + " page(s) had no readable text (scans are not read)." : "");
+      fmsg("No match for \"" + q + "\" in " + order.length + " page(s)." + more + note); fend();
+    }
+    function step() {
+      if (!live()) return;
+      if (i >= order.length) return done();
+      var p = order[i++]; fmsg("Searching page " + p + " of " + d.numPages + "...");
+      d.getPage(p).then(function (pg) { return pg.getTextContent(); }).then(function (tc) {
+        if (!live()) return;
+        var r = C.takeText(tc.items, 20000); if (r.cut) partial++; if (!r.text) unread++;
+        var n = C.countIn(r.text, q);
+        if (n > 0) { fmsg("Found \"" + q + "\" on page " + p + ": " + n + " match(es)" + (r.cut ? " in the first 20000 characters" : "") + ". Press Find again for the next page."); fend(); go(p); return; }
+        setTimeout(step, 0);
+      }, function () { if (!live()) return; unread++; setTimeout(step, 0); });
+    }
+    step();
+  }
+  $("pdf-find").addEventListener("click", find);
+  $("pdf-q").addEventListener("keydown", function (e) { if (e.key === "Enter") { e.preventDefault(); find(); } });
+  $("pdf-fstop").addEventListener("click", function () { if (!finding) return; fseq.begin(); fmsg("Find stopped."); fend(); });
   function go(p) { if (!doc) return; page = C.pageIndex(p, 0, doc.numPages); controls(); draw(); }
   function closeDoc(msg) {
-    token++; cancelCurrent();
+    token++; cancelCurrent(); fseq.begin(); finding = false; $("pdf-fstop").disabled = true; fmsg(""); $("pdf-q").value = "";
     var d = doc; doc = null; page = 1; zoom = 1; $("pdf-text").textContent = "";
     settle.then(function () { if (doc) return; canvas.width = 1; canvas.height = 1; canvas.style.width = "0"; canvas.style.height = "0"; });
     var lt = loadTask; loadTask = null; if (lt) { try { lt.destroy(); } catch (e) { /* already gone */ } }

@@ -22,8 +22,24 @@
     }
     return { text: out.join("").replace(/[ \t]+\n/g, "\n").trim(), cut: cut };
   }
+  // Find helpers. Plain text only: no OCR, no fuzzy match. A query is 2 to 100 characters after trimming.
+  var MAX_QUERY = 100, MAX_SCAN = 300;
+  function normQuery(q) { if (typeof q !== "string") return null; q = q.replace(/\s+/g, " ").trim(); return q.length < 2 || q.length > MAX_QUERY ? null : q; }
+  // Case-insensitive count of non-overlapping matches of query in text.
+  function countIn(text, q) {
+    if (typeof text !== "string" || typeof q !== "string" || !q) return 0;
+    var t = text.replace(/\s+/g, " ").toLowerCase(), k = q.toLowerCase(), n = 0, i = 0;
+    while ((i = t.indexOf(k, i)) >= 0) { n++; i += k.length; }
+    return n;
+  }
+  // Pages to look at: the page after cur first, wrapping, the current page last. At most MAX_SCAN pages.
+  function pageOrder(cur, count) {
+    var out = [];
+    for (var i = 1; i <= count && out.length < MAX_SCAN; i++) out.push(((cur - 1 + i) % count) + 1);
+    return out;
+  }
   // Newest-pick-wins sequence: begin() on each file pick or close, current(n) says whether n is still the newest.
   function Seq() { var n = 0; this.begin = function () { return ++n; }; this.current = function (m) { return m === n; }; }
-  var api = { takeText: takeText, Seq: Seq, MAX_BYTES: MAX_BYTES, check: check, pageIndex: pageIndex, zoomStep: zoomStep };
+  var api = { normQuery: normQuery, countIn: countIn, pageOrder: pageOrder, MAX_SCAN: MAX_SCAN, takeText: takeText, Seq: Seq, MAX_BYTES: MAX_BYTES, check: check, pageIndex: pageIndex, zoomStep: zoomStep };
   if (typeof module !== "undefined" && module.exports) module.exports = api; else root.SalowPdfCheck = api;
 })(typeof self !== "undefined" ? self : this);
