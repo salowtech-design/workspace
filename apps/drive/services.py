@@ -384,15 +384,20 @@ def search_items(user, query, limit):
     can() runs again in the hook as a backstop (for example for an ancestor that was trashed).
     """
     from django.db.models import Q
+    from django.db.models.functions import Upper
+
+    needle = query.upper()  # icontains is case-sensitive on TiDB's binary collation
 
     reach = _reachable_folder_ids(user)
     folders = (
-        Folder.objects.filter(trashed_at__isnull=True, name__icontains=query)
+        Folder.objects.annotate(_n=Upper("name"))
+        .filter(trashed_at__isnull=True, _n__contains=needle)
         .filter(Q(owner=user) | Q(pk__in=reach))
         .order_by("name")[:limit]
     )
     files = (
-        DriveFile.objects.filter(trashed_at__isnull=True, name__icontains=query)
+        DriveFile.objects.annotate(_n=Upper("name"))
+        .filter(trashed_at__isnull=True, _n__contains=needle)
         .filter(Q(owner=user) | Q(folder_id__in=reach) | Q(shares__user=user))
         .distinct()
         .order_by("name")[:limit]
