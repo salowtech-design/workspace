@@ -4,11 +4,14 @@ Not built and not implied by these pages: event triggers firing (the engine acce
 nothing delivers events to it), a background runner, sharing a workflow, deleting one, or any
 step that touches another person or leaves the app."""
 
+import re
 import uuid
 
 from django.contrib import messages
+from django.contrib.auth import get_user_model
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import ValidationError
+from django.db import transaction
 from django.http import Http404
 from django.shortcuts import get_object_or_404, redirect, render
 from django.views.decorators.cache import never_cache
@@ -74,6 +77,33 @@ def _rows(steps):
     return rows
 
 
+FORM_KEYS = {
+    "notify_owner": {"type", "title"},
+    "set_value": {"type", "key", "value"},
+    "stop_unless_equals": {"type", "key", "equals"},
+}
+
+
+def _round_trips(definition):
+    """True only if this page can show every step and save it back without changing or losing any."""
+    steps = definition.get("steps", [])
+    if definition.get("trigger") != {"type": "manual"} or len(steps) > FORM_ROWS:
+        return False
+    for st in steps:
+        if not isinstance(st, dict) or st.get("type") not in FORM_KEYS:
+            return False
+        if set(st) != FORM_KEYS[st["type"]] or any(not isinstance(v, str) for v in st.values()):
+            return False
+    return True
+
+
+def _int(v):
+    try:
+        return int(v)
+    except (TypeError, ValueError):
+        return -1
+
+
 def _describe(step):
     k = step.get("type")
     if k == "notify_owner":
@@ -99,17 +129,19 @@ def new(request):
     _active(request)
     ctx = {"rows": _rows([]), "kinds": KINDS, "name": "", "mode": "new"}
     if request.method == "POST":
-        if WfDefinition.objects.filter(owner=request.user).count() >= MAX_WORKFLOWS:
-            messages.error(request, f"You can keep up to {MAX_WORKFLOWS} workflows.")
-            return render(request, "automation/form.html", ctx, status=400)
         steps = _steps_from_post(request.POST)
         ctx.update(name=request.POST.get("name", ""), rows=_rows(steps))
         try:
-            wf = engine.create_definition(
-                request.user,
-                request.POST.get("name"),
-                {"trigger": {"type": "manual"}, "steps": steps},
-            )
+            with transaction.atomic():
+                # lock the person's own row so two creates cannot both pass the cap
+                get_user_model().objects.select_for_update().get(pk=request.user.pk)
+                if WfDefinition.objects.filter(owner=request.user).count() >= MAX_WORKFLOWS:
+                    raise ValidationError(f"You can keep up to {MAX_WORKFLOWS} workflows.")
+                wf = engine.create_definition(
+                    request.user,
+                    request.POST.get("name"),
+                    {"trigger": {"type": "manual"}, "steps": steps},
+                )
         except ValidationError as e:
             messages.error(request, " ".join(e.messages))
             return render(request, "automation/form.html", ctx, status=400)
@@ -124,16 +156,29 @@ def edit(request, public_id):
     _active(request)
     wf = _mine(request, public_id)
     steps = wf.definition.get("steps", [])
-    ctx = {"rows": _rows(steps), "kinds": KINDS, "name": wf.name, "mode": "edit", "wf": wf}
-    if wf.definition.get("trigger", {}).get("type") != "manual" or len(steps) > FORM_ROWS:
-        messages.error(request, "This workflow has a shape this page cannot edit safely.")
+    ctx = {
+        "rows": _rows(steps),
+        "kinds": KINDS,
+        "name": wf.name,
+        "mode": "edit",
+        "wf": wf,
+        "version": wf.version,
+    }
+    if not _round_trips(wf.definition):
+        messages.error(
+            request,
+            "This workflow has steps or settings this page cannot show and save back without changes, so it cannot be edited here.",
+        )
         return redirect("automation:detail", public_id=wf.public_id)
     if request.method == "POST":
         steps = _steps_from_post(request.POST)
         ctx["rows"] = _rows(steps)
         try:
             engine.update_definition(
-                request.user, wf, {"trigger": wf.definition["trigger"], "steps": steps}
+                request.user,
+                wf,
+                {"trigger": wf.definition["trigger"], "steps": steps},
+                expected_version=_int(request.POST.get("version")),
             )
         except ValidationError as e:
             messages.error(request, " ".join(e.messages))
@@ -157,6 +202,7 @@ def detail(request, public_id):
             "trigger": wf.definition.get("trigger", {}),
             "steps": [_describe(s) for s in wf.definition.get("steps", [])],
             "runs": runs,
+            "run_token": uuid.uuid4().hex,
         },
     )
 
@@ -184,10 +230,27 @@ def run_now(request, public_id):
     if throttled(request.user, "automation_run", RUN_LIMIT):
         messages.error(request, "Too many runs in a minute. Wait and try again.")
         return redirect("automation:detail", public_id=wf.public_id)
-    run = engine.start_run(wf, uuid.uuid4().hex)
+    if wf.definition.get("trigger", {}).get("type") != "manual":
+        messages.error(
+            request,
+            "This workflow starts from an event, which is not connected yet, so it cannot be run here.",
+        )
+        return redirect("automation:detail", public_id=wf.public_id)
+    token = request.POST.get("token", "")
+    if not re.fullmatch(r"[0-9a-f]{32}", token):
+        messages.error(request, "That page was out of date. Try again.")
+        return redirect("automation:detail", public_id=wf.public_id)
+    # the page's own token is the trigger key, so a double click or a resent form is one run
+    run = engine.start_run(wf, token)
     if run is None:
         messages.error(request, "Switch the workflow on before running it.")
         return redirect("automation:detail", public_id=wf.public_id)
-    state = engine.execute(run.pk)
-    messages.success(request, f"Run finished: {state or WfRun.objects.get(pk=run.pk).state}.")
+    engine.execute(run.pk)
+    run = WfRun.objects.get(pk=run.pk)
+    if run.state == WfRun.State.SUCCEEDED:
+        messages.success(request, "Run finished: succeeded.")
+    elif run.state == WfRun.State.FAILED:
+        messages.error(request, "Run failed. The error is in the run list below.")
+    else:
+        messages.error(request, f"The run did not finish here. It is {run.state}.")
     return redirect("automation:detail", public_id=wf.public_id)

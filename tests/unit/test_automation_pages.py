@@ -101,16 +101,21 @@ def test_run_now_needs_switch_on_then_runs_and_notifies_only_the_owner():
     c.post("/automation/new/", _form())
     wf = WfDefinition.objects.get(owner=a)
     p = f"/automation/{wf.public_id}/"
-    c.post(p + "run/")
+    c.post(p + "run/", {"token": "a" * 32})
     assert WfRun.objects.count() == 0  # off: nothing started
     c.post(p + "enable/", {"enabled": "1"})
-    c.post(p + "run/")
+    c.post(p + "run/", {"token": "b" * 32})
     run = WfRun.objects.get()
     assert run.state == "succeeded" and run.steps.count() == 3
     assert Notification.objects.filter(user=a, title="Check done").count() == 1
     assert Notification.objects.filter(user=b).count() == 0
-    c.post(p + "run/")
-    assert WfRun.objects.count() == 2  # each press is its own run
+    c.post(p + "run/", {"token": "b" * 32})  # a double press with the same page token
+    assert WfRun.objects.count() == 1
+    assert Notification.objects.filter(user=a, title="Check done").count() == 1
+    c.post(p + "run/", {"token": "c" * 32})  # a fresh page is a new run
+    assert WfRun.objects.count() == 2
+    c.post(p + "run/", {})  # no token: refused
+    assert WfRun.objects.count() == 2
     assert "succeeded" in c.get(p).content.decode()
 
 
@@ -125,12 +130,12 @@ def test_switch_off_cancels_open_runs_and_edit_makes_a_new_version():
     c.post(p + "enable/", {"enabled": "0"})
     queued.refresh_from_db()
     assert queued.state == "cancelled"
-    r = c.post(p + "edit/", {"type0": "notify_owner", "title0": "v2"})
+    r = c.post(p + "edit/", {"type0": "notify_owner", "title0": "v2", "version": "1"})
     assert r.status_code == 302
     wf.refresh_from_db()
     assert wf.version == 2 and wf.definition["steps"] == [{"type": "notify_owner", "title": "v2"}]
     assert queued.version == 1
-    bad = c.post(p + "edit/", {"type0": "nope"})
+    bad = c.post(p + "edit/", {"type0": "nope", "version": "2"})
     wf.refresh_from_db()
     assert bad.status_code == 400 and wf.version == 2
 
@@ -161,3 +166,92 @@ def test_event_trigger_workflow_is_shown_as_not_connected_and_not_editable_here(
     p = f"/automation/{wf.public_id}/"
     assert "not connected yet" in c.get(p).content.decode()
     assert c.get(p + "edit/").status_code == 302
+
+
+def test_edit_is_refused_for_manual_definitions_the_form_cannot_round_trip():
+    a = _u("AU-11")
+    c = _c(a)
+    shapes = [
+        [{"type": "notify_owner", "title": "t", "key": "k"}],
+        [{"type": "set_value", "key": "k", "value": 5}],
+        [{"type": "set_value", "key": "k", "value": "v"}] * 11,
+    ]
+    for i, steps in enumerate(shapes):
+        wf = engine.create_definition(a, f"odd{i}", {"trigger": {"type": "manual"}, "steps": steps})
+        r = c.post(
+            f"/automation/{wf.public_id}/edit/",
+            {"type0": "notify_owner", "title0": "x", "version": "1"},
+        )
+        assert r.status_code == 302
+        wf.refresh_from_db()
+        assert wf.version == 1 and wf.definition["steps"] == steps
+
+
+def test_event_trigger_cannot_be_run_by_hand_even_when_enabled():
+    a = _u("AU-12")
+    wf = engine.create_definition(
+        a,
+        "ev",
+        {
+            "trigger": {"type": "event", "event_type": "x.y"},
+            "steps": [{"type": "notify_owner", "title": "t"}],
+        },
+    )
+    engine.set_enabled(a, wf, True)
+    c = _c(a)
+    p = f"/automation/{wf.public_id}/"
+    assert "Run now" not in c.get(p).content.decode()
+    c.post(p + "run/", {"token": "d" * 32})
+    assert WfRun.objects.count() == 0
+
+
+def test_stale_edit_is_refused_and_failed_run_is_shown_without_hiding_errors(monkeypatch):
+    a = _u("AU-13")
+    c = _c(a)
+    c.post("/automation/new/", _form())
+    wf = WfDefinition.objects.get(owner=a)
+    p = f"/automation/{wf.public_id}/"
+    assert (
+        c.post(p + "edit/", {"type0": "notify_owner", "title0": "x", "version": "1"}).status_code
+        == 302
+    )
+    stale = c.post(p + "edit/", {"type0": "notify_owner", "title0": "y", "version": "1"})
+    wf.refresh_from_db()
+    assert (
+        stale.status_code == 400 and wf.version == 2 and wf.definition["steps"][0]["title"] == "x"
+    )
+    c.post(p + "enable/", {"enabled": "1"})
+
+    def boom(run, step, ctx):
+        raise RuntimeError("step blew up")
+
+    monkeypatch.setattr(engine, "_apply", boom)
+    r = c.post(p + "run/", {"token": "e" * 32}, follow=True)
+    run = WfRun.objects.get()
+    page = r.content.decode()
+    assert run.state == "failed" and "Run failed" in page and "failed" in page
+
+
+def test_csrf_is_enforced_on_state_changes():
+    a = _u("AU-14")
+    c = Client(HTTP_HOST=HOST, enforce_csrf_checks=True)
+    c.force_login(a)
+    assert c.post("/automation/new/", _form()).status_code == 403
+    assert WfDefinition.objects.count() == 0
+
+
+def test_inactive_account_gets_404_on_every_page_and_action():
+    a = _u("AU-15")
+    wf = engine.create_definition(
+        a, "w", {"trigger": {"type": "manual"}, "steps": [{"type": "notify_owner", "title": "t"}]}
+    )
+    a.status = "suspended"
+    a.save()
+    c = _c(a)
+    p = f"/automation/{wf.public_id}/"
+    codes = {
+        c.get(p).status_code,
+        c.post(p + "run/", {"token": "f" * 32}).status_code,
+        c.post(p + "enable/", {"enabled": "1"}).status_code,
+    }
+    assert codes <= {302, 404} and not WfRun.objects.exists()

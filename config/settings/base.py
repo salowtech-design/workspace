@@ -35,6 +35,7 @@ LOCAL_APPS = [
     "apps.sheets.apps.SheetsConfig",
     "apps.slides.apps.SlidesConfig",
     "apps.pdfview.apps.PdfViewConfig",
+    "apps.inbox.apps.InboxConfig",
     "apps.automation.apps.AutomationConfig",
 ]
 
@@ -69,6 +70,7 @@ TEMPLATES = [
                 "django.contrib.auth.context_processors.auth",
                 "django.contrib.messages.context_processors.messages",
                 "apps.core.context_processors.csp_nonce",
+                "apps.inbox.context_processors.unread_notifications",
             ],
         },
     },

@@ -99,13 +99,19 @@ def create_definition(owner, name, definition):
     return wf
 
 
-def update_definition(owner, wf, definition):
-    """Owner edits create a new version; runs already started keep the version they began on."""
+def update_definition(owner, wf, definition, *, expected_version=None):
+    """Owner edits create a new version; runs already started keep the version they began on.
+
+    Pass expected_version to refuse the edit if the workflow changed since it was read."""
     if wf.owner_id != owner.id:
         raise PermissionError("only the owner edits a workflow")
     validate_definition(definition)
     with transaction.atomic():
         wf = WfDefinition.objects.select_for_update().get(pk=wf.pk)
+        if expected_version is not None and wf.version != expected_version:
+            raise ValidationError(
+                "This workflow changed since you opened it. Reload and try again."
+            )
         wf.definition, wf.version = definition, wf.version + 1
         wf.save(update_fields=["definition", "version"])
         audit(owner, "automation.edit", "wf_definition", wf.pk, version=wf.version)

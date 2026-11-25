@@ -3,9 +3,9 @@
 {% block extra_head %}<link rel="stylesheet" href="/static/css/events.css"><link rel="stylesheet" href="/static/css/automation.css">{% endblock %}
 {% block content %}
 <div class="card cal"><div class="cal-head"><h2>{% if mode == "edit" %}Edit {{ wf.name }}{% else %}New workflow{% endif %}</h2></div>
-<form method="post" class="cal-form">{% csrf_token %}
+<form method="post" class="cal-form">{% csrf_token %}{% if mode == "edit" %}<input type="hidden" name="version" value="{{ version }}">{% endif %}
 {% if mode == "new" %}<label>Name<input type="text" name="name" maxlength="120" value="{{ name }}" required></label>{% endif %}
-<p class="cal-meta">Steps run in order, up to 10 here. Leave a row's type empty to skip it. Values are kept as text, each up to 200 characters. Notify me sends a notification to you only.</p>
+<p class="cal-meta">Steps run in order, up to 10 here. Leave a row's type empty to skip it. Values are kept as text, each up to 200 characters. Notify me adds a line to your own Notifications page, and nobody else sees it.</p>
 {% for r in rows %}<fieldset><legend>Step {{ forloop.counter }}</legend>
 <label>Type<select name="type{{ r.i }}"><option value="">(none)</option>{% for k, label in kinds %}<option value="{{ k }}"{% if r.type == k %} selected{% endif %}>{{ label }}</option>{% endfor %}</select></label>
 <label>Title (Notify me)<input type="text" name="title{{ r.i }}" maxlength="200" value="{{ r.title }}"></label>

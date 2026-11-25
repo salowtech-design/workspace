@@ -46,6 +46,7 @@ urlpatterns = [
     path("slides/", include("apps.slides.urls", namespace="slides")),
     path("pdf/", include("apps.pdfview.urls", namespace="pdfview")),
     path("automation/", include("apps.automation.urls", namespace="automation")),
+    path("notifications/", include("apps.inbox.urls", namespace="inbox")),
     path("attendance/", include("apps.attendance.urls", namespace="attendance")),
     path("posts/", include("apps.posts.urls", namespace="posts")),
     path("certificates/", include("apps.certificates.urls", namespace="certificates")),

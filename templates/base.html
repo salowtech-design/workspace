@@ -37,6 +37,7 @@
           <li class="nav-item"><a href="{% url 'slides:home' %}">Slides</a></li>
           <li class="nav-item"><a href="{% url 'pdfview:home' %}">PDF</a></li>
           <li class="nav-item"><a href="{% url 'automation:home' %}">Automation</a></li>
+          <li class="nav-item"><a href="{% url 'inbox:home' %}">Notifications{% if unread_notifications %} ({{ unread_notifications }}){% endif %}</a></li>
           <li class="nav-item"><a href="{% url 'finder:search' %}">Search</a></li>
           <li class="nav-item"><a href="{% url 'directory:list' %}">Directory</a></li>
           <li class="nav-item"><a href="{% url 'accounts:security' %}">Security & Sessions</a></li>

@@ -6,7 +6,7 @@
 <p class="cal-meta">Version {{ wf.version }}. Currently {% if wf.enabled %}on{% else %}off{% endif %}. Starts: {% if trigger.type == "manual" %}when you press Run now{% else %}on an event ({{ trigger.event_type }}), which is not connected yet, so it does not start by itself{% endif %}.</p>
 <ol>{% for s in steps %}<li>{{ s }}</li>{% endfor %}</ol>
 <form method="post" action="{% url 'automation:toggle' wf.public_id %}" class="cal-form">{% csrf_token %}<input type="hidden" name="enabled" value="{% if wf.enabled %}0{% else %}1{% endif %}"><button class="btn" type="submit">{% if wf.enabled %}Switch off{% else %}Switch on{% endif %}</button>{% if wf.enabled %} <span class="cal-meta">Switching off cancels queued and running runs.</span>{% endif %}</form>
-{% if wf.enabled %}<form method="post" action="{% url 'automation:run' wf.public_id %}" class="cal-form">{% csrf_token %}<button class="btn" type="submit">Run now</button></form>{% endif %}
+{% if wf.enabled and trigger.type == "manual" %}<form method="post" action="{% url 'automation:run' wf.public_id %}" class="cal-form">{% csrf_token %}<input type="hidden" name="token" value="{{ run_token }}"><button class="btn" type="submit">Run now</button></form>{% endif %}
 <p class="auto-links"><a class="btn" href="{% url 'automation:edit' wf.public_id %}">Edit (saves a new version)</a> <a class="btn" href="{% url 'automation:home' %}">All workflows</a></p>
 <h3>Recent runs</h3>
 {% for r in runs %}<div class="cal-row"><span class="cal-title">{{ r.state }}</span> <span class="cal-meta">version {{ r.version }}, started {{ r.started_at|date:"j M Y H:i" }}{% if r.finished_at %}, finished {{ r.finished_at|date:"H:i:s" }}{% endif %}{% if r.error %}, error: {{ r.error }}{% endif %}</span></div>

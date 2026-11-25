@@ -3,7 +3,7 @@
 {% block extra_head %}<link rel="stylesheet" href="/static/css/events.css"><link rel="stylesheet" href="/static/css/automation.css">{% endblock %}
 {% block content %}
 <div class="card cal"><div class="cal-head"><h2>Automation</h2> <a class="btn" href="{% url 'automation:new' %}">New workflow</a></div>
-<p class="cal-meta">Your own workflows only. A workflow is a short list of steps you start yourself with Run now. Steps can notify you, set a value for later steps, or stop unless a value matches. They cannot reach other people, other apps or the internet. Triggers from events, schedules and a background runner are not connected yet, so nothing runs unless you press Run now. You can keep up to {{ max }} workflows. Workflows cannot be deleted yet; switch one off to stop it.</p>
+<p class="cal-meta">Your own workflows only. A workflow is a short list of steps you start yourself with Run now. Steps can add a line to your Notifications page, set a value for later steps, or stop unless a value matches. They cannot reach other people, other apps or the internet. Triggers from events, schedules and a background runner are not connected yet, so nothing runs unless you press Run now. You can keep up to {{ max }} workflows. Workflows cannot be deleted yet; switch one off to stop it.</p>
 {% for w in wfs %}<div class="cal-row"><a class="cal-title" href="{% url 'automation:detail' w.public_id %}">{{ w.name }}</a> <span class="cal-meta">version {{ w.version }}, {% if w.enabled %}on{% else %}off{% endif %}</span></div>
 {% empty %}<p class="cal-meta">No workflows yet.</p>{% endfor %}
 </div>
