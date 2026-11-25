@@ -375,7 +375,7 @@ class TestAttendanceReporting:
         check_out(user=employee, instant=base_time + timedelta(days=1, hours=4))
 
         report = get_attendance_report(
-            start_date=(base_time - timedelta(days=1)).date(),
+            start_date=(base_time - timedelta(days=1)).astimezone(KOLKATA_TZ).date(),
             end_date=timezone.now().astimezone(KOLKATA_TZ).date(),
             user=employee,
         )
