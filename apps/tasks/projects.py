@@ -2,12 +2,14 @@
 Member add/remove, project tasks and milestones are NOT built: what membership reveals and who
 may add people is an open policy choice. Nothing here notifies anyone."""
 
-from django.core.exceptions import ValidationError
+from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import transaction
+from django.db.models import F, Max
 from django.http import Http404
 
 from apps.core.foundation.audit import audit
-from apps.tasks.models import Column, Project, ProjectMember
+from apps.tasks.models import Column, Project, ProjectMember, ProjectTask
+from apps.tasks.services import StaleVersion, _clean_notes, _clean_title
 
 DEFAULT_COLUMNS = ("To do", "Doing", "Done")  # build default, not policy
 
@@ -58,3 +60,113 @@ def members_of(project):
         .select_related("person")
         .order_by("-role", "person__full_name", "id")
     )
+
+
+def _lock_project(project):
+    return Project.objects.select_for_update().get(pk=project.pk)
+
+
+def _lock_as_lead(user, project):
+    """Project row first, then judge membership on fresh data under that lock. Only a lead
+    changes project tasks in this step (build default; wider roles are an open choice)."""
+    p = _lock_project(project)
+    m = _membership(user, p) if p.deleted_at is None else None
+    if m is None:
+        raise Http404
+    if m.role != ProjectMember.LEAD:
+        raise PermissionDenied
+    return p
+
+
+def _pause():
+    """Test hook, no-op."""
+
+
+@transaction.atomic
+def add_task(user, project, column_id, title, notes="", due=None):
+    p = _lock_as_lead(user, project)
+    col = Column.objects.filter(pk=column_id, project=p).first()
+    if col is None:
+        raise ValidationError("Pick a column of this project.")
+    title, notes = _clean_title(title), _clean_notes(notes)
+    _pause()
+    top = ProjectTask.objects.filter(column=col, deleted_at__isnull=True).aggregate(
+        m=Max("position")
+    )["m"]
+    t = ProjectTask.objects.create(
+        project=p,
+        column=col,
+        title=title,
+        notes=notes,
+        due_date=due,
+        position=0 if top is None else top + 1,
+        created_by=user,
+    )
+    audit(user, "tasks.project_task.create", "project_task", t.pk, project=p.pk)
+    return t
+
+
+def _fresh_task(p, task):
+    t = ProjectTask.objects.filter(pk=task.pk, project=p, deleted_at__isnull=True).first()
+    if t is None:
+        raise Http404
+    return t
+
+
+@transaction.atomic
+def move_task(user, task, column_id, expected_version):
+    p = _lock_as_lead(user, task.project)
+    t = _fresh_task(p, task)
+    col = Column.objects.filter(pk=column_id, project=p).first()
+    if col is None:
+        raise ValidationError("Pick a column of this project.")
+    if t.column_id == col.pk:
+        return t  # no-op: no version bump, no audit
+    top = ProjectTask.objects.filter(column=col, deleted_at__isnull=True).aggregate(
+        m=Max("position")
+    )["m"]
+    done = ProjectTask.objects.filter(pk=t.pk, version=expected_version).update(
+        column=col, position=0 if top is None else top + 1, version=F("version") + 1
+    )
+    if not done:
+        raise StaleVersion("This task changed while you were looking at it.")
+    audit(user, "tasks.project_task.move", "project_task", t.pk, to_column=col.pk)
+    t.refresh_from_db()
+    return t
+
+
+@transaction.atomic
+def assign_task(user, task, person):
+    """Only a current member of this project can be assigned, so assigning never shows the
+    project to a new person. No notice is sent."""
+    p = _lock_as_lead(user, task.project)
+    t = _fresh_task(p, task)
+    if person is not None and not (person.is_active and _membership(person, p) is not None):
+        raise ValidationError("That person is not a member of this project.")
+    ProjectTask.objects.filter(pk=t.pk).update(assignee=person, version=F("version") + 1)
+    audit(
+        user,
+        "tasks.project_task.assign",
+        "project_task",
+        t.pk,
+        assignee=getattr(person, "pk", None),
+    )
+    t.refresh_from_db()
+    return t
+
+
+def tasks_by_column(project):
+    rows = ProjectTask.objects.filter(project=project, deleted_at__isnull=True).order_by(
+        "position", "id"
+    )
+    out = {}
+    for t in rows:
+        out.setdefault(t.column_id, []).append(t)
+    return out
+
+
+def get_task(user, public_id):
+    t = ProjectTask.objects.filter(public_id=public_id).select_related("project").first()
+    if t is None or not can_view(user, t.project):
+        raise Http404
+    return t

@@ -98,3 +98,33 @@ class Column(models.Model):
 
     class Meta:
         ordering = ["position", "id"]
+
+
+class ProjectTask(models.Model):
+    """A task that belongs to a project. Not a personal-list Task and never shown outside the
+    project's members."""
+
+    public_id = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
+    project = models.ForeignKey(Project, on_delete=models.PROTECT, related_name="tasks")
+    column = models.ForeignKey(Column, on_delete=models.PROTECT, related_name="tasks")
+    title = models.CharField(max_length=TITLE_MAX)
+    notes = models.TextField(blank=True, default="")
+    due_date = models.DateField(null=True, blank=True)
+    assignee = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.PROTECT,
+        related_name="+",
+    )
+    position = models.PositiveIntegerField(default=0)
+    version = models.PositiveIntegerField(default=1)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="+"
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    deleted_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        indexes = [models.Index(fields=["project", "column", "deleted_at", "position"])]

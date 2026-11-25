@@ -5,9 +5,17 @@
 <div class="card tasks">
   <div class="tasks-head"><h2>{{ project.name }}</h2></div>
   {% include "tasks/_nav.html" %}
-  <div class="tasks-board">{% for c in columns %}<div class="tasks-col"><h3>{{ c.name }}</h3><p class="task-meta">No tasks. Project tasks are not built yet.</p></div>{% endfor %}</div>
+  <div class="tasks-board">{% for c, items in columns %}<div class="tasks-col"><h3>{{ c.name }}</h3>
+    {% for t in items %}<div class="task-card"><span class="task-title">{{ t.title }}</span>{% if t.due_date %}<span class="task-meta">Due {{ t.due_date|date:"j M Y" }}</span>{% endif %}
+      {% if is_lead %}<form method="post" action="{% url 'tasks:project_move' t.public_id %}" class="tasks-inline">{% csrf_token %}<input type="hidden" name="version" value="{{ t.version }}">
+        <select name="column" aria-label="Move to">{% for c2, _x in columns %}<option value="{{ c2.pk }}"{% if c2.pk == c.pk %} selected{% endif %}>{{ c2.name }}</option>{% endfor %}</select>
+        <button class="btn btn-outline btn-small" type="submit">Move</button></form>{% endif %}</div>
+    {% empty %}<p class="task-meta">No tasks.</p>{% endfor %}
+    {% if is_lead %}<form method="post" action="{% url 'tasks:project_add' project.public_id %}" class="tasks-inline">{% csrf_token %}<input type="hidden" name="column" value="{{ c.pk }}">
+      <input type="text" name="title" maxlength="1024" placeholder="Add a task" required><button class="btn btn-outline btn-small" type="submit">Add</button></form>{% endif %}
+  </div>{% endfor %}</div>
   <h3>Members</h3>
-  <p class="task-meta">Everyone listed here can see this project. Adding people is not built yet.</p>
+  <p class="task-meta">Everyone listed here can see this project and its tasks. Adding people is not built yet.</p>
   {% for m in members %}<div class="task-row"><span class="task-title">{{ m.person.full_name }}</span><span class="task-meta">{{ m.get_role_display }}</span></div>{% endfor %}
 </div>
 {% endblock %}
