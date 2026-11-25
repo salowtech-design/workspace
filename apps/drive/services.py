@@ -373,7 +373,9 @@ def reconcile_user(user, fix=False):  # noqa: C901 (one linear scan then one loc
                 last is not None and (want != last.state or (live.role or "") != last.role)
             ):
                 _bump(user.pk, item, "reconcile")
-                audit(user, "drive.manifest.reconcile", kind, pid, source="reconcile")
+                audit(
+                    None, "drive.manifest.reconcile", kind, pid, source="reconcile", person=user.pk
+                )
                 corrected.append((kind, pid))
                 logger.warning(
                     "drive manifest reconcile corrected %s %s for user %s", kind, pid, user.pk

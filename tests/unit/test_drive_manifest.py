@@ -418,7 +418,9 @@ def test_reconcile_finds_a_grant_written_straight_into_the_database():
     assert svc.reconcile_user(b) == []
     from apps.core.models import AuditLog
 
-    assert AuditLog.objects.filter(action="drive.manifest.reconcile").count() == 1
+    rec = AuditLog.objects.filter(action="drive.manifest.reconcile")
+    assert rec.count() == 1 and rec[0].actor_id is None
+    assert rec[0].payload_summary.get("person") == b.pk
 
 
 @pytest.mark.django_db
@@ -494,3 +496,63 @@ def test_page_limit_is_capped(monkeypatch):
     out = svc.manifest_since(b, since=0, limit=10**9)
     assert [c.epoch for c in out["changes"]] == [1, 2]
     assert out["next_since"] == 2 and out["has_more"] is True
+
+
+def _share_state(top, b):
+    from apps.core.models import AuditLog
+    from apps.drive.models import DriveChange, ManifestChange, Share
+
+    return (
+        Share.objects.filter(folder=top, user=b).count(),
+        DriveChange.objects.filter(action="share").count(),
+        ManifestChange.objects.filter(user=b).count(),
+        AuditLog.objects.filter(action="drive.share").count(),
+    )
+
+
+@pytest.mark.django_db(transaction=True)
+def test_commit_failure_before_real_commit_is_not_replayed(monkeypatch):
+    from django.db import OperationalError, connections
+
+    a, b = _u("K-A"), _u("K-B")
+    top = svc.create_folder(a, "Commit")
+    before = _share_state(top, b)
+    connection = connections["default"]
+    real = connection.commit
+    calls = {"n": 0}
+
+    def failing_commit():
+        calls["n"] += 1
+        raise OperationalError(
+            1213, "Deadlock found"
+        )  # no word about commit; before the real commit
+
+    monkeypatch.setattr(connection, "commit", failing_commit)
+    with pytest.raises(ValidationError):
+        svc.share(a, top, b, "viewer")
+    monkeypatch.setattr(connection, "commit", real)
+    assert calls["n"] == 1  # one attempt, one commit: the body was not run again
+    assert _share_state(top, b) == before  # rolled back: nothing written
+
+
+@pytest.mark.django_db(transaction=True)
+def test_commit_that_landed_then_errored_is_not_replayed(monkeypatch):
+    from django.db import OperationalError, connections
+
+    a, b = _u("M-A"), _u("M-B")
+    top = svc.create_folder(a, "Landed")
+    connection = connections["default"]
+    real = connection.commit
+    calls = {"n": 0}
+
+    def landed_then_error():
+        calls["n"] += 1
+        real()
+        raise OperationalError(1213, "Deadlock found")  # the commit happened, the answer was lost
+
+    monkeypatch.setattr(connection, "commit", landed_then_error)
+    with pytest.raises(ValidationError):
+        svc.share(a, top, b, "viewer")
+    monkeypatch.setattr(connection, "commit", real)
+    assert calls["n"] == 1
+    assert _share_state(top, b) == (1, 1, 1, 1)  # exactly one set of rows, no duplicates
