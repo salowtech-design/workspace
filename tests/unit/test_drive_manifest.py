@@ -1,6 +1,7 @@
 """effective_entry: trashed visibility is never active sync eligibility."""
 
 import pytest
+from django.core.exceptions import PermissionDenied, ValidationError
 
 from apps.accounts.models import CustomUser
 from apps.drive import manifest as m
@@ -400,8 +401,8 @@ def test_reader_pages_by_epoch_and_refuses_inactive_accounts():
     assert [c.epoch for c in p2["changes"]] == [5, 6] and not p2["has_more"]
     CustomUser.objects.filter(pk=b.pk).update(is_active=False, status="inactive")
     b.refresh_from_db()
-    gone = svc.manifest_since(b)
-    assert gone["changes"] == [] and gone["full_list_required"] is True
+    with pytest.raises(PermissionDenied):
+        svc.manifest_since(b)
 
 
 @pytest.mark.django_db
@@ -446,3 +447,40 @@ def test_relock_does_not_retry_inside_a_caller_transaction_and_skips_commit_erro
 
     assert svc._commit_failed(OperationalError(1105, "commit failed: write conflict"))
     assert not svc._commit_failed(OperationalError(1105, "pessimistic lock retry limit reached"))
+
+
+def test_relock_retries_only_allowed_errors_end_to_end(monkeypatch):
+    from django.db import OperationalError
+
+    monkeypatch.setattr(svc.time, "sleep", lambda s: None)
+    calls = {"n": 0}
+
+    def flaky(errors):
+        @svc._relock
+        def op():
+            calls["n"] += 1
+            if calls["n"] <= len(errors):
+                raise errors[calls["n"] - 1]
+            return "ok"
+
+        return op
+
+    calls["n"] = 0
+    assert (
+        flaky([OperationalError(1213, "Deadlock found"), OperationalError(1205, "Lock wait")])()
+        == "ok"
+    )
+    assert calls["n"] == 3
+    for err in (
+        OperationalError(1105, "other"),
+        OperationalError(1105, "commit failed: x"),
+        OperationalError(1045, "denied"),
+    ):
+        calls["n"] = 0
+        with pytest.raises(OperationalError):
+            flaky([err] * 5)()
+        assert calls["n"] == 1
+    calls["n"] = 0
+    with pytest.raises(ValidationError):
+        flaky([OperationalError(1213, "Deadlock found")] * 9)()
+    assert calls["n"] == 5

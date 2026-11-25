@@ -1,8 +1,10 @@
 """Drive operations. Every function checks the foundation permission policy first."""
 
 import logging
+import random
 import re
 import secrets
+import time
 import uuid
 
 from django.contrib.auth import get_user_model
@@ -191,8 +193,6 @@ def _relock(fn):
     """Outermost wrapper: re-run the whole operation in a fresh transaction when the lock set
     grew. Never retries inside a transaction that already holds locks."""
     import functools
-    import random
-    import time
 
     from django.db import OperationalError
 
@@ -208,6 +208,9 @@ def _relock(fn):
             try:
                 return fn(*args, **kwargs)
             except LockSetGrew:
+                # the enclosing transaction holds locks taken in the wrong order: force it to
+                # roll back instead of letting a caller catch this and carry on
+                transaction.set_rollback(True)
                 raise ValidationError("Access changed while this ran. Try again.") from None
         last = None
         for attempt in range(5):
@@ -291,13 +294,7 @@ def manifest_since(user, since=0, limit=MANIFEST_PAGE_EPOCHS):
     server (since > epoch) or no epoch row means the client must relist. Inactive accounts get
     nothing. Authorization is not taken from this: every list and transfer re-checks live."""
     if not user.is_active or getattr(user, "status", "active") != "active":
-        return {
-            "epoch": 0,
-            "next_since": 0,
-            "has_more": False,
-            "full_list_required": True,
-            "changes": [],
-        }
+        raise PermissionDenied("Inactive account.")
     ep = ManifestEpoch.objects.filter(user=user).first()
     top = ep.epoch if ep else 0
     if ep is None or since > top or since < 0:
