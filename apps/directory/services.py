@@ -75,20 +75,24 @@ def add_team_member(team: Team, user: CustomUser, actor: CustomUser) -> TeamMemb
 
 
 def _reporting_lock():
-    """One row that every reporting change locks first, so two changes cannot each pass the
-    cycle check against data the other has not committed yet. Reporting changes are rare admin
-    actions, so one global lock is acceptable. (Uses a shared bucket row as the lock row.)"""
-    from datetime import timedelta
+    """Lock the single ReportingLock row first, so two changes cannot each pass the cycle check
+    against data the other has not committed. The row has its own table (created by a migration,
+    re-created here if someone deleted it); nothing else deletes it. If the row is missing, two
+    callers may both try to create it: the unique name makes one fail, and it retries the lock."""
+    from django.db import IntegrityError
 
-    from django.utils import timezone
+    from .models import ReportingLock
 
-    from apps.core.models import RateLimitBucket
-
-    RateLimitBucket.objects.get_or_create(
-        bucket_key="lock:reporting",
-        defaults={"count": 0, "reset_at": timezone.now() + timedelta(days=36500)},
-    )
-    return RateLimitBucket.objects.select_for_update().get(bucket_key="lock:reporting")
+    for _ in range(3):
+        row = ReportingLock.objects.select_for_update().filter(name="reporting").first()
+        if row is not None:
+            return row
+        try:
+            with transaction.atomic():
+                ReportingLock.objects.create(name="reporting")
+        except IntegrityError:
+            pass
+    raise ValidationError("Could not take the reporting lock. Try again.")
 
 
 def _pause():
@@ -106,12 +110,18 @@ def assign_reporting_manager(
     Authority is the existing rule in this module: super admin and admin only. (The blueprint
     proposes HR; that difference is open and is not applied here.) Refuses self-management,
     people who are not active or onboarding, and any change that would make a reporting loop.
-    The loop check runs under the reporting lock on fresh data."""
-    if actor.role not in (CustomUser.Role.SUPER_ADMIN, CustomUser.Role.ADMIN):
+    The actor's role and status and the loop check are read fresh under the reporting lock."""
+    admin_roles = (CustomUser.Role.SUPER_ADMIN, CustomUser.Role.ADMIN)
+    if actor.role not in admin_roles:
         raise PermissionDenied("Only administrators can configure reporting relationships.")
 
     with transaction.atomic():
         _reporting_lock()
+        fresh_actor = CustomUser.objects.filter(
+            pk=actor.pk, status=CustomUser.Status.ACTIVE, role__in=admin_roles
+        ).first()
+        if fresh_actor is None:  # demoted or deactivated since the caller loaded them
+            raise PermissionDenied("Only administrators can configure reporting relationships.")
         mgr = CustomUser.objects.filter(pk=manager.pk, status__in=_LIVE).first()
         sub = CustomUser.objects.filter(pk=subordinate.pk, status__in=_LIVE).first()
         if mgr is None or sub is None:

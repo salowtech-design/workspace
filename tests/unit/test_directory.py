@@ -127,18 +127,27 @@ def test_org_chart_tree_roots_inactive_managers_and_shown_fields():
     assert truncated is False
     from apps.directory.models import EmployeeProfile
 
-    EmployeeProfile.objects.update_or_create(
-        user=mid, defaults={"phone": "555-0101", "emergency_contact": "Secret Contact"}
-    )
+    secrets = []
+    for i, u in enumerate((boss, mid, low, orphan, gone)):
+        vals = {
+            "phone": f"555-01{i}1",
+            "emergency_contact": f"EmergencyPerson{i}",
+            "bio": f"BioText{i}",
+            "location": f"Place{i}",
+        }
+        EmployeeProfile.objects.update_or_create(user=u, defaults=vals)
+        secrets += list(vals.values()) + [u.email] if u.email else list(vals.values())
     c = Client()
     c.force_login(boss)
     page = c.get(reverse("directory:org"), HTTP_HOST="app.salowtech.com")
     assert page.status_code == 200
     body = page.content.decode()
     assert "Mid Person" in body and "OC-LOW" in body
-    assert (
-        "555-0101" not in body and "Secret Contact" not in body and "@" not in body.split("<ul")[1]
-    )
+    # every person's phone, emergency contact, bio, location and email, anywhere in the page
+    leaked = [v for v in secrets if v in body]
+    assert leaked == []
+    # the page really did render people (the assertion above is not vacuous)
+    assert body.count("OC-") >= 4
     assert c.get("/directory/org/", HTTP_HOST="iam.salowtech.com").status_code == 404
 
 
@@ -249,3 +258,49 @@ def test_race_two_manager_changes_cannot_make_a_loop(monkeypatch, locked):
         ), (loops, outcomes)
     else:
         assert loops == 3, (loops, outcomes)
+
+
+@pytest.mark.django_db
+def test_reporting_self_reference_is_refused_by_the_database():
+    a = _emp("SELF-1", "Self One")
+    with pytest.raises(ValidationError):  # the model's own save() check
+        ReportingRelationship.objects.create(manager=a, subordinate=a)
+    from django.db import connection
+
+    if connection.vendor != "sqlite":
+        pytest.skip("TiDB 8.5.1 did not enforce the check constraint here (observed, run once)")
+    with pytest.raises(IntegrityError):  # bulk_create skips save(): only the constraint stops it
+        ReportingRelationship.objects.bulk_create([ReportingRelationship(manager=a, subordinate=a)])
+
+
+@pytest.mark.django_db
+def test_reporting_lock_row_is_separate_and_recreated_if_missing():
+    from apps.core.models import RateLimitBucket
+    from apps.directory.models import ReportingLock
+    from apps.directory.services import assign_reporting_manager
+
+    admin = _emp("LK-ADM", "Lock Admin", CustomUser.Role.ADMIN)
+    a, b = _emp("LK-A", "A"), _emp("LK-B", "B")
+    RateLimitBucket.objects.all().delete()  # what the IAM lock release / purge job deletes
+    assert assign_reporting_manager(a, b, admin).manager_id == a.pk
+    assert ReportingLock.objects.filter(name="reporting").count() == 1
+    ReportingLock.objects.all().delete()  # someone removed the row: it is made again
+    c = _emp("LK-C", "C")
+    assert assign_reporting_manager(a, c, admin).manager_id == a.pk
+    assert ReportingLock.objects.filter(name="reporting").count() == 1
+
+
+@pytest.mark.django_db
+def test_stale_admin_object_is_refused_after_demotion_or_deactivation():
+    from django.core.exceptions import PermissionDenied
+
+    from apps.directory.services import assign_reporting_manager
+
+    a, b = _emp("ST-A", "A"), _emp("ST-B", "B")
+    for change in ({"role": CustomUser.Role.EMPLOYEE}, {"status": CustomUser.Status.SUSPENDED}):
+        admin = _emp(f"ST-ADM{len(change)}{list(change)[0]}", "Stale Admin", CustomUser.Role.ADMIN)
+        stale = CustomUser.objects.get(pk=admin.pk)  # loaded while still an admin
+        CustomUser.objects.filter(pk=admin.pk).update(**change)
+        with pytest.raises(PermissionDenied):
+            assign_reporting_manager(a, b, stale)
+    assert not ReportingRelationship.objects.filter(subordinate=b).exists()

@@ -90,7 +90,12 @@ class TeamMembership(models.Model):
 class ReportingRelationship(models.Model):
     """
     Direct reporting hierarchy.
-    Enforces no self-management and acyclic reporting graphs.
+    The database enforces one manager per person (unique). The no-self-reporting check
+    constraint is enforced on SQLite; TiDB 8.5.1 accepted a self row in a test run, so there the
+    save() method and the service are the only guards.
+    Acyclic graphs are NOT a database invariant: they are kept by the service
+    assign_reporting_manager (under the reporting lock). Rows written any other way, such as the
+    admin site or bulk writes, skip that check.
     """
 
     manager = models.ForeignKey(
@@ -107,6 +112,12 @@ class ReportingRelationship(models.Model):
 
     class Meta:
         ordering = ["manager__employee_id"]
+        constraints = [
+            models.CheckConstraint(
+                check=~models.Q(manager=models.F("subordinate")),
+                name="reporting_no_self_manager",
+            )
+        ]
         verbose_name = "Reporting Relationship"
         verbose_name_plural = "Reporting Relationships"
 
@@ -159,3 +170,13 @@ class EmployeeProfile(models.Model):
 
     def __str__(self):
         return f"Profile of {self.user.employee_id}"
+
+
+class ReportingLock(models.Model):
+    """Single row that every reporting change locks first. Its own table, so the IAM lock
+    release tool and the rate-limit purge job (which delete rate-limit rows) cannot remove it."""
+
+    name = models.CharField(max_length=20, unique=True, default="reporting")
+
+    class Meta:
+        verbose_name = "Reporting lock"
