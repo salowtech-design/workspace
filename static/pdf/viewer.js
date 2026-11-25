@@ -153,16 +153,15 @@
   // offers Web Locks the check and write run one at a time across tabs (one lock for all notes, so the file limit is
   // serialized too). Without Web Locks nothing is saved, so two tabs can never silently overwrite each other.
   function commit(next, done) {
-    var myDoc = doc, myKey = nKey;
+    var myDoc = doc, myKey = nKey, myLast = lastRaw; // the baseline this change was made against, fixed now
     var run = function () {
-      var cur; try { cur = localStorage.getItem(myKey); } catch (e) { return { err: "This browser would not read the saved notes, so nothing was changed." }; }
-      var act = N.plan(lastRaw, cur, next.length, cur === null ? fileCount() : 0);
-      if (act === "stale") return { stale: true, raw: cur };
-      if (act === "limit") return { err: "Notes are kept for up to " + N.MAX_FILES + " files on this device. Delete the notes of a file you no longer need first." };
-      try {
-        if (act === "remove") localStorage.removeItem(myKey); else if (act === "set") localStorage.setItem(myKey, N.dump(next));
-      } catch (e) { return { err: "This browser would not save that change, so nothing was changed." }; }
-      lastRaw = act === "set" ? N.dump(next) : null; return { ok: true };
+      var r = N.applySave(localStorage, myKey, myLast, next, fileCount);
+      if (r.stale) return { stale: true, raw: r.raw };
+      if (r.limit) return { err: "Notes are kept for up to " + N.MAX_FILES + " files on this device. Delete the notes of a file you no longer need first." };
+      if (r.err === "read") return { err: "This browser would not read the saved notes, so nothing was changed." };
+      if (r.err) return { err: "This browser would not save that change, so nothing was changed." };
+      if (myDoc === nDoc && myKey === nKey) lastRaw = r.raw;
+      return { ok: true };
     };
     if (!(navigator.locks && navigator.locks.request)) { saving = false; nmsg("This browser or connection cannot make saving safe when the same notes are open in two tabs, so notes cannot be saved here. Open the site over a secure (https) connection to save notes."); return; }
     var p = navigator.locks.request("salow-pdfnotes", function () { return run(); });
@@ -184,6 +183,7 @@
   }
   function notesOpen(d, hash) {
     notesClose(); nDoc = d;
+    if (!(navigator.locks && navigator.locks.request)) { nmsg("Notes need a secure (https) connection, so they are off here."); return; }
     if (typeof hash !== "string" || !/^[0-9a-f]{64}$/.test(hash)) { nmsg("Notes are not available for this file because the viewer could not identify it."); return; }
     nKey = prefix + hash;
     var raw; try { raw = localStorage.getItem(nKey); } catch (e) { nmsg("This browser will not keep notes, so notes are off."); return; }
@@ -239,9 +239,13 @@
       clearArmed = true; clearTimer = setTimeout(function () { disarm(); nmsg("Delete all notes was cancelled."); }, 6000);
       nmsg("Press Delete all notes for this file again within 6 seconds to remove them from this device."); return;
     }
-    disarm();
-    try { localStorage.removeItem(nKey); } catch (x) { nmsg("This browser would not remove them."); return; }
-    notes = []; nState = "ok"; lastRaw = null; nmsg("All notes for this file were deleted from this device."); renderNotes();
+    disarm(); saving = true;
+    commit([], function (r) {
+      saving = false;
+      if (r.stale) { adopt(r.raw, "Notes for this file changed in another tab, so nothing was deleted. Showing the saved notes."); return; }
+      if (r.err) { nmsg(r.err); return; }
+      notes = []; nState = "ok"; nmsg("All notes for this file were deleted from this device."); renderNotes();
+    });
   });
   // Another tab of this browser changed this file's notes: show what is stored now.
   window.addEventListener("storage", function (e) {
@@ -257,7 +261,8 @@
     controls(); status.textContent = msg || "";
   }
   function open(buf, name, mine) {
-    var hashed = N.sha256Hex(buf).catch(function () { return ""; }); // taken before the reader can take the bytes
+    var canSave = !!(navigator.locks && navigator.locks.request);
+    var hashed = canSave ? N.sha256Hex(buf).catch(function () { return ""; }) : Promise.resolve(""); // taken before the reader can take the bytes
     loadLib().then(function (m) {
       var t = m.getDocument({ data: new Uint8Array(buf), isEvalSupported: false, disableAutoFetch: true, disableStream: true, standardFontDataUrl: BASE + "standard_fonts/" });
       return t.promise.then(function (d) { return { d: d, t: t }; }, function (e) { try { t.destroy(); } catch (x) { /* gone */ } throw e; });

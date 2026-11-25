@@ -93,6 +93,16 @@
     }
     return Promise.resolve(sha256Plain(bytes));
   }
-  var api = { plan: plan, sha256Hex: sha256Hex, sha256Plain: sha256Plain, MAX_NOTES: MAX_NOTES, MAX_TEXT: MAX_TEXT, MAX_FILES: MAX_FILES, load: load, dump: dump, add: add, remove: remove, forPage: forPage, toText: toText, validNote: validNote };
+  // The whole guarded write against a storage object: compares the stored value with the baseline the change was
+  // made against (myLast), then removes or sets. Returns {stale, raw}, {err}, {limit} or {ok, raw}.
+  function applySave(store, key, myLast, next, countFiles) {
+    var cur; try { cur = store.getItem(key); } catch (e) { return { err: "read" }; }
+    var act = plan(myLast, cur, next.length, cur === null ? countFiles() : 0);
+    if (act === "stale") return { stale: true, raw: cur };
+    if (act === "limit") return { limit: true };
+    try { if (act === "remove") store.removeItem(key); else if (act === "set") store.setItem(key, dump(next)); } catch (e) { return { err: "write" }; }
+    return { ok: true, raw: act === "set" ? dump(next) : null };
+  }
+  var api = { plan: plan, applySave: applySave, sha256Hex: sha256Hex, sha256Plain: sha256Plain, MAX_NOTES: MAX_NOTES, MAX_TEXT: MAX_TEXT, MAX_FILES: MAX_FILES, load: load, dump: dump, add: add, remove: remove, forPage: forPage, toText: toText, validNote: validNote };
   if (typeof module !== "undefined" && module.exports) module.exports = api; else root.SalowPdfNotes = api;
 })(typeof self !== "undefined" ? self : this);
