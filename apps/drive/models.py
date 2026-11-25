@@ -1,8 +1,11 @@
+import uuid
+
 from django.conf import settings
 from django.db import models
 
 
 class Folder(models.Model):
+    public_id = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
     owner = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="drive_folders"
     )
@@ -28,6 +31,7 @@ class Folder(models.Model):
 class DriveFile(models.Model):
     """File record. Bytes live behind the storage interface; only the key is kept here."""
 
+    public_id = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
     owner = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="drive_files"
     )

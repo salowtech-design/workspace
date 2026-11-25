@@ -1,3 +1,5 @@
+import uuid
+
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied, ValidationError
@@ -15,7 +17,7 @@ def _item(kind, item_id):
     model = {"folder": Folder, "file": DriveFile}.get(kind)
     if model is None:
         raise Http404
-    return get_object_or_404(model, pk=item_id)
+    return get_object_or_404(model, public_id=item_id)
 
 
 def _rtype(item):
@@ -39,7 +41,9 @@ def _crumbs(folder):
 
 def _back(item):
     parent = item.parent if isinstance(item, Folder) else item.folder
-    return redirect("drive:folder", folder_id=parent.pk) if parent else redirect("drive:home")
+    return (
+        redirect("drive:folder", folder_id=parent.public_id) if parent else redirect("drive:home")
+    )
 
 
 def _run(request, fn, *args, ok=""):
@@ -65,7 +69,7 @@ def drive_home(request):
 
 @login_required
 def folder_view(request, folder_id):
-    folder = _visible_or_404(request.user, get_object_or_404(Folder, pk=folder_id))
+    folder = _visible_or_404(request.user, get_object_or_404(Folder, public_id=folder_id))
     folders, files = svc.list_folder(request.user, folder)
     owner = folder.owner_id == request.user.pk
     shares = list(folder.shares.select_related("user")) if owner else []
@@ -103,8 +107,14 @@ def trash_view(request):
 def new_folder(request):
     parent = None
     pid = request.POST.get("parent")
-    if pid and pid.isdigit():
-        parent = _visible_or_404(request.user, get_object_or_404(Folder, pk=int(pid)))
+    if pid:
+        try:
+            parent = Folder.objects.filter(public_id=uuid.UUID(pid)).first()
+        except ValueError:
+            parent = None
+        if parent is None:
+            raise Http404
+        _visible_or_404(request.user, parent)
     _run(
         request,
         svc.create_folder,
@@ -113,7 +123,9 @@ def new_folder(request):
         parent,
         ok="Folder created.",
     )
-    return redirect("drive:folder", folder_id=parent.pk) if parent else redirect("drive:home")
+    return (
+        redirect("drive:folder", folder_id=parent.public_id) if parent else redirect("drive:home")
+    )
 
 
 @login_required
@@ -162,7 +174,7 @@ def share_item(request, kind, item_id):
             request.POST.get("role", ""),
             ok=f"Shared with {person.employee_id}.",
         )
-    return _back(item) if kind == "file" else redirect("drive:folder", folder_id=item.pk)
+    return _back(item) if kind == "file" else redirect("drive:folder", folder_id=item.public_id)
 
 
 @login_required
@@ -171,4 +183,4 @@ def unshare_item(request, kind, item_id):
     item = _visible_or_404(request.user, _item(kind, item_id))
     person = get_object_or_404(CustomUser, pk=request.POST.get("user_id") or 0)
     _run(request, svc.unshare, request.user, item, person, ok="Access removed.")
-    return _back(item) if kind == "file" else redirect("drive:folder", folder_id=item.pk)
+    return _back(item) if kind == "file" else redirect("drive:folder", folder_id=item.public_id)
