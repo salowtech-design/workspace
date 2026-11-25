@@ -11,6 +11,19 @@
   }
   function pageIndex(cur, delta, count) { var n = cur + delta; return n < 1 ? 1 : n > count ? count : n; }
   function zoomStep(z, dir) { var l = [0.5, 0.75, 1, 1.25, 1.5, 2, 3], i = l.indexOf(z); if (i < 0) i = 2; i = Math.max(0, Math.min(l.length - 1, i + dir)); return l[i]; }
-  var api = { MAX_BYTES: MAX_BYTES, check: check, pageIndex: pageIndex, zoomStep: zoomStep };
+  // items: pdf.js text items. Returns the page text with at most budget characters in total.
+  function takeText(items, budget) {
+    var out = [], used = 0, cut = false;
+    for (var i = 0; i < items.length; i++) {
+      var it = items[i]; if (!it || typeof it.str !== "string") continue;
+      if (used >= budget) { cut = true; break; }
+      var piece = it.str.slice(0, budget - used); if (piece.length < it.str.length) cut = true;
+      out.push(piece + (it.hasEOL ? "\n" : " ")); used += piece.length + 1;
+    }
+    return { text: out.join("").replace(/[ \t]+\n/g, "\n").trim(), cut: cut };
+  }
+  // Newest-pick-wins sequence: begin() on each file pick or close, current(n) says whether n is still the newest.
+  function Seq() { var n = 0; this.begin = function () { return ++n; }; this.current = function (m) { return m === n; }; }
+  var api = { takeText: takeText, Seq: Seq, MAX_BYTES: MAX_BYTES, check: check, pageIndex: pageIndex, zoomStep: zoomStep };
   if (typeof module !== "undefined" && module.exports) module.exports = api; else root.SalowPdfCheck = api;
 })(typeof self !== "undefined" ? self : this);
