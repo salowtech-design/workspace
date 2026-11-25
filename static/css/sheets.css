@@ -1,0 +1,12 @@
+.sheet-card { min-width: 0; max-width: 100%; overflow: hidden; }
+.sheet-scroll { max-width: 100%; overflow: auto; max-height: 70vh; border: 1px solid #d9cfc2; border-radius: 6px; }
+.sheet-scroll table { border-collapse: collapse; width: max-content; }
+.sheet-scroll th { position: sticky; top: 0; background: #f3ece2; font-size: 14px; padding: 6px 8px; z-index: 1; }
+.sheet-scroll tbody th, .sheet-scroll tr > th:first-child { left: 0; z-index: 2; }
+.sheet-scroll td { padding: 0; border: 1px solid #e6ddd0; }
+.sheet-scroll input { width: 9em; font-size: 16px; padding: 8px; border: 0; background: transparent; box-sizing: border-box; }
+.sheet-scroll input:focus { outline: 2px solid #7a2e22; outline-offset: -2px; background: #fff; }
+#sheet-bar { width: min(32em, 100%); font-size: 16px; padding: 8px; }
+/* the page shell is a flex row: let the main column shrink so the grid scrolls inside its card */
+.app-shell > .main-content, .app-shell > main { min-width: 0; }
+[hidden] { display: none !important; }

@@ -34,5 +34,10 @@ jobs:
       - name: Dependency audit
         run: uv run pip-audit
 
+      - name: Set up Node (formula table runs under node)
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
       - name: Run unit tests
         run: uv run pytest tests/unit -v

@@ -22,7 +22,11 @@ def test_sheets_page_is_workspace_host_only_signed_in_only_and_scoped_per_person
     r = ca.get("/sheets/")
     html = r.content.decode()
     assert r.status_code == 200 and f'data-store-key="salow.sheet.{a.pk}"' in html
-    assert "kept in this browser only" in html and "no-store" in r["Cache-Control"]
+    assert (
+        "kept in this browser only" in html
+        and "not encrypted" in html
+        and "no-store" in r["Cache-Control"]
+    )
     assert 'href="/sheets/"' in ca.get("/chat/").content.decode()  # nav link
     cb = Client(HTTP_HOST=HOST)
     cb.force_login(b)

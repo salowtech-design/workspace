@@ -124,10 +124,12 @@
     return nums;
   }
   function roundHalfAway(x, d) {  // decimal-string shift, so 2.4999999995 -> 2 and 1.005 -> 1.01
-    var ax = Math.abs(x), str = String(ax);
-    if (str.indexOf("e") >= 0) { var f = Math.pow(10, d); return Math.sign(x) * Math.round(ax * f) / f; }
+    var ax = Math.abs(x), str = String(ax), f = Math.pow(10, d), out;
+    if (str.indexOf("e") >= 0) { out = Math.round(ax * f) / f; return isFinite(out) ? (x < 0 ? -out : out) : x; }
+    if (ax * f >= 9007199254740992) return x;  // no fractional digit left at this scale
     var up = Math.round(Number(str + "e" + d));
-    var out = Number(up + "e" + (-d));
+    out = Number(up + "e" + (-d));
+    if (!isFinite(out)) return x;
     return x < 0 ? -out : out;
   }
   var FN = {

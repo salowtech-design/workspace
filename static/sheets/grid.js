@@ -14,7 +14,7 @@
     var tr = table.insertRow(); var rh = document.createElement("th"); rh.textContent = r; tr.appendChild(rh);
     for (c = 1; c <= COLS; c++) {
       var a = String.fromCharCode(64 + c) + r, inp = document.createElement("input");
-      inp.type = "text"; inp.maxLength = MAXCELL; inp.setAttribute("aria-label", "Cell " + a); inp.dataset.addr = a; inp.style.width = "8em";
+      inp.type = "text"; inp.maxLength = MAXCELL; inp.setAttribute("aria-label", "Cell " + a); inp.dataset.addr = a; 
       inputs[a] = inp; tr.insertCell().appendChild(inp);
     }
   }
@@ -30,13 +30,26 @@
   var bar = document.getElementById("sheet-bar"), sel = document.getElementById("sheet-sel"), cur = null;
   function commit(a, v) { if (v === "") delete cells[a]; else cells[a] = v; save(); show(); }
   bar.addEventListener("change", function () { if (cur) commit(cur, bar.value); });
-  function load(obj) {
-    var n = Object.create(null), bad = 0;
-    if (!obj || typeof obj !== "object" || Array.isArray(obj)) return false;
-    Object.keys(obj).forEach(function (k) { if (Object.prototype.hasOwnProperty.call(obj, k) && typeof obj[k] === "string" && obj[k].length <= MAXCELL && Object.prototype.hasOwnProperty.call(inputs, k)) n[k] = obj[k]; else bad++; });
-    cells = n; save(); show(); status.textContent = "Imported " + Object.keys(n).length + " cells" + (bad ? ", skipped " + bad + " entries that did not fit." : ".");
-    return true;
+  var undo = null, undoBtn = document.getElementById("sheet-undo");
+  function snapshot() { var o = Object.create(null); Object.keys(cells).forEach(function (k) { o[k] = cells[k]; }); return o; }
+  function parseImport(obj) {  // returns {cells, kept, skipped} or null; nothing is changed here
+    if (!obj || typeof obj !== "object" || Array.isArray(obj)) return null;
+    var n = Object.create(null), skipped = 0, k;
+    for (k in obj) {
+      if (!Object.prototype.hasOwnProperty.call(obj, k)) continue;
+      if (typeof obj[k] === "string" && obj[k].length <= MAXCELL && SalowFormula.parseAddr(k)) n[k] = obj[k]; else skipped++;
+    }
+    var count = Object.keys(n).length;
+    return count ? { cells: n, count: count, skipped: skipped } : null;
   }
+  function outside(c) { return Object.keys(c).filter(function (k) { return !Object.prototype.hasOwnProperty.call(inputs, k); }).length; }
+  function apply(p) {
+    undo = snapshot(); undoBtn.hidden = false;
+    cells = p.cells; save(); show();
+    var o = outside(cells);
+    status.textContent = "Imported " + p.count + " cells" + (p.skipped ? ", skipped " + p.skipped + " entries that were not valid cells" : "") + (o ? ". " + o + " cells are outside the visible grid (A1 to H20): they are kept and used by formulas, and exported, but not shown" : "") + ". You can undo this import.";
+  }
+  undoBtn.addEventListener("click", function () { if (!undo) return; cells = undo; undo = null; undoBtn.hidden = true; save(); show(); status.textContent = "Import undone."; });
   document.getElementById("sheet-export").addEventListener("click", function () {
     var u = URL.createObjectURL(new Blob([JSON.stringify(cells)], { type: "application/json" })), l = document.createElement("a");
     l.href = u; l.download = "sheet.json"; document.body.appendChild(l); l.click(); l.remove(); URL.revokeObjectURL(u);
@@ -45,7 +58,12 @@
     var f = e.target.files[0]; if (!f) return;
     if (f.size > 1000000) { status.textContent = "That file is too large."; return; }
     var rd = new FileReader();
-    rd.onload = function () { try { if (!load(JSON.parse(String(rd.result)))) status.textContent = "That file is not a sheet."; } catch (x) { status.textContent = "That file is not a sheet."; } };
+    rd.onload = function () {
+      var p = null; try { p = parseImport(JSON.parse(String(rd.result))); } catch (x) { p = null; }
+      if (!p) { status.textContent = "That file has no usable cells. Your sheet was not changed."; return; }
+      if (Object.keys(cells).length && !window.confirm("Replace the " + Object.keys(cells).length + " cells in this sheet with the " + p.count + " cells in this file? You can undo it afterwards.")) { status.textContent = "Import cancelled. Your sheet was not changed."; return; }
+      apply(p);
+    };
     rd.readAsText(f); e.target.value = "";
   });
   table.addEventListener("focusin", function (e) { var a = e.target.dataset && e.target.dataset.addr; if (a) { e.target.value = cells[a] || ""; cur = a; bar.value = cells[a] || ""; sel.textContent = a; } });
