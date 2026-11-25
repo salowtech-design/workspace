@@ -8,6 +8,7 @@ from apps.core.models import Notification
 
 HOST = "app.salowtech.com"
 pytestmark = pytest.mark.django_db
+EXPECT_INACTIVE = 302
 
 
 def _u(eid, status="active"):
@@ -240,18 +241,23 @@ def test_csrf_is_enforced_on_state_changes():
     assert WfDefinition.objects.count() == 0
 
 
-def test_inactive_account_gets_404_on_every_page_and_action():
+def test_inactive_account_is_refused_on_every_page_and_action():
     a = _u("AU-15")
     wf = engine.create_definition(
         a, "w", {"trigger": {"type": "manual"}, "steps": [{"type": "notify_owner", "title": "t"}]}
     )
+    engine.set_enabled(a, wf, True)
     a.status = "suspended"
     a.save()
     c = _c(a)
     p = f"/automation/{wf.public_id}/"
-    codes = {
+    got = [
+        c.get("/automation/").status_code,
         c.get(p).status_code,
         c.post(p + "run/", {"token": "f" * 32}).status_code,
-        c.post(p + "enable/", {"enabled": "1"}).status_code,
-    }
-    assert codes <= {302, 404} and not WfRun.objects.exists()
+        c.post(p + "enable/", {"enabled": "0"}).status_code,
+    ]
+    print("inactive codes", got)
+    assert set(got) == {EXPECT_INACTIVE} and not WfRun.objects.exists()
+    wf.refresh_from_db()
+    assert wf.enabled

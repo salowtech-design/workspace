@@ -46,3 +46,15 @@ def test_needs_sign_in_workspace_host_and_active_status():
     c = Client(HTTP_HOST=HOST, enforce_csrf_checks=True)
     c.force_login(_u("IN-4"))
     assert c.post("/notifications/read/").status_code == 403
+
+
+def test_control_characters_in_links_are_refused_and_never_rendered_as_links():
+    import pytest as _p
+
+    a = _u("IN-5")
+    for bad in ("/\t/other.example", "/\n/x", "/\x00x", "/\u0085/x", "/ /x", "/a\u2028b"):
+        with _p.raises(ValueError):
+            notify(a, "x", "t", bad)
+    Notification.objects.create(user=a, kind="x", title="Planted", link="/\t/other.example")
+    page = _c(a).get("/notifications/").content.decode()
+    assert "Planted" in page and "other.example" not in page

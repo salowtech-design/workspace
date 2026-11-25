@@ -14,7 +14,12 @@ SHOWN = 50
 
 
 def _safe(link):
-    return link if link.startswith("/") and not link.startswith("//") and "\\" not in link else ""
+    bad = any(ord(c) < 0x20 or 0x7F <= ord(c) <= 0x9F or c.isspace() for c in link)
+    return (
+        link
+        if link.startswith("/") and not link.startswith("//") and "\\" not in link and not bad
+        else ""
+    )
 
 
 @login_required

@@ -245,6 +245,9 @@ def run_now(request, public_id):
     if run is None:
         messages.error(request, "Switch the workflow on before running it.")
         return redirect("automation:detail", public_id=wf.public_id)
+    if run.state != WfRun.State.QUEUED:
+        messages.success(request, f"That press was already handled. Its run is {run.state}.")
+        return redirect("automation:detail", public_id=wf.public_id)
     engine.execute(run.pk)
     run = WfRun.objects.get(pk=run.pk)
     if run.state == WfRun.State.SUCCEEDED:

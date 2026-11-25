@@ -14,7 +14,7 @@ def _safe_link(link: str) -> str:
         not link.startswith("/")
         or link.startswith("//")
         or "\\" in link
-        or any(ch in link for ch in "\r\n\t")
+        or any(ord(ch) < 0x20 or 0x7F <= ord(ch) <= 0x9F or ch.isspace() for ch in link)
         or len(link) > 300
     ):
         raise ValueError("notification link must be an internal path starting with a single /")
