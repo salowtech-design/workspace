@@ -193,7 +193,14 @@ def public_payload(evt: AuthEvent, tx_domain=None) -> dict:
     domain = domain_of(evt.event, tx_domain)
     event_name = evt.event or ""
     subject = evt.employee_id or ""
-    is_signin = event_name.startswith(("auth.", "login_failed")) or event_name in SIGNIN_EVENTS
+    # auth.* names that are not sign-in transactions (session revoked, policy, lock, identity,
+    # device revoked) are written by an already authenticated control action, so they are never
+    # shown as a sign-in claim. They carry a recorded actor when the writer recorded one.
+    is_signin = (
+        is_transaction_event(event_name)
+        or event_name.startswith("login_failed")
+        or event_name in SIGNIN_EVENTS
+    )
     # A recorded actor is always shown as recorded. A sign-in row carries only the identity
     # that was submitted: it is the actor only once authentication succeeded. Before that
     # (wrong password, wrong code, unknown ID, someone else's ID) it is shown as an

@@ -201,7 +201,7 @@
                         <div>
                             <span class="text-white font-semibold">{{ s.iam_admin.admin_id }}</span>
                             <span class="text-indigo-400 ml-2">Assurance Level {{ s.assurance_level }}</span>
-                            <span class="text-gray-500 block text-[11px] mt-0.5">Session: {{ s.session_key|slice:":16" }}... (Expires: {{ s.expires_at|date:"H:i:s" }})</span>
+                            <span class="text-gray-500 block text-[11px] mt-0.5">Session: {{ s.session_key|slice:":12" }}... (Last active: {{ s.last_activity|date:"H:i:s" }})</span>
                         </div>
                         <form method="POST" action="{% url 'iam:auth_control_action' %}">
                             {% csrf_token %}

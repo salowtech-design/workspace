@@ -612,6 +612,7 @@ def execute_revoke_session(
         code="AUDIT",
         step="session_control",
         employee_id=actor_admin.admin_id,
+        actor_employee_id=actor_admin.admin_id,
         reference_id=session_ref,
         message=f"Session {session_ref} revoked by {actor_admin.admin_id}: {reason}",
     )
@@ -653,6 +654,7 @@ def execute_revoke_device(
         code="AUDIT",
         step="device_control",
         employee_id=actor_admin.admin_id,
+        actor_employee_id=actor_admin.admin_id,
         reference_id=device_ref,
         message=f"Device {device_ref} revoked by {actor_admin.admin_id}: {reason}",
     )
@@ -694,6 +696,7 @@ def execute_temporary_restriction(
         code="AUDIT",
         step="restriction_control",
         employee_id=actor_admin.admin_id,
+        actor_employee_id=actor_admin.admin_id,
         reference_id=clean_id,
         message=f"Account {clean_id} restricted for {duration_minutes}m by {actor_admin.admin_id}: {reason}",
     )
@@ -720,6 +723,7 @@ def execute_release_lock(
         code="AUDIT",
         step="lock_control",
         employee_id=actor_admin.admin_id,
+        actor_employee_id=actor_admin.admin_id,
         reference_id=clean_key,
         message=f"Lock {clean_key} released by {actor_admin.admin_id}: {reason}",
     )
@@ -748,6 +752,7 @@ def execute_acknowledge_alert(
         code="AUDIT",
         step="alert_control",
         employee_id=actor_admin.admin_id,
+        actor_employee_id=actor_admin.admin_id,
         reference_id=str(alert_id),
         message=f"Alert #{alert_id} acknowledged by {actor_admin.admin_id}: {reason}",
     )
@@ -795,6 +800,7 @@ def execute_export_records(
         code="AUDIT",
         step="export_control",
         employee_id=actor_admin.admin_id,
+        actor_employee_id=actor_admin.admin_id,
         reference_id=file_digest[:16],
         message=f"Exported {len(export_rows)} records for [{domain}] with digest {file_digest[:16]}",
     )
@@ -835,6 +841,7 @@ def execute_start_investigation(
         code="AUDIT",
         step="investigation_control",
         employee_id=actor_admin.admin_id,
+        actor_employee_id=actor_admin.admin_id,
         reference_id=str(incident.id),
         message=f"Investigation #{incident.id} started for transaction {tx.transaction_id}",
     )
@@ -1182,6 +1189,7 @@ def approve_iam_recovery_case(
                 code="AUDIT",
                 step="iam_recovery_approval",
                 employee_id=approver.admin_id,
+                actor_employee_id=approver.admin_id,
                 reference_id=case_id,
                 message=f"Recovery case [{case_id}] granted First Approval by {approver.admin_id}",
             )
@@ -1219,6 +1227,7 @@ def approve_iam_recovery_case(
                 code="AUDIT",
                 step="iam_recovery_approval",
                 employee_id=approver.admin_id,
+                actor_employee_id=approver.admin_id,
                 reference_id=case_id,
                 message=f"Recovery case [{case_id}] granted Dual Approval by {approver.admin_id}. "
                 f"Reset token issued: {bool(case.one_time_reset_token)}.",
@@ -1247,6 +1256,7 @@ def reject_iam_recovery_case(
         code="AUDIT",
         step="iam_recovery_rejection",
         employee_id=approver.admin_id,
+        actor_employee_id=approver.admin_id,
         reference_id=case_id,
         message=f"Recovery case [{case_id}] rejected by {approver.admin_id}: {rejection_reason}",
     )
