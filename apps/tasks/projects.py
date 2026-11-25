@@ -6,6 +6,7 @@ from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import transaction
 from django.db.models import F, Max
 from django.http import Http404
+from django.utils import timezone
 
 from apps.core.foundation.audit import audit
 from apps.tasks.models import Column, Project, ProjectMember, ProjectTask
@@ -126,7 +127,10 @@ def move_task(user, task, column_id, expected_version):
         m=Max("position")
     )["m"]
     done = ProjectTask.objects.filter(pk=t.pk, version=expected_version).update(
-        column=col, position=0 if top is None else top + 1, version=F("version") + 1
+        column=col,
+        position=0 if top is None else top + 1,
+        version=F("version") + 1,
+        updated_at=timezone.now(),
     )
     if not done:
         raise StaleVersion("This task changed while you were looking at it.")
@@ -136,14 +140,21 @@ def move_task(user, task, column_id, expected_version):
 
 
 @transaction.atomic
-def assign_task(user, task, person):
+def assign_task(user, task, person, expected_version=None):
     """Only a current member of this project can be assigned, so assigning never shows the
     project to a new person. No notice is sent."""
     p = _lock_as_lead(user, task.project)
     t = _fresh_task(p, task)
     if person is not None and not (person.is_active and _membership(person, p) is not None):
         raise ValidationError("That person is not a member of this project.")
-    ProjectTask.objects.filter(pk=t.pk).update(assignee=person, version=F("version") + 1)
+    if t.assignee_id == getattr(person, "pk", None):
+        return t  # nothing changes: no version bump, no audit (a stale version is not checked)
+    _pause()
+    q = ProjectTask.objects.filter(pk=t.pk)
+    if expected_version is not None:
+        q = q.filter(version=expected_version)
+    if not q.update(assignee=person, version=F("version") + 1, updated_at=timezone.now()):
+        raise StaleVersion("This task changed while you were looking at it.")
     audit(
         user,
         "tasks.project_task.assign",
@@ -193,7 +204,7 @@ def edit_task(user, task, expected_version, **changes):
         fields["due_date"] = _due(changes["due_date"])
     _pause()
     done = ProjectTask.objects.filter(pk=t.pk, version=expected_version).update(
-        version=F("version") + 1, **fields
+        version=F("version") + 1, updated_at=timezone.now(), **fields
     )
     if not done:
         raise StaleVersion("This task changed while you were editing.")

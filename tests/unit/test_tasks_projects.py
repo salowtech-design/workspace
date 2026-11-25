@@ -1,3 +1,5 @@
+import time
+
 import pytest
 from django.core.exceptions import ValidationError
 from django.test import Client
@@ -254,12 +256,17 @@ def _setup_race(monkeypatch, locked, parties):
 
     barrier = threading.Barrier(parties)
 
+    mine = threading.local()
+
     def pause():
         try:
             barrier.wait(timeout=1.5)
         except threading.BrokenBarrierError:
             pass
+        if getattr(mine, "late", False):
+            time.sleep(0.6)  # this side writes only after the other side has committed
 
+    pause.mine = mine
     monkeypatch.setattr(pj, "_pause", pause)
     if not locked:
         monkeypatch.setattr(pj, "_lock_project", lambda p: Project.objects.get(pk=p.pk))
@@ -299,6 +306,7 @@ def test_race_removal_vs_assign(monkeypatch, locked):
                 ProjectTask.objects.filter(project=p, assignee=m).update(assignee=None)
 
         def assign(a=a, t=t, m=m):
+            pause.mine.late = True
             try:
                 pj.assign_task(a, t, m)
             except ValidationError:
@@ -311,7 +319,9 @@ def test_race_removal_vs_assign(monkeypatch, locked):
         ).exists()
         if gone and t.assignee_id == m.pk:  # removed, yet still the assignee
             broken += 1
-    assert (broken == 0) if locked else (broken > 0), broken
+    rounds = 2 if locked else 3
+    # control: the assign judged a membership that was removed before its write, every round
+    assert (broken == 0) if locked else (broken == rounds), (broken, rounds)
 
 
 @pytest.mark.django_db(transaction=True)
@@ -359,3 +369,26 @@ def test_project_task_edit_version_preserve_and_lead_only():
     r = ca.post(url, {"version": 2, "title": "  "})
     assert r.status_code == 400 and "tasks-conflict" not in r.content.decode()
     assert ProjectTask.objects.get(pk=t.pk).title == "new"
+
+
+@pytest.mark.django_db
+def test_assign_noop_stale_and_updated_at_and_member_pages_stay_separate():
+    from apps.tasks.models import ProjectTask
+    from apps.tasks.services import StaleVersion
+
+    a, m = _u("PY-A"), _u("PY-M")
+    p = pj.create_project(a, "Proj")
+    _member(p, m)
+    t = pj.add_task(a, p, p.columns.first().pk, "projtask")
+    before = ProjectTask.objects.get(pk=t.pk).updated_at
+    t2 = pj.assign_task(a, t, m, expected_version=1)
+    assert (t2.version, t2.assignee_id) == (2, m.pk) and t2.updated_at > before
+    again = pj.assign_task(a, t, m, expected_version=1)  # same assignee: no-op, even if stale
+    assert again.version == 2
+    with pytest.raises(StaleVersion):
+        pj.assign_task(a, t, None, expected_version=1)  # a real change with a stale version
+    assert ProjectTask.objects.get(pk=t.pk).assignee_id == m.pk
+    cm = _c(m)  # the assigned member's personal and assigned pages do not show project tasks
+    assert b"projtask" not in cm.get(reverse("tasks:assigned")).content
+    assert b"projtask" not in cm.get(reverse("tasks:home")).content
+    assert list(svc.assigned_to(m)) == []
