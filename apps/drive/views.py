@@ -3,6 +3,7 @@ import uuid
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied, ValidationError
+from django.db.models.functions import Upper
 from django.http import Http404
 from django.shortcuts import get_object_or_404, redirect, render
 from django.views.decorators.http import require_POST
@@ -158,9 +159,15 @@ def restore_item(request, kind, item_id):
 
 
 def _person(employee_id):
-    return CustomUser.objects.filter(
-        employee_id__iexact=(employee_id or "").strip(), is_active=True, status="active"
-    ).first()
+    # Upper() compares the same on every backend; __iexact is case-sensitive on TiDB's binary collation.
+    wanted = (employee_id or "").strip().upper()
+    if not wanted:
+        return None
+    return (
+        CustomUser.objects.annotate(_eid=Upper("employee_id"))
+        .filter(_eid=wanted, is_active=True, status="active")
+        .first()
+    )
 
 
 @login_required
