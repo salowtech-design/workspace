@@ -406,3 +406,23 @@ def test_skip_view_guards_anonymous_post_and_authenticated_get_write_nothing():
     # the return date is normalised, not echoed
     r = c.post(u, {"date": "2027-03-02", "from": "2027-3-5"})
     assert r["Location"].endswith("?from=2027-03-05"), r["Location"]
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("method", ["get", "post"])
+def test_every_calendar_url_sends_an_anonymous_visitor_to_login_and_writes_nothing(method):
+    import uuid
+
+    org = _u("R19")
+    ev = mk(org, "2027-03-01T10:00", "2027-03-01T11:00", freq="daily", count=3)
+    anon = Client(HTTP_HOST="app.salowtech.com")
+    for name in ("home", "month", "week", "day", "new", "busy"):
+        r = getattr(anon, method)(reverse(f"events:{name}"))
+        assert r.status_code == 302 and "login" in r["Location"], (name, r.status_code)
+    for name in ("detail", "edit", "respond", "skip", "cancel"):
+        r = getattr(anon, method)(reverse(f"events:{name}", args=[ev.public_id]), {"date": "2027-03-02", "confirm": "yes", "response": "declined"})
+        assert r.status_code == 302 and "login" in r["Location"], (name, r.status_code)
+    assert reverse("events:detail", args=[uuid.uuid4()])  # url names are all reversible
+    assert EventException.objects.count() == 0
+    ev.refresh_from_db()
+    assert ev.status == "confirmed" and ev.version == 1
