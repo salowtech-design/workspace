@@ -76,10 +76,13 @@ def test_business_audit_date_extremes_are_noted_not_500_and_recent_rows_still_ma
         return [x.action for x in r.context["business_audits"]], r.content.decode()
 
     rows, html = go("&b_from=0001-01-01")
-    assert rows == ["Recent.Row"] and "outside 1001-01-02 to 9998-12-30" in html  # ignored with a note, row still listed
+    assert rows == ["Recent.Row"] and "outside 1000-01-02 to 9999-12-30" in html  # ignored with a note, row still listed
     rows, html = go("&b_to=9999-12-31")
-    assert rows == ["Recent.Row"] and "outside 1001-01-02 to 9998-12-30" in html
-    rows, html = go("&b_from=1001-01-02&b_to=9998-12-30")  # the edges themselves are accepted
+    assert rows == ["Recent.Row"] and "outside 1000-01-02 to 9999-12-30" in html
+    for q in ("&b_from=0999-12-31", "&b_from=1000-01-01", "&b_to=10000-01-01"):
+        rows, html = go(q)
+        assert rows == ["Recent.Row"] and "outside 1000-01-02 to 9999-12-30" in html, q
+    rows, html = go("&b_from=1000-01-02&b_to=9999-12-30")  # the edges themselves are accepted
     assert rows == ["Recent.Row"] and "outside" not in html
     today = timezone.localdate().isoformat()
     rows, html = go(f"&b_from={today}&b_to={today}")  # today in the app zone includes the row just made

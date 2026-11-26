@@ -1290,9 +1290,9 @@ def admin_iam_dashboard_view(request):  # noqa: C901
         except ValueError:
             audit_filter_notes.append(f"The {label} date was not a date (use YYYY-MM-DD), so it was ignored.")
             return None
-        # The database stores 1000-01-01 to 9999-12-31 (UTC). One day of margin each side keeps the zone conversion inside it.
-        if not (date(1001, 1, 2) <= d <= date(9998, 12, 30)):
-            audit_filter_notes.append(f"The {label} date is outside 1001-01-02 to 9998-12-30, so it was ignored.")
+        # The database stores 1000-01-01 to 9999-12-31 (UTC). Dropping the first and last day keeps the zone conversion (up to +14h) inside it.
+        if not (date(1000, 1, 2) <= d <= date(9999, 12, 30)):
+            audit_filter_notes.append(f"The {label} date is outside 1000-01-02 to 9999-12-30, so it was ignored.")
             return None
         return d
 
