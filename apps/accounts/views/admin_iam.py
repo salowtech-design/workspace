@@ -1271,7 +1271,7 @@ def admin_iam_dashboard_view(request):  # noqa: C901
     rate_limit_records = RateLimitRecord.objects.order_by("-timestamp")[:25]
     # Read-only filters on the business audit list (same rows and columns as before, still the newest 30). Text matches
     # are case-blind through Upper() on both sides, so they behave the same on TiDB's case-sensitive collation.
-    from datetime import datetime, time as _time
+    from datetime import date, datetime, time as _time
 
     from django.db.models.functions import Upper as _Upper
     from django.utils import timezone as _tz
@@ -1286,10 +1286,15 @@ def admin_iam_dashboard_view(request):  # noqa: C901
         if not raw:
             return None
         try:
-            return datetime.strptime(raw, "%Y-%m-%d").date()
+            d = datetime.strptime(raw, "%Y-%m-%d").date()
         except ValueError:
             audit_filter_notes.append(f"The {label} date was not a date (use YYYY-MM-DD), so it was ignored.")
             return None
+        # The database stores 1000-01-01 to 9999-12-31 (UTC). One day of margin each side keeps the zone conversion inside it.
+        if not (date(1001, 1, 2) <= d <= date(9998, 12, 30)):
+            audit_filter_notes.append(f"The {label} date is outside 1001-01-02 to 9998-12-30, so it was ignored.")
+            return None
+        return d
 
     b_from, b_to = _day(b_from_raw, "From"), _day(b_to_raw, "To")
     biz_qs = AuditLog.objects.select_related("actor").order_by("-created_at")
@@ -1350,6 +1355,7 @@ def admin_iam_dashboard_view(request):  # noqa: C901
         "business_audits": business_audits,
         "audit_filter": {"actor": b_actor, "action": b_action, "from": b_from_raw if b_from else "", "to": b_to_raw if b_to else ""},
         "audit_filter_notes": audit_filter_notes,
+        "audit_filter_zone": _tz.get_current_timezone_name(),
         "departments": departments,
         "teams": teams,
         "memberships": memberships,

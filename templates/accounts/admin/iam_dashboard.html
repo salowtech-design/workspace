@@ -1215,7 +1215,7 @@
             <label>To <input type="date" name="b_to" class="form-input" value="{{ audit_filter.to }}"></label>
             <button type="submit" class="btn btn-outline">Filter</button>
             <a href="?tab=audit" class="btn btn-outline">Clear</a>
-            <span class="s-4b74cfde">Newest 30 matching entries. Read only.</span>
+            <span class="s-4b74cfde">Newest 30 matching entries. Read only. Dates are whole days in {{ audit_filter_zone }}.</span>
         </form>
         {% for n in audit_filter_notes %}<p class="s-4b74cfde" role="status">{{ n }}</p>{% endfor %}
         <div class="table-container s-42d4450c">
