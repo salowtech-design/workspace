@@ -77,6 +77,7 @@ class RateLimitMiddleware:
         settings, "RATE_LIMIT_DEFAULT_LIMIT", 300
     )  # general requests per window
     WINDOW_SECONDS = 60
+    MAX_IP_KEY_LEN = 45  # longest textual IPv6 address (with an IPv4 tail)
     MAX_ACCOUNT_KEY_LEN = 32  # longest real employee id; longer typed ids are hashed in the key
 
     _storage: Dict[str, List[float]] = {}
@@ -220,7 +221,14 @@ class RateLimitMiddleware:
         elif request.method == "POST":
             account_id = request.POST.get("employee_id", "").strip().upper() or None
 
-        keys_to_check = [f"{client_ip}:{'sensitive' if is_sensitive else 'general'}"]
+        key_ip = client_ip
+        if len(key_ip) > self.MAX_IP_KEY_LEN:
+            # Longer than any textual IPv4/IPv6 address: only reachable through a forwarded header
+            # from a trusted proxy. Digest it so the key fits the column; valid addresses keep their key.
+            import hashlib as _hl
+
+            key_ip = "h-" + _hl.sha256(key_ip.encode("utf-8", "replace")).hexdigest()[:40]
+        keys_to_check = [f"{key_ip}:{'sensitive' if is_sensitive else 'general'}"]
         if account_id and len(account_id) > self.MAX_ACCOUNT_KEY_LEN:
             # Typed ids longer than any real employee id (CustomUser.employee_id is 32) used to
             # overflow the key column on a strict database and raise. A digest of the whole id
@@ -233,7 +241,7 @@ class RateLimitMiddleware:
             # Account + IP together: one attacker's requests for a victim's ID cannot burn the victim's
             # own quota from another address. Per-IP is limited separately above; account lockout is
             # enforced separately by LoginAttempt.
-            keys_to_check.append(f"acc:{account_id}:{client_ip}:sensitive")
+            keys_to_check.append(f"acc:{account_id}:{key_ip}:sensitive")
 
         try:
             from datetime import timedelta

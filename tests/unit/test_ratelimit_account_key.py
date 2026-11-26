@@ -53,3 +53,18 @@ def test_limits_still_count_per_ip_and_per_id_for_long_and_normal_ids():
 def test_real_length_ids_keep_their_plain_key():
     _post("ST-LIVE-9", ip="10.4.4.4")
     assert RateLimitBucket.objects.filter(bucket_key="acc:ST-LIVE-9:10.4.4.4:sensitive").count() == 1
+
+
+@pytest.mark.django_db
+def test_overlong_forwarded_client_address_from_a_trusted_proxy_does_not_overflow_the_key():
+    """REMOTE_ADDR is a trusted proxy here, so its forwarded header is read. A header longer than any
+    IP address is digested in the key (valid addresses keep their plain key, tested above)."""
+    c = Client(HTTP_HOST="app.salowtech.com", REMOTE_ADDR="127.0.0.1", raise_request_exception=False)
+    r = c.post(reverse("accounts:activate"), {"employee_id": "ST-X-1", "password": "x"}, HTTP_CF_CONNECTING_IP="9" * 5000)
+    assert r.status_code == 200 and not r.has_header("Location")
+    assert ACTIVATION_SESSION_KEY not in c.session
+    assert max(len(k) for k in RateLimitBucket.objects.values_list("bucket_key", flat=True)) <= 191
+    assert RateLimitBucket.objects.filter(bucket_key__startswith="h-").count() >= 1
+    # a normal forwarded address keeps its plain key
+    c.post(reverse("accounts:activate"), {"employee_id": "ST-X-2", "password": "x"}, HTTP_CF_CONNECTING_IP="203.0.113.9")
+    assert RateLimitBucket.objects.filter(bucket_key="203.0.113.9:sensitive").count() == 1
