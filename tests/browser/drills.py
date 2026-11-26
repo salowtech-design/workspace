@@ -6924,6 +6924,59 @@ def pdf_marks(ctx):  # noqa: C901
     check("marks: the panel does not widen the page at 390", sw[0] <= sw[1], sw)
 
 
+def pdf_signature(ctx):  # noqa: C901
+    """A drawn signature: drawn in the pad, placed on the page as a pen drawing, written to a copy as an Ink annotation. A drawn picture only."""
+    import pathlib
+
+    shots = os.environ.get("DRILL_SHOTS", "/tmp")  # noqa: S108
+    data = (pathlib.Path(__file__).resolve().parents[1] / "js" / "fixtures" / "form_basic.pdf").read_bytes()
+    pg = fresh(ctx, "/pdf/")
+    pg.set_viewport_size({"width": 1100, "height": 900})
+    pg.set_input_files("#pdf-open", files=[{"name": "basic.pdf", "mimeType": "application/pdf", "buffer": data}])
+    for _ in range(50):
+        if pg.inner_text("#pdf-where").startswith("Page 1 of") and pg.evaluate("document.getElementById('pdf-canvas').width > 1"):
+            break
+        pg.wait_for_timeout(250)
+    pg.wait_for_timeout(600)
+    check("signature: Place signature is off until a signature is chosen", pg.is_disabled("#pdf-tool-sig"))
+    pg.evaluate("document.getElementById('pdf-sigbox').open = true")
+    pg.click("#pdf-sig-use")
+    check("signature: Use this signature with an empty box says to draw first", "Draw a signature" in pg.inner_text("#pdf-sig-state") and pg.is_disabled("#pdf-tool-sig"), pg.inner_text("#pdf-sig-state"))
+    r = pg.evaluate("(()=>{const b=document.getElementById('pdf-sigpad').getBoundingClientRect();return [b.left,b.top,b.width,b.height]})()")
+    pg.mouse.move(r[0] + r[2] * 0.1, r[1] + r[3] * 0.6)
+    pg.mouse.down()
+    for i in range(1, 11):
+        pg.mouse.move(r[0] + r[2] * (0.1 + 0.08 * i), r[1] + r[3] * (0.6 - 0.3 * ((i % 4) / 3)))
+    pg.mouse.up()
+    check("signature: the pad shows the drawn line", pg.evaluate("document.querySelectorAll('#pdf-sigpad polyline').length") == 1)
+    pg.click("#pdf-sig-use")
+    check("signature: after Use this signature, Place signature is on", not pg.is_disabled("#pdf-tool-sig") and "ready" in pg.inner_text("#pdf-sig-state"))
+    pg.click("#pdf-tool-sig")
+    pg.evaluate("document.getElementById('pdf-marks').scrollIntoView({block: 'start'});0")
+    pg.wait_for_timeout(150)
+    b = pg.evaluate("(()=>{const r=document.getElementById('pdf-marks').getBoundingClientRect();return [r.left,r.top,r.width,r.height]})()")
+    before = pg.evaluate("document.querySelectorAll('#pdf-marks *').length")
+    pg.mouse.click(b[0] + b[2] * 0.5, b[1] + b[3] * 0.7)
+    pg.wait_for_timeout(300)
+    check("signature: one click puts one drawing on the page", pg.evaluate("document.querySelectorAll('#pdf-marks *').length") > before and "Signature drawing placed on page 1" in pg.inner_text("#pdf-markstatus"), pg.inner_text("#pdf-markstatus"))
+    box = pg.evaluate("(()=>{const e=document.querySelector('#pdf-marks polyline, #pdf-marks path');if(!e)return null;const q=e.getBoundingClientRect(),p=document.getElementById('pdf-marks').getBoundingClientRect();return [(q.left-p.left)/p.width,(q.top-p.top)/p.height,(q.right-p.left)/p.width,(q.bottom-p.top)/p.height]})()")
+    check("signature: it sits around the click and about 22% of the page wide", box is not None and 0.25 < box[0] < 0.45 and 0.55 < box[2] < 0.8 and 0.15 < box[2] - box[0] < 0.26, box)
+    pg.evaluate("document.getElementById('pdf-marks').scrollIntoView({block: 'start'});0")
+    shot(pg, "pdf_signature_desktop")
+    pg.click("#pdf-tool-sig")
+    with pg.expect_download() as dl:
+        pg.click("#pdf-markcopy")
+    raw = open(dl.value.path(), "rb").read()
+    check("signature: the copy carries it as an Ink annotation and says nothing about a signer", raw[:5] == b"%PDF-" and b"/Subtype /Ink" in raw and b"/Sig" not in raw.replace(b"/Signature", b""), len(raw))
+    pg.set_viewport_size({"width": 390, "height": 800})
+    pg.evaluate("document.getElementById('pdf-sigbox').scrollIntoView({block: 'start'});0")
+    pg.wait_for_timeout(150)
+    shot(pg, "pdf_signature_390")
+    pg.click("#pdf-sig-clear")
+    check("signature: Clear empties the pad and turns Place signature off", pg.is_disabled("#pdf-tool-sig") and pg.evaluate("document.querySelectorAll('#pdf-sigpad polyline').length") == 0)
+    pg.set_viewport_size({"width": 1100, "height": 900})
+
+
 def pdf_marks_secure(ctx):  # noqa: C901
     """Note placing and the drawing tools exclude each other, and the stroke limit is announced. Needs a secure context, so run alone; the runner then treats the drill origin as secure for this browser only (a test flag, not the app's HTTPS deployment)."""
     pg = fresh(ctx, "/pdf/")
@@ -9314,6 +9367,7 @@ DRILLS = {
     "pdf_pages": pdf_pages,
     "pdf_order": pdf_order,
     "pdf_marks": pdf_marks,
+    "pdf_signature": pdf_signature,
     "pdf_marks_secure": pdf_marks_secure,
     "pdf_marks_keep": pdf_marks_keep,
     "pdf_marks_shot": pdf_marks_shot,

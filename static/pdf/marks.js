@@ -34,6 +34,16 @@
     var m = { id: fresh(marks, rand), page: page, kind: "ink", s: s };
     return validMark(m) ? { marks: marks.concat([m]) } : { error: "That drawing is too long. Draw it in smaller parts." };
   }
+  // A drawn signature (strokes in a pad, points as fractions 0 to 1 of the pad, padAspect = pad width / height) placed on a page as an ordinary pen drawing, centred on
+  // (u, v) and kept inside the page. It is `wFrac` of the page width wide, and keeps the pad's shape on the page as shown (pageAspect = page width / height).
+  // It is a drawn mark only: no signer, no time, no certificate, nothing that binds a person to the file.
+  function addSignature(marks, page, strokes, padAspect, u, v, pageAspect, wFrac, rand) {
+    if (!(padAspect > 0.2 && padAspect < 20) || !(pageAspect > 0.05 && pageAspect < 20) || !(wFrac > 0.02 && wFrac <= 1)) return { error: "That signature could not be placed." };
+    var w = wFrac, h = w * pageAspect / padAspect; if (h > 1) return { error: "That signature is too tall for the page at this size." };
+    var x0 = Math.min(1 - w, Math.max(0, clamp(u) - w / 2)), y0 = Math.min(1 - h, Math.max(0, clamp(v) - h / 2));
+    var mapped = (Array.isArray(strokes) ? strokes : []).map(function (st) { return (Array.isArray(st) ? st : []).map(function (q) { return [x0 + clamp(q && q[0]) * w, y0 + clamp(q && q[1]) * h]; }); });
+    return addInk(marks, page, mapped, rand);
+  }
   // Text highlight: rects are the boxes of the text runs the person's dragged area touched (one box per run), as fractions of the page.
   function addText(marks, page, rects, rand) {
     if (marks.length >= MAX_MARKS) return { error: "This file already has " + MAX_MARKS + " marks. Remove one first." };
@@ -129,6 +139,6 @@
       return pdf.save({ useObjectStreams: false }).then(function (out) { if (out.length > E.MAX_BYTES) throw fail("size", "copy too large"); return { bytes: out, added: done, signed: signed }; });
     }, function (e) { if (e && e.code) throw e; throw fail(/encrypt/i.test(String(e && e.message)) ? "encrypted" : "damaged", "could not read"); });
   }
-  var api = { MAX_FILES: MAX_FILES, MAX_STORED: MAX_STORED, load: load, dump: dump, plan: plan, applySave: applySave, MAX_MARKS: MAX_MARKS, MAX_STROKES: MAX_STROKES, MAX_POINTS: MAX_POINTS, validMark: validMark, addHighlight: addHighlight, addText: addText, MAX_TX: MAX_TX, addInk: addInk, remove: remove, forPage: forPage, build: build };
+  var api = { addSignature: addSignature, MAX_FILES: MAX_FILES, MAX_STORED: MAX_STORED, load: load, dump: dump, plan: plan, applySave: applySave, MAX_MARKS: MAX_MARKS, MAX_STROKES: MAX_STROKES, MAX_POINTS: MAX_POINTS, validMark: validMark, addHighlight: addHighlight, addText: addText, MAX_TX: MAX_TX, addInk: addInk, remove: remove, forPage: forPage, build: build };
   if (typeof module !== "undefined" && module.exports) module.exports = api; else root.PdfMarks = api;
 })(typeof self !== "undefined" ? self : this);

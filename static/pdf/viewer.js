@@ -597,8 +597,8 @@
   function mUsable() { return !!doc && !rot && drawn === page; }
   function mControls() {
     var on = !!doc && !rot && !mBusy; mNotesBox();
-    $("pdf-tool-hl").disabled = !on; $("pdf-tool-pen").disabled = !on; $("pdf-tool-tx").disabled = !on; $("pdf-markcopy").disabled = !on || !mMarks.length; $("pdf-markclear").disabled = !on || !mMarks.length; $("pdf-markflat").disabled = !on || !mMarks.length;
-    $("pdf-tool-hl").setAttribute("aria-pressed", mTool === "hl" ? "true" : "false"); $("pdf-tool-pen").setAttribute("aria-pressed", mTool === "pen" ? "true" : "false"); $("pdf-tool-tx").setAttribute("aria-pressed", mTool === "tx" ? "true" : "false");
+    $("pdf-tool-hl").disabled = !on; $("pdf-tool-pen").disabled = !on; $("pdf-tool-tx").disabled = !on; $("pdf-tool-sig").disabled = !on || !sigStrokes; $("pdf-markcopy").disabled = !on || !mMarks.length; $("pdf-markclear").disabled = !on || !mMarks.length; $("pdf-markflat").disabled = !on || !mMarks.length;
+    $("pdf-tool-hl").setAttribute("aria-pressed", mTool === "hl" ? "true" : "false"); $("pdf-tool-pen").setAttribute("aria-pressed", mTool === "pen" ? "true" : "false"); $("pdf-tool-tx").setAttribute("aria-pressed", mTool === "tx" ? "true" : "false"); $("pdf-tool-sig").setAttribute("aria-pressed", mTool === "sig" ? "true" : "false");
     var svg = $("pdf-marks"); svg.classList.toggle("pdf-marks-on", mTool !== "off" && on);
     var showD = mBad && !!doc; $("pdf-markdiscard").hidden = !showD; $("pdf-markdiscard").style.display = showD ? "" : "none"; $("pdf-markdiscard").disabled = mBusy || mSaving;
   }
@@ -630,10 +630,10 @@
     });
     mControls();
   }
-  function mSetTool(t) { mTool = mTool === t ? "off" : t; if (mTool !== "off" && adding) { adding = false; pending = null; nControls(); nmsg("Placing a note was turned off because a drawing tool is on."); } mDrag = null; mHold = mHold && mClearHold(); renderMarks(); if (mTool === "hl") mmsg("Area highlight is on. Drag over the page to draw a rectangle. It marks an area and does not select text."); else if (mTool === "tx") mmsg("Highlight text lines is on. Drag over the page. Every whole line or piece of text the area touches is highlighted, even a click on one, so it can take more than you dragged over. It does not select letters or copy text. Scanned pages have no text to pick."); else if (mTool === "pen") mmsg("Pen is on. Draw on the page with a finger, pen or mouse. Turn it off to scroll the page by touch."); else mmsg(""); }
+  function mSetTool(t) { mTool = mTool === t ? "off" : t; if (mTool !== "off" && adding) { adding = false; pending = null; nControls(); nmsg("Placing a note was turned off because a drawing tool is on."); } mDrag = null; mHold = mHold && mClearHold(); renderMarks(); if (mTool === "hl") mmsg("Area highlight is on. Drag over the page to draw a rectangle. It marks an area and does not select text."); else if (mTool === "tx") mmsg("Highlight text lines is on. Drag over the page. Every whole line or piece of text the area touches is highlighted, even a click on one, so it can take more than you dragged over. It does not select letters or copy text. Scanned pages have no text to pick."); else if (mTool === "sig") mmsg("Place signature is on. Click the page where the signature should go. It is a drawn picture, not a legal signature. Turn it off to scroll the page by touch."); else if (mTool === "pen") mmsg("Pen is on. Draw on the page with a finger, pen or mouse. Turn it off to scroll the page by touch."); else mmsg(""); }
   function mClearHold() { if (mHold) clearTimeout(mHold.timer); return null; }
   function mPoint(e) { var r = $("pdf-marks").getBoundingClientRect(); return [Math.min(1, Math.max(0, (e.clientX - r.left) / (r.width || 1))), Math.min(1, Math.max(0, (e.clientY - r.top) / (r.height || 1)))]; }
-  function mTempShow() { var svg = $("pdf-marks"), old = svg.querySelector("[data-temp]"); if (old) old.remove(); if (!mDrag) return; var el = (mDrag.kind === "hl" || mDrag.kind === "tx") ? mDraw({ kind: "hl", r: [Math.min(mDrag.a[0], mDrag.b[0]), Math.min(mDrag.a[1], mDrag.b[1]), Math.max(mDrag.a[0], mDrag.b[0]) + 1e-9, Math.max(mDrag.a[1], mDrag.b[1]) + 1e-9] }, true) : mDraw({ kind: "ink", s: [mDrag.pts.length > 1 ? mDrag.pts : mDrag.pts.concat(mDrag.pts)] }, true); el.setAttribute("data-temp", "1"); svg.appendChild(el); }
+  function mTempShow() { var svg = $("pdf-marks"), old = svg.querySelector("[data-temp]"); if (old) old.remove(); if (!mDrag || mDrag.kind === "sig") return; var el = (mDrag.kind === "hl" || mDrag.kind === "tx") ? mDraw({ kind: "hl", r: [Math.min(mDrag.a[0], mDrag.b[0]), Math.min(mDrag.a[1], mDrag.b[1]), Math.max(mDrag.a[0], mDrag.b[0]) + 1e-9, Math.max(mDrag.a[1], mDrag.b[1]) + 1e-9] }, true) : mDraw({ kind: "ink", s: [mDrag.pts.length > 1 ? mDrag.pts : mDrag.pts.concat(mDrag.pts)] }, true); el.setAttribute("data-temp", "1"); svg.appendChild(el); }
   var mSvg = $("pdf-marks");
   mSvg.addEventListener("pointerdown", function (e) {
     if (mTool === "off" || !mUsable() || mBusy || e.button > 0) return;
@@ -643,6 +643,7 @@
   mSvg.addEventListener("pointermove", function (e) {
     if (!mDrag || e.pointerId !== mDrag.id) return;
     var p = mPoint(e);
+    if (mDrag.kind === "sig") return;
     if (mDrag.kind === "hl" || mDrag.kind === "tx") mDrag.b = p;
     else { var q = mDrag.pts[mDrag.pts.length - 1]; if (mDrag.pts.length >= window.PdfMarks.MAX_POINTS) { mmsg("This drawing reached its length limit. Lift to finish it, then draw the rest as a new line."); return; } if (Math.abs(p[0] - q[0]) + Math.abs(p[1] - q[1]) < 0.003) return; mDrag.pts.push(p); }
     mTempShow();
@@ -651,6 +652,12 @@
     if (!mDrag || e.pointerId !== mDrag.id) return;
     var d = mDrag, p = mPoint(e); mDrag = null; if (d.kind === "hl" || d.kind === "tx") d.b = p;
     if (d.kind === "tx") { mTextPick(d); return; }
+    if (d.kind === "sig") {
+      var rc = mSvg.getBoundingClientRect(), rs = sigStrokes ? window.PdfMarks.addSignature(mMarks, page, sigStrokes, SIG_ASPECT, p[0], p[1], (rc.width || 1) / (rc.height || 1), 0.22) : { error: "Draw a signature and choose Use this signature first." };
+      if (rs.error) { mmsg(rs.error); renderMarks(); return; }
+      mApply(rs.marks, "Signature drawing placed on page " + page + ", as a pen drawing. " + (mState === "ok" ? "It is kept on this device for this file." : "It stays in this tab only."), null);
+      renderMarks(); return;
+    }
     var M = window.PdfMarks, r = d.kind === "hl" ? M.addHighlight(mMarks, page, d.a[0], d.a[1], d.b[0], d.b[1]) : M.addInk(mMarks, page, [d.pts]);
     if (r.error) { mmsg(r.error); renderMarks(); return; }
     var pg0 = page;
@@ -776,6 +783,32 @@
   $("pdf-tool-hl").addEventListener("click", function () { mSetTool("hl"); });
   $("pdf-tool-tx").addEventListener("click", function () { mSetTool("tx"); });
   $("pdf-tool-pen").addEventListener("click", function () { mSetTool("pen"); });
+  $("pdf-tool-sig").addEventListener("click", function () { mSetTool("sig"); });
+  // Signature pad: strokes live in this tab's memory only (fractions of the pad), never stored or sent.
+  var SIG_ASPECT = 3, sigStrokes = null, sigCur = null, sigDraft = [], sigPad = $("pdf-sigpad");
+  function sigPt(e) { var r = sigPad.getBoundingClientRect(); return [Math.min(1, Math.max(0, (e.clientX - r.left) / (r.width || 1))), Math.min(1, Math.max(0, (e.clientY - r.top) / (r.height || 1)))]; }
+  function sigCount() { return sigDraft.reduce(function (n, st) { return n + st.length; }, 0); }
+  function sigShow() {
+    sigPad.textContent = "";
+    sigDraft.forEach(function (st) { var pl = document.createElementNS(SVGNS, "polyline"); pl.setAttribute("points", st.map(function (q) { return (q[0] * 300).toFixed(1) + "," + (q[1] * 100).toFixed(1); }).join(" ")); sigPad.appendChild(pl); });
+  }
+  sigPad.addEventListener("pointerdown", function (e) {
+    if (e.button > 0) return; e.preventDefault(); try { sigPad.setPointerCapture(e.pointerId); } catch (x) { /* best effort */ }
+    if (sigDraft.length >= window.PdfMarks.MAX_STROKES) { $("pdf-sig-state").textContent = "That is the most lines a signature can have. Clear the box to start again."; return; }
+    sigCur = { id: e.pointerId, pts: [sigPt(e)] }; sigDraft.push(sigCur.pts); $("pdf-sig-state").textContent = ""; sigShow();
+  });
+  sigPad.addEventListener("pointermove", function (e) {
+    if (!sigCur || e.pointerId !== sigCur.id) return;
+    if (sigCount() >= window.PdfMarks.MAX_POINTS) { $("pdf-sig-state").textContent = "The signature reached its length limit. Lift to finish it."; return; }
+    var p = sigPt(e), q = sigCur.pts[sigCur.pts.length - 1]; if (Math.abs(p[0] - q[0]) + Math.abs(p[1] - q[1]) < 0.004) return; sigCur.pts.push(p); sigShow();
+  });
+  function sigEnd(e) { if (sigCur && e.pointerId === sigCur.id) { sigCur = null; sigDraft = sigDraft.filter(function (st) { return st.length >= 2; }); sigShow(); } }
+  sigPad.addEventListener("pointerup", sigEnd); sigPad.addEventListener("pointercancel", sigEnd);
+  $("pdf-sig-clear").addEventListener("click", function () { sigDraft = []; sigCur = null; sigStrokes = null; if (mTool === "sig") mSetTool("sig"); sigShow(); $("pdf-sig-state").textContent = "The box and the signature in memory are cleared."; mControls(); });
+  $("pdf-sig-use").addEventListener("click", function () {
+    if (!sigDraft.length) { $("pdf-sig-state").textContent = "Draw a signature in the box first."; return; }
+    sigStrokes = sigDraft.map(function (st) { return st.map(function (q) { return [q[0], q[1]]; }); }); $("pdf-sig-state").textContent = "Signature ready. Choose Place signature, then click the page."; mControls();
+  });
   $("pdf-markclear").addEventListener("click", function () { if (mBusy) return; mApply([], mState === "ok" ? "All marks for this file were removed from this device." : mBad ? "All marks removed from this tab. The saved marks that could not be read are still on this device." : "All marks removed from this tab.", function () { $("pdf-tool-hl").focus(); }); });
   $("pdf-markcopy").addEventListener("click", function () {
     if (!doc || mBusy || !mMarks.length) return;

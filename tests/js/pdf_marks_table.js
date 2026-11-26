@@ -103,6 +103,16 @@ const done = (async () => {
   ok("the same marks on a signed input without the flat option still build (held by the viewer)", (await M.build(P, E, sg, flatMarks)).signed === true);
   ok("a signed input is reported as signed", (await M.build(P, E, sg, [])).signed === true && r.signed === false);
   ok("an XFA form is refused, not copied without its XFA data", (await code(() => M.build(P, E, fs.readFileSync(__dirname + "/fixtures/form_xfa.pdf"), m))) === "xfa");
+{
+  const sg = [[[0, 0.5], [0.5, 1], [1, 0]]], m0 = [];
+  const r = M.addSignature(m0, 2, sg, 3, 0.5, 0.5, 0.75, 0.22, rnd);
+  ok("signature: placed as one ink mark on the page, centred, inside the page", !r.error && r.marks.length === 1 && r.marks[0].kind === "ink" && r.marks[0].page === 2 && r.marks[0].s[0].length === 3 && r.marks[0].s[0].every((q) => q[0] >= 0.39 && q[0] <= 0.61 && q[1] >= 0 && q[1] <= 1) && M.validMark(r.marks[0]));
+  ok("signature: keeps the pad's shape on the page (width 0.22 of the page, height = 0.22 * pageAspect / padAspect)", (() => { const s0 = r.marks[0].s[0], w = Math.abs(s0[2][0] - s0[0][0]), h = Math.abs(s0[1][1] - s0[0][1]) * 2; return Math.abs(w - 0.22) < 1e-9 && Math.abs(h - 0.22 * 0.75 / 3) < 1e-9; })());
+  ok("signature: near a corner it is moved to stay on the page", (() => { const q = M.addSignature([], 1, sg, 3, 0.99, 0.99, 0.75, 0.22, rnd).marks[0].s[0]; return q.every((p) => p[0] <= 1 && p[1] <= 1) && Math.max(...q.map((p) => p[0])) === 1; })());
+  ok("signature: a bad size, shape or page ratio is refused, and an empty signature is refused", !!M.addSignature([], 1, sg, 3, 0.5, 0.5, 0.75, 0, rnd).error && !!M.addSignature([], 1, sg, 0, 0.5, 0.5, 0.75, 0.2, rnd).error && !!M.addSignature([], 1, [], 3, 0.5, 0.5, 0.75, 0.2, rnd).error);
+  ok("signature: too tall for the page at that size is refused", !!M.addSignature([], 1, sg, 0.25, 0.5, 0.5, 5, 0.9, rnd).error);
+  ok("signature: the mark cap still applies", !!M.addSignature(Array.from({ length: 300 }, (_, k) => ({ id: "abcdef" + String(k).padStart(4, "0"), page: 1, kind: "hl", r: [0.1, 0.1, 0.2, 0.2] })), 1, sg, 3, 0.5, 0.5, 0.75, 0.22, rnd).error);
+}
   console.log((n - bad) + "/" + n + " pdf marks rows passed");
 })();
 done.catch((e) => { console.log("ERROR " + e.stack); process.exit(1); });

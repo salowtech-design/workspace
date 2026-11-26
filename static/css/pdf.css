@@ -34,3 +34,6 @@
 .pdf-thumb span { position: absolute; left: 0; right: 0; bottom: 0; font-size: 11px; background: rgba(255,255,255,.85); text-align: center; }
 .pdf-marks { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
 .pdf-marks.pdf-marks-on { pointer-events: auto; touch-action: none; cursor: crosshair; outline: 2px dashed #7a2a2a; }
+
+.pdf-sigpad { display: block; width: 100%; max-width: 420px; aspect-ratio: 3 / 1; background: #fff; border: 1px solid #b9a88f; touch-action: none; cursor: crosshair; }
+.pdf-sigpad polyline { fill: none; stroke: #222; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
