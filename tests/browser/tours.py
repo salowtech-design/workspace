@@ -228,6 +228,7 @@ def register(g):
     register_tasks(g, users)
     register_calendar(g, users)
     register_sheets(g)
+    register_slides(g)
 
 
 def register_tasks(g, users):
@@ -422,3 +423,51 @@ def register_sheets(g):
 
     g["DRILLS"]["tour_sheets_a"] = lambda ctx: sheets_tour(ctx, "A")
     g["DRILLS"]["tour_sheets_b"] = lambda ctx: sheets_tour(ctx, "B")
+
+
+def register_slides(g):
+    APP = g["APP"]
+
+    def slides_tour(ctx):
+        def see(pg):
+            pg.locator("#sl-canvas-wrap").scroll_into_view_if_needed()
+
+        def body(t, pg):
+            pg.goto(APP + "/slides/")
+            pg.evaluate("localStorage.clear()")
+            pg.goto(APP + "/slides/")
+            pg.wait_for_timeout(500)
+            canvas = lambda: (pg.locator("#sl-canvas-wrap").text_content() or "")
+            _step = t.step
+            t.step = lambda text, fn=None, wait=800, expect=None: _step(text, fn, wait=min(wait, 900), expect=expect)
+            seen = []
+            pg.on("dialog", lambda d: (seen.append(d.message), d.accept()))
+            cnt = lambda: (pg.locator("#sl-show-count").text_content() or "")
+            mem = {}
+            t.step("Slides: a deck that stays in this browser", lambda: see(pg), expect=lambda: pg.locator("#sl-canvas-wrap").count() == 1, wait=2000)
+            t.step("Add a text item", lambda: (pg.click("#sl-add-text"), pg.fill("#sl-text", "Quarterly plan"), pg.press("#sl-text", "Tab"), see(pg)), expect=lambda: "Quarterly plan" in canvas())
+            t.step("Make it bigger and bold", lambda: (pg.fill("#sl-size", "40"), pg.press("#sl-size", "Tab"), pg.check("#sl-bold"), see(pg)), expect=lambda: pg.is_checked("#sl-bold"))
+            t.step("Add a rectangle", lambda: (pg.click("#sl-add-rect"), see(pg)), expect=lambda: pg.locator("#sl-items li").count() == 2)
+            t.step("Add an ellipse", lambda: (pg.click("#sl-add-ellipse"), see(pg)), expect=lambda: pg.locator("#sl-items li").count() == 3)
+            t.step("Undo the ellipse", lambda: (pg.click("#sl-undo"), see(pg)), expect=lambda: pg.locator("#sl-items li").count() == 2)
+            t.step("Redo the ellipse", lambda: (pg.click("#sl-redo"), see(pg)), expect=lambda: pg.locator("#sl-items li").count() == 3)
+            t.step("Add speaker notes to this slide", lambda: pg.fill("#sl-notes", "Open with the plan"), expect=lambda: pg.input_value("#sl-notes") == "Open with the plan")
+            t.step("New slide with the Title layout", lambda: (pg.select_option("#sl-layout", "title"), pg.click("#sl-new"), see(pg)), expect=lambda: "Title" in canvas())
+            t.step("Switch the theme to Dark", lambda: (pg.select_option("#sl-theme", "dark"), see(pg)), expect=lambda: pg.input_value("#sl-theme") == "dark")
+            t.step("Set a fade transition into this slide", lambda: pg.select_option("#sl-trans", "fade"), expect=lambda: pg.input_value("#sl-trans") == "fade")
+            t.step("Duplicate the slide", lambda: pg.click("#sl-dup"), expect=lambda: pg.locator("#sl-list > *").count() == 3)
+            t.step("Move it up", lambda: pg.click("#sl-up"), expect=lambda: True)
+            t.step("Present the deck", lambda: (pg.click("#sl-present"), mem.update(a=cnt())), expect=lambda: pg.locator("#sl-show").evaluate("e=>e.open"), wait=2000)
+            t.step("Jump to the first slide with the Home key", lambda: (pg.keyboard.press("Home"), mem.update(a=cnt())), expect=lambda: cnt().startswith("Slide 1 of 3"), wait=1500)
+            t.step("Next slide", lambda: pg.click("#sl-show-next"), expect=lambda: cnt().startswith("Slide 2 of 3"), wait=1800)
+            t.step("Notes and timer on (shows the warning)", lambda: pg.check("#sl-show-notes-on"), expect=lambda: pg.is_checked("#sl-show-notes-on"))
+            t.step("Previous slide", lambda: pg.click("#sl-show-prev"), expect=lambda: cnt().startswith("Slide 1 of 3"), wait=1800)
+            t.step("Exit the show", lambda: pg.click("#sl-show-exit"), expect=lambda: not pg.locator("#sl-show").evaluate("e=>e.open"))
+            t.step("Delete a slide (asks first, then deletes)", lambda: pg.click("#sl-del"), expect=lambda: pg.locator("#sl-list > *").count() == 2 and any("Delete this slide" in m for m in seen))
+            t.step("Export (.json)", lambda: pg.click("#sl-export"), expect=lambda: True)
+            t.note("PDF export, Import, pictures, animation, master, drag and resize, arrow-key move, Clear deck, unreadable-deck recovery were not shown.", 3)
+
+        run_tour(ctx, "09_slides", body, notes="Device-local deck. Headless Chromium 390x844 emulation. No slide data goes to the server.",
+                 unshown=["PDF export (secure context)", "Import", "Add picture", "animations", "master", "drag and resize", "arrow-key move", "Clear deck", "unreadable-deck recovery", "Move down", "declining the delete question"])
+
+    g["DRILLS"]["tour_slides"] = slides_tour
