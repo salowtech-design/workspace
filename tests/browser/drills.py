@@ -4802,6 +4802,10 @@ def chat_threads(ctx):  # noqa: C901
     pg.click("#m1 .chat-thread-open")
     pg.wait_for_timeout(400)
     check("threads: the thread page shows the root and both replies", pg.locator(".chat-msg").count() == 3 and "Send reply" in pg.inner_text("body"), pg.locator(".chat-msg").count())
+    hits = []
+    pg.on("request", lambda rq: hits.append(rq.url) if ("/poll/" in rq.url or "/reactions/" in rq.url) else None)
+    pg.wait_for_timeout(12500)
+    check("threads: the thread page made no poll or reaction-refresh request in 12 s (about 1 poll cycle)", not hits, hits[:3])
     pg.set_viewport_size({"width": 390, "height": 800})
     pg.wait_for_timeout(200)
     shot(pg, "chat_threads_390")

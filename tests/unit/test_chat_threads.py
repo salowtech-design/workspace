@@ -124,3 +124,45 @@ def test_a_long_thread_is_reachable_in_pages_with_nothing_skipped(monkeypatch):
             break
         after = rep[-1].seq
     assert seen == ["r%d" % i for i in range(7)] and pages == 3
+
+
+@pytest.mark.django_db
+def test_thread_page_never_polls_and_never_moves_the_read_mark(monkeypatch):
+    from apps.chat.models import Member
+
+    a, b, sp = _dm()
+    for i in range(3):
+        cs.post_message(a, sp.public_id, "unrelated-%d" % i, "u%d" % i)
+    cs.post_message(a, sp.public_id, "rep", "ur", 1)
+    before = Member.objects.get(space=sp, person=b).last_read_seq
+    assert before < sp.last_seq + 5 and before == 0
+    c = _c(b)
+    page = c.get(reverse("chat:thread", args=[sp.public_id, 1])).content.decode()
+    assert "data-poll" not in page and "data-first" not in page and "data-last" not in page
+    assert "unrelated-" not in page  # unrelated conversation messages are not on the thread page
+    assert Member.objects.get(space=sp, person=b).last_read_seq == before
+
+
+@pytest.mark.django_db
+def test_thread_pages_over_http_and_a_reply_returns_to_the_page_that_holds_it(monkeypatch):
+    a, b, sp = _dm()
+    monkeypatch.setattr(cs, "THREAD_MAX", 2)
+    c = _c(a)
+    url = reverse("chat:thread", args=[sp.public_id, 1])
+    for i in range(5):
+        r = c.post(reverse("chat:send", args=[sp.public_id]), {"body": "rr%d" % i, "client_msg_id": "h%d" % i, "thread_root_seq": "1"})
+        assert r.status_code == 302 and r["Location"].startswith(url)
+    last = Message.objects.get(body="rr4")
+    assert r["Location"] == url + "?after=%d" % Message.objects.get(body="rr3").seq + "#m%d" % last.seq
+    got = []
+    nxt = url
+    for _ in range(5):
+        html = c.get(nxt).content.decode()
+        got += [x for x in ("rr0", "rr1", "rr2", "rr3", "rr4") if ">" + x + "<" in html]
+        import re
+
+        m = re.search(r'href="([^"]+)" class="chat-thread-more"', html)
+        if not m:
+            break
+        nxt = m.group(1)
+    assert got == ["rr0", "rr1", "rr2", "rr3", "rr4"]

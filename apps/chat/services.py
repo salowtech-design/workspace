@@ -212,6 +212,20 @@ def attach_threads(sp, rows):
     return rows
 
 
+def thread_page_after(sp, msg):
+    """The `after` value of the thread page that holds this reply (0 for the first page)."""
+    k = Message.objects.filter(space=sp, thread_root_seq=msg.thread_root_seq, seq__lt=msg.seq).count()
+    start = k - k % THREAD_MAX
+    if start == 0:
+        return 0
+    prev = (
+        Message.objects.filter(space=sp, thread_root_seq=msg.thread_root_seq)
+        .order_by("seq")
+        .values_list("seq", flat=True)[start - 1 : start]
+    )
+    return prev[0] if prev else 0
+
+
 def thread(actor, public_id, root_seq, after=0):
     """A first-level message and its replies, oldest first (member only; 404 for a non-member or a
     message that is not a first-level message of this space). Returns (space, root, replies after `after`, more)."""

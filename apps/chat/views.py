@@ -161,7 +161,7 @@ def send(request, space_id):
         )
         return _page(request, space_id, status=429, draft=body, client_msg_id=cid or None)
     try:
-        cs.post_message(request.user, space_id, body, cid, request.POST.get("thread_root_seq"))
+        msg = cs.post_message(request.user, space_id, body, cid, request.POST.get("thread_root_seq"))
     except cs.ReplayConflict as exc:
         messages.error(request, " ".join(exc.messages))
         return _page(request, space_id, status=409, draft=body, thread_root=_int(request.POST.get("thread_root_seq")))  # a fresh client id
@@ -170,6 +170,10 @@ def send(request, space_id):
         return _page(request, space_id, status=400, draft=body, client_msg_id=cid or None, thread_root=_int(request.POST.get("thread_root_seq")))
     except PermissionDenied:
         return redirect("chat:home")
+    if msg.thread_root_seq:  # a reply stays in its thread, on the page that holds it
+        url = reverse("chat:thread", args=[space_id, msg.thread_root_seq])
+        after = cs.thread_page_after(msg.space, msg)
+        return redirect(url + ("?after=%d" % after if after else "") + "#m%d" % msg.seq)
     return redirect("chat:space", space_id=space_id)
 
 
