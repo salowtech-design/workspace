@@ -3893,6 +3893,9 @@ def slides_images_race(ctx):  # noqa: C901
     import json as _json
 
     pg = fresh(ctx, "/slides/")
+    pg.add_init_script(
+        "(()=>{const d=Object.getOwnPropertyDescriptor(IDBTransaction.prototype,'oncomplete');Object.defineProperty(IDBTransaction.prototype,'oncomplete',{configurable:true,get:d.get,set(f){d.set.call(this,f?function(e){const a=this,r=arguments;setTimeout(()=>f.apply(a,r),Number(localStorage.getItem('__delay')||0))}:f)}})})()"
+    )
     KEY = "document.getElementById('slide-root').dataset.storeKey"
     wipe = (
         "new Promise(r=>{const q=indexedDB.deleteDatabase('salow.slides.pictures.'+%s);q.onsuccess=q.onerror=q.onblocked=()=>r()})"
@@ -3929,9 +3932,11 @@ def slides_images_race(ctx):  # noqa: C901
     for k in range(4):
         put("n%d.png" % k, _png(1000, 600, noise=True))
         pg.wait_for_timeout(1500)
+    pg.evaluate("localStorage.setItem('__delay','1200')")
     put("a.png", _png(1000, 600, noise=True))
     put("b.png", _png(1000, 600, noise=True))
-    pg.wait_for_timeout(4000)
+    pg.wait_for_timeout(9000)
+    pg.evaluate("localStorage.setItem('__delay','0')")
     check(
         "race: two quick 1.8 MB adds with 7.2 MB already in the deck add exactly one (9.0 MB) and refuse the other for the 10 MB cap",
         len(pics()) == 5 and idb_count() == 5 and "10 MB" in status(),
@@ -3964,9 +3969,6 @@ def slides_images_race(ctx):  # noqa: C901
     put("d.png", _png(60, 40, (10, 90, 160)))
     pg.wait_for_timeout(1200)
     pg.evaluate("localStorage.setItem('__delay','2500')")
-    pg.add_init_script(
-        "(()=>{const d=Object.getOwnPropertyDescriptor(IDBTransaction.prototype,'oncomplete');Object.defineProperty(IDBTransaction.prototype,'oncomplete',{configurable:true,get:d.get,set(f){d.set.call(this,f?function(e){const a=this,r=arguments;setTimeout(()=>f.apply(a,r),Number(localStorage.getItem('__delay')||0))}:f)}})})()"
-    )
     x0 = pics()[0]["x"]
     pg.reload()
     pg.wait_for_timeout(300)
