@@ -234,6 +234,7 @@ def register(g):
     register_posts(g)
     register_certs(g)
     register_automation(g)
+    register_find(g)
 
 
 def register_tasks(g, users):
@@ -739,3 +740,56 @@ def register_automation(g):
                  unshown=["event triggers (not connected)", "scheduled runs (not built)", "delete workflow (not built)", "20 workflow cap", "10 runs per minute limit", "another person's workflow (404)", "10 steps maximum", "edit refusal for non-round-trip workflow"])
 
     g["DRILLS"]["tour_auto"] = auto_tour
+
+
+def register_find(g):
+    APP = g["APP"]
+
+    def find_tour(ctx):
+        import concurrent.futures
+
+        import django
+
+        django.setup()
+
+        def mk():
+            from apps.accounts.models import CustomUser
+
+            CustomUser.objects.get_or_create(
+                employee_id="ST-LIVE-2",
+                defaults={"full_name": "Second Synthetic", "email": "st-live-2@salowtech.com", "email_verified": True,
+                          "role": CustomUser.Role.EMPLOYEE, "status": CustomUser.Status.ACTIVE, "is_active": True})
+
+        with concurrent.futures.ThreadPoolExecutor(1) as ex:
+            ex.submit(mk).result()
+
+        def body(t, pg):
+            _step = t.step
+            t.step = lambda text, fn=None, wait=800, expect=None: _step(text, fn, wait=min(wait, 900), expect=expect)
+            txt = lambda: pg.inner_text("body")
+            pg.goto(APP + "/drive/")
+            pg.fill("input[placeholder='New folder name']", "Budget plans")
+            pg.click("button:has-text('Create folder')")
+            pg.wait_for_timeout(600)
+            pg.goto(APP + "/search/")
+            t.step("Search page with the note on what it does and does not search", expect=lambda: "does not search file contents" in txt(), wait=1800)
+            t.step("Search for 'Budget' everywhere: finds the Drive folder", lambda: (pg.fill("input[name=q]", "Budget"), pg.click("button:has-text('Search')")), expect=lambda: "Budget plans" in txt() and "Drive" in txt(), wait=2000)
+            t.step("Open the result: it goes to that folder in Drive", lambda: pg.click("a.cal-title:has-text('Budget plans')"), expect=lambda: "/drive/" in pg.url and "Budget plans" in txt(), wait=2000)
+            pg.goto(APP + "/search/")
+            t.step("Search for 'Second' in People only: finds the person", lambda: (pg.fill("input[name=q]", "Second"), pg.select_option("select[name=in]", "people"), pg.click("button:has-text('Search')")), expect=lambda: "Second Synthetic" in txt() and "Budget plans" not in txt(), wait=2000)
+            t.step("Open the person result: the directory profile opens", lambda: pg.click("a.cal-title:has-text('Second Synthetic')"), expect=lambda: "Employee Details" in txt() and "ST-LIVE-2" in txt(), wait=2200)
+            pg.goto(APP + "/search/")
+            t.step("A search with nothing in it: 'zzzqq' shows No results", lambda: (pg.fill("input[name=q]", "zzzqq"), pg.click("button:has-text('Search')")), expect=lambda: "No results" in txt(), wait=1800)
+            t.step("One character is refused: 'Type at least 2 characters.'", lambda: (pg.fill("input[name=q]", "a"), pg.click("button:has-text('Search')")), expect=lambda: "Type at least 2 characters" in txt(), wait=1800)
+            t.step("Directory list: both people are listed", lambda: pg.goto(APP + "/directory/"), expect=lambda: "ST-LIVE-1" in txt() and "ST-LIVE-2" in txt() and "Employee Directory" in txt(), wait=2000)
+            t.step("Directory filters fit the screen", expect=lambda: pg.evaluate("[...document.querySelectorAll('main form input,main form select,main form button,main form a')].every(e=>e.getBoundingClientRect().right<=window.innerWidth+1)"), wait=1500)
+            t.step("Filter by name 'Second': only that person stays", lambda: (pg.fill("input[name=q]", "Second"), pg.click("button:has-text('Filter')")), expect=lambda: "ST-LIVE-2" in pg.inner_text("tbody") and "ST-LIVE-1" not in pg.inner_text("tbody"), wait=2000)
+            t.step("Filter that matches nobody: the empty message shows", lambda: (pg.fill("input[name=q]", "nobodyhere"), pg.click("button:has-text('Filter')")), expect=lambda: "No employees match" in txt(), wait=1800)
+            t.step("Org chart opens from the directory", lambda: pg.click("a:has-text('Org chart')"), expect=lambda: "Org chart" in txt() and "ST-LIVE-1" in txt(), wait=2200)
+            t.step("Open a person from the org chart: profile page", lambda: pg.click("ul.org-tree a >> nth=0"), expect=lambda: "Employee Details" in txt(), wait=2200)
+            t.note("Not shown: the Department filter with real departments, Task and Calendar results, team pages (no link from the app), manager-only fields, manager direct reports.", 3)
+
+        run_tour(ctx, "15_search_directory", body, notes="Real Django on TiDB, headless Chromium 390x844 emulated. Fixture (ORM): one extra person ST-LIVE-2. The Drive folder is made on camera-side before the tour starts.",
+                 unshown=["Department filter with departments", "Task results", "Calendar results", "team detail page (no link in the app)", "manager and admin only profile fields", "direct reports list", "search throttle", "30 per module truncation notice"])
+
+    g["DRILLS"]["tour_find"] = find_tour
