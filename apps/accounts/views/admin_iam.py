@@ -1213,9 +1213,10 @@ def admin_iam_dashboard_view(request):  # noqa: C901
     )[:25]
 
     # Section 7 Audit
-    audit_events = AuthEvent.objects.order_by("-time")[:60]
+    audit_qs = AuthEvent.objects.order_by("-time")
     if q_search:
-        audit_events = audit_events.filter(employee_id__icontains=q_search)
+        audit_qs = audit_qs.filter(employee_id__icontains=q_search)  # filter first: a sliced query cannot be filtered
+    audit_events = audit_qs[:60]
 
     # Section 8 People & Teams
     departments = Department.objects.prefetch_related("teams__memberships__user").all()[:20]
