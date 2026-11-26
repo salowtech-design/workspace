@@ -3,7 +3,7 @@
   var N = window.SalowPdfNotes, C = window.SalowPdfCheck, $ = function (i) { return document.getElementById(i); };
   var status = $("pdf-status"), canvas = $("pdf-canvas"), ctx = canvas.getContext("2d");
   var BASE = "/static/pdf/vendor/";
-  var lib = null, doc = null, loadTask = null, seq = new C.Seq(), page = 1, zoom = 1, task = null, token = 0, settle = Promise.resolve();
+  var lib = null, doc = null, loadTask = null, seq = new C.Seq(), page = 1, zoom = 1, fitPage = false, task = null, token = 0, settle = Promise.resolve();
   var mark = ""; // the query whose matches are marked in the page text, set by a successful find
   var shown = "", shownCut = false;
   // Draws the current page text, marking matches of `mark` with real elements built from text nodes.
@@ -35,8 +35,8 @@
     var on = !!doc;
     $("pdf-prev").disabled = !on || page <= 1; $("pdf-next").disabled = !on || page >= doc.numPages;
     $("pdf-zin").disabled = !on || zoom >= 3; $("pdf-zout").disabled = !on || zoom <= 0.5;
-    $("pdf-close").disabled = !on; $("pdf-page").disabled = !on; $("pdf-q").disabled = !on; $("pdf-find").disabled = !on || finding; $("pdf-exporttext").disabled = !on || textBusy;
-    $("pdf-where").textContent = on ? "Page " + page + " of " + doc.numPages + ", zoom " + Math.round(zoom * 100) + "%" : "No file open.";
+    $("pdf-fitw").disabled = !on || (!fitPage && zoom === 1); $("pdf-fitp").disabled = !on || fitPage; $("pdf-close").disabled = !on; $("pdf-page").disabled = !on; $("pdf-q").disabled = !on; $("pdf-find").disabled = !on || finding; $("pdf-exporttext").disabled = !on || textBusy;
+    $("pdf-where").textContent = on ? "Page " + page + " of " + doc.numPages + ", " + (fitPage ? "fit to page" : "zoom " + Math.round(zoom * 100) + "%") : "No file open.";
     if (on) $("pdf-page").value = page;
   }
   function draw() {
@@ -46,7 +46,7 @@
     settle.then(function () { return my === token ? doc.getPage(page) : null; }).then(function (pg) {
       if (!pg || my !== token) return;
       var wrap = $("pdf-stage").clientWidth || 600, v1 = pg.getViewport({ scale: 1 });
-      var css = Math.min(wrap, 1600) / v1.width * zoom, dpr = Math.min(window.devicePixelRatio || 1, 2);
+      var css = fitPage ? Math.min(Math.min(wrap, 1600) / v1.width, Math.max(240, window.innerHeight * 0.8) / v1.height) : Math.min(wrap, 1600) / v1.width * zoom, dpr = Math.min(window.devicePixelRatio || 1, 2);
       var vp = pg.getViewport({ scale: css * dpr }), px = vp.width * vp.height;
       var shrink = Math.min(1, Math.sqrt(24e6 / px), 8192 / vp.width, 8192 / vp.height);
       if (shrink < 1) vp = pg.getViewport({ scale: css * dpr * shrink });
@@ -310,7 +310,7 @@
   function go(p) { if (!doc) return; page = C.pageIndex(p, 0, doc.numPages); controls(); draw(); }
   function closeDoc(msg) {
     token++; cancelCurrent(); fseq.begin(); finding = false; mark = ""; $("pdf-fstop").disabled = true; fmsg(""); $("pdf-q").value = "";
-    var d = doc; doc = null; page = 1; zoom = 1; notesClose(); $("pdf-text").textContent = ""; shown = "";
+    var d = doc; doc = null; page = 1; zoom = 1; fitPage = false; notesClose(); $("pdf-text").textContent = ""; shown = "";
     settle.then(function () { if (doc) return; canvas.width = 1; canvas.height = 1; canvas.style.width = "0"; canvas.style.height = "0"; });
     var lt = loadTask; loadTask = null; if (lt) { try { lt.destroy(); } catch (e) { /* already gone */ } }
     controls(); status.textContent = msg || "";
@@ -323,7 +323,7 @@
       return t.promise.then(function (d) { return { d: d, t: t }; }, function (e) { try { t.destroy(); } catch (x) { /* gone */ } throw e; });
     }).then(function (r) { return hashed.then(function (h) { r.h = h; return r; }); }).then(function (r) {
       if (!seq.current(mine)) { try { r.t.destroy(); } catch (x) { /* superseded by a newer open */ } return; }
-      var d = r.d; closeDoc(""); doc = d; loadTask = r.t; page = 1; zoom = 1; $("pdf-name").textContent = name; notesOpen(d, r.h); controls(); draw();
+      var d = r.d; closeDoc(""); doc = d; loadTask = r.t; page = 1; zoom = 1; fitPage = false; $("pdf-name").textContent = name; notesOpen(d, r.h); controls(); draw();
     }).catch(function (e) {
       if (!seq.current(mine)) return;
       status.textContent = e && e.name === "PasswordException" ? "This PDF is password protected. Password files are not supported yet." : e && e.name === "InvalidPDFException" ? "That PDF is damaged or not readable." : "The viewer could not open that file.";
@@ -348,8 +348,11 @@
   });
   $("pdf-prev").addEventListener("click", function () { go(page - 1); });
   $("pdf-next").addEventListener("click", function () { go(page + 1); });
-  $("pdf-zin").addEventListener("click", function () { zoom = C.zoomStep(zoom, 1); controls(); draw(); });
-  $("pdf-zout").addEventListener("click", function () { zoom = C.zoomStep(zoom, -1); controls(); draw(); });
+  // Fit width is the 100 percent view. Fit page shrinks the page so a whole page is visible (the larger of width and height limits); zoom buttons leave it and step from 100 percent.
+  $("pdf-zin").addEventListener("click", function () { if (fitPage) { fitPage = false; zoom = 1; } zoom = C.zoomStep(zoom, 1); controls(); draw(); });
+  $("pdf-zout").addEventListener("click", function () { if (fitPage) { fitPage = false; zoom = 1; } zoom = C.zoomStep(zoom, -1); controls(); draw(); });
+  $("pdf-fitw").addEventListener("click", function () { if (!doc) return; fitPage = false; zoom = 1; controls(); draw(); });
+  $("pdf-fitp").addEventListener("click", function () { if (!doc) return; fitPage = true; controls(); draw(); });
   $("pdf-page").addEventListener("change", function () { var n = parseInt(this.value, 10); if (isNaN(n)) { controls(); return; } go(n); });
   $("pdf-close").addEventListener("click", function () { seq.begin(); closeDoc("File closed. Nothing was stored."); $("pdf-name").textContent = ""; });
   var rz = null; window.addEventListener("resize", function () { clearTimeout(rz); rz = setTimeout(function () { if (doc) draw(); }, 150); });

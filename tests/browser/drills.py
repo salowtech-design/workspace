@@ -4362,6 +4362,147 @@ def _poll_log(log):
     return f
 
 
+def _two_page_pdf():
+    """A tiny valid PDF: page 1 portrait 612x792, page 2 landscape 792x612, each with a frame and a line of text."""
+    objs = []
+
+    def add(b):
+        objs.append(b)
+        return len(objs)
+
+    add(b"<< /Type /Catalog /Pages 2 0 R >>")
+    add(b"<< /Type /Pages /Kids [3 0 R 5 0 R] /Count 2 >>")
+
+    def page(w, h, content_ref):
+        return (
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 %d %d] /Contents %d 0 R /Resources << /Font << /F1 7 0 R >> >> >>"
+            % (w, h, content_ref)
+        ).encode()
+
+    def stream(txt):
+        b = txt.encode()
+        return b"<< /Length %d >>\nstream\n" % len(b) + b + b"\nendstream"
+
+    add(page(612, 792, 4))
+    add(stream("2 w 20 20 572 752 re S BT /F1 36 Tf 60 700 Td (Portrait page one) Tj ET"))
+    add(page(792, 612, 6))
+    add(stream("2 w 20 20 752 572 re S BT /F1 36 Tf 60 520 Td (Landscape page two) Tj ET"))
+    add(b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>")
+    out = b"%PDF-1.4\n"
+    offs = []
+    for i, o in enumerate(objs, 1):
+        offs.append(len(out))
+        out += b"%d 0 obj\n" % i + o + b"\nendobj\n"
+    x = len(out)
+    out += b"xref\n0 %d\n0000000000 65535 f \n" % (len(objs) + 1)
+    for o in offs:
+        out += b"%010d 00000 n \n" % o
+    out += b"trailer\n<< /Size %d /Root 1 0 R >>\nstartxref\n%d\n%%%%EOF\n" % (len(objs) + 1, x)
+    return out
+
+
+def pdf_fit(ctx):  # noqa: C901
+    """PDF viewer: Fit width is the 100 percent view, Fit page keeps a whole page in view on a portrait and a landscape page, at desktop and phone width."""
+    pg = fresh(ctx, "/pdf/")
+    data = _two_page_pdf()
+
+    def open_file():
+        pg.set_input_files(
+            "#pdf-open", files=[{"name": "two.pdf", "mimeType": "application/pdf", "buffer": data}]
+        )
+        for _ in range(50):
+            if pg.inner_text("#pdf-where").startswith("Page 1 of 2"):
+                break
+            pg.wait_for_timeout(300)
+        pg.wait_for_timeout(700)
+
+    def where():
+        return pg.inner_text("#pdf-where")
+
+    def box():
+        return pg.evaluate(
+            "(()=>{const c=document.getElementById('pdf-canvas');return [parseInt(c.style.width),parseInt(c.style.height),document.getElementById('pdf-stage').clientWidth,window.innerHeight]})()"
+        )
+
+    def dis(i):
+        return pg.evaluate("document.getElementById('%s').disabled" % i)
+
+    pg.set_viewport_size({"width": 1280, "height": 720})
+    pg.reload()
+    open_file()
+    w, h, sw, ih = box()
+    check(
+        "fit: a new file opens at zoom 100% with Fit width already current",
+        "zoom 100%" in where() and dis("pdf-fitw") and not dis("pdf-fitp"),
+        where(),
+    )
+    check(
+        "fit: at 100% the page is as wide as the stage (within 24 px, the stage width read at draw time)",
+        min(sw, 1600) - 24 <= w <= min(sw, 1600) + 1,
+        str((w, sw)),
+    )
+    pg.click("#pdf-fitp")
+    pg.wait_for_timeout(900)
+    w, h, sw, ih = box()
+    check(
+        "fit: Fit page says so and swaps which button is available",
+        "fit to page" in where() and dis("pdf-fitp") and not dis("pdf-fitw"),
+        where(),
+    )
+    check(
+        "fit: a portrait page then fits the height limit (80% of the window) and the width",
+        h <= ih * 0.8 + 2 and w <= sw + 1 and h >= ih * 0.8 - 3,
+        str((w, h, sw, ih)),
+    )
+    pg.click("#pdf-next")
+    pg.wait_for_timeout(900)
+    w2, h2, sw, ih = box()
+    check(
+        "fit: the landscape page 2 stays fitted, limited by width, and is shorter than the stage",
+        "Page 2 of 2" in where()
+        and "fit to page" in where()
+        and w2 <= sw + 1
+        and h2 <= ih * 0.8 + 2,
+        str((w2, h2, sw, ih)),
+    )
+    pg.click("#pdf-fitw")
+    pg.wait_for_timeout(900)
+    w3, h3, sw, ih = box()
+    check(
+        "fit: Fit width goes back to 100% and the full width",
+        "zoom 100%" in where() and min(sw, 1600) - 24 <= w3 <= min(sw, 1600) + 1 and h3 > 0,
+        str((w3, h3, sw)),
+    )
+    pg.click("#pdf-fitp")
+    pg.wait_for_timeout(600)
+    pg.click("#pdf-zin")
+    pg.wait_for_timeout(600)
+    check("fit: Zoom in from Fit page steps from 100% to 125%", "zoom 125%" in where(), where())
+    pg.click("#pdf-close")
+    pg.wait_for_timeout(300)
+    pg.click("#pdf-fitp") if not dis("pdf-fitp") else None
+    check(
+        "fit: with no file open both Fit buttons are disabled",
+        dis("pdf-fitp") and dis("pdf-fitw"),
+        where(),
+    )
+    open_file()
+    check("fit: a reopened file starts at 100% again", "zoom 100%" in where(), where())
+    pg.set_viewport_size({"width": 390, "height": 800})
+    pg.wait_for_timeout(400)
+    pg.click("#pdf-fitp")
+    pg.wait_for_timeout(900)
+    w4, h4, sw4, ih4 = box()
+    check(
+        "fit: at phone width Fit page fits inside the stage width and 80% of the window height",
+        w4 <= sw4 + 1 and h4 <= ih4 * 0.8 + 2,
+        str((w4, h4, sw4, ih4)),
+    )
+    pg.screenshot(path=os.path.join(os.environ.get("DRILL_SHOTS", "./"), "pdf-fit-phone.png"))
+    pg.set_viewport_size({"width": 1280, "height": 720})
+    pg.wait_for_timeout(300)
+
+
 def _poll_logger(codes, k):
     def log(resp):
         if "/poll/" in resp.url:
@@ -4606,6 +4747,7 @@ DRILLS = {
     "chat_poll_tabs": chat_poll_tabs,
     "chat_poll_429": chat_poll_429,
     "chat_poll_real": chat_poll_real,
+    "pdf_fit": pdf_fit,
     "slides_style": slides_style,
     "sheets_tabs": sheets_tabs,
     "sheets_chart": sheets_chart,
