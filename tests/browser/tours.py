@@ -288,6 +288,7 @@ def register(g):
     register_pdf_forms(g)
     register_pdf_view_buttons(g)
     register_sheets_tabs_rules(g)
+    register_sheets_io_keys(g)
     register_slides_keys(g)
     register_posts_more(g, users)
 
@@ -3717,6 +3718,91 @@ def register_pdf_view_buttons(g):
         run_tour(ctx, "63_pdf_view_buttons", body, notes="Device-local viewer on a generated 4-page PDF; secure-context test flag. Headless Chromium 390x844 emulated. The text file is saved off-camera. Password-protected files are not filmed on purpose.", unshown=["password-protected open (not filmed, no password entry on camera)", "Discard unreadable saved marks"])
 
     g["DRILLS"]["tour_pdf_view_buttons"] = tour
+
+
+def register_sheets_io_keys(g):
+    APP = g["APP"]
+
+    def tour(ctx):
+        import json as _json
+        import os as _os
+
+        _os.makedirs("/tmp/vid/dl", exist_ok=True)
+        imp = "/tmp/vid/dl/import_demo.json"
+        open(imp, "w").write(_json.dumps({"A1": "Imported", "B1": "7", "B2": "=B1*2"}))
+        val = lambda pg, a: pg.input_value('input[data-addr="%s"]' % a)
+        act = lambda pg: pg.evaluate("document.activeElement && document.activeElement.dataset ? document.activeElement.dataset.addr : ''")
+
+        def sc(pg, sel):
+            pg.evaluate("s=>{var e=document.querySelector(s);if(e)e.scrollIntoView({block:'center'})}", sel)
+
+        def body(t, pg):
+            seen = []
+            pg.on("dialog", lambda d: (seen.append(d.message), d.accept()))
+            pg.goto(APP + "/sheets/")
+            pg.evaluate("localStorage.clear()")
+            pg.goto(APP + "/sheets/")
+            pg.wait_for_timeout(500)
+            st = lambda: pg.inner_text("#sheet-status")
+            t.cap("Next: click A1, type 5, press Enter, type 6, press Enter")
+            pg.click('input[data-addr="A1"]')
+            pg.keyboard.type("5")
+            pg.keyboard.press("Enter")
+            pg.keyboard.type("6")
+            pg.keyboard.press("Enter")
+            pg.wait_for_timeout(400)
+            sc(pg, 'input[data-addr="A2"]')
+            t.step("Enter commits and moves down: A1 holds 5, A2 holds 6, and the focus is on A3", expect=lambda: val(pg, "A1") == "5" and val(pg, "A2") == "6" and act(pg) == "A3", wait=3400)
+            t.cap("Next: Arrow Up twice, then Arrow Right")
+            pg.keyboard.press("ArrowUp")
+            pg.keyboard.press("ArrowUp")
+            pg.keyboard.press("ArrowRight")
+            pg.wait_for_timeout(500)
+            t.step("The focus moved to B1 (row 1, next column)", expect=lambda: act(pg) == "B1", wait=3000)
+            t.cap("Next: paste a 2 by 2 block copied from another spreadsheet into C1")
+            pg.click('input[data-addr="C1"]')
+            pg.evaluate("""()=>{var el=document.querySelector('input[data-addr="C1"]');var dt=new DataTransfer();dt.setData('text/plain',['a',1,'b',2].map(String).reduce((x,y,k)=>x+(k==0?'':(k%2?String.fromCharCode(9):String.fromCharCode(10)))+y,''));el.dispatchEvent(new ClipboardEvent('paste',{clipboardData:dt,bubbles:true,cancelable:true}));}""")
+            pg.wait_for_timeout(500)
+            sc(pg, 'input[data-addr="C2"]')
+            pg.wait_for_timeout(400)
+            t.step("The block filled C1:D2 (a, 1, b, 2)", expect=lambda: val(pg, "C1") == "a" and val(pg, "D1") == "1" and val(pg, "C2") == "b" and val(pg, "D2") == "2", wait=3400)
+            sc(pg, "#sheet-status")
+            t.step("The status line describes the paste", expect=lambda: "Pasted 2 rows by 2 columns at C1" in st(), wait=3400)
+            t.cap("Next: Import a small .json file with 3 cells (the picker is filled by the test, then the replace question is accepted)")
+            pg.evaluate("document.activeElement && document.activeElement.blur()")  # choosing a file in a real picker moves focus off the cell
+            pg.set_input_files("#sheet-import", imp)
+            pg.wait_for_timeout(900)
+            sc(pg, "#sheet-status")
+            t.step("Import: the status line says 3 cells were imported", expect=lambda: "Imported 3 cells" in st(), wait=3400)
+            sc(pg, 'input[data-addr="B2"]')
+            t.step("The grid now shows Imported, 7 and the formula result 14, and the old cells are gone", expect=lambda: val(pg, "A1") == "Imported" and val(pg, "B1") == "7" and val(pg, "B2") == "14" and val(pg, "C1") == "" and val(pg, "A2") == "", wait=3400)
+            t.cap("Next: Add a format rule, then press Remove on it")
+            pg.fill("#fmt-range", "B1:B2")
+            pg.select_option("#fmt-bold", "on")
+            pg.click("#fmt-add")
+            pg.wait_for_timeout(400)
+            sc(pg, "#fmt-list")
+            t.step("Format rule added: the list shows it", expect=lambda: pg.locator("#fmt-list li").count() == 1, wait=3000)
+            pg.locator("#fmt-list button").first.click()
+            pg.wait_for_timeout(500)
+            sc(pg, "#fmt-none")
+            t.step("Remove on the format rule: the page says No format rules on this tab.", expect=lambda: pg.locator("#fmt-list li").count() == 0 and "No format rules" in pg.inner_text("#fmt-none"), wait=3200)
+            t.cap("Next: Add a validation rule, then press Remove on it")
+            pg.fill("#val-range", "C1:C3")
+            pg.select_option("#val-kind", "list")
+            pg.fill("#val-items", "yes, no")
+            pg.click("#val-add")
+            pg.wait_for_timeout(400)
+            sc(pg, "#val-list")
+            t.step("Validation rule added: the list shows it", expect=lambda: pg.locator("#val-list li").count() == 1, wait=3000)
+            pg.locator("#val-list button").first.click()
+            pg.wait_for_timeout(500)
+            sc(pg, "#val-none")
+            t.step("Remove on the validation rule: the page says No rules on this tab.", expect=lambda: pg.locator("#val-list li").count() == 0 and "No rules" in pg.inner_text("#val-none"), wait=3200)
+
+        run_tour(ctx, "67_sheets_io_keys", body, notes="Device-local sheet; nothing stored on the server. Headless Chromium 390x844 emulated. The paste is a synthetic paste event carrying tab-separated text, not a real clipboard from another app. The import file is chosen by the test (no native picker window).", unshown=["real clipboard paste from another app", "native file picker window"])
+
+    g["DRILLS"]["tour_sheets_io_keys"] = tour
 
 
 def register_sheets_tabs_rules(g):
