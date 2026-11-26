@@ -166,3 +166,19 @@ def test_thread_pages_over_http_and_a_reply_returns_to_the_page_that_holds_it(mo
             break
         nxt = m.group(1)
     assert got == ["rr0", "rr1", "rr2", "rr3", "rr4"]
+
+
+@pytest.mark.django_db
+def test_oversized_root_and_after_values_on_the_read_path_never_error():
+    a, b, sp = _dm()
+    cs.post_message(b, sp.public_id, "reply", "c2", 1)
+    c = _c(a)
+    big = 10**30
+    base = reverse("chat:thread", args=[sp.public_id, 1])
+    assert c.get(reverse("chat:thread", args=[sp.public_id, big])).status_code == 404
+    assert c.get(reverse("chat:thread", args=[sp.public_id, 2**63])).status_code == 404
+    for after in (str(big), str(2**63), str(2**63 - 1), "-5", "abc", ""):
+        r = c.get(base + "?after=" + after)
+        assert r.status_code == 200, after
+    assert "reply" in c.get(base + "?after=-5").content.decode()  # a negative position means the start
+    assert "A reply" not in c.get(base + "?after=" + str(big)).content.decode()  # past the end: no replies
