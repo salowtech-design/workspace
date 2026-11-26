@@ -2698,6 +2698,42 @@ def slides_style(ctx):  # noqa: C901
         if SHOTS:
             open(f"{SHOTS}/slides-style-68-{al}.pdf", "wb").write(raw2)
         check("style: a multiline %s-aligned PDF downloads" % al, raw2[:5] == b"%PDF-")
+        lines = []
+        for m in re.finditer(rb"stream\r?\n(.*?)endstream", raw2, re.S):
+            try:
+                body = zlib.decompress(m.group(1))
+            except Exception:  # noqa: S112
+                continue
+            for mm in re.finditer(
+                rb"/\S+ ([\d.]+) Tf\n[\d.]+ TL\n1 0 0 1 ([\d.]+) ([\d.]+) Tm\n<([0-9A-Fa-f]+)> Tj",
+                body,
+            ):
+                lines.append(
+                    (
+                        float(mm.group(2)),
+                        float(mm.group(3)),
+                        bytes.fromhex(mm.group(4).decode()).decode("latin1"),
+                    )
+                )
+        widths = pg.evaluate(
+            "async (ls)=>{const d=await PDFLib.PDFDocument.create();const f=await d.embedFont(PDFLib.StandardFonts.HelveticaBoldOblique);return ls.map(t=>f.widthOfTextAtSize(t,28));}",
+            [t[2] for t in lines],
+        )
+        want = {
+            "left": lambda x, w: x,
+            "center": lambda x, w: x + w / 2,
+            "right": lambda x, w: x + w,
+        }[al]
+        target = {"left": 100.0, "center": 250.0, "right": 400.0}[al]
+        ys = [t[1] for t in lines]
+        check(
+            "style: PDF %s alignment places every wrapped line at the exact coordinate (box x 100, width 300, size 28)"
+            % al,
+            len(lines) >= 3
+            and all(abs(want(t[0], w) - target) < 0.01 for t, w in zip(lines, widths, strict=True))
+            and all(abs((ys[k] - ys[k + 1]) - 33.6) < 0.01 for k in range(len(ys) - 1)),
+            str((lines, widths)),
+        )
     pg.reload()
     pg.wait_for_timeout(300)
     # a master item can be styled too
@@ -3440,7 +3476,7 @@ def sheets_pivot(ctx):
     check("pivot: it builds again from the stored cells after a reload", "a=" in table(), table())
 
 
-def _png(w, h, rgb=(200, 30, 30)):
+def _png(w, h, rgb=(200, 30, 30), noise=False):
     """A valid PNG of one colour, built with the standard library."""
     import struct
 
@@ -3450,7 +3486,7 @@ def _png(w, h, rgb=(200, 30, 30)):
 
     # a size larger than 4096 is only declared in the header, with a tiny data chunk, so the test itself stays small
     rw, rh = (w, h) if w <= 4096 and h <= 4096 else (8, 4)
-    raw = b"".join(b"\x00" + bytes(rgb) * rw for _ in range(rh))
+    raw = b"".join(b"\x00" + (os.urandom(3 * rw) if noise else bytes(rgb) * rw) for _ in range(rh))
     return (
         b"\x89PNG\r\n\x1a\n"
         + ch(b"IHDR", struct.pack(">IIBBBBB", w, h, 8, 2, 0, 0, 0))
@@ -3707,11 +3743,145 @@ def slides_images(ctx):  # noqa: C901
         str((idb_count(), status())),
     )
     if SHOTS:
+        pg.evaluate("window.scrollTo(0, 0)")
+        pg.click("#sl-items button")
+        pg.evaluate("document.getElementById('sl-canvas-wrap').scrollIntoView()")
         pg.screenshot(path=f"{SHOTS}/slides-images-69.png")
         pg.set_viewport_size({"width": 390, "height": 800})
         pg.wait_for_timeout(300)
+        pg.evaluate("document.getElementById('sl-canvas-wrap').scrollIntoView()")
         pg.screenshot(path=f"{SHOTS}/slides-images-69-phone.png")
         pg.set_viewport_size({"width": 1100, "height": 900})
+
+
+def slides_images_edge(ctx):  # noqa: C901
+    """Pictures: JPEG, description, export warning, the 10 MB deck cap, a blocked store and an aborted write change nothing."""
+    pg = fresh(ctx, "/slides/")
+    KEY = "document.getElementById('slide-root').dataset.storeKey"
+    pg.evaluate(
+        "new Promise(r=>{const q=indexedDB.deleteDatabase('salow.slides.pictures.'+%s);q.onsuccess=q.onerror=q.onblocked=()=>r()})"
+        % KEY
+    )
+    pg.reload()
+    pg.wait_for_timeout(400)
+
+    def deck():
+        return pg.evaluate("JSON.parse(localStorage.getItem(%s))" % KEY)
+
+    def status():
+        return pg.inner_text("#sl-status")
+
+    def idb_count():
+        return pg.evaluate(
+            "new Promise(res=>{const r=indexedDB.open('salow.slides.pictures.'+%s,1);r.onupgradeneeded=()=>r.result.createObjectStore('img',{keyPath:'hash'});r.onsuccess=()=>{const t=r.result.transaction('img');const q=t.objectStore('img').count();q.onsuccess=()=>{r.result.close();res(q.result)}}})"
+            % KEY
+        )
+
+    def add(name, data, wait=900):
+        pg.set_input_files(
+            "#sl-img-file", files=[{"name": name, "mimeType": "image/png", "buffer": data}]
+        )
+        pg.wait_for_timeout(wait)
+
+    def pics():
+        d = deck()
+        return (
+            [e for sl in d["slides"] for e in sl["elements"] if e["type"] == "image"] if d else []
+        )
+
+    jpg = bytes.fromhex(open("tests/js/fixtures/images/tiny.jpg.hex").read())
+    add("photo.jpg", jpg)
+    e = pics()
+    check(
+        "pic: a JPEG is added (version 5, fingerprint only)",
+        len(e) == 1
+        and deck()["v"] == 5
+        and "/9j/" not in pg.evaluate("localStorage.getItem(%s)" % KEY),
+        str(e),
+    )
+    check(
+        "pic: the canvas draws the JPEG",
+        pg.evaluate(
+            "(()=>{const i=document.querySelector('#sl-canvas-wrap svg image');return i&&i.getAttribute('href').slice(0,22)})()"
+        )
+        == "data:image/jpeg;base64",
+        "",
+    )
+    check(
+        "pic: the references-only export warning is visible when the deck has a picture",
+        pg.is_visible("#sl-export-warn"),
+    )
+    with pg.expect_download() as dl:
+        pg.click("#sl-pdf")
+    raw = open(dl.value.path(), "rb").read()
+    check(
+        "pic: the PDF embeds the JPEG as a DCT image",
+        raw.count(b"/DCTDecode") == 1 and raw.count(b"/Subtype /Image") == 1,
+    )
+    # description
+    pg.click("#sl-items button")
+    pg.fill("#sl-text", "A tiny red bar")
+    pg.press("#sl-text", "Tab")
+    desc = pg.evaluate("document.querySelector('#sl-canvas-wrap svg desc').textContent")
+    check(
+        "pic: the description is stored, named in the slide description and in the item list, and is not drawn as text",
+        pics()[0]["text"] == "A tiny red bar"
+        and "Picture: A tiny red bar" in desc
+        and "A tiny red bar"
+        not in (
+            pg.text_content("#sl-canvas-wrap svg text")
+            if pg.query_selector("#sl-canvas-wrap svg text")
+            else ""
+        )
+        and "Picture: A tiny red bar" in pg.inner_text("#sl-items"),
+        desc,
+    )
+    pg.click("#sl-del-el")
+    check(
+        "pic: deleting the picture hides the warning and returns the deck to version 1",
+        not pg.is_visible("#sl-export-warn") and deck()["v"] == 1,
+    )
+    # 10 MB deck cap: five 1.8 MB pictures fit, the sixth does not
+    for k in range(5):
+        add("n%d.png" % k, _png(1000, 600, noise=True), 1500)
+    five = (len(pics()), idb_count())
+    add("n5.png", _png(1000, 600, noise=True), 1500)
+    check(
+        "pic: five 1.8 MB pictures fit and the sixth is refused for the 10 MB deck cap",
+        five == (5, 6) and len(pics()) == 5 and "10 MB" in status() and idb_count() == 6,
+        str((five, len(pics()), status(), idb_count())),
+    )
+    # an aborted write and a blocked store change nothing
+    pg.evaluate("localStorage.clear()")
+    pg.reload()
+    pg.wait_for_timeout(500)
+    base = idb_count()
+    pg.evaluate(
+        "(()=>{window.__add=IDBObjectStore.prototype.add;IDBObjectStore.prototype.add=function(v){const r=window.__add.call(this,v);this.transaction.abort();return r;};return 1})()"
+    )
+    add("x.png", _png(20, 20, (1, 2, 3)))
+    check(
+        "pic: a write the browser aborts adds no picture and no record, and says so",
+        not pics() and idb_count() == base and "Nothing was added" in status(),
+        status(),
+    )
+    pg.evaluate("(()=>{IDBObjectStore.prototype.add=window.__add;return 1})()")
+    add("x.png", _png(20, 20, (1, 2, 3)))
+    check(
+        "pic: after the browser recovers the same picture is added normally",
+        len(pics()) == 1 and idb_count() == base + 1,
+        status(),
+    )
+    pg.evaluate("localStorage.clear()")
+    pg.reload()
+    pg.wait_for_timeout(500)
+    pg.evaluate("(()=>{indexedDB.open=function(){throw new Error('blocked')};return 1})()")
+    add("y.png", _png(21, 21, (3, 2, 1)))
+    check(
+        "pic: a blocked picture store adds nothing and says so",
+        not pics() and "would not open" in status(),
+        status(),
+    )
 
 
 DRILLS = {
@@ -3725,6 +3895,7 @@ DRILLS = {
     "sheets_headers": sheets_headers,
     "slides_drag": slides_drag,
     "slides_images": slides_images,
+    "slides_images_edge": slides_images_edge,
     "slides_style": slides_style,
     "sheets_tabs": sheets_tabs,
     "sheets_chart": sheets_chart,

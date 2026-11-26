@@ -189,4 +189,13 @@ const OLD2 = require("./fixtures/slides_model_v2_master_validator.js");
   ok("image: the previous (pre-image) validator refuses a version 5 deck so it can never drop a picture silently", d.v === 5 && Old4.validate(JSON.parse(JSON.stringify(d))) === null && Old4.loadDeck(JSON.stringify(d)).unreadable === true);
   ok("image: the previous validator still reads a styled version 4 deck from the current code", (() => { let t = S.ops.addElement(S.newDeck(), 0, "text"); t = S.ops.updateElement(t.deck, 0, t.id, { b: true }); return t.v === 4 && Old4.validate(JSON.parse(JSON.stringify(t))) !== null; })());
 }
+{
+  const H1 = "b".repeat(64); let d = S.newDeck(); const t = S.ops.addElement(d, 0, "text"); d = S.ops.updateElement(t.deck, 0, t.id, { b: true });
+  d = S.ops.addImage(d, 0, H1, 10, 10, "").deck; const pid = d.slides[0].elements[1].id;
+  ok("image: deleting the last picture from a deck that also has a styled item goes to version 4, not 1", d.v === 5 && S.ops.deleteElement(d, 0, pid).v === 4);
+  let m = S.ops.master_addElement(S.newDeck(), "text").deck; m = S.ops.addImage(m, 0, H1, 10, 10, "").deck;
+  ok("image: deleting the last picture from a deck with a master goes to version 2", m.v === 5 && S.ops.deleteElement(m, 0, m.slides[0].elements[0].id).v === 2);
+  let tr = S.ops.setTransition(S.ops.addImage(S.newDeck(), 0, H1, 10, 10, "").deck, 0, "fade");
+  ok("image: deleting the last picture from a deck with a fade goes to version 3", tr.v === 5 && S.ops.deleteElement(tr, 0, tr.slides[0].elements[0].id).v === 3);
+}
 console.log(`${n - bad}/${n} slides model rows passed`); process.exit(bad ? 1 : 0);

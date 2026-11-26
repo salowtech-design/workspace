@@ -145,6 +145,7 @@
     $("sl-items-empty").hidden = tgt().length > 0;
     var e = sel(), props = $("sl-props"); props.disabled = !e; $("sl-del-el").disabled = !e;
     var isPic = !!(e && e.type === "image"); ["sl-size", "sl-fill", "sl-bold", "sl-italic", "sl-align"].forEach(function (id) { $(id).disabled = isPic; });
+    $("sl-export-warn").hidden = !deckHashes(d).length;
     $("sl-text-label").textContent = isPic ? "Description (for screen readers, not drawn)" : "Text";
     var pos = e ? tgt().indexOf(e) : -1; $("sl-back").disabled = pos <= 0; $("sl-fwd").disabled = pos < 0 || pos >= tgt().length - 1;
     ["text", "size", "x", "y", "w", "h", "fill"].forEach(function (f) { var inp = $("sl-" + f); if (document.activeElement !== inp) inp.value = e ? e[f] : ""; });
