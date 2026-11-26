@@ -209,6 +209,40 @@ def slides_edit(ctx):
     check("slides: ids stay unique after duplicate", ids[0] == ids[1] and ids[0] > 2, ids)
 
 
+def sheets_lookup(ctx):
+    """Typed in the real grid: lookup and conditional functions show their results and errors on screen."""
+    pg = fresh(ctx, "/sheets/")
+
+    def setc(a, v):
+        pg.click('input[data-addr="%s"]' % a)
+        pg.fill('input[data-addr="%s"]' % a, v)
+        pg.press('input[data-addr="%s"]' % a, "Tab")
+        pg.wait_for_timeout(80)
+
+    def val(a):
+        return pg.input_value('input[data-addr="%s"]' % a)
+
+    for i, (n, q) in enumerate([("apple", "3"), ("Banana", "5"), ("cherry", "7")], 1):
+        setc("A%d" % i, n)
+        setc("B%d" % i, q)
+    cases = [
+        ("D1", '=VLOOKUP("banana",A1:B3,2,FALSE)', "5"),
+        ("D2", '=VLOOKUP("zzz",A1:B3,2,FALSE)', "#N/A"),
+        ("D3", '=MATCH("ch*",A1:A3,0)', "3"),
+        ("D4", "=INDEX(A1:B3,2,2)", "5"),
+        ("D5", "=INDEX(A1:B3,9,1)", "#REF!"),
+        ("D6", '=SUMIF(B1:B3,">3")', "12"),
+        ("D7", '=COUNTIF(A1:A3,"*an*")', "1"),
+        ("D8", '=AVERAGEIF(B1:B3,">=5")', "6"),
+    ]
+    for a, f, _ in cases:
+        setc(a, f)
+    pg.click('input[data-addr="F1"]')
+    for a, f, want in cases:
+        check("sheets lookup: %s shows %s" % (f, want), val(a) == want, val(a))
+    shot(pg, "sheets_lookup_390")
+
+
 def sheets_sort_filter(ctx):
     pg = fresh(ctx, "/sheets/")
 
@@ -8113,7 +8147,7 @@ def second_context_selftest(ctx):
     pg0 = ctx.pages[0]
     pg0.wait_for_timeout(500)  # a late repeat of the injected error would arrive by now
     errs[:] = [e for e in errs if "selftest page error" not in str(e)]  # only the deliberate one
-    del remote[n_rem:]
+    remote[:] = [r for r in remote if not r.startswith("http://203.0.113.1:9")]  # only the deliberate entry; anything else stays and trips the end checks
 
 
 DRILLS = {
@@ -8131,6 +8165,7 @@ DRILLS = {
     "slides_layout": slides_layout,
     "slides_pdf_theme": slides_pdf_theme,
     "sheets_sort_filter": sheets_sort_filter,
+    "sheets_lookup": sheets_lookup,
     "sheets_fill": sheets_fill,
     "sheets_headers": sheets_headers,
     "slides_drag": slides_drag,

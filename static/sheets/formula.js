@@ -1,6 +1,6 @@
 /* Salow Sheets formula engine. Runs on the device (browser or node); it reads only the cells it is
  * given. No eval, no Function, no network. Formulas are parsed by a hand-written recursive-descent
- * parser into a tree, then walked. Errors are values: #DIV/0!, #VALUE!, #NAME?, #REF!, #CIRC!, #PARSE!. */
+ * parser into a tree, then walked. Errors are values: #DIV/0!, #VALUE!, #NAME?, #REF!, #CIRC!, #PARSE!, #N/A (a lookup found nothing). */
 (function (root) {
   "use strict";
   var MAX_LEN = 2000, MAX_DEPTH = 50, MAX_RANGE = 10000, MAX_ROW = 1000, MAX_COL = 26, MAX_STR = 10000, BUDGET = 500000, MAX_CELL_TEXT = 10000, MAX_DEPTH_EVAL = 400;
@@ -132,6 +132,7 @@
     if (!isFinite(out)) return x;
     return x < 0 ? -out : out;
   }
+  var FNX;
   var FN = {
     SUM: function (a) { var n = flatten(a); return isErr(n) ? n : n.reduce(function (s, x) { return s + x; }, 0); },
     AVERAGE: function (a) { var n = flatten(a); return isErr(n) ? n : n.length ? n.reduce(function (s, x) { return s + x; }, 0) / n.length : new Err("#DIV/0!"); },
@@ -148,7 +149,155 @@
     AND: function (a) { for (var i = 0; i < a.length; i++) { var x = truth(a[i]); if (isErr(x)) return x; if (!x) return false; } return true; },
     OR: function (a) { for (var i = 0; i < a.length; i++) { var x = truth(a[i]); if (isErr(x)) return x; if (x) return true; } return false; }
   };
-  var ARITY = { SUM: [1, 99], AVERAGE: [1, 99], MIN: [1, 99], MAX: [1, 99], COUNT: [1, 99], ABS: [1, 1], ROUND: [1, 2], LEN: [1, 1], UPPER: [1, 1], LOWER: [1, 1], CONCAT: [1, 99], NOT: [1, 1], AND: [1, 99], OR: [1, 99], IF: [2, 3] };
+
+  /* ---- lookup and conditional functions ----
+   * Semantics follow Google Sheets' published help for COUNTIF, SUMIF, MATCH and VLOOKUP (checked
+   * against the help pages, not against Google's engine). Written down here so they are exact:
+   * - Indices are 1-based. INDEX row or column 0 (a whole row or column) is not supported: #VALUE!.
+   * - MATCH search_type: positive = 1 (default, ascending, largest <= key), 0 = exact, negative = -1
+   *   (descending, smallest >= key). A range taller and wider than 1 gives #N/A. VLOOKUP is_sorted
+   *   defaults to TRUE (approximate, ascending first column); FALSE is exact. Approximate modes scan
+   *   top to bottom and stop at the first value past the key, like a sorted search, and skip blanks
+   *   and values of another type than the key (numbers, text and booleans are not compared with each other).
+   * - Exact text matches ignore case and accept the wildcards ? and * (~ escapes ? * and ~), also in
+   *   COUNTIF, SUMIF and AVERAGEIF text criteria. A text key never equals a number cell and a number never equals a text cell
+   *   in MATCH and VLOOKUP; the *IF functions also let a numeric string criterion match text of the same digits.
+   * - Blank key: #N/A. An error value in the key is returned. An error cell in the searched range is skipped
+   *   (never matches); an error in a returned cell is returned. Nothing found: #N/A. INDEX or VLOOKUP column
+   *   past the range: #REF!. VLOOKUP index below 1 or not a number: #VALUE!.
+   * - SUMIF and AVERAGEIF need a sum range of the same height and width as the range (it is not resized
+   *   as Google and Excel do): otherwise #VALUE!. Only numbers are summed; text and blanks are ignored.
+   * - Ragged data does not exist: a range is a full rectangle of cells, empty cells are blank. */
+  function grid(v) { return Array.isArray(v) ? { v: v, rows: v.rows || v.length, cols: v.cols || 1 } : { v: [v], rows: 1, cols: 1 }; }
+  function isBlank(x) { return x === null || x === undefined || x === ""; }
+  function wild(pat, str) {  // ? one character, * any run, ~ escapes; case-insensitive; no backtracking blow-up
+    var toks = [], i;
+    for (i = 0; i < pat.length; i++) {
+      var ch = pat[i];
+      if (ch === "~" && i + 1 < pat.length && (pat[i + 1] === "?" || pat[i + 1] === "*" || pat[i + 1] === "~")) { toks.push({ t: pat[++i] }); }
+      else if (ch === "*") { if (!toks.length || toks[toks.length - 1].star !== true) toks.push({ star: true }); }
+      else if (ch === "?") toks.push({ any: true });
+      else toks.push({ t: ch });
+    }
+    var sp = 0, tp = 0, star = -1, mark = 0;
+    str = str.toLowerCase();
+    var lit = function (k) { return String(toks[k].t).toLowerCase(); };
+    while (sp < str.length) {
+      if (tp < toks.length && !toks[tp].star && (toks[tp].any || lit(tp) === str[sp])) { sp++; tp++; }
+      else if (tp < toks.length && toks[tp].star) { star = tp++; mark = sp; }
+      else if (star >= 0) { tp = star + 1; sp = ++mark; }
+      else return false;
+    }
+    while (tp < toks.length && toks[tp].star) tp++;
+    return tp === toks.length;
+  }
+  function kind(x) { return typeof x === "number" ? "n" : typeof x === "boolean" ? "b" : typeof x === "string" && x !== "" ? "t" : null; }
+  function cmpSame(a, b) {  // a and b are the same kind; -1, 0, 1
+    if (typeof a === "string") { a = a.toLowerCase(); b = b.toLowerCase(); }
+    return a < b ? -1 : a > b ? 1 : 0;
+  }
+  function exactEq(key, cell) {
+    var k = kind(key);
+    if (k === null || k !== kind(cell)) return false;
+    if (k === "t") return wild(key, cell);
+    return key === cell;
+  }
+  function criterion(c) {  // returns a predicate over one cell value, or an Err
+    if (isErr(c)) return c;
+    if (Array.isArray(c)) return new Err("#VALUE!");
+    if (typeof c === "number") return function (x) { return typeof x === "number" && x === c; };
+    if (typeof c === "boolean") return function (x) { return typeof x === "boolean" && x === c; };
+    var s = text(c);
+    if (s.length > 255) return new Err("#VALUE!");
+    var op = "=", m = /^(>=|<=|<>|=|>|<)/.exec(s);
+    if (m) { op = m[1]; s = s.slice(op.length); }
+    var numeric = /^[-+]?([0-9]+\.?[0-9]*|\.[0-9]+)([eE][-+]?[0-9]+)?$/.test(s.trim()) && isFinite(parseFloat(s)), nv = numeric ? parseFloat(s) : 0;
+    var low = s.toLowerCase();
+    if (op === ">" || op === "<" || op === ">=" || op === "<=") {
+      return function (x) {
+        var c2;
+        if (numeric) { if (typeof x !== "number") return false; c2 = x < nv ? -1 : x > nv ? 1 : 0; }
+        else { if (kind(x) !== "t") return false; var xl = x.toLowerCase(); c2 = xl < low ? -1 : xl > low ? 1 : 0; }
+        return op === ">" ? c2 > 0 : op === "<" ? c2 < 0 : op === ">=" ? c2 >= 0 : c2 <= 0;
+      };
+    }
+    var eq;
+    if (s === "") eq = function (x) { return isBlank(x); };
+    else if (numeric) eq = function (x) { return (typeof x === "number" && x === nv) || (kind(x) === "t" && x.trim() === s.trim()); };
+    else if (low === "true" || low === "false") eq = function (x) { return typeof x === "boolean" && x === (low === "true"); };
+    else eq = function (x) { return kind(x) === "t" && wild(s, x); };
+    return op === "<>" ? function (x) { return !eq(x); } : eq;
+  }
+  function pos(v) {  // a positive whole number from an argument, or an Err
+    var n = num(sc2(v)); if (isErr(n)) return n;
+    n = Math.trunc(n);
+    return n < 1 ? new Err("#VALUE!") : n;
+  }
+  function sc2(v) { return Array.isArray(v) ? (v.length === 1 ? v[0] : new Err("#VALUE!")) : v; }
+  var LOOKUP = {
+    INDEX: function (a) {
+      if (isErr(a[0])) return a[0];
+      var g = grid(a[0]), r = pos(a[1]); if (isErr(r)) return r;
+      var c = a.length > 2 ? pos(a[2]) : null; if (isErr(c)) return c;
+      if (c === null) { if (g.rows === 1 && g.cols > 1) { c = r; r = 1; } else c = 1; }
+      if (r > g.rows || c > g.cols) return new Err("#REF!");
+      var v = g.v[(r - 1) * g.cols + (c - 1)];
+      return v === undefined ? null : v;
+    },
+    MATCH: function (a) {
+      var key = sc2(a[0]); if (isErr(key)) return key;
+      if (isErr(a[1])) return a[1];
+      var g = grid(a[1]); if (g.rows > 1 && g.cols > 1) return new Err("#N/A");
+      var t = 1;
+      if (a.length > 2) { t = num(sc2(a[2])); if (isErr(t)) return t; t = t > 0 ? 1 : t < 0 ? -1 : 0; }
+      var i = find(key, g.v, 0, 1, g.v.length, t);
+      return isErr(i) ? i : i + 1;
+    },
+    VLOOKUP: function (a) {
+      var key = sc2(a[0]); if (isErr(key)) return key;
+      if (isErr(a[1])) return a[1];
+      var g = grid(a[1]), ci = pos(a[2]); if (isErr(ci)) return ci;
+      var sorted = true;
+      if (a.length > 3) { sorted = truth(sc2(a[3])); if (isErr(sorted)) return sorted; }
+      if (ci > g.cols) return new Err("#REF!");
+      var i = find(key, g.v, 0, g.cols, g.rows, sorted ? 1 : 0);
+      if (isErr(i)) return i;
+      var v = g.v[i * g.cols + (ci - 1)];
+      return v === undefined ? null : v;
+    }
+  };
+  function find(key, vals, start, step, count, type) {  // index of the match among count cells, or #N/A
+    if (kind(key) === null) return new Err("#N/A");
+    var best = -1;
+    for (var i = 0; i < count; i++) {
+      var x = vals[start + i * step];
+      if (isErr(x) || kind(x) !== kind(key)) continue;
+      if (type === 0) { if (exactEq(key, x)) return i; continue; }
+      var d = cmpSame(x, key);
+      if (type === 1) { if (d > 0) break; best = i; }
+      else { if (d < 0) break; best = i; }
+    }
+    return best < 0 ? new Err("#N/A") : best;
+  }
+  function condAgg(name, a) {
+    if (isErr(a[0])) return a[0];
+    var g = grid(a[0]), pred = criterion(a[1]); if (isErr(pred)) return pred;
+    var sg = g;
+    if (name !== "COUNTIF" && a.length > 2) { if (isErr(a[2])) return a[2]; sg = grid(a[2]); if (sg.rows !== g.rows || sg.cols !== g.cols) return new Err("#VALUE!"); }
+    var count = 0, sum = 0;
+    for (var i = 0; i < g.v.length; i++) {
+      var x = g.v[i];
+      if (isErr(x) || !pred(x)) continue;
+      count++;
+      if (name !== "COUNTIF") { var y = sg.v[i]; if (isErr(y)) return y; if (typeof y === "number") { sum += y; } else if (name === "AVERAGEIF") count--; }
+    }
+    if (name === "COUNTIF") return count;
+    if (name === "SUMIF") return sum;
+    return count ? sum / count : new Err("#DIV/0!");
+  }
+  FNX = { INDEX: LOOKUP.INDEX, MATCH: LOOKUP.MATCH, VLOOKUP: LOOKUP.VLOOKUP,
+    SUMIF: function (a) { return condAgg("SUMIF", a); }, COUNTIF: function (a) { return condAgg("COUNTIF", a); }, AVERAGEIF: function (a) { return condAgg("AVERAGEIF", a); } };
+  var ARITY = { INDEX: [2, 3], MATCH: [2, 3], VLOOKUP: [3, 4], SUMIF: [2, 3], COUNTIF: [2, 2], AVERAGEIF: [2, 3], SUM: [1, 99], AVERAGE: [1, 99], MIN: [1, 99], MAX: [1, 99], COUNT: [1, 99], ABS: [1, 1], ROUND: [1, 2], LEN: [1, 1], UPPER: [1, 1], LOWER: [1, 1], CONCAT: [1, 99], NOT: [1, 1], AND: [1, 99], OR: [1, 99], IF: [2, 3] };
   function truth(v) {
     if (isErr(v)) return v;
     if (typeof v === "boolean") return v;
@@ -212,6 +361,7 @@
           if ((work += (c2 - c1 + 1) * (r2 - r1 + 1)) > BUDGET) return new Err("#LIMIT!");
           var vals = [];
           for (var r = r1; r <= r2; r++) for (var c = c1; c <= c2; c++) vals.push(get(addr(c, r)));
+          vals.rows = r2 - r1 + 1; vals.cols = c2 - c1 + 1;  // shape, for INDEX, MATCH and VLOOKUP
           return vals;
         }
         case "un": { var x = num(sc(ev(n.e))); if (isErr(x)) return x; return n.o === "-" ? -x : x; }
@@ -235,10 +385,10 @@
             if (cnd) return sc(ev(n.a[1]));
             return n.a.length > 2 ? sc(ev(n.a[2])) : false;
           }
-          var agg = n.f === "SUM" || n.f === "AVERAGE" || n.f === "MIN" || n.f === "MAX" || n.f === "COUNT";
+          var agg = !FNX[n.f] && (n.f === "SUM" || n.f === "AVERAGE" || n.f === "MIN" || n.f === "MAX" || n.f === "COUNT");
           // a direct cell reference counts as a reference (text and blanks ignored), like a one-cell range
           var args = n.a.map(function (x) { var v = ev(x); return agg && x.n === "cell" ? [v] : v; });
-          var res = FN[n.f](args);
+          var res = (FNX[n.f] || FN[n.f])(args);
           return typeof res === "number" && !isFinite(res) ? new Err("#VALUE!") : res;
         }
       }
