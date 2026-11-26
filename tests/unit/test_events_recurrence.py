@@ -338,3 +338,53 @@ def test_series_detail_pages_reach_every_one_of_200_occurrences_and_skip_the_las
     early = c.get(url + "?from=2027-03-20").content.decode()
     assert "Earlier occurrences" in early and 'value="2027-03-20"' in early
     assert "was not understood" in c.get(url + "?from=junk").content.decode()
+
+
+@pytest.mark.django_db
+def test_earlier_and_later_pages_are_inverse_with_cancelled_dates_in_between():
+    import re
+
+    org = _u("R16")
+    ev = mk(org, "2027-03-01T10:00", "2027-03-01T11:00", freq="daily", count=100)
+    for k in (3, 25, 26, 47, 70):  # cancelled dates inside and across page boundaries
+        es.skip_occurrence(org, ev.public_id, dt.date(2027, 3, 1) + dt.timedelta(days=k))
+    c = Client(HTTP_HOST="app.salowtech.com")
+    c.force_login(org)
+    url = reverse("events:detail", args=[ev.public_id])
+
+    def page(frm):
+        b = c.get(url + (f"?from={frm}" if frm else "")).content.decode()
+        dates = re.findall(r'name="date" value="(\d{4}-\d\d-\d\d)"', b)
+        later = re.search(r'href="\?from=([\d-]+)">Later occurrences', b)
+        earlier = re.search(r'href="\?from=([\d-]+)">Earlier occurrences', b)
+        return dates, later and later.group(1), earlier and earlier.group(1)
+
+    fwd, frm = [], "2027-03-01"
+    while True:
+        dates, later, earlier = page(frm)
+        fwd.append((frm, dates, earlier))
+        if not later:
+            break
+        frm = later
+    assert sum(len(d) for _f, d, _e in fwd) == 95 and all(len(d) <= 20 for _f, d, _e in fwd)
+    assert not any(x in sum((d for _f, d, _e in fwd), []) for x in ("2027-03-04", "2027-03-26"))
+    # walking back from each later page returns exactly the page before it
+    for i in range(len(fwd) - 1, 0, -1):
+        _f, _d, earlier = fwd[i]
+        back_dates, _l, _e = page(earlier)
+        assert back_dates == fwd[i - 1][1], (i, back_dates, fwd[i - 1][1])
+    assert fwd[0][2] is None  # nothing before the first page
+
+
+@pytest.mark.django_db
+def test_skip_redirects_back_to_the_same_page_and_ignores_a_bad_from():
+    org = _u("R17")
+    ev = mk(org, "2027-03-01T10:00", "2027-03-01T11:00", freq="daily", count=60)
+    c = Client(HTTP_HOST="app.salowtech.com")
+    c.force_login(org)
+    u = reverse("events:skip", args=[ev.public_id])
+    r = c.post(u, {"date": "2027-03-25", "from": "2027-03-21"})
+    assert r.status_code == 302 and r["Location"].endswith("?from=2027-03-21")
+    r = c.post(u, {"date": "2027-03-26", "from": "//evil.example/x"})
+    assert r.status_code == 302 and "?" not in r["Location"] and "evil" not in r["Location"]
+    assert EventException.objects.filter(event=ev).count() == 2

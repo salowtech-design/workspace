@@ -297,7 +297,7 @@ def detail(request, event_id):
             except ValueError:
                 note = "That date was not understood, so the list starts today."
         more = False
-        before = None
+        prior = []  # shown (not cancelled) occurrence dates before the list start
         for d in rec.local_dates(ev):
             o = rec.occurrence(ev, d)
             if o is None:
@@ -306,7 +306,8 @@ def detail(request, event_id):
             if d in gone:
                 skipped.append(row)
             if d < start_d:
-                before = d
+                if d not in gone:
+                    prior.append(d)
                 continue
             if d in gone:
                 continue
@@ -319,8 +320,9 @@ def detail(request, event_id):
             "from": start_d.isoformat(),
             "note": note,
             "next": (upcoming[-1]["date"] + dt.timedelta(days=1)).isoformat() if more else "",
-            "has_earlier": before is not None,
-            "earlier": (start_d - dt.timedelta(days=1)).isoformat(),
+            "has_earlier": bool(prior),
+            # the previous page: the PAGE_OCC shown occurrences before this one, like Later forward
+            "earlier": (prior[-PAGE_OCC:][0] if prior else start_d).isoformat(),
         }
     return render(
         request,
@@ -399,6 +401,18 @@ def respond_view(request, event_id):
 
 @login_required
 @require_POST
+def _back(request, event_id):
+    """Back to the series page, on the same page of occurrences (a valid from date only)."""
+    from django.urls import reverse
+
+    raw = request.POST.get("from", "")
+    try:
+        dt.datetime.strptime(raw, "%Y-%m-%d")
+        return redirect(reverse("events:detail", args=[event_id]) + f"?from={raw}")
+    except ValueError:
+        return redirect("events:detail", event_id=event_id)
+
+
 def skip_view(request, event_id):
     """Organiser cancels one occurrence of a repeating event (by its local date)."""
     ev = es.get_event(request.user, event_id)
@@ -407,7 +421,7 @@ def skip_view(request, event_id):
 
         raise Http404
     if _limited(request):
-        return redirect("events:detail", event_id=event_id)
+        return _back(request, event_id)
     try:
         d = dt.datetime.strptime(request.POST.get("date", ""), "%Y-%m-%d").date()
         es.skip_occurrence(request.user, event_id, d)
@@ -416,7 +430,7 @@ def skip_view(request, event_id):
         messages.error(request, "Choose an occurrence to cancel.")
     except ValidationError as exc:
         messages.error(request, " ".join(exc.messages))
-    return redirect("events:detail", event_id=event_id)
+    return _back(request, event_id)
 
 
 @login_required

@@ -7757,7 +7757,48 @@ def cal_series(ctx):
     pg.set_viewport_size({"width": 1100, "height": 900})
 
 
+def cal_series_page(ctx):
+    """A 200-occurrence daily series at 390 px: the occurrence list, a later page, and cancelling the last date."""
+    shots = os.environ.get("DRILL_SHOTS", "/tmp")  # noqa: S108
+    pg = ctx.pages[0]
+    pg.set_viewport_size({"width": 390, "height": 800})
+    pg.goto(APP + "/calendar/new/")
+    pg.fill("input[name=title]", "Daily stand")
+    pg.fill("input[name=start]", "2027-03-01T10:00")
+    pg.fill("input[name=end]", "2027-03-01T10:15")
+    pg.select_option("select[name=freq]", "daily")
+    pg.fill("input[name=count]", "200")
+    pg.click(".cal-form button[type=submit]")
+    pg.wait_for_load_state()
+    d0 = pg.url
+    cancels = lambda: pg.locator("button[aria-label^='Cancel only the occurrence']").count()  # noqa: E731
+    check("cal series page: first page lists 20 occurrences with Cancel this one", cancels() == 20, str(cancels()))
+    pg.screenshot(path=os.path.join(shots, "cal_pages_1.png"), full_page=True)
+    check("cal series page: no sideways scroll", not pg.evaluate("document.documentElement.scrollWidth > document.documentElement.clientWidth"))
+    pg.click("a:has-text('Later occurrences')")
+    pg.wait_for_load_state()
+    check("cal series page: the later page starts on 21 Mar", "Sun 21 Mar 2027" in pg.inner_text("body"), pg.url)
+    check("cal series page: the later page offers Earlier occurrences", pg.locator("a:has-text('Earlier occurrences')").count() == 1)
+    pg.screenshot(path=os.path.join(shots, "cal_pages_2.png"), full_page=True)
+    pg.click("a:has-text('Earlier occurrences')")
+    pg.wait_for_load_state()
+    check("cal series page: Earlier returns the first page (1 Mar to 20 Mar, 20 buttons)", "Mon 1 Mar 2027" in pg.inner_text("body") and cancels() == 20, pg.url)
+    pg.screenshot(path=os.path.join(shots, "cal_pages_back.png"), full_page=True)
+    pg.click("a:has-text('Later occurrences')")
+    pg.wait_for_load_state()
+    pg.goto(d0 + "?from=2027-09-10")
+    check("cal series page: the last page has no Later link and ends 16 Sep", pg.locator("a:has-text('Later occurrences')").count() == 0 and "Thu 16 Sep 2027" in pg.inner_text("body"))
+    pg.click("button[aria-label='Cancel only the occurrence on Thursday 16 September 2027']")
+    pg.wait_for_load_state()
+    body = pg.inner_text("body")
+    check("cal series page: 16 Sep is listed as cancelled and no longer offered", "16 Sep 2027" in body and "other occurrences are unchanged" in body and pg.locator("button[aria-label='Cancel only the occurrence on Thursday 16 September 2027']").count() == 0, body[:300])
+    check("cal series page: after cancelling it stays on the same page of occurrences", "from=2027-09-10" in pg.url and "Wed 15 Sep 2027" in body, pg.url)
+    pg.screenshot(path=os.path.join(shots, "cal_pages_cancelled.png"), full_page=True)
+    pg.set_viewport_size({"width": 1100, "height": 900})
+
+
 DRILLS = {
+    "cal_series_page": cal_series_page,
     "cal_series": cal_series,
     "cal_month": cal_month,
     "slides_show": slides_show,
