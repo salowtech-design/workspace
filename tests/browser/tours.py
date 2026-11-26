@@ -250,6 +250,7 @@ def register(g):
     register_iam_stepup3(g)
     register_bg_probe(g)
     register_chat_react(g)
+    register_drive_editor(g)
 
 
 def register_tasks(g, users):
@@ -1743,3 +1744,45 @@ def register_chat_react(g):
                  unshown=["thumbs up and heart (clip 01)", "other people's reactions", "history/search/edit/delete (not built)"])
 
     g["DRILLS"]["tour_chat_react"] = tour
+
+
+def register_drive_editor(g):
+    APP = g["APP"]
+
+    def tour(ctx):
+        import concurrent.futures
+
+        import django
+
+        django.setup()
+
+        def fixture():
+            from apps.accounts.models import CustomUser
+            from apps.drive import services as ds
+
+            two = CustomUser.objects.get_or_create(employee_id="ST-LIVE-2", defaults={"full_name": "Second Synthetic", "email": "st-live-2@salowtech.com", "email_verified": True,
+                                                   "role": CustomUser.Role.EMPLOYEE, "status": CustomUser.Status.ACTIVE, "is_active": True})[0]
+            me = CustomUser.objects.get(employee_id="ST-LIVE-1")
+            f = ds.create_folder(two, "Team plans from Second")
+            ds.share(two, f, me, "editor")
+
+        with concurrent.futures.ThreadPoolExecutor(1) as ex:
+            ex.submit(fixture).result()
+
+        def body(t, pg):
+            pg.goto(APP + "/drive/")
+            t.step("Drive: Shared with me tab shows a folder with Editor access", lambda: pg.click(".drive-tabs a:has-text('Shared with me')"), expect=lambda: "Editor access" in pg.inner_text("body"), wait=2500)
+            t.step("Open the folder shared with me as Editor", lambda: pg.click("a.drive-name:has-text('Team plans')"), expect=lambda: pg.locator("button:has-text('Create folder')").count() >= 1, wait=2500)
+            t.step("As Editor, create a folder inside it", lambda: (pg.fill("input[placeholder='New folder name']", "Editor made"), pg.click("button:has-text('Create folder')")), expect=lambda: pg.locator("a.drive-name", has_text="Editor made").count() == 1, wait=3000)
+            t.step("As Editor, rename that folder", lambda: (pg.fill("input[aria-label='New name']", "Editor renamed"), pg.click("button:has-text('Rename')")), expect=lambda: pg.locator("a.drive-name", has_text="Editor renamed").count() == 1, wait=3000)
+            t.step("The Sharing box: can an Editor change who has access? Observe", lambda: pg.wait_for_timeout(300), expect=lambda: True, wait=2500)
+            t.note("Observed: Share folder control present for the Editor = %s; Remove access control present = %s; Move to trash present = %s." % (pg.locator("button:has-text('Share folder')").count() > 0, pg.locator("button:has-text('Remove access')").count() > 0, pg.locator("button:has-text('Move to trash')").count() > 0), 4)
+            pg.goto(APP + "/drive/")
+            t.step("Back in My Drive: create my own folder", lambda: (pg.fill("input[placeholder='New folder name']", "My plans"), pg.click("button:has-text('Create folder')")), expect=lambda: pg.locator("a.drive-name", has_text="My plans").count() == 1, wait=2500)
+            t.step("Open it", lambda: pg.click("a.drive-name:has-text('My plans')"), expect=lambda: "Sharing" in pg.inner_text("body"), wait=2000)
+            t.step("Share it with ST-LIVE-2 as Editor", lambda: (pg.fill("input[placeholder='Employee ID']", "ST-LIVE-2"), pg.select_option("select[name=role]", "editor"), pg.click("button:has-text('Share folder')")), expect=lambda: "Editor" in pg.locator(".drive-share").inner_text() and "Second Synthetic" in pg.locator(".drive-share").inner_text(), wait=3500)
+
+        run_tour(ctx, "26_drive_editor", body, notes="Real Django on TiDB under uvicorn, headless Chromium 390x844 emulated. The folder shared with Editor access was created by a script as a fixture colleague.",
+                 unshown=["what the second person sees after my Editor share (one signed-in user in this clip)", "folder move (no UI)", "files (not built)"])
+
+    g["DRILLS"]["tour_drive_editor"] = tour
