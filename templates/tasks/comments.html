@@ -8,7 +8,8 @@
   <p><a href="{% url 'tasks:project' project.public_id %}">&larr; {{ project.name }}</a></p>
   <h3>{{ task.title }}</h3>
   <p class="task-meta">Everyone listed as a member of this project can read and post here. Comments cannot be edited or deleted yet. Nobody is notified.</p>
-  {% if total > shown %}<p class="task-meta">Showing the newest {{ shown }} of {{ total }}.</p>{% endif %}
+  {% if paged %}<p><a href="{% url 'tasks:project_comments' task.public_id %}">Newest comments</a></p>{% endif %}
+  {% if older %}<p><a href="{% url 'tasks:project_comments' task.public_id %}?before={{ older }}">Older comments</a></p>{% endif %}
   {% for c in comments %}<div class="task-row comment"><span class="task-title">{{ c.author.full_name }}</span><span class="task-meta">{{ c.created_at|date:"j M Y, H:i" }}</span><p class="comment-body">{{ c.body }}</p></div>
   {% empty %}<p class="task-meta">No comments yet.</p>{% endfor %}
   <form method="post" action="{% url 'tasks:project_comments' task.public_id %}" class="comment-form">{% csrf_token %}

@@ -628,19 +628,83 @@ def test_comment_limits_empty_and_deleted_task_and_method():
 
 
 @pytest.mark.django_db
-def test_comments_are_oldest_first_and_cap_shows_newest():
+def test_comment_pages_reach_every_comment_oldest_first_with_no_gap_or_repeat():
+    import re
+
     a = _u("CM-D")
     p, t = _ptask(a)
-    for i in range(pj.COMMENTS_SHOWN + 3):
+    n = pj.COMMENTS_SHOWN * 2 + 7
+    for i in range(n):
         pj.add_comment(a, t, f"c{i}")
-    rows, total = pj.comments_of(t)
-    assert total == pj.COMMENTS_SHOWN + 3 and len(rows) == pj.COMMENTS_SHOWN
-    assert rows[0].body == "c3" and rows[-1].body == f"c{pj.COMMENTS_SHOWN + 2}"
-    page = _c(a).get(reverse("tasks:project_comments", args=[t.public_id])).content.decode()
-    assert f"Showing the newest {pj.COMMENTS_SHOWN} of {pj.COMMENTS_SHOWN + 3}" in page
-    # the project board links to the thread only for tasks, and the card shows the link
-    board = _c(a).get(reverse("tasks:project", args=[p.public_id])).content.decode()
-    assert reverse("tasks:project_comments", args=[t.public_id]) in board
+    url = reverse("tasks:project_comments", args=[t.public_id])
+    ca = _c(a)
+    seen, pages, nxt = [], 0, url
+    while nxt:
+        page = ca.get(nxt).content.decode()
+        pages += 1
+        bodies = re.findall(r'class="comment-body">(c\d+)<', page)
+        assert bodies == sorted(bodies, key=lambda x: int(x[1:]))  # oldest first inside a page
+        seen = bodies + seen  # each step back is older
+        m = re.search(r'href="([^"]*\?before=\d+)">Older comments', page)
+        nxt = m.group(1) if m else None
+        assert ("Newest comments" in page) == (pages > 1)
+        assert pages < 10
+    assert pages == 3
+    assert seen == [f"c{i}" for i in range(n)]
+    board = ca.get(reverse("tasks:project", args=[p.public_id])).content.decode()
+    assert f'aria-label="Comments on {t.title}"' in board
+    for junk in ("before=abc", "before=-1", "before=99999999999999999999", "before="):
+        assert ca.get(url + "?" + junk).status_code == 200
+
+
+@pytest.mark.django_db
+def test_comment_throttle_keeps_typed_text_and_returns_429(monkeypatch):
+    from apps.tasks import project_views
+    from apps.tasks.models import TaskComment
+
+    monkeypatch.setattr(project_views, "COMMENT_LIMIT", 2)
+    a = _u("CM-F")
+    p, t = _ptask(a)
+    url = reverse("tasks:project_comments", args=[t.public_id])
+    ca = _c(a)
+    assert ca.post(url, {"body": "one"}).status_code == 302
+    assert ca.post(url, {"body": "two"}).status_code == 302
+    r = ca.post(url, {"body": "three, typed and must survive"})
+    assert r.status_code == 429
+    assert "three, typed and must survive" in r.content.decode().split("<textarea")[1]
+    assert TaskComment.objects.count() == 2
+
+
+@pytest.mark.django_db
+def test_comments_on_a_deleted_project_or_for_a_deactivated_person_are_404():
+    from apps.tasks.models import TaskComment
+    from django.utils import timezone
+
+    a = _u("CM-G")
+    p, t = _ptask(a)
+    url = reverse("tasks:project_comments", args=[t.public_id])
+    ca = _c(a)
+    assert ca.post(url, {"body": "before"}).status_code == 302
+    Project.objects.filter(pk=p.pk).update(deleted_at=timezone.now())
+    assert ca.get(url).status_code == 404 and ca.post(url, {"body": "after"}).status_code == 404
+    Project.objects.filter(pk=p.pk).update(deleted_at=None)
+    assert ca.get(url).status_code == 200
+    a.is_active = False
+    a.save()
+    assert _c(a).get(url).status_code in (302, 403, 404)
+    assert pj.can_view(a, p) is False
+    assert TaskComment.objects.count() == 1
+
+
+@pytest.mark.django_db
+def test_comment_keeps_four_byte_characters_and_newlines_exactly():
+    from apps.tasks.models import TaskComment
+
+    a = _u("CM-H")
+    p, t = _ptask(a)
+    text = "ok \U0001F600 \U0001F9D1\u200d\U0001F4BB\nline2 \u0915\u094d\u0937"
+    _c(a).post(reverse("tasks:project_comments", args=[t.public_id]), {"body": text})
+    assert TaskComment.objects.get().body == text
 
 
 @pytest.mark.django_db

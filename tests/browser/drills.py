@@ -7797,7 +7797,45 @@ def cal_series_page(ctx):
     pg.set_viewport_size({"width": 1100, "height": 900})
 
 
+def task_comments(ctx):
+    """Project task comments at 390 px: post, escaped markup, a long unbroken word, line breaks, the board link."""
+    shots = os.environ.get("DRILL_SHOTS", "/tmp")  # noqa: S108
+    pg = ctx.pages[0]
+    pg.set_viewport_size({"width": 390, "height": 800})
+    pg.goto(APP + "/tasks/projects/")
+    pg.fill("input[name=name]", "Comment drill")
+    pg.click("form[action$='/projects/new/'] button[type=submit]")
+    pg.wait_for_load_state()
+    pg.fill("input[name=title]", "Write the plan")
+    pg.click("form[action$='/add/'] button[type=submit]")
+    pg.wait_for_load_state()
+    check("task comments: the card has a Comments link", pg.locator("a:has-text('Comments')").count() == 1)
+    pg.click("a:has-text('Comments')")
+    pg.wait_for_load_state()
+    check("task comments: empty thread says so", "No comments yet." in pg.inner_text("body"))
+    pg.fill("textarea[name=body]", "First line\nSecond line <b>not bold</b> <img src=x onerror=alert(1)>")
+    pg.click(".comment-form button[type=submit]")
+    pg.wait_for_load_state()
+    body = pg.inner_text(".comment-body")
+    check("task comments: markup shows as text, no element made", "<b>not bold</b>" in body and pg.locator(".comment-body b, .comment-body img").count() == 0, body)
+    check("task comments: line break kept", pg.evaluate("document.querySelector('.comment-body').innerText.includes('First line\\nSecond line')"))
+    pg.fill("textarea[name=body]", "W" * 300)
+    pg.click(".comment-form button[type=submit]")
+    pg.wait_for_load_state()
+    check("task comments: a 300-letter word does not scroll the page sideways", not pg.evaluate("document.documentElement.scrollWidth > document.documentElement.clientWidth"))
+    check("task comments: two comments listed", pg.locator(".comment").count() == 2)
+    pg.screenshot(path=os.path.join(shots, "task_comments_390.png"), full_page=True)
+    pg.fill("textarea[name=body]", "x" * 2001)
+    pg.evaluate("document.querySelector('textarea[name=body]').removeAttribute('maxlength')")
+    pg.fill("textarea[name=body]", "x" * 2001)
+    pg.click(".comment-form button[type=submit]")
+    pg.wait_for_load_state()
+    check("task comments: 2001 characters is refused and the text stays in the box", "up to 2000" in pg.inner_text("body") and len(pg.input_value("textarea[name=body]")) == 2001 and pg.locator(".comment").count() == 2)
+    pg.set_viewport_size({"width": 1100, "height": 900})
+
+
 DRILLS = {
+    "task_comments": task_comments,
     "cal_series_page": cal_series_page,
     "cal_series": cal_series,
     "cal_month": cal_month,

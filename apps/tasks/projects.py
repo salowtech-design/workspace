@@ -293,15 +293,21 @@ def milestones_of(project):
 COMMENTS_SHOWN = 100
 
 
-def comments_of(task):
-    """Oldest first; the newest COMMENTS_SHOWN when there are more. Returns (list, total)."""
+def comments_of(task, before=None):
+    """One page of up to COMMENTS_SHOWN comments, oldest first. `before` is a comment id: the page
+    is the comments just before it, so every older comment can be reached. Returns
+    (rows, older_cursor); older_cursor is the id to pass as `before` for the page before this one,
+    or None when this page starts at the first comment."""
     from apps.tasks.models import TaskComment
 
     qs = TaskComment.objects.filter(task=task)
-    total = qs.count()
-    rows = list(qs.select_related("author").order_by("-created_at", "-id")[:COMMENTS_SHOWN])
+    if before is not None:
+        qs = qs.filter(pk__lt=before)
+    rows = list(qs.select_related("author").order_by("-pk")[: COMMENTS_SHOWN + 1])
+    more = len(rows) > COMMENTS_SHOWN
+    rows = rows[:COMMENTS_SHOWN]
     rows.reverse()
-    return rows, total
+    return rows, (rows[0].pk if more and rows else None)
 
 
 @transaction.atomic
