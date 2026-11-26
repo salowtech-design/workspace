@@ -1,5 +1,6 @@
 from django import forms
 from django.db.models import Q
+from django.utils import timezone
 
 from apps.directory.models import Team
 from apps.posts.models import Post, PostComment
@@ -32,6 +33,8 @@ class PostForm(forms.ModelForm):
 
     def __init__(self, *args, author=None, **kwargs):
         super().__init__(*args, **kwargs)
+        # the model default is a UTC datetime; prefill today's date in the app time zone
+        self.fields["work_date"].initial = timezone.localdate
         if author:
             # Filter teams to user's teams unless admin (include led teams)
             if author.role not in ("super_admin", "admin"):
