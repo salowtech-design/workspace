@@ -8,6 +8,7 @@ from django.core.exceptions import PermissionDenied, ValidationError
 from django.db.models.functions import Upper
 from django.http import Http404, HttpResponse
 from django.shortcuts import redirect, render
+from django.urls import reverse
 from django.views.decorators.http import require_POST
 
 from apps.chat import services as cs
@@ -110,6 +111,7 @@ def _page(request, space_id, *, status=200, draft="", client_msg_id=None):
         after=_int(request.GET.get("after")),
     )
     viewing_history = request.GET.get("before") not in (None, "")
+    cs.attach_reactions(rows, request.user)
     first = rows[0].seq if rows else 0
     last = rows[-1].seq if rows else 0
     if rows and not viewing_history:
@@ -164,6 +166,25 @@ def send(request, space_id):
     return redirect("chat:space", space_id=space_id)
 
 
+REACT_LIMIT = 60  # reaction changes per person per minute
+
+
+@login_required
+@active_only
+@require_POST
+def react(request, space_id):
+    if throttled(request.user, "chat-react", REACT_LIMIT):
+        messages.error(request, "Too many reactions in a minute. Wait and try again.")
+        return redirect("chat:space", space_id=space_id)
+    try:
+        cs.react(request.user, space_id, request.POST.get("seq"), request.POST.get("kind", ""))
+    except ValidationError as exc:
+        messages.error(request, " ".join(exc.messages))
+    return redirect(
+        reverse("chat:space", args=[space_id]) + "#m" + str(_int(request.POST.get("seq")) or "")
+    )
+
+
 POLL_LIMIT = 30  # polls per person per minute
 
 
@@ -180,7 +201,8 @@ def poll(request, space_id):
     sp, rows, more = cs.messages_after(request.user, space_id, after)
     if rows:
         cs.mark_read(request.user, space_id, rows[-1].seq, after + 1)
-    resp = render(request, "chat/_messages.html", {"rows": rows, "me": request.user})
+    cs.attach_reactions(rows, request.user)
+    resp = render(request, "chat/_messages.html", {"rows": rows, "me": request.user, "space": sp})
     resp["X-Chat-Last"] = str(rows[-1].seq if rows else after)
     resp["X-Chat-More"] = "1" if more else "0"
     resp["Cache-Control"] = "no-store"

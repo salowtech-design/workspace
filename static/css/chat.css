@@ -4,3 +4,6 @@
 .chat-who{font-weight:700;font-size:13px;color:#5c2018}
 .chat-body{margin-top:2px}
 .chat-compose textarea{width:100%;box-sizing:border-box}
+.chat-react{display:flex;flex-wrap:wrap;gap:4px;margin-top:6px}
+.chat-react-btn{background:#fff;border:1px solid #e3c9bd;border-radius:14px;padding:2px 8px;font-size:14px;line-height:1.4;cursor:pointer;min-height:28px}
+.chat-react-btn.on{background:#f4e6df;border-color:#a4472f;font-weight:700}

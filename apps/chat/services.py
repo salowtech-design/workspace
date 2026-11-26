@@ -3,7 +3,8 @@
 Build defaults, not user policy: any active person may start a DM with any active person or make
 a group (2 to 50 other people); only a group's manager (its creator) changes it (not built yet).
 Nobody, including admins, can read a space they are not in. Order comes from a per-space sequence
-assigned under the space row lock. No edit, delete, retention or attachments exist."""
+assigned under the space row lock. Reactions are a fixed set of six, one row per person and kind.
+No edit, delete, retention or attachments exist."""
 
 import time
 
@@ -12,7 +13,17 @@ from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import IntegrityError, OperationalError, transaction
 from django.http import Http404
 
-from apps.chat.models import BODY_MAX, NAME_MAX, DmPair, Member, Message, Space
+from apps.chat.models import (
+    BODY_MAX,
+    NAME_MAX,
+    REACTION_KEYS,
+    REACTIONS,
+    DmPair,
+    Member,
+    Message,
+    Reaction,
+    Space,
+)
 from apps.core.foundation.audit import audit
 
 MAX_GROUP_OTHERS = 50
@@ -244,3 +255,53 @@ def spaces_for(user):
         )
         out.append({"space": m.space, "label": label, "unread": unread})
     return out
+
+
+def react(actor, public_id, seq, kind):
+    """Toggle one reaction by the actor on message `seq`. Returns True when added, False when removed.
+    A kind outside the fixed set is a ValidationError. Anyone not in the space, an unknown space and an
+    unknown message all get the same 404. The space row lock is taken first, as in post_message, so a
+    member who leaves cannot slip a reaction in between the check and the write."""
+    if kind not in REACTION_KEYS:
+        raise ValidationError("That reaction does not exist.")
+    try:
+        seq = int(seq)
+    except (TypeError, ValueError):
+        raise Http404
+    with transaction.atomic():
+        sp = _lock_space(public_id)
+        me = _live(actor.pk)
+        mem = _member(sp, me.pk) if sp is not None and me is not None else None
+        if mem is None:
+            raise Http404
+        msg = Message.objects.filter(space=sp, seq=seq).first()
+        if msg is None:
+            raise Http404
+        _pause()
+        existing = Reaction.objects.filter(message=msg, person=me, kind=kind)
+        if existing.exists():
+            existing.delete()
+            audit(me, "chat.reaction.remove", "space", sp.pk, seq=seq, kind=kind)
+            return False
+        Reaction.objects.create(message=msg, person=me, kind=kind)
+        audit(me, "chat.reaction.add", "space", sp.pk, seq=seq, kind=kind)
+        return True
+
+
+def attach_reactions(rows, user):
+    """Set m.reacts on each message: a list of (key, emoji, label, count, mine) for the six kinds, in a fixed order."""
+    rows = list(rows)
+    if not rows:
+        return rows
+    counts, mine = {}, set()
+    for mid, pid, kind in Reaction.objects.filter(message__in=rows).values_list(
+        "message_id", "person_id", "kind"
+    ):
+        counts[(mid, kind)] = counts.get((mid, kind), 0) + 1
+        if pid == user.pk:
+            mine.add((mid, kind))
+    for m in rows:
+        m.reacts = [
+            (k, e, label, counts.get((m.pk, k), 0), (m.pk, k) in mine) for k, e, label in REACTIONS
+        ]
+    return rows
