@@ -77,9 +77,10 @@ def test_every_save_path_stores_upper_case_ids():
     strict=True,
     raises=AssertionError,
     reason="RECORDED FINDING, behaviour not changed: the activation chain never looks at status. "
-    "A suspended or locked person who has a usable password and no confirmed authenticator "
-    "walks the steps, is set to active and gets a verified session. Which statuses may use "
-    "activation is not decided, so this stays as a recorded expectation.",
+    "What this row proves is only the status flip: a blocked person with a usable password and no "
+    "confirmed authenticator walks the steps and is set back to active. It does not assert the "
+    "session; the protected-page check is a separate row. Which statuses may use activation is "
+    "not decided, so this stays as a recorded expectation.",
 )
 @pytest.mark.parametrize("is_active", [True, False])
 @pytest.mark.parametrize("status", ["suspended", "locked", "disabled", "exited", "inactive"])
@@ -101,6 +102,29 @@ def test_activation_chain_should_not_reactivate_a_blocked_person(status, is_acti
         c.post(reverse("accounts:activate_recovery_codes"), {"confirmed_saved": "1"})
     u.refresh_from_db()
     assert u.status == status, "activation changed a blocked person's status"
+
+
+@pytest.mark.django_db
+@pytest.mark.xfail(
+    strict=True,
+    raises=AssertionError,
+    reason="RECORDED FINDING, behaviour not changed: with is_active True the verified session the chain "
+    "issues to a blocked person reaches a protected page. Only the is_active True rows are claimed; "
+    "with is_active False an earlier probe showed the session was not honoured.",
+)
+@pytest.mark.parametrize("status", ["suspended", "locked", "disabled", "exited", "inactive"])
+def test_activation_chain_session_of_a_blocked_active_person_reaches_no_protected_page(status):
+    import pyotp
+
+    from apps.accounts.auth.mfa_totp import get_or_create_pending_totp
+
+    u = _user("AC-BLOCK-5")
+    CustomUser.objects.filter(pk=u.pk).update(status=status, is_active=True)
+    c = Client(HTTP_HOST="app.salowtech.com")
+    assert c.post(reverse("accounts:activate"), {"employee_id": "AC-BLOCK-5", "password": PW}).status_code in (200, 302)
+    secret, _, _ = get_or_create_pending_totp(u)
+    c.post(reverse("accounts:activate_mfa_setup"), {"code": pyotp.TOTP(secret).now()})
+    c.post(reverse("accounts:activate_recovery_codes"), {"confirmed_saved": "1"})
     assert c.get("/attendance/").status_code == 302, "a blocked person reached a protected page"
 
 
