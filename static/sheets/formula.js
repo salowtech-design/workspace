@@ -132,7 +132,7 @@
     if (!isFinite(out)) return x;
     return x < 0 ? -out : out;
   }
-  var FNX;
+  var FNX, OWN = Object.prototype.hasOwnProperty;
   var FN = {
     SUM: function (a) { var n = flatten(a); return isErr(n) ? n : n.reduce(function (s, x) { return s + x; }, 0); },
     AVERAGE: function (a) { var n = flatten(a); return isErr(n) ? n : n.length ? n.reduce(function (s, x) { return s + x; }, 0) / n.length : new Err("#DIV/0!"); },
@@ -170,6 +170,7 @@
    * - Ragged data does not exist: a range is a full rectangle of cells, empty cells are blank. */
   function grid(v) { return Array.isArray(v) ? { v: v, rows: v.rows || v.length, cols: v.cols || 1 } : { v: [v], rows: 1, cols: 1 }; }
   function isBlank(x) { return x === null || x === undefined || x === ""; }
+  var meter = null;  // set by the evaluator before each function call: charges comparison work to the sheet budget
   function wild(pat, str) {  // ? one character, * any run, ~ escapes; case-insensitive; no backtracking blow-up
     var toks = [], i;
     for (i = 0; i < pat.length; i++) {
@@ -179,6 +180,7 @@
       else if (ch === "?") toks.push({ any: true });
       else toks.push({ t: ch });
     }
+    if (meter && meter(Math.ceil(toks.length * (str.length + 1) / 50))) throw new Err("#LIMIT!");  // worst case of the scan below, charged at 1 unit per 50 steps (a sheet may do about 25 million)
     var sp = 0, tp = 0, star = -1, mark = 0;
     str = str.toLowerCase();
     var lit = function (k) { return String(toks[k].t).toLowerCase(); };
@@ -196,10 +198,11 @@
     if (typeof a === "string") { a = a.toLowerCase(); b = b.toLowerCase(); }
     return a < b ? -1 : a > b ? 1 : 0;
   }
+  function wildTooLong() { throw new Err("#VALUE!"); }  // a text key over 255 characters, as for criteria
   function exactEq(key, cell) {
     var k = kind(key);
     if (k === null || k !== kind(cell)) return false;
-    if (k === "t") return wild(key, cell);
+    if (k === "t") return key.length > 255 ? wildTooLong() : wild(key, cell);
     return key === cell;
   }
   function criterion(c) {  // returns a predicate over one cell value, or an Err
@@ -420,7 +423,7 @@
           return isFinite(v) ? v : new Err("#VALUE!");
         }
         case "call": {
-          var ar = ARITY[n.f];
+          var ar = OWN.call(ARITY, n.f) ? ARITY[n.f] : null;
           if (!ar) return new Err("#NAME?");
           if (n.a.length < ar[0] || n.a.length > ar[1]) return new Err("#VALUE!");
           if (n.f === "IF") {  // only the chosen branch runs, so an unchosen error is not reported
@@ -428,10 +431,14 @@
             if (cnd) return sc(ev(n.a[1]));
             return n.a.length > 2 ? sc(ev(n.a[2])) : false;
           }
-          var agg = !FNX[n.f] && (n.f === "SUM" || n.f === "AVERAGE" || n.f === "MIN" || n.f === "MAX" || n.f === "COUNT");
+          var agg = !OWN.call(FNX, n.f) && (n.f === "SUM" || n.f === "AVERAGE" || n.f === "MIN" || n.f === "MAX" || n.f === "COUNT");
           // a direct cell reference counts as a reference (text and blanks ignored), like a one-cell range
           var args = n.a.map(function (x) { var v = ev(x); return agg && x.n === "cell" ? [v] : v; });
-          var res = (FNX[n.f] || FN[n.f])(args);
+          var res;
+          meter = function (k) { work += k; return work > BUDGET; };
+          try { res = (OWN.call(FNX, n.f) ? FNX[n.f] : FN[n.f])(args); }
+          catch (e) { if (e instanceof Err) return e; throw e; }
+          finally { meter = null; }
           return typeof res === "number" && !isFinite(res) ? new Err("#VALUE!") : res;
         }
       }

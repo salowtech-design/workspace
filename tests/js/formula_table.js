@@ -203,6 +203,20 @@ const cyc = {}; for (let i = 1; i <= 600; i++) cyc["A" + i] = "=A" + (i % 600 + 
 const cy = new Sheet(cyc).get("A1");
 const dbl = {A1: "=\"abcdefghij\""}; for (let i = 2; i <= 40; i++) dbl["A" + i] = "=A" + (i - 1) + "&A" + (i - 1);
 const big = {}; for (let r = 1; r <= 60; r++) big["L" + r] = "=SUM(A1:J1000)+1";
+const longA = {}; for (let r = 1; r <= 20; r++) longA["A" + r] = "a".repeat(9000);
+const star = "*a".repeat(127) + "b";
+const normalWild = {}; for (let r = 1; r <= 1000; r++) normalWild["A" + r] = "item " + r;
+const isLim = (cells, at) => { const v = new Sheet(cells).get(at); return isErr(v) && v.code === "#LIMIT!"; };
+const adv = [
+  ["star-heavy pattern on long text ends in #LIMIT!, deterministically (work counted, not timed)", isLim(Object.assign({ Z1: '=COUNTIF(A1:A20,"' + star + '")' }, longA), "Z1")],
+  ["same for MATCH exact", isLim(Object.assign({ Z1: '=MATCH("' + star + '",A1:A20,0)' }, longA), "Z1")],
+  ["same for VLOOKUP exact", isLim(Object.assign({ Z1: '=VLOOKUP("' + star + '",A1:B20,2,FALSE)' }, longA), "Z1")],
+  ["same for SUMIF", isLim(Object.assign({ Z1: '=SUMIF(A1:A20,"' + star + '",B1:B20)' }, longA), "Z1")],
+  ["ordinary wildcard over 1000 cells is not limited", new Sheet(Object.assign({ Z1: '=COUNTIF(A1:A1000,"item 9*")' }, normalWild)).get("Z1") === 111],
+  ["lookup text key over 255 characters is #VALUE!", (() => { const v = new Sheet({ A1: "x", Z1: '=MATCH("' + "a".repeat(256) + '",A1:A1,0)' }).get("Z1"); return isErr(v) && v.code === "#VALUE!"; })()],
+  ["COUNTIF criterion over 255 characters is #VALUE!", (() => { const v = new Sheet({ A1: "x", Z1: '=COUNTIF(A1:A1,"' + "a".repeat(256) + '")' }).get("Z1"); return isErr(v) && v.code === "#VALUE!"; })()],
+  ["function names that are prototype properties are #NAME?", ["constructor", "toString", "__proto__", "hasOwnProperty", "valueOf"].every((n) => { const v = new Sheet({ Z1: "=" + n + "(1)" }).get("Z1"); return isErr(v) && v.code === "#NAME?"; })],
+];
 const extra = [
   ["1000-cell chain, order independent", asc === 1000 && top === 1000 && mid === 501 && top2 === 1000],
   ["600-cell cycle reports #CIRC! or the depth limit, never a crash", isErr(cy) && (cy.code === "#CIRC!" || cy.code === "#LIMIT!")],
@@ -212,6 +226,7 @@ const extra = [
   ["non-scalar cell values are dropped", new Sheet({ A1: { x: 1 }, A2: [1], A3: NaN, A4: "ok" }).get("A4") === "ok" && new Sheet({ A1: { x: 1 } }).get("A1") === ""],
 ];
 let bad = 0;
+extra.push(...adv);
 for (const [d, ok] of extra) if (!ok) { bad++; console.log("FAIL", d); }
 for (const [d, cells, at, want] of T) {
   const got = new Sheet(cells).get(at);

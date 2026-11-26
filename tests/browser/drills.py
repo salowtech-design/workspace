@@ -226,21 +226,35 @@ def sheets_lookup(ctx):
         setc("A%d" % i, n)
         setc("B%d" % i, q)
     cases = [
-        ("D1", '=VLOOKUP("banana",A1:B3,2,FALSE)', "5"),
-        ("D2", '=VLOOKUP("zzz",A1:B3,2,FALSE)', "#N/A"),
-        ("D3", '=MATCH("ch*",A1:A3,0)', "3"),
-        ("D4", "=INDEX(A1:B3,2,2)", "5"),
-        ("D5", "=INDEX(A1:B3,9,1)", "#REF!"),
-        ("D6", '=SUMIF(B1:B3,">3")', "12"),
-        ("D7", '=COUNTIF(A1:A3,"*an*")', "1"),
-        ("D8", '=AVERAGEIF(B1:B3,">=5")', "6"),
+        ("C1", '=VLOOKUP("banana",A1:B3,2,FALSE)', "5"),
+        ("C2", '=VLOOKUP("zzz",A1:B3,2,FALSE)', "#N/A"),
+        ("C3", '=MATCH("ch*",A1:A3,0)', "3"),
+        ("C4", "=INDEX(A1:B3,2,2)", "5"),
+        ("C5", "=INDEX(A1:B3,9,1)", "#REF!"),
+        ("C6", '=SUMIF(B1:B3,">3")', "12"),
+        ("C7", '=COUNTIF(A1:A3,"*an*")', "1"),
+        ("C8", '=AVERAGEIF(B1:B3,">=5")', "6"),
+        ("D1", '=LEFT(A2,3)', "Ban"),
+        ("D2", '=FIND("n",A2)', "3"),
+        ("D3", '=SUBSTITUTE(A3,"e","E")', "chErry"),
+        ("D4", '=FIND("N",A2)', "#VALUE!"),
     ]
     for a, f, _ in cases:
         setc(a, f)
-    pg.click('input[data-addr="F1"]')
+    pg.click('input[data-addr="A1"]')
     for a, f, want in cases:
         check("sheets lookup: %s shows %s" % (f, want), val(a) == want, val(a))
-    shot(pg, "sheets_lookup_390")
+    pg.locator("details", has_text="Supported functions and limits").first.locator("summary").click()
+    pg.evaluate("window.scrollTo(0, 0)")
+    shot(pg, "sheets_lookup_help_desktop")
+    pg.locator("details", has_text="Supported functions and limits").first.locator("summary").click()
+    pg.locator('input[data-addr="A1"]').scroll_into_view_if_needed()
+    pg.evaluate("(()=>{const e=document.querySelector('input[data-addr=\"A1\"]');const r=e.getBoundingClientRect();window.scrollBy(0,r.top-120)})()")
+    shot(pg, "sheets_lookup_grid_desktop")
+    pg.set_viewport_size({"width": 390, "height": 800})
+    pg.evaluate("(()=>{const e=document.querySelector('input[data-addr=\"A1\"]');const r=e.getBoundingClientRect();window.scrollBy(0,r.top-120)})()")
+    shot(pg, "sheets_lookup_grid_390")
+    pg.set_viewport_size({"width": 1100, "height": 900})
 
 
 def sheets_sort_filter(ctx):
