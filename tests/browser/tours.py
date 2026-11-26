@@ -232,6 +232,7 @@ def register(g):
     register_pdf(g)
     register_attendance(g)
     register_posts(g)
+    register_certs(g)
 
 
 def register_tasks(g, users):
@@ -594,3 +595,101 @@ def register_posts(g):
                  unshown=["manager review (approve/flag)", "category filter", "team filter", "status filter", "quick templates", "editing someone else's post (should refuse)", "a post by another person"])
 
     g["DRILLS"]["tour_posts"] = posts_tour
+
+
+def register_certs(g):
+    APP = g["APP"]
+
+    def fixture(make_admin):
+        """Synthetic fixtures through the ORM (not a product feature): a second person, one active template, and optionally ST-LIVE-1 given the admin role."""
+        import concurrent.futures
+
+        import django
+
+        django.setup()
+
+        def mk():
+            from apps.accounts.models import CustomUser
+            from apps.certificates.models import CertificateTemplate
+
+            CustomUser.objects.get_or_create(
+                employee_id="ST-LIVE-2",
+                defaults={"full_name": "Second Synthetic", "email": "st-live-2@salowtech.com", "email_verified": True,
+                          "role": CustomUser.Role.EMPLOYEE, "status": CustomUser.Status.ACTIVE, "is_active": True})
+            CertificateTemplate.objects.get_or_create(code="TOUR-EXC", defaults={"title": "Excellence", "description_template": "For excellent work."})
+            if make_admin:
+                CustomUser.objects.filter(employee_id="ST-LIVE-1").update(role=CustomUser.Role.ADMIN)
+
+        with concurrent.futures.ThreadPoolExecutor(1) as ex:
+            ex.submit(mk).result()
+
+    def certs_tour(ctx):
+        def body(t, pg):
+            _step = t.step
+            t.step = lambda text, fn=None, wait=800, expect=None: _step(text, fn, wait=min(wait, 900), expect=expect)
+            txt = lambda: pg.inner_text("body")
+            seen = []
+            pg.on("dialog", lambda d: (seen.append(d.message), d.accept()))
+            fixture(False)
+            pg.goto(APP + "/certificates/")
+            pg.wait_for_timeout(400)
+            t.step("Certificates as an employee: only your own list, no Issue button", expect=lambda: "Issue" not in txt().replace("Issued", "") or pg.locator("a[href$='/certificates/issue/']").count() == 0, wait=1800)
+            t.step("An employee opening the issue page is refused", lambda: pg.goto(APP + "/certificates/issue/"), expect=lambda: "permission" in txt().lower() or "403" in txt(), wait=1800)
+            fixture(True)
+            t.step("Setup (test fixture): this account is now given the Admin role", lambda: pg.goto(APP + "/certificates/"), expect=lambda: pg.locator("a[href$='/certificates/issue/']").count() == 1, wait=1800)
+            t.step("Open the issue form", lambda: pg.goto(APP + "/certificates/issue/"), expect=lambda: "Issue New Official Certificate" in txt(), wait=1200)
+            t.step("Fill in recipient, title, role and citation", lambda: (pg.select_option("#id_recipient", label=pg.locator("#id_recipient option", has_text="Second Synthetic").first.inner_text()), pg.fill("#id_title", "Certificate of Excellence"), pg.fill("#id_recipient_role", "Test Engineer"), pg.fill("#id_description", "For outstanding work on the stock report."), pg.evaluate("document.getElementById('id_description').scrollIntoView({block:'center'});0")), expect=lambda: pg.input_value("#id_title") != "")
+            t.step("The form fields fit the 390 px screen", lambda: pg.evaluate("window.scrollTo(0,0)"), expect=lambda: pg.evaluate("[...document.querySelectorAll('main input:not([type=hidden]), main textarea, main select')].every(e=>e.getBoundingClientRect().right<=Math.min(window.innerWidth,(e.closest('.card')||document.body).getBoundingClientRect().right)+1)"))
+            t.step("Generate and issue: the certificate page opens", lambda: pg.click("form:has(#id_title) button[type=submit]"), expect=lambda: "issued to Second Synthetic" in txt() and "Certificate of Excellence" in txt(), wait=2200)
+            t.step("Scroll to the certificate itself (serial and hash shown)", lambda: pg.evaluate("document.querySelector('.certificate-frame').scrollIntoView({block:'start'});0"), expect=lambda: "Serial" in txt(), wait=2200)
+            t.step("The public verify page confirms it", lambda: pg.goto(APP + pg.locator(".cert-meta a").first.get_attribute("href")), expect=lambda: "Certificate of Excellence" in txt() and "No Credential Found" not in txt(), wait=2200)
+            t.step("Verify an id that does not exist", lambda: pg.goto(APP + "/verify/NOPE-0000/"), expect=lambda: "No Credential Found" in txt(), wait=1800)
+            t.step("Back to the certificate list: the new one is listed", lambda: pg.goto(APP + "/certificates/"), expect=lambda: "Certificate of Excellence" in txt(), wait=1800)
+            t.step("Open it and revoke it with a reason (the confirm question is accepted)", lambda: (pg.click("a[href*='/certificates/']:has-text('Excellence')") if pg.locator("a[href*='/certificates/']:has-text('Excellence')").count() else pg.locator(".card a[href*='/certificates/']").first.click(), pg.fill("#id_reason", "Issued by mistake in the test"), pg.evaluate("document.getElementById('id_reason').scrollIntoView({block:'center'});0")), expect=lambda: pg.input_value("#id_reason") != "")
+            t.step("The revoke reason box fits the screen", expect=lambda: pg.evaluate("(()=>{const e=document.getElementById('id_reason');return e.getBoundingClientRect().right<=window.innerWidth+1})()"))
+            keep = {}
+            t.step("Revoke: the app asks for the password again (step-up)", lambda: (keep.update(url=pg.url), pg.click("form[action$='/revoke/'] button[type=submit]")), expect=lambda: "/sudo/" in pg.url and "Re-enter your password" in txt(), wait=2000)
+
+            def offcamera_stepup():
+                # the password and one-time code are typed in a separate, unrecorded tab of the same browser session (an Admin needs only the password; the code is for Super Admin); nothing secret is on camera
+                q = pg.context.new_page()
+                q.goto(pg.url)
+                q.fill("input[name=password]", g["SECRETS"]["emp_pw"])
+                q.click("form[action$='/sudo/'] button[type=submit]") if q.locator("form[action$='/sudo/'] button[type=submit]").count() else q.click("button[type=submit]")
+                q.wait_for_load_state()
+                q.wait_for_timeout(800)
+                q.close()
+
+            t.step("The password step is done off camera (it is not recorded); back to the certificate", lambda: (offcamera_stepup(), pg.goto(keep["url"])), expect=lambda: "Certificate of Excellence" in txt(), wait=1500)
+            t.step("Fill the reason again and revoke: the app says it is revoked and the list shows Revoked", lambda: (pg.fill("#id_reason", "Issued by mistake in the test"), pg.click("form[action$='/revoke/'] button[type=submit]")), expect=lambda: "has been revoked" in txt() and "Revoked" in txt() and any("revoke" in m.lower() for m in seen), wait=2500)
+            t.step("Open the certificate: the revoked banner shows", lambda: pg.click("a:has-text('View')"), expect=lambda: "HAS BEEN REVOKED" in txt() and "Issued by mistake" in txt(), wait=2500)
+            t.step("Public verify now shows it as revoked", lambda: pg.goto(APP + pg.locator(".cert-meta a").first.get_attribute("href")), expect=lambda: "revoked" in txt().lower(), wait=2200)
+            t.note("Not shown: Raw SVG, Print/Save PDF, Reissue, expiry date, status and keyword filters, template choice, employee seeing their own certificate.", 3)
+
+        run_tour(ctx, "13_certificates", body, notes="Real Django on TiDB. Test fixture (ORM, not a product feature): ST-LIVE-1 is given the Admin role mid-clip, plus a second person and a template. Headless Chromium 390x844.",
+                 unshown=["Raw SVG", "Print / Save PDF", "Reissue after revoke", "expiry date", "list status filter", "list keyword search", "template choice", "employee viewing their own certificate", "revoke with empty reason"])
+
+    g["DRILLS"]["tour_certs"] = certs_tour
+
+    def desk_shots(ctx):
+        """Not a clip: 1100 px wide screenshots of the pages that use form-control inside form-group, for a before/after CSS comparison."""
+        base = os.environ.get("DRILL_VIDEO", "")
+        if not base:
+            print("desk shots skipped: DRILL_VIDEO is not set")
+            return
+        out = os.path.join(base, open("/tmp/desk_tag").read().strip())
+        os.makedirs(out, exist_ok=True)
+        fixture(True)
+        c = ctx.browser.new_context(viewport={"width": 1100, "height": 800})
+        c.add_cookies(ctx.cookies())
+        errs, remote, guard = ctx.salow_hooks
+        c.route("**/*", guard)
+        pg = c.new_page()
+        for name, path in (("posts_feed", "/posts/"), ("posts_form", "/posts/create/"), ("cert_list", "/certificates/"), ("cert_issue", "/certificates/issue/"), ("cert_verify", "/verify/")):
+            pg.goto(APP + path)
+            pg.wait_for_timeout(500)
+            pg.screenshot(path=os.path.join(out, name + ".png"), full_page=False)
+        c.close()
+        print("DESK shots written", out, flush=True)
+
+    g["DRILLS"]["desk_shots"] = desk_shots
