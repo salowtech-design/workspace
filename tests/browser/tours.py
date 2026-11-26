@@ -271,6 +271,7 @@ def register(g):
     register_drive_nested(g, users)
     register_post_search(g, users)
     register_worklog_filter(g, users)
+    register_event_edit_conflict(g, users)
     register_posts_more(g, users)
 
 
@@ -2849,3 +2850,57 @@ def register_worklog_filter(g, users):
         run_tour(ctx, "48_worklog_filter", body, notes="Real Django on TiDB, headless Chromium 390x844 emulated. Fixture by script: three posts by ST-LIVE-1, one of them a draft.", unshown=["category filter", "team filter", "certificates filter"])
 
     g["DRILLS"]["tour_worklog_filter"] = tour
+
+
+def register_event_edit_conflict(g, users):
+    APP = g["APP"]
+
+    def tour(ctx):
+        import concurrent.futures
+        import datetime as dt
+
+        users(ctx)
+        box = {}
+
+        def make():
+            from apps.accounts.models import CustomUser
+            from apps.events import services as es
+
+            me = CustomUser.objects.get(employee_id="ST-LIVE-1")
+            base = dt.datetime.combine(dt.date.today() + dt.timedelta(days=2), dt.time(14, 0))
+            ev = es.create_event(me, "Design review", base, base + dt.timedelta(hours=1), "Asia/Kolkata", [])
+            box["pid"] = ev.public_id
+            box["start"], box["end"] = base, base + dt.timedelta(hours=1)
+
+        def other_edit():
+            from apps.accounts.models import CustomUser
+            from apps.events import services as es
+
+            me = CustomUser.objects.get(employee_id="ST-LIVE-1")
+            es.update_event(me, box["pid"], 1, "Design review (moved by another tab)", box["start"], box["end"], "Asia/Kolkata")
+
+        with concurrent.futures.ThreadPoolExecutor(1) as ex:
+            ex.submit(make).result()
+
+        def body(t, pg):
+            txt = lambda: pg.inner_text("body")
+            pg.goto(APP + "/calendar/event/%s/edit/" % box["pid"])
+            t.step("Open Edit on the event Design review", expect=lambda: pg.input_value("input[name=title]") == "Design review", wait=2500)
+            t.step("Type a new title, not saved yet", lambda: pg.fill("input[name=title]", "Design review, final agenda"), expect=lambda: "final agenda" in pg.input_value("input[name=title]"), wait=2200)
+            with concurrent.futures.ThreadPoolExecutor(1) as ex:
+                ex.submit(other_edit).result()  # a second edit lands first, off camera
+            def save():
+                with pg.expect_navigation():
+                    pg.click("button:has-text('Save')")
+                pg.evaluate("document.querySelector('.cal-conflict').scrollIntoView({block:'start'})")
+            t.step("Save: the page says someone changed it and nothing was saved", save, expect=lambda: "Someone changed this event after you opened it" in txt() and "Nothing was saved" in txt() and "moved by another tab" in txt(), wait=4500)
+            t.step("The typed title is still in the box", lambda: pg.evaluate("document.querySelector('input[name=title]').scrollIntoView({block:'center'})"), expect=lambda: pg.input_value("input[name=title]") == "Design review, final agenda", wait=3500)
+            def reload():
+                with pg.expect_navigation():
+                    pg.click("a:has-text('Reload the saved version')")
+            t.step("Reload the saved version: it shows the other tab's title", reload, expect=lambda: pg.input_value("input[name=title]") == "Design review (moved by another tab)", wait=3500)
+            t.note("Not shown: edit conflict on a repeating series.", 3)
+
+        run_tour(ctx, "49_event_edit_conflict", body, notes="Real Django on TiDB, headless Chromium 390x844 emulated. The competing edit is made by a script (same person, second tab) off camera.", unshown=["edit conflict on a repeating series"])
+
+    g["DRILLS"]["tour_event_edit_conflict"] = tour
