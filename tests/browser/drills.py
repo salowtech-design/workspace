@@ -4074,6 +4074,135 @@ def slides_images_race(ctx):  # noqa: C901
     )
 
 
+def chat_poll_429(ctx):  # noqa: C901
+    """Chat client: 429 answers (stubbed, with a fake clock) slow the polling and say so without pausing; real failures still pause; recovery and sequence stay correct."""
+    import django
+
+    django.setup()
+
+    def make_space():
+        from apps.accounts.models import CustomUser
+        from apps.chat import services as cs
+
+        me = CustomUser.objects.get(employee_id="ST-LIVE-1")
+        other, _ = CustomUser.objects.get_or_create(
+            employee_id="ST-LIVE-2",
+            defaults={
+                "full_name": "Second Synthetic",
+                "email": "live.two@salowtech.com",
+                "email_verified": True,
+                "role": CustomUser.Role.EMPLOYEE,
+                "status": CustomUser.Status.ACTIVE,
+                "is_active": True,
+            },
+        )
+        return cs.open_dm(me, other.pk).public_id
+
+    import concurrent.futures
+
+    with concurrent.futures.ThreadPoolExecutor(1) as ex:
+        space_id = ex.submit(make_space).result()
+    url = APP + "/chat/space/%s/" % space_id
+    pg = ctx.pages[0]
+    mode = {"m": "429", "ra": None, "n": 0}
+    seen = []
+
+    def handler(route, request=None):
+        seen.append(route.request.url.split("?after=")[-1])
+        mode["n"] += 1
+        m = mode["m"]
+        if m == "429":
+            hd = {"Retry-After": str(mode["ra"])} if mode["ra"] else {}
+            route.fulfill(status=429, headers=hd, body="")
+        elif m == "500":
+            route.fulfill(status=500, body="")
+        elif m == "401":
+            route.fulfill(status=401, body="")
+        else:
+            route.fulfill(
+                status=200,
+                headers={"X-Chat-Last": "5", "X-Chat-More": "0", "Content-Type": "text/html"},
+                body='<div class="stub-msg">hello after throttle</div>',
+            )
+
+    def status():
+        return pg.inner_text("#chat-status")
+
+    def run(sec):
+        done = 0
+        while done < sec:
+            step = min(5, sec - done)
+            pg.clock.run_for(step * 1000)
+            pg.wait_for_timeout(150)
+            done += step
+
+    def load(m, ra=None):
+        mode.update({"m": m, "ra": ra, "n": 0})
+        seen.clear()
+        pg.unroute_all() if hasattr(pg, "unroute_all") else None
+        pg.clock.install()
+        pg.route(re.compile(r"/chat/space/.+/poll/"), handler)
+        pg.goto(url)
+        pg.wait_for_timeout(300)
+
+    load("429")
+    run(300)
+    st = status()
+    check(
+        "chat429: 300 s of 429 answers: not paused, and the page says updates are slower",
+        "paused" not in st and "slower" in st,
+        st[:140],
+    )
+    check(
+        "chat429: polling backed off (about 5 polls in 300 s, not one every 10 s)",
+        3 <= mode["n"] <= 6,
+        str(mode["n"]),
+    )
+    check(
+        "chat429: every retry asked for the same position (nothing skipped)",
+        set(seen) == {"0"} or len(set(seen)) == 1,
+        str(set(seen)),
+    )
+    mode["m"] = "ok"
+    run(125)
+    st2 = status()
+    html = pg.inner_html("#chat-list")
+    check(
+        "chat429: after the server answers again the notice clears and the message appears once, position advances",
+        st2 == ""
+        and html.count("hello after throttle") >= 1
+        and pg.get_attribute("#chat-list", "data-last") == "5",
+        (st2[:80], html.count("hello after throttle"), pg.get_attribute("#chat-list", "data-last")),
+    )
+    after = [x for x in seen if x == "5"]
+    check(
+        "chat429: the next poll after recovery uses the new position",
+        len(after) >= 1,
+        str(seen[-3:]),
+    )
+    load("429", ra=45)
+    run(15)
+    check(
+        "chat429: a Retry-After of 45 s is honoured and shown",
+        "45 seconds" in status(),
+        status()[:120],
+    )
+    n0 = mode["n"]
+    run(30)
+    check("chat429: no poll during the 45 s wait", mode["n"] == n0, "%d vs %d" % (mode["n"], n0))
+    load("500")
+    run(70)
+    st3 = status()
+    check("chat429: five real server errors still pause live updates", "paused" in st3, st3[:100])
+    load("401")
+    run(15)
+    check(
+        "chat429: sign-out still stops with its own message",
+        "session has ended" in status(),
+        status()[:100],
+    )
+
+
 def _poll_logger(codes, k):
     def log(resp):
         if "/poll/" in resp.url:
@@ -4128,6 +4257,11 @@ def chat_poll_tabs(ctx):  # noqa: C901
     n429 = allc.count(429)
     stat = [p.inner_text("#chat-status") for p in pages]
     paused = [x for x in stat if "paused" in x]
+    slow_tabs = [k for k, x in enumerate(stat) if "slower" in x]
+    if slow_tabs:
+        pages[slow_tabs[0]].screenshot(
+            path=os.path.join(os.environ.get("DRILL_SHOTS", "./"), "chat-throttle-notice.png")
+        )
     print(
         "chat_poll_tabs: tabs",
         n,
@@ -4311,6 +4445,7 @@ DRILLS = {
     "slides_images_pdfmem": slides_images_pdfmem,
     "slides_oldpage_v5": slides_oldpage_v5,
     "chat_poll_tabs": chat_poll_tabs,
+    "chat_poll_429": chat_poll_429,
     "slides_style": slides_style,
     "sheets_tabs": sheets_tabs,
     "sheets_chart": sheets_chart,
