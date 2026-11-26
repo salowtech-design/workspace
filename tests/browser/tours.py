@@ -272,6 +272,7 @@ def register(g):
     register_post_search(g, users)
     register_worklog_filter(g, users)
     register_event_edit_conflict(g, users)
+    register_event_occurrence_paging(g, users)
     register_posts_more(g, users)
 
 
@@ -2904,3 +2905,47 @@ def register_event_edit_conflict(g, users):
         run_tour(ctx, "49_event_edit_conflict", body, notes="Real Django on TiDB, headless Chromium 390x844 emulated. The competing edit is made by a script (same person, second tab) off camera.", unshown=["edit conflict on a repeating series"])
 
     g["DRILLS"]["tour_event_edit_conflict"] = tour
+
+
+def register_event_occurrence_paging(g, users):
+    APP = g["APP"]
+
+    def tour(ctx):
+        import concurrent.futures
+        import datetime as dt
+
+        users(ctx)
+        box = {}
+
+        def make():
+            from apps.accounts.models import CustomUser
+            from apps.events import services as es
+
+            me = CustomUser.objects.get(employee_id="ST-LIVE-1")
+            base = dt.datetime.combine(dt.date.today() + dt.timedelta(days=1), dt.time(9, 30))
+            ev = es.create_event(me, "Daily check-in", base, base + dt.timedelta(minutes=15), "Asia/Kolkata", [], rule={"freq": "daily", "count": 45})
+            box["pid"] = ev.public_id
+            box["day30"] = (base + dt.timedelta(days=29)).date().isoformat()
+
+        with concurrent.futures.ThreadPoolExecutor(1) as ex:
+            ex.submit(make).result()
+
+        def body(t, pg):
+            txt = lambda: pg.inner_text("body")
+            rows = lambda: pg.locator(".cal-row").count()
+            def go(sel):
+                with pg.expect_navigation():
+                    pg.click(sel)
+            def show(sel):
+                pg.evaluate("s => document.querySelector(s).scrollIntoView({block:'start'})", sel)
+            pg.goto(APP + "/calendar/event/%s/" % box["pid"])
+            t.step("A daily series of 45 occurrences: the page lists the first 20 and a Later link", lambda: show("#occ-from"), expect=lambda: rows() == 20 and "Later occurrences" in txt() and "Earlier occurrences" not in txt(), wait=4000)
+            t.step("Later occurrences: the next 20, now with an Earlier link", lambda: (go("a:text-is('Later occurrences')"), show("#occ-from")), expect=lambda: rows() == 20 and "Earlier occurrences" in txt() and "Later occurrences" in txt(), wait=4000)
+            t.step("Later again: the last 5, and no Later link", lambda: (go("a:text-is('Later occurrences')"), show("#occ-from")), expect=lambda: rows() == 5 and "Later occurrences" not in txt(), wait=4000)
+            t.step("Earlier occurrences: back to the previous 20", lambda: (go("a:text-is('Earlier occurrences')"), show("#occ-from")), expect=lambda: rows() == 20 and "Later occurrences" in txt(), wait=4000)
+            t.step("Pick a date in the date box and press Show", lambda: (pg.fill("#occ-from", box["day30"]), go("button:text-is('Show')"), show("#occ-from")), expect=lambda: rows() == 16 and "Earlier occurrences" in txt() and "Later occurrences" not in txt(), wait=4500)
+            t.note("Not shown: paging with cancelled occurrences in between (unit tested only).", 3)
+
+        run_tour(ctx, "50_event_occurrence_paging", body, notes="Real Django on TiDB, headless Chromium 390x844 emulated. Fixture by script: a daily series of 45, 20 shown per page.", unshown=["paging with cancelled occurrences in between"])
+
+    g["DRILLS"]["tour_event_occurrence_paging"] = tour
