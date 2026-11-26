@@ -26,3 +26,9 @@
 .pdf-formlist { display: grid; gap: 8px; max-width: 640px; }
 .pdf-formlist label, .pdf-formlist fieldset { display: block; overflow-wrap: anywhere; }
 .pdf-formlist input[type=text], .pdf-formlist select, .pdf-formlist textarea { display: block; width: 100%; box-sizing: border-box; }
+.pdf-thumbs { display: flex; gap: 6px; overflow-x: auto; padding: 4px 2px; margin: 4px 0; border: 1px solid #d9cfc2; border-radius: 6px; background: #eee9e0; }
+.pdf-thumbs[hidden] { display: none; }
+.pdf-thumb { flex: 0 0 84px; width: 84px; height: 112px; padding: 2px; border: 2px solid transparent; border-radius: 4px; background: #fff; cursor: pointer; position: relative; display: block; line-height: 1; overflow: hidden; }
+.pdf-thumb[aria-current=true] { border-color: #7a2a2a; }
+.pdf-thumb canvas { display: block; width: 76px; margin: 0 auto; }
+.pdf-thumb span { position: absolute; left: 0; right: 0; bottom: 0; font-size: 11px; background: rgba(255,255,255,.85); text-align: center; }

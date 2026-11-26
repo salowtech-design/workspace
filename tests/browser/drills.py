@@ -5263,6 +5263,128 @@ def pdf_forms(ctx):  # noqa: C901
     )
 
 
+def pdf_thumbs(ctx):  # noqa: C901
+    """The page thumbnail strip: lazy drawing, bounded drawn count, jumping, following the page, file switch."""
+    pg = fresh(ctx, "/pdf/")
+    pg.set_viewport_size({"width": 390, "height": 800})
+
+    def open_pdf(name, data, expect="Page 1 of"):
+        pg.set_input_files(
+            "#pdf-open", files=[{"name": name, "mimeType": "application/pdf", "buffer": data}]
+        )
+        for _ in range(60):
+            if pg.inner_text("#pdf-where").startswith(expect):
+                break
+            pg.wait_for_timeout(250)
+
+    def drawn():
+        return pg.evaluate(
+            "[...document.querySelectorAll('#pdf-thumbs .pdf-thumb')].map((b,i)=>b.querySelector('canvas')?i+1:0).filter(x=>x)"
+        )
+
+    def settle(cond, tries=40):
+        for _ in range(tries):
+            v = drawn()
+            if cond(v):
+                return v
+            pg.wait_for_timeout(250)
+        return drawn()
+
+    check("thumbs: strip is hidden with no file", not pg.is_visible("#pdf-thumbs"))
+    open_pdf("many.pdf", _n_page_pdf(300))
+    check(
+        "thumbs: one button per page for a 300 page file, none hidden by the cap",
+        pg.locator("#pdf-thumbs .pdf-thumb").count() == 300 and not pg.is_visible("#pdf-thumbnote"),
+    )
+    d = settle(lambda v: 1 in v and len(v) >= 4)
+    check(
+        "thumbs: the first pages draw and far pages do not",
+        1 in d and 200 not in d and len(d) <= 14,
+        d,
+    )
+    check(
+        "thumbs: the current page is marked",
+        pg.evaluate("document.querySelector('#pdf-thumbs [aria-current=true]').dataset.n") == "1",
+    )
+    # Pixels of one thumbnail: it has ink (the page frame and number), and a sensible size.
+    px = pg.evaluate(
+        "(()=>{const c=document.querySelector('#pdf-thumbs .pdf-thumb canvas');const g=c.getContext('2d').getImageData(0,0,c.width,c.height).data;let ink=0;for(let i=0;i<g.length;i+=4){if(g[i]<128)ink++}return {w:c.width,h:c.height,ink:ink}})()"
+    )
+    check(
+        "thumbs: a thumbnail canvas has ink and is small",
+        px["ink"] > 20 and 70 <= px["w"] <= 160 and px["h"] < 260,
+        px,
+    )
+    pg.click('#pdf-thumbs .pdf-thumb[data-n="3"]')
+    pg.wait_for_timeout(800)
+    check(
+        "thumbs: clicking a thumbnail goes to that page and moves the mark",
+        pg.inner_text("#pdf-where").startswith("Page 3 of")
+        and pg.evaluate("document.querySelector('#pdf-thumbs [aria-current=true]').dataset.n")
+        == "3",
+        pg.inner_text("#pdf-where"),
+    )
+    pg.evaluate("document.getElementById('pdf-thumbs').scrollLeft = 150*92")
+    d = settle(lambda v: any(140 <= x <= 170 for x in v) and 1 not in v)
+    check(
+        "thumbs: after scrolling far, the near pages draw, the first page was let go, and the drawn count stays bounded",
+        any(140 <= x <= 170 for x in d) and 1 not in d and len(d) <= 24,
+        d,
+    )
+    pg.fill("#pdf-page", "250")
+    pg.press("#pdf-page", "Enter")
+    d = settle(lambda v: 250 in v)
+    check("thumbs: going to a far page brings the strip to it", 250 in d and len(d) <= 24, d)
+    pg.locator("#pdf-thumbs").scroll_into_view_if_needed()
+    pg.screenshot(path=os.environ.get("DRILL_SHOTS", "/tmp") + "/pdf-thumbs-phone.png")  # noqa: S108
+    # Cap.
+    open_pdf("big.pdf", _n_page_pdf(450))
+    check(
+        "thumbs: a file over the cap shows 400 buttons and says so",
+        pg.locator("#pdf-thumbs .pdf-thumb").count() == 400
+        and "first 400 of 450" in pg.inner_text("#pdf-thumbnote"),
+        pg.inner_text("#pdf-thumbnote"),
+    )
+    # Switching files while drawing leaves only the new file's strip.
+    pg.set_input_files(
+        "#pdf-open",
+        files=[{"name": "two.pdf", "mimeType": "application/pdf", "buffer": _two_page_pdf()}],
+    )
+    open_pdf("two.pdf", _two_page_pdf())
+    pg.wait_for_timeout(1500)
+    n = pg.locator("#pdf-thumbs .pdf-thumb").count()
+    d = drawn()
+    check(
+        "thumbs: after switching files the strip is the new file's only",
+        n == 2 and all(x <= 2 for x in d) and not pg.is_visible("#pdf-thumbnote"),
+        (n, d),
+    )
+    pg.click("#pdf-close")
+    pg.wait_for_timeout(500)
+    check(
+        "thumbs: closing the file empties and hides the strip",
+        not pg.is_visible("#pdf-thumbs") and pg.locator("#pdf-thumbs .pdf-thumb").count() == 0,
+    )
+    # Closing right after opening a big file leaves nothing drawn later.
+    open_pdf("many.pdf", _n_page_pdf(300))
+    pg.evaluate("document.getElementById('pdf-close').click()")
+    pg.wait_for_timeout(2500)
+    check(
+        "thumbs: closing while thumbnails are drawing leaves nothing behind",
+        pg.locator("#pdf-thumbs canvas").count() == 0
+        and pg.locator("#pdf-thumbs .pdf-thumb").count() == 0,
+    )
+    # Desktop picture for inspection.
+    pg.set_viewport_size({"width": 1280, "height": 800})
+    open_pdf("many.pdf", _n_page_pdf(300))
+    pg.fill("#pdf-page", "120")
+    pg.press("#pdf-page", "Enter")
+    settle(lambda v: 120 in v)
+    pg.wait_for_timeout(600)
+    pg.locator("#pdf-thumbs").scroll_into_view_if_needed()
+    pg.screenshot(path=os.environ.get("DRILL_SHOTS", "/tmp") + "/pdf-thumbs-desktop.png")  # noqa: S108
+
+
 def _poll_logger(codes, k):
     def log(resp):
         if "/poll/" in resp.url:
@@ -5512,6 +5634,7 @@ DRILLS = {
     "pdf_notes_turn": pdf_notes_turn,
     "pdf_thumb_measure": pdf_thumb_measure,
     "pdf_forms": pdf_forms,
+    "pdf_thumbs": pdf_thumbs,
     "slides_style": slides_style,
     "sheets_tabs": sheets_tabs,
     "sheets_chart": sheets_chart,

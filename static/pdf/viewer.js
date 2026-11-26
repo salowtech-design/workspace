@@ -39,6 +39,7 @@
     $("pdf-fitw").disabled = !on || (!fitPage && zoom === 1); $("pdf-fitp").disabled = !on || fitPage; $("pdf-rot").disabled = !on; $("pdf-close").disabled = !on; $("pdf-page").disabled = !on; $("pdf-q").disabled = !on; $("pdf-find").disabled = !on || finding; $("pdf-exporttext").disabled = !on || textBusy;
     $("pdf-where").textContent = on ? "Page " + page + " of " + doc.numPages + ", " + (fitPage ? "fit to page, " + Math.round(fitZoom * 100) + "%" : "zoom " + Math.round(zoom * 100) + "%") + (rot ? ", turned " + rot + " degrees" : "") : "No file open.";
     if (on) $("pdf-page").value = page;
+    if (typeof thMark === "function") { thMark(); thFollow(); }
   }
   function draw() {
     if (!doc) return;
@@ -418,10 +419,48 @@
     if (!doc || doc !== nDoc || !nKey || e.key !== nKey || e.storageArea !== localStorage) return;
     adopt(e.newValue, "Notes for this file were changed in another tab. Showing the saved notes.");
   });
+
+  // Thumbnail strip: one small button per page (first 400), drawn lazily one at a time near what is on screen and let go of when far away.
+  var TH = window.SalowPdfThumbs, thStrip = $("pdf-thumbs"), thToken = 0, thItems = [], thBusy = false, thTask = null, thTimer = null;
+  var TH_W = 90; // item width plus gap, in CSS px (measured from the first two items once they exist)
+  function thStep() { if (thItems.length > 1) { var w = thItems[1].el.offsetLeft - thItems[0].el.offsetLeft; if (w > 0) TH_W = w; } return TH_W; }
+  function thClose() { thToken++; clearTimeout(thTimer); if (thTask) { try { thTask.cancel(); } catch (e) { /* done */ } thTask = null; } thBusy = false; thItems = []; thStrip.textContent = ""; thStrip.hidden = true; $("pdf-thumbnote").hidden = true; }
+  function thOpen(d) {
+    thClose(); var n = Math.min(d.numPages, TH.MAX);
+    for (var i = 1; i <= n; i++) {
+      var b = document.createElement("button"); b.type = "button"; b.className = "pdf-thumb"; b.setAttribute("role", "listitem"); b.setAttribute("aria-label", "Go to page " + i); b.dataset.n = String(i);
+      var lab = document.createElement("span"); lab.textContent = String(i); b.appendChild(lab); thStrip.appendChild(b); thItems.push({ el: b, state: "empty" });
+    }
+    thStrip.hidden = false;
+    var note = $("pdf-thumbnote"); note.hidden = d.numPages <= TH.MAX; if (d.numPages > TH.MAX) note.textContent = "Thumbnails are shown for the first " + TH.MAX + " of " + d.numPages + " pages. Use the page box to go further.";
+    thSchedule(0);
+  }
+  function thMark() { thItems.forEach(function (t, i) { if (i + 1 === page) t.el.setAttribute("aria-current", "true"); else t.el.removeAttribute("aria-current"); }); }
+  function thFollow() { if (!thItems.length) return; var t = thItems[page - 1]; if (!t) return; var l = t.el.offsetLeft - thStrip.offsetLeft, v = thStrip.clientWidth; if (l < thStrip.scrollLeft || l + thStep() > thStrip.scrollLeft + v) thStrip.scrollLeft = Math.max(0, l - Math.floor(v / 2)); thSchedule(120); }
+  function thSchedule(ms) { clearTimeout(thTimer); var my = thToken; thTimer = setTimeout(function () { if (my === thToken) thPump(my); }, ms); }
+  function thRange() { return TH.want(thStrip.scrollLeft - thItems[0].el.offsetLeft + thStrip.offsetLeft, thStrip.clientWidth, thStep(), thItems.length); }
+  function thPump(my) {
+    if (!doc || my !== thToken || thBusy) return;
+    var r = thRange();
+    thItems.forEach(function (t, i) { if (t.state === "done" && TH.drop(i, r)) { var c = t.el.querySelector("canvas"); if (c) { c.width = 0; c.height = 0; c.remove(); } t.state = "empty"; } });
+    var next = -1; for (var i = r[0]; i <= r[1]; i++) { if (thItems[i].state === "empty") { next = i; break; } }
+    if (next < 0) return;
+    thBusy = true; var it = thItems[next], d = doc;
+    d.getPage(next + 1).then(function (pg) {
+      if (my !== thToken) return;
+      var v1 = pg.getViewport({ scale: 1 }), dpr = Math.min(window.devicePixelRatio || 1, 2), vp = pg.getViewport({ scale: 76 * dpr / v1.width });
+      var c = document.createElement("canvas"); c.width = Math.max(1, Math.floor(vp.width)); c.height = Math.max(1, Math.floor(vp.height));
+      if (c.width * c.height > 400000) { it.state = "failed"; pg.cleanup(); return; } // a very tall page would make a big canvas: skip, the number stays
+      thTask = pg.render({ canvasContext: c.getContext("2d"), viewport: vp });
+      return thTask.promise.then(function () { if (my !== thToken) return; it.el.insertBefore(c, it.el.firstChild); it.state = "done"; pg.cleanup(); });
+    }).catch(function (e) { if (my === thToken && !(e && e.name === "RenderingCancelledException")) it.state = "failed"; }).then(function () { thTask = null; if (my !== thToken) return; thBusy = false; thSchedule(0); });
+  }
+  thStrip.addEventListener("click", function (e) { var b = e.target.closest && e.target.closest(".pdf-thumb"); if (b && doc) go(parseInt(b.dataset.n, 10)); });
+  thStrip.addEventListener("scroll", function () { if (doc) thSchedule(100); });
   function go(p) { if (!doc) return; page = C.pageIndex(p, 0, doc.numPages); controls(); draw(); }
   function closeDoc(msg) {
     token++; cancelCurrent(); fseq.begin(); finding = false; mark = ""; $("pdf-fstop").disabled = true; fmsg(""); $("pdf-q").value = "";
-    formsReset(); var d = doc; doc = null; page = 1; zoom = 1; fitPage = false; rot = 0; notesClose(); $("pdf-text").textContent = ""; shown = "";
+    formsReset(); thClose(); var d = doc; doc = null; page = 1; zoom = 1; fitPage = false; rot = 0; notesClose(); $("pdf-text").textContent = ""; shown = "";
     settle.then(function () { if (doc) return; canvas.width = 1; canvas.height = 1; canvas.style.width = "0"; canvas.style.height = "0"; });
     var lt = loadTask; loadTask = null; if (lt) { try { lt.destroy(); } catch (e) { /* already gone */ } }
     controls(); status.textContent = msg || "";
@@ -434,7 +473,7 @@
       return t.promise.then(function (d) { return { d: d, t: t }; }, function (e) { try { t.destroy(); } catch (x) { /* gone */ } throw e; });
     }).then(function (r) { return hashed.then(function (h) { r.h = h; return r; }); }).then(function (r) {
       if (!seq.current(mine)) { try { r.t.destroy(); } catch (x) { /* superseded by a newer open */ } return; }
-      var d = r.d; closeDoc(""); doc = d; loadTask = r.t; page = 1; zoom = 1; fitPage = false; rot = 0; $("pdf-name").textContent = name; notesOpen(d, r.h); controls(); fControls(); draw();
+      var d = r.d; closeDoc(""); doc = d; loadTask = r.t; page = 1; zoom = 1; fitPage = false; rot = 0; $("pdf-name").textContent = name; notesOpen(d, r.h); controls(); fControls(); thOpen(d); thMark(); draw();
     }).catch(function (e) {
       if (!seq.current(mine)) return;
       status.textContent = e && e.name === "PasswordException" ? "This PDF is password protected. Password files are not supported yet." : e && e.name === "InvalidPDFException" ? "That PDF is damaged or not readable." : "The viewer could not open that file.";

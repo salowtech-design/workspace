@@ -22,6 +22,8 @@
 <button class="btn" type="button" id="pdf-exporttext" disabled>Download text of this page</button></p>
 <p class="cal-meta" id="pdf-fstatus" role="status"></p>
 <p class="cal-meta"><span id="pdf-name"></span> <span id="pdf-where" role="status">No file open.</span></p>
+<div id="pdf-thumbs" class="pdf-thumbs" role="list" aria-label="Page thumbnails" hidden></div>
+<p class="cal-meta" id="pdf-thumbnote" hidden></p>
 <div id="pdf-stage" class="pdf-stage"><div class="pdf-pagewrap" id="pdf-pagewrap"><canvas id="pdf-canvas" width="1" height="1" role="img" aria-label="Current PDF page as a picture. Its extracted text is in the block below."></canvas><div id="pdf-pins" class="pdf-pins"></div></div></div>
 <div class="pdf-notes" id="pdf-notes" data-prefix="{{ notes_prefix }}">
 <p class="pdf-tools"><button class="btn" type="button" id="pdf-addnote" disabled aria-pressed="false">Add a note</button>
@@ -47,5 +49,6 @@
 <script src="/static/pdf/notes.js"></script>
 <script src="/static/pdf/export.js"></script>
 <script src="/static/pdf/forms.js"></script>
+<script src="/static/pdf/thumbs.js"></script>
 <script src="/static/pdf/viewer.js"></script>
 {% endblock %}
