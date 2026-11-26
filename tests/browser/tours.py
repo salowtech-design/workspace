@@ -276,6 +276,7 @@ def register(g):
     register_event_series_guest(g, users)
     register_event_time_zone(g, users)
     register_event_week_day_arrows(g, users)
+    register_certs_filter(g)
     register_posts_more(g, users)
 
 
@@ -3077,3 +3078,52 @@ def register_event_week_day_arrows(g, users):
         run_tour(ctx, "53_event_week_day_arrows", body, notes="Real Django on TiDB, headless Chromium 390x844 emulated. Fixture by script: one event this week and one the week after.", unshown=["arrows at the edge of the supported date range"])
 
     g["DRILLS"]["tour_event_week_day_arrows"] = tour
+
+
+def register_certs_filter(g):
+    APP = g["APP"]
+
+    def tour(ctx):
+        import concurrent.futures
+
+        import django
+
+        django.setup()
+
+        def fixture():
+            from apps.accounts.models import CustomUser
+            from apps.certificates import services as cs
+            from apps.certificates.models import CertificateTemplate
+
+            me = CustomUser.objects.get(employee_id="ST-LIVE-1")
+            me.role = CustomUser.Role.ADMIN
+            me.save(update_fields=["role"])
+            two = CustomUser.objects.get_or_create(employee_id="ST-LIVE-2", defaults={"full_name": "Second Synthetic", "email": "st-live-2@salowtech.com", "email_verified": True, "role": CustomUser.Role.EMPLOYEE, "status": CustomUser.Status.ACTIVE, "is_active": True})[0]
+            three = CustomUser.objects.get_or_create(employee_id="ST-LIVE-3", defaults={"full_name": "Third Synthetic", "email": "st-live-3@salowtech.com", "email_verified": True, "role": CustomUser.Role.EMPLOYEE, "status": CustomUser.Status.ACTIVE, "is_active": True})[0]
+            tpl = CertificateTemplate.objects.get_or_create(code="TOUR-EXC", defaults={"title": "Excellence", "description_template": "For excellent work."})[0]
+            cs.issue_certificate(recipient=two, title="Certificate of Teamwork", description="Great teamwork.", issued_by=me, template=tpl)
+            b = cs.issue_certificate(recipient=three, title="Certificate of Safety", description="Safety record.", issued_by=me, template=tpl)
+            cs.revoke_certificate(certificate=b, revoked_by=me, reason="Fixture: revoked")
+
+        with concurrent.futures.ThreadPoolExecutor(1) as ex:
+            ex.submit(fixture).result()
+
+        def body(t, pg):
+            txt = lambda: pg.inner_text("body")
+            def go(sel):
+                with pg.expect_navigation():
+                    pg.click(sel)
+            def show():
+                pg.evaluate("document.querySelector('.certificate-table-card').scrollIntoView({block:'start'})")
+            pg.goto(APP + "/certificates/")
+            t.step("Certificate list as Admin: both certificates", lambda: show(), expect=lambda: "Teamwork" in txt() and "Safety" in txt(), wait=3500)
+            t.step("Type teamwork in small letters and press Filter: only Teamwork", lambda: (pg.fill("input[name=q]", "teamwork"), go("button:text-is('Filter')"), show()), expect=lambda: "Teamwork" in txt() and "Safety" not in txt(), wait=4000)
+            t.step("Search the recipient name second synthetic in small letters: Teamwork again", lambda: (pg.fill("input[name=q]", "second synthetic"), go("button:text-is('Filter')"), show()), expect=lambda: "Teamwork" in txt() and "Safety" not in txt(), wait=4000)
+            t.step("Search the employee ID st-live-3 in small letters: only Safety", lambda: (pg.fill("input[name=q]", "st-live-3"), go("button:text-is('Filter')"), show()), expect=lambda: "Safety" in txt() and "Teamwork" not in txt(), wait=4000)
+            t.step("Same search with status Active: nothing, because Safety is revoked", lambda: (pg.select_option("select[name=status]", "active"), go("button:text-is('Filter')"), show()), expect=lambda: "Safety" not in txt() and "Teamwork" not in txt(), wait=4000)
+            t.step("Status Revoked with the same search: Safety is back", lambda: (pg.select_option("select[name=status]", "revoked"), go("button:text-is('Filter')"), show()), expect=lambda: "Safety" in txt() and "Teamwork" not in txt(), wait=4000)
+            t.note("Not shown: searching by serial number, and the revoked and valid status wording in the table.", 3)
+
+        run_tour(ctx, "54_certs_filter", body, notes="Real Django on TiDB, headless Chromium 390x844 emulated. Fixture by script: ST-LIVE-1 made Admin, two certificates (one revoked) for two people.", unshown=["search by serial number"])
+
+    g["DRILLS"]["tour_certs_filter"] = tour
