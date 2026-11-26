@@ -269,6 +269,7 @@ def register(g):
     register_drive_find(g, users)
     register_team_link(g, users)
     register_drive_nested(g, users)
+    register_drive_share_trash(g, users)
     register_post_search(g, users)
     register_worklog_filter(g, users)
     register_event_edit_conflict(g, users)
@@ -2751,6 +2752,56 @@ def register_team_link(g, users):
         run_tour(ctx, "45_team_link", body, notes="Real Django on TiDB, headless Chromium 390x844 emulated. Fixture by script: department Operations, team Field Team with ST-LIVE-1 and ST-LIVE-2.", unshown=["no-team profile", "role without team access"])
 
     g["DRILLS"]["tour_team_link"] = tour
+
+
+def register_drive_share_trash(g, users):
+    APP = g["APP"]
+
+    def tour(ctx):
+        import concurrent.futures
+
+        users(ctx)
+
+        def make():
+            from apps.accounts.models import CustomUser
+            from apps.drive import services as svc
+
+            me = CustomUser.objects.get(employee_id="ST-LIVE-1")
+            plans = svc.create_folder(me, "Plans")
+            svc.create_folder(me, "Inside plans", plans)
+
+        with concurrent.futures.ThreadPoolExecutor(1) as ex:
+            ex.submit(make).result()
+
+        def body(t, pg):
+            txt = lambda: pg.inner_text("body")
+            show = lambda sel: pg.evaluate("s=>document.querySelector(s).scrollIntoView({block:'center'})", sel)
+            pg.goto(APP + "/drive/")
+            t.step("My Drive: one folder, Plans", expect=lambda: "Plans" in txt(), wait=2200)
+            t.cap("Next: open Plans")
+            pg.click("a.drive-name:text-is('Plans')")
+            t.step("Plans opens and holds the folder Inside plans, with a Sharing box", lambda: show(".drive-share"), expect=lambda: "Inside plans" in txt() and "Not shared with anyone." in txt(), wait=3200)
+            t.cap("Next: share with an employee ID that does not exist, as Viewer")
+            pg.fill("input[name=employee_id]", "ZZ-NOBODY")
+            pg.click("button:text-is('Share folder')")
+            t.step("The app says there is no employee with that ID; the folder is still not shared", lambda: pg.evaluate("window.scrollTo(0,0)"), expect=lambda: "No employee with that ID." in txt(), wait=3400)
+            t.cap("Next: share with ST-LIVE-2 as Editor")
+            show(".drive-share")
+            pg.fill("input[name=employee_id]", "ST-LIVE-2")
+            pg.select_option(".drive-share select[name=role]", "editor")
+            pg.click("button:text-is('Share folder')")
+            t.step("Sharing lists Second Synthetic as Editor", lambda: show(".drive-share"), expect=lambda: "Second Synthetic" in txt() and "Editor" in txt(), wait=3400)
+            pg.goto(APP + "/drive/")
+            t.cap("Next: move Plans (which has a folder inside) to trash")
+            pg.locator(".drive-row:has(a.drive-name:text-is('Plans')) button:text-is('Move to trash')").click()
+            t.step("Plans leaves My Drive", lambda: pg.evaluate("window.scrollTo(0,0)"), expect=lambda: "Moved to trash" in txt(), wait=3200)
+            pg.goto(APP + "/drive/trash/")
+            t.step("Trash lists Plans with a Restore button", expect=lambda: "Plans" in txt() and "Restore" in txt(), wait=3000)
+            t.note("Not shown: the second person's own Editor view (needs a second sign-in), what Trash does with the folder's contents beyond this list.", 3)
+
+        run_tour(ctx, "66_drive_share_trash", body, notes="Real Django on TiDB, headless Chromium 390x844 emulated. Fixture by script: folder Plans with a sub-folder; Second Synthetic exists.", unshown=["second person's Editor view", "restore"])
+
+    g["DRILLS"]["tour_drive_share_trash"] = tour
 
 
 def register_drive_nested(g, users):
