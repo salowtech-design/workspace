@@ -11,6 +11,7 @@ urlpatterns = [
     path("trash/", views.trash_view, name="trash"),
     path("new-folder/", views.new_folder, name="new_folder"),
     path("<str:kind>/<uuid:item_id>/rename/", views.rename_item, name="rename"),
+    path("<str:kind>/<uuid:item_id>/move/", views.move_item, name="move"),
     path("<str:kind>/<uuid:item_id>/trash/", views.trash_item, name="trash_item"),
     path("<str:kind>/<uuid:item_id>/restore/", views.restore_item, name="restore_item"),
     path("<str:kind>/<uuid:item_id>/share/", views.share_item, name="share"),

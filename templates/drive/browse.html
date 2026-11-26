@@ -23,6 +23,7 @@
     <span class="drive-meta">Folder</span>
     {% if can_edit %}
     <form method="post" action="{% url 'drive:rename' 'folder' f.public_id %}" class="drive-inline">{% csrf_token %}<input type="text" name="name" class="form-input" value="{{ f.name }}" maxlength="200" aria-label="New name"><button class="btn btn-secondary btn-small" type="submit">Rename</button></form>
+    {% if move_targets %}<form method="post" action="{% url 'drive:move' 'folder' f.public_id %}" class="drive-inline">{% csrf_token %}<select name="destination" class="form-input" aria-label="Move to"><option value="">Top level</option>{% for t in move_targets %}{% if t.pk != f.pk %}<option value="{{ t.public_id }}">{{ t.name }}</option>{% endif %}{% endfor %}</select><button class="btn btn-secondary btn-small" type="submit">Move</button></form>{% endif %}
     <form method="post" action="{% url 'drive:trash_item' 'folder' f.public_id %}" class="drive-inline">{% csrf_token %}<button class="btn btn-secondary btn-small" type="submit">Move to trash</button></form>
     {% endif %}
   </div>
@@ -33,6 +34,7 @@
     <span class="drive-meta">File</span>
     {% if can_edit %}
     <form method="post" action="{% url 'drive:rename' 'file' f.public_id %}" class="drive-inline">{% csrf_token %}<input type="text" name="name" class="form-input" value="{{ f.name }}" maxlength="200" aria-label="New name"><button class="btn btn-secondary btn-small" type="submit">Rename</button></form>
+    {% if move_targets %}<form method="post" action="{% url 'drive:move' 'file' f.public_id %}" class="drive-inline">{% csrf_token %}<select name="destination" class="form-input" aria-label="Move to"><option value="">Top level</option>{% for t in move_targets %}{% if t.pk != f.pk %}<option value="{{ t.public_id }}">{{ t.name }}</option>{% endif %}{% endfor %}</select><button class="btn btn-secondary btn-small" type="submit">Move</button></form>{% endif %}
     <form method="post" action="{% url 'drive:trash_item' 'file' f.public_id %}" class="drive-inline">{% csrf_token %}<button class="btn btn-secondary btn-small" type="submit">Move to trash</button></form>
     {% endif %}
   </div>

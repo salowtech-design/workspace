@@ -67,7 +67,7 @@ def drive_home(request):
     return render(
         request,
         "drive/browse.html",
-        {"folder": None, "folders": folders, "files": files, "crumbs": [], "can_edit": True},
+        {"folder": None, "folders": folders, "files": files, "crumbs": [], "can_edit": True, "move_targets": _move_targets(request.user)},
     )
 
 
@@ -91,6 +91,7 @@ def folder_view(request, folder_id):
             "can_edit": can(request.user, "edit", "drive.folder", folder),
             "is_owner": owner,
             "shares": shares,
+            "move_targets": _move_targets(request.user) if owner else [],
         },
     )
 
@@ -140,6 +141,29 @@ def new_folder(request):
 def rename_item(request, kind, item_id):
     item = _visible_or_404(request.user, _item(kind, item_id))
     _run(request, svc.rename, request.user, item, request.POST.get("name", ""), ok="Renamed.")
+    return _back(item)
+
+
+def _move_targets(user):
+    """Folders the person owns and can move into: the service still checks every move."""
+    return list(Folder.objects.filter(owner=user, trashed_at__isnull=True).order_by("name", "id"))
+
+
+@login_required
+@require_POST
+def move_item(request, kind, item_id):
+    item = _visible_or_404(request.user, _item(kind, item_id))
+    raw = (request.POST.get("destination") or "").strip()
+    destination = None
+    if raw:
+        try:
+            destination = Folder.objects.filter(public_id=uuid.UUID(raw)).first()
+        except ValueError:
+            destination = None
+        if destination is None or not can(request.user, "view", "drive.folder", destination):
+            messages.error(request, "That destination folder was not found.")
+            return _back(item)
+    _run(request, svc.move, request.user, item, destination, ok="Moved.")
     return _back(item)
 
 
