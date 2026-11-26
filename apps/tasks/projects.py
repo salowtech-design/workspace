@@ -184,7 +184,7 @@ def tasks_by_column(project, q="", milestone=None, overdue_before=None):
         rows = rows.filter(milestone_id=milestone, milestone__project=project)
     if overdue_before is not None:
         rows = rows.filter(due_date__lt=overdue_before).exclude(column__name="Done")
-    rows = rows.select_related("milestone").order_by("position", "id")
+    rows = rows.select_related("milestone", "assignee").order_by("position", "id")
     out = {}
     for t in rows:
         out.setdefault(t.column_id, []).append(t)

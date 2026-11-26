@@ -852,3 +852,53 @@ def test_overdue_uses_the_configured_time_zone_setting():
     from django.conf import settings
 
     assert settings.TIME_ZONE == "Asia/Kolkata"
+
+
+@pytest.mark.django_db
+def test_assign_view_lead_only_member_only_stale_checked_and_guarded():
+    from apps.tasks.models import ProjectTask
+
+    a, b, c = _u("AS-A"), _u("AS-B"), _u("AS-C")
+    p, t = _ptask(a)
+    ProjectMember.objects.create(project=p, person=b, added_by=a)  # plain member
+    url = reverse("tasks:project_assign", args=[t.public_id])
+    ca, cb = _c(a), _c(b)
+
+    def state():
+        x = ProjectTask.objects.get(pk=t.pk)
+        return x.assignee_id, x.version
+
+    # lead assigns a member
+    assert ca.post(url, {"person": b.pk, "version": 1}).status_code == 302
+    assert state() == (b.pk, 2)
+    # a person who is not a member of this project is refused, nothing changes
+    r = ca.post(url, {"person": c.pk, "version": 2}, follow=True)
+    assert "not a member" in r.content.decode() and state() == (b.pk, 2)
+    r = ca.post(url, {"person": 999999, "version": 2}, follow=True)
+    assert "not a member" in r.content.decode() and state() == (b.pk, 2)
+    # a stale version is refused
+    r = ca.post(url, {"person": a.pk, "version": 1}, follow=True)
+    assert "changed while you were looking" in r.content.decode() and state() == (b.pk, 2)
+    # a plain member cannot assign
+    cb.post(url, {"person": "", "version": 2})
+    assert state() == (b.pk, 2)
+    # clear
+    assert ca.post(url, {"person": "", "version": 2}).status_code == 302
+    assert state() == (None, 3)
+    # junk input is 404, never 500, and writes nothing
+    for junk in ({"person": "\u00b2", "version": 3}, {"person": "1", "version": "x"}, {"person": "9" * 30, "version": 3}, {"version": ""}):
+        assert ca.post(url, junk).status_code == 404, junk
+    assert state() == (None, 3)
+    # stranger 404, anonymous login, GET 405, IAM host 404, nothing written
+    assert _c(c).post(url, {"person": b.pk, "version": 3}).status_code == 404
+    anon = Client(HTTP_HOST="app.salowtech.com")
+    r = anon.post(url, {"person": b.pk, "version": 3})
+    assert r.status_code == 302 and "login" in r["Location"]
+    assert ca.get(url).status_code == 405
+    assert ca.post(url, {"person": b.pk, "version": 3}, HTTP_HOST="iam.salowtech.com").status_code == 404
+    assert state() == (None, 3)
+    # the board shows the assignee to members, and the select only to the lead
+    ca.post(url, {"person": b.pk, "version": 3})
+    assert "Assigned to P AS-B" in cb.get(reverse("tasks:project", args=[p.public_id])).content.decode()
+    assert url not in cb.get(reverse("tasks:project", args=[p.public_id])).content.decode()
+    assert url in ca.get(reverse("tasks:project", args=[p.public_id])).content.decode()

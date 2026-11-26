@@ -263,3 +263,29 @@ def task_comments(request, task_id):
         return _comment_page(request, t, status=400, sent=sent)
     messages.success(request, "Comment posted.")
     return redirect(back)
+
+
+@login_required
+@require_POST
+def assign_project_task(request, task_id):
+    """A lead sets or clears the assignee. Only current members can be picked (the service
+    checks); nobody is notified."""
+    t = pj.get_task(request.user, task_id)
+    try:
+        sver, raw = request.POST.get("version", ""), request.POST.get("person", "")
+        if not re.fullmatch(r"[0-9]{1,18}", sver) or (raw and not re.fullmatch(r"[0-9]{1,18}", raw)):
+            raise ValueError
+        ver, pid = int(sver), (int(raw) if raw else None)
+    except ValueError:
+        raise Http404 from None
+    person = None
+    if pid is not None:
+        from apps.accounts.models import CustomUser
+
+        person = CustomUser.objects.filter(pk=pid).first()
+        if person is None:
+            messages.error(request, "That person is not a member of this project.")
+            return redirect("tasks:project", project_id=t.project.public_id)
+    _guarded(request, t.project, pj.assign_task, t, person, ver,
+             ok="Assignee saved.")  # fmt: skip
+    return redirect("tasks:project", project_id=t.project.public_id)

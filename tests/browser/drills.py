@@ -7912,6 +7912,11 @@ def task_filters(ctx):
     pg.goto(APP + "/tasks/projects/%s/" % pid)
     cards = lambda: pg.locator(".task-card").count()  # noqa: E731
     check("task filters: unfiltered board shows 4 cards and no count line", cards() == 4 and pg.locator("[role=status]").count() == 0)
+    pg.select_option("select[name=person] >> nth=0", label="Live Employee")
+    pg.click("button:has-text('Assign') >> nth=0")
+    pg.wait_for_load_state()
+    check("task filters: a lead assigns a member from the card and the card says so", pg.locator("text=Assigned to Live Employee").count() == 1 and "Assignee saved." in pg.inner_text("body"))
+    pg.screenshot(path=os.path.join(shots, "task_assign_390.png"))
     pg.fill("input[name=q]", "ALPHA")
     pg.click(".board-filter button[type=submit]")
     pg.wait_for_load_state()
