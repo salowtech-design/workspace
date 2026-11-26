@@ -9,3 +9,4 @@
 .chat-react-btn.on{background:#f4e6df;border-color:#a4472f;font-weight:700}
 .chat-react-t{font-size:12px;margin-left:4px}
 .chat-react-n{font-weight:700;margin-left:6px}
+.chat-list.chat-thread{max-height:none;overflow-y:visible}
