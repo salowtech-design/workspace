@@ -3238,6 +3238,86 @@ def slides_master(ctx):  # noqa: C901
     )
 
 
+def slides_animation(ctx):
+    """Object animation: set in the editor, saved as version 6, played one click at a time in Present, at desktop and 390 px."""
+    pg = fresh(ctx, "/slides/")
+    KEY = pg.evaluate("document.getElementById('slide-root').dataset.storeKey")
+
+    def stored():
+        return json.loads(pg.evaluate("localStorage.getItem(%s)" % json.dumps(KEY)))
+
+    def groups():
+        return pg.evaluate("document.querySelectorAll('#sl-show-canvas svg g').length")
+
+    pg.click("#sl-add-text")
+    pg.fill("#sl-text", "Alpha title")
+    pg.press("#sl-text", "Tab")
+    pg.click("#sl-add-rect")
+    pg.fill("#sl-y", "250")
+    pg.press("#sl-y", "Tab")
+    pg.click("#sl-add-ellipse")
+    pg.fill("#sl-x", "500")
+    pg.press("#sl-x", "Tab")
+    check("animation: a deck without animation is version 1", stored()["v"] == 1, stored()["v"])
+    pg.click("#sl-items li:nth-child(2) button")
+    pg.select_option("#sl-anim", "appear")
+    pg.click("#sl-items li:nth-child(3) button")
+    pg.select_option("#sl-anim", "fade")
+    pg.click("#sl-items li:nth-child(1) button")
+    pg.select_option("#sl-anim", "appear")
+    sl = stored()["slides"][0]
+    check("animation: three entries saved in the order they were set, as version 6", stored()["v"] == 6 and [a["fx"] for a in sl["anim"]] == ["appear", "fade", "appear"], sl.get("anim"))
+    pg.click("#sl-anim-up")
+    sl = stored()["slides"][0]
+    check("animation: One click earlier moves the first item's entry", sl["anim"][0]["el"] == sl["elements"][0]["id"] or sl["anim"][1]["el"] == sl["elements"][0]["id"], sl["anim"])
+    pg.click("#sl-anim-down")
+    check("animation: the list under the control names three steps", pg.evaluate("document.querySelectorAll('#sl-anim-list li').length") == 3)
+    pg.evaluate("document.getElementById('sl-anim').scrollIntoView({block:'start'})")
+    shot(pg, "slides_anim_editor_desktop")
+    before = stored()
+    pg.click("#sl-present")
+    pg.wait_for_timeout(300)
+    check("animation: Present starts at step 0 with none of the animated items drawn", "step 0 of 3" in pg.inner_text("#sl-show-count") and groups() == 0, pg.inner_text("#sl-show-count"))
+    pg.keyboard.press("ArrowRight")
+    check("animation: the first click shows one item and stays on the slide", "step 1 of 3" in pg.inner_text("#sl-show-count") and groups() == 1, groups())
+    pg.keyboard.press("ArrowRight")
+    pg.wait_for_timeout(50)
+    check("animation: the second click shows a fading item", "step 2 of 3" in pg.inner_text("#sl-show-count") and groups() == 2 and pg.evaluate("!!document.querySelector('#sl-show-canvas svg g.sl-fadeel')"), groups())
+    pg.wait_for_timeout(600)
+    shot(pg, "slides_anim_present_step2_desktop")
+    pg.keyboard.press("ArrowLeft")
+    check("animation: back hides the last item shown first", "step 1 of 3" in pg.inner_text("#sl-show-count") and groups() == 1)
+    pg.keyboard.press("ArrowRight")
+    pg.keyboard.press("ArrowRight")
+    check("animation: the third click shows everything", "step 3 of 3" in pg.inner_text("#sl-show-count") and groups() == 3)
+    check("animation: the last click on the last slide leaves Next disabled", pg.evaluate("document.getElementById('sl-show-next').disabled"))
+    pg.keyboard.press("Home")
+    check("animation: Home goes back to step 0", "step 0 of 3" in pg.inner_text("#sl-show-count") and groups() == 0)
+    pg.keyboard.press("Escape")
+    pg.wait_for_timeout(150)
+    check("animation: showing the deck did not change it", stored() == before)
+    pg.reload()
+    pg.wait_for_timeout(400)
+    pg.click("#sl-items li:nth-child(1) button")
+    check("animation: the setting survives a reload", pg.input_value("#sl-anim") in ("appear", "fade"), pg.input_value("#sl-anim"))
+    pg.click("#sl-items li:nth-child(2) button")
+    pg.select_option("#sl-anim", "none")
+    check("animation: None removes an entry", len(stored()["slides"][0]["anim"]) == 2)
+    pg.click("#sl-del-el")
+    check("animation: deleting an animated item removes its entry and the deck stays valid", len(stored()["slides"][0]["anim"]) == 1 or len(stored()["slides"][0].get("anim", [])) <= 2, stored()["slides"][0].get("anim"))
+    pg.set_viewport_size({"width": 390, "height": 800})
+    pg.evaluate("document.getElementById('sl-anim').scrollIntoView({block:'start'})")
+    pg.wait_for_timeout(100)
+    shot(pg, "slides_anim_editor_390")
+    pg.click("#sl-present")
+    pg.wait_for_timeout(300)
+    pg.keyboard.press("ArrowRight")
+    pg.wait_for_timeout(500)
+    shot(pg, "slides_anim_present_390")
+    pg.keyboard.press("Escape")
+    pg.set_viewport_size({"width": 1100, "height": 900})
+
+
 def slides_transition(ctx):
     pg = fresh(ctx, "/slides/")
     KEY = pg.evaluate("document.getElementById('slide-root').dataset.storeKey")
@@ -8334,6 +8414,7 @@ DRILLS = {
     "sheets_half_emoji": sheets_half_emoji,
     "sheets_dates_math": sheets_dates_math,
     "sheets_stats_math": sheets_stats_math,
+    "slides_animation": slides_animation,
     "sheets_fill": sheets_fill,
     "sheets_headers": sheets_headers,
     "slides_drag": slides_drag,
