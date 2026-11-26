@@ -284,6 +284,7 @@ def register(g):
     register_parent_delete(g, users)
     register_pdf_marks_tools(g)
     register_pdf_pages(g)
+    register_pdf_forms(g)
     register_posts_more(g, users)
 
 
@@ -3553,3 +3554,65 @@ def register_pdf_pages(g):
         run_tour(ctx, "61_pdf_pages", body, notes="Device-local viewer on generated PDFs (4 pages and 3 pages); secure-context test flag. Headless Chromium 390x844 emulated. Downloaded files are saved off-camera and are not opened in this clip.", unshown=["opening the downloaded files", "form fields", "password PDF", "merge limits"])
 
     g["DRILLS"]["tour_pdf_pages"] = tour
+
+
+def register_pdf_forms(g):
+    APP = g["APP"]
+
+    def tour(ctx):
+        import os
+        import pathlib
+
+        data = (pathlib.Path(__file__).resolve().parents[1] / "js" / "fixtures" / "form_basic.pdf").read_bytes()
+
+        def body(t, pg):
+            pg.goto(APP + "/pdf/")
+            pg.evaluate("localStorage.clear()")
+            pg.goto(APP + "/pdf/")
+            pg.wait_for_timeout(500)
+            where = lambda: pg.inner_text("#pdf-where")
+            if not pg.evaluate("!!(navigator.locks && navigator.locks.request)"):
+                t.step("No secure context in this browser", expect=lambda: False)
+                return
+            pg.set_input_files("#pdf-open", files=[{"name": "form.pdf", "mimeType": "application/pdf", "buffer": data}])
+            for _ in range(50):
+                if where().startswith("Page 1 of"):
+                    break
+                pg.wait_for_timeout(250)
+            os.makedirs("/tmp/vid/dl", exist_ok=True)
+
+            def show(sel):
+                pg.evaluate("s=>{document.querySelector(s).scrollIntoView({block:'center'})}", sel)
+
+            def grab(sel, name):
+                with pg.expect_download(timeout=15000) as d:
+                    pg.click(sel)
+                d.value.save_as("/tmp/vid/dl/" + name)
+
+            fst = lambda: pg.inner_text("#pdf-formstatus").strip()
+            lab = lambda name: pg.locator("#pdf-formlist label", has_text=name).first
+            show("#pdf-formfind")
+            pg.click("#pdf-formfind")
+            pg.wait_for_timeout(800)
+            show("#pdf-formstatus")
+            t.step("Find form fields: the status line counts the fields found", expect=lambda: "8 field(s)" in fst(), wait=3500)
+            show("#pdf-formlist")
+            t.step("The form list shows the fields as boxes you can fill", expect=lambda: pg.locator("#pdf-formlist label").count() >= 6, wait=3000)
+            pg.click("#pdf-formsave")
+            pg.wait_for_timeout(500)
+            show("#pdf-formstatus")
+            t.step("Download a filled copy with nothing changed: the status says no copy was made", expect=lambda: "no copy was made" in fst(), wait=3500)
+            lab("full_name").locator("input").fill("Test Person")
+            lab("agree").locator("input").check()
+            lab("country").locator("select").select_option("France")
+            pg.locator("#pdf-formlist input[type=radio][value=large]").check()
+            lab("notes").locator("textarea").fill("line one")
+            show("#pdf-formlist")
+            t.step("Filled the name, ticked agree, chose France and a size, typed a note: the boxes show them", expect=lambda: lab("full_name").locator("input").input_value() == "Test Person" and lab("country").locator("select").input_value() == "France", wait=3500)
+            grab("#pdf-formsave", "form_filled.pdf")
+            show("#pdf-formstatus")
+            t.step("Download a filled copy: the status line says a new file was built", expect=lambda: "no copy was made" not in fst() and bool(fst()), wait=3500)
+
+        run_tour(ctx, "62_pdf_forms", body, notes="Device-local viewer on the repo's test form PDF (tests/js/fixtures/form_basic.pdf); secure-context test flag. Headless Chromium 390x844 emulated. The filled copy is saved off-camera and is not opened in this clip. Test text only.", unshown=["opening the filled copy", "text limit refusal", "read-only field", "signed form PDF", "choice list with several picks"])
+
+    g["DRILLS"]["tour_pdf_forms"] = tour
