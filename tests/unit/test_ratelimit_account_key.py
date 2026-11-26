@@ -124,24 +124,30 @@ def test_per_ip_limit_still_applies_to_a_valid_forwarded_address_and_a_fallback_
 
 @pytest.mark.django_db
 @pytest.mark.parametrize(
-    "typed,stored",
+    "typed",
     [
-        ("0000:0000:0000:0000:0000:ffff:255.255.255.255", "::ffff:ffff:ffff"),  # 45 characters, over the 39-character column
-        ("2001:0db8:0000:0000:0000:0000:0000:0001", "2001:db8::1"),  # 39 characters, kept as typed below
-        ("fe80::1%eth0", "fe80::1"),  # a zone id is dropped
-        ("fe80::1%1", "fe80::1"),
+        "0000:0000:0000:0000:0000:ffff:255.255.255.255",  # 45 characters, over the 39-character column
+        "2001:0db8:0000:0000:0000:0000:0000:0001",  # 39 characters
+        "fe80::1%eth0",
+        "fe80::1%1",
     ],
 )
-def test_long_or_zoned_valid_forwarded_address_is_written_in_a_form_the_column_holds(typed, stored):
+def test_long_or_zoned_valid_forwarded_address_is_stored_in_a_form_the_column_holds(typed):
+    import ipaddress
+
     from apps.accounts.models import AuthEvent
     from apps.core.middleware import RateLimitMiddleware
 
     got = RateLimitMiddleware._valid_ip_or_none(typed)
     if len(typed) <= 39 and "%" not in typed:
         assert got == typed  # short spellings keep their text, so existing keys do not change
-    else:
-        assert got == stored and len(got) <= 39
+    assert len(got) <= 39 and "%" not in got
+    # same address as typed (zone id aside), compared as addresses, not as text
+    assert ipaddress.ip_address(got) == ipaddress.ip_address(typed.split("%", 1)[0])
     CustomUser.objects.create_user(employee_id="ZZ-IP-1", full_name="Z", password="Right-Pass-9")
     _, r = _fwd_login(typed)
     assert r.status_code == 200
-    assert all((v is None) or len(v) <= 39 for v in AuthEvent.objects.values_list("network_address", flat=True))
+    stored = [v for v in AuthEvent.objects.values_list("network_address", flat=True) if v]
+    assert stored, "the login wrote no audit row with an address, so nothing was proven"
+    assert {ipaddress.ip_address(v) for v in stored} == {ipaddress.ip_address(got)}
+    assert all(len(v) <= 39 for v in stored)
