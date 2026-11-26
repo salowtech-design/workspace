@@ -292,6 +292,7 @@ def register(g):
     register_slides_keys(g)
     register_slides_pointer_anim(g)
     register_worklog_team_refusal(g, users)
+    register_sheets_focus_edges(g)
     register_posts_more(g, users)
 
 
@@ -3722,6 +3723,83 @@ def register_pdf_view_buttons(g):
     g["DRILLS"]["tour_pdf_view_buttons"] = tour
 
 
+def register_sheets_focus_edges(g):
+    APP = g["APP"]
+
+    def tour(ctx):
+        import json as _json
+        import os as _os
+
+        _os.makedirs("/tmp/vid/dl", exist_ok=True)
+        imp1 = "/tmp/vid/dl/import_focus1.json"
+        imp2 = "/tmp/vid/dl/import_focus2.json"
+        open(imp1, "w").write(_json.dumps({"A1": "Imported"}))
+        open(imp2, "w").write(_json.dumps({"A1": "Replaced"}))
+        val = lambda pg, a: pg.input_value('input[data-addr="%s"]' % a)
+        bar = lambda pg: pg.input_value("#sheet-bar")
+
+        def sc(pg, sel):
+            pg.evaluate("s=>{var e=document.querySelector(s);if(e)e.scrollIntoView({block:'center'})}", sel)
+
+        def body(t, pg):
+            pg.on("dialog", lambda d: d.accept())
+            pg.goto(APP + "/sheets/")
+            pg.evaluate("localStorage.clear()")
+            pg.goto(APP + "/sheets/")
+            pg.wait_for_timeout(500)
+            t.cap("Next: type 5 into A1, then click A1 and then click the Formula bar without typing")
+            pg.click('input[data-addr="A1"]')
+            pg.keyboard.type("5")
+            pg.keyboard.press("Tab")
+            pg.click('input[data-addr="A1"]')
+            pg.click("#sheet-bar")
+            pg.wait_for_timeout(300)
+            sc(pg, "#sheet-bar")
+            t.step("Formula bar is focused and untouched, showing 5 for A1", expect=lambda: bar(pg) == "5" and pg.evaluate("document.activeElement.id") == "sheet-bar", wait=2800)
+            t.cap("Next: import a file whose A1 is Imported while the Formula bar is focused")
+            pg.set_input_files("#sheet-import", imp1)
+            pg.wait_for_timeout(900)
+            sc(pg, "#sheet-bar")
+            t.step("The untouched Formula bar now shows Imported", expect=lambda: bar(pg) == "Imported", wait=3400)
+            t.cap("Next: click B1 (leaves the bar)")
+            pg.click('input[data-addr="B1"]')
+            pg.wait_for_timeout(400)
+            t.step("A1 still reads Imported after the bar was left", expect=lambda: val(pg, "A1") == "Imported", wait=3000)
+            t.cap("Next: click A1, click the Formula bar, type a new text typed-by-hand, then import a file whose A1 is Replaced")
+            pg.click('input[data-addr="A1"]')
+            pg.click("#sheet-bar")
+            pg.fill("#sheet-bar", "typed-by-hand")
+            pg.set_input_files("#sheet-import", imp2)
+            pg.wait_for_timeout(900)
+            sc(pg, "#sheet-bar")
+            t.step("The Formula bar keeps the typed text; the cell A1 shows Replaced from the import", expect=lambda: bar(pg) == "typed-by-hand" and val(pg, "A1") == "Replaced", wait=3600)
+            t.cap("Next: press Tab (commits what is in the bar)")
+            pg.keyboard.press("Tab")
+            pg.wait_for_timeout(500)
+            t.step("The typed text was committed to A1 (a deliberate edit made after the import)", expect=lambda: val(pg, "A1") == "typed-by-hand", wait=3200)
+            pg.reload()
+            pg.wait_for_timeout(700)
+            t.step("After reload (read back from storage): A1 is typed-by-hand", expect=lambda: val(pg, "A1") == "typed-by-hand", wait=3000)
+            t.cap("Next: click A1, type zzz without leaving, switch to a new tab by Add tab (the click is sent by script so the cell keeps focus), then click B1")
+            pg.click('input[data-addr="A1"]')
+            pg.keyboard.type("zzz")
+            pg.evaluate("document.getElementById('tab-add').click()")
+            pg.wait_for_timeout(600)
+            pg.click('input[data-addr="B1"]')
+            pg.wait_for_timeout(500)
+            sc(pg, 'input[data-addr="A1"]')
+            t.step("On the new tab A1 is empty (zzz did not come along)", expect=lambda: val(pg, "A1") == "", wait=3400)
+            t.cap("Next: back to the first tab")
+            pg.locator("#sheet-tabs button").first.click()
+            pg.wait_for_timeout(600)
+            sc(pg, 'input[data-addr="A1"]')
+            t.step("First tab: A1 is still typed-by-hand", expect=lambda: val(pg, "A1") == "typed-by-hand", wait=3400)
+
+        run_tour(ctx, "70_sheets_focus_edges", body, notes="Device-local sheet. Headless Chromium 390x844 emulated. The import file is chosen by the test and the Add tab click is sent by script so focus stays on the cell, which is how the focused cases are reached.", unshown=["typing in a grid cell while the file is still reading"])
+
+    g["DRILLS"]["tour_sheets_focus_edges"] = tour
+
+
 def register_worklog_team_refusal(g, users):
     APP = g["APP"]
 
@@ -3746,7 +3824,8 @@ def register_worklog_team_refusal(g, users):
             me.save(update_fields=["role"])
             dep = Department.objects.create(name="Fixture Dept")
             ta = Team.objects.create(code="FIX-A", name="Alpha Team", department=dep, lead=me)
-            tb = Team.objects.create(code="FIX-B", name="Beta Team", department=dep, lead=me)
+            tb = Team.objects.create(code="FIX-B", name="Beta Team", department=dep)
+            TeamMembership.objects.create(team=tb, user=me)
             TeamMembership.objects.create(team=ta, user=two)
             TeamMembership.objects.create(team=tb, user=two)
             a = ps.create_post(author=two, title="Alpha team standup", content="Alpha body.", team=ta)
@@ -3783,10 +3862,10 @@ def register_worklog_team_refusal(g, users):
             t.cap("Next (test fixture: this account is now an ordinary Employee): open the edit page of a post written by Second Synthetic")
             resp = pg.goto(APP + "/posts/%d/edit/" % ids["a"])
             pg.evaluate("window.scrollTo(0,0)")
-            t.step("The app refuses: status %s, the page says you do not have permission to edit this post" % (resp.status if resp else "?"), expect=lambda: bool(resp) and resp.status == 403, wait=3400)
+            t.step("The app refuses: the edit page answers with status %s and a plain page that reads 403 Forbidden" % (resp.status if resp else "?"), expect=lambda: bool(resp) and resp.status == 403, wait=3400)
             t.note("Not shown: other roles' edit rules and moderator edit.", 3)
 
-        run_tour(ctx, "69_worklog_team_refusal", body, notes="Real Django on TiDB, headless Chromium 390x844 emulated. Fixture by script: this account is a Manager and lead of two teams, Second Synthetic wrote one post in each; then the account is set back to Employee for the refusal.", unshown=["moderator edit"])
+        run_tour(ctx, "69_worklog_team_refusal", body, notes="Real Django on TiDB, headless Chromium 390x844 emulated. Fixture by script: this account is a Manager, lead of Alpha Team and a member of Beta Team, Second Synthetic wrote one post in each; then the account is set back to Employee for the refusal.", unshown=["moderator edit"])
 
     g["DRILLS"]["tour_worklog_team_refusal"] = tour
 

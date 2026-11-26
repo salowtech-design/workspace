@@ -70,12 +70,17 @@
   function setBarH() { if (barRow) root.style.setProperty("--sheet-bar-h", barRow.offsetHeight + "px"); }
   setBarH(); window.addEventListener("resize", setBarH); if (window.ResizeObserver && barRow) new ResizeObserver(setBarH).observe(barRow);
   function sync() { cells = H.cells; reloadRules(); reloadCf(); reloadFmt(); if (typeof clearPivot === "function") clearPivot(); show(); refreshSelected(); buttons(); drawChart(); applyFilter(); status.textContent = H.note; }
-  // After any whole-sheet change (import, undo, redo, fill, sort, clear) the selected cell and the formula bar must show the new content, not what was there before. A focused cell is refreshed here too, so a later blur cannot write the old text back.
+  // After any whole-sheet change (import, undo, redo, fill, sort, clear, tab switch) the focused cell and the formula bar must show the new content, not what was there before. A focused cell is refreshed here too, so a later blur cannot write the old text back. The formula bar keeps what the user typed in it (barDirty) and is refreshed when untouched.
+  var barDirty = false;
   function refreshSelected() {
-    if (!cur) return;
-    var raw = cells[cur] || "", ai = document.activeElement;
-    if (ai && ai.dataset && ai.dataset.addr && inputs[ai.dataset.addr] === ai) { orig = cells[ai.dataset.addr] || ""; ai.value = orig; if (ai.dataset.addr === cur) bar.value = raw; }
-    else if (ai !== bar) { bar.value = raw; orig = raw; }
+    var ai = document.activeElement;
+    if (ai && ai.dataset && ai.dataset.addr && inputs[ai.dataset.addr] === ai) {
+      var fa = ai.dataset.addr; orig = cells[fa] || ""; ai.value = orig;
+      if (fa === cur) { bar.value = orig; barDirty = false; }
+      return;
+    }
+    if (!cur || (ai === bar && barDirty)) return;
+    orig = cells[cur] || ""; bar.value = orig; barDirty = false;
   }
   function buttons() { undoBtn.disabled = !H.past.length; redoBtn.disabled = !H.future.length; }
   function change(next, note) { if (!H.change(next, note)) return false; sync(); return true; }
@@ -130,7 +135,7 @@
   }
   table.addEventListener("focusin", function (e) {
     var a = e.target.dataset && e.target.dataset.addr; if (!a) return;
-    cur = a; orig = cells[a] || ""; e.target.value = orig; bar.value = orig; sel.textContent = a; showVal(); e.target.select();
+    cur = a; barDirty = false; orig = cells[a] || ""; e.target.value = orig; bar.value = orig; sel.textContent = a; showVal(); e.target.select();
   });
   table.addEventListener("focusout", function (e) { var a = e.target.dataset && e.target.dataset.addr; if (a) commit(a, e.target.value); show(); });
   table.addEventListener("input", function (e) { if (e.target.dataset && e.target.dataset.addr === cur) bar.value = e.target.value; });
@@ -178,8 +183,9 @@
     e.preventDefault(); if (inGrid) t.blur();
     if (k === "y" || e.shiftKey) redo(); else undo();
   });
-  bar.addEventListener("change", function () { if (cur) { commit(cur, bar.value); show(); } });
-  bar.addEventListener("keydown", function (e) { if (e.key === "Escape") bar.value = cells[cur] || ""; });
+  bar.addEventListener("input", function () { barDirty = true; });
+  bar.addEventListener("change", function () { barDirty = false; if (cur) { commit(cur, bar.value); show(); } });
+  bar.addEventListener("keydown", function (e) { if (e.key === "Escape") { bar.value = cells[cur] || ""; barDirty = false; } });
 
   document.getElementById("sheet-clear").addEventListener("click", function () {
     if (!change(Object.create(null), "Sheet cleared. Undo works until you reload this page.")) { status.textContent = "Nothing to clear."; return; }
