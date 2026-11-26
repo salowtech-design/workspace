@@ -455,7 +455,7 @@
    * Like SUM and AVERAGE here, a direct cell reference counts as a reference. MEDIAN and STDEV take numbers only: text and blanks in a
    * range are ignored (the MEDIAN page says text is ignored), a direct argument that is not numeric is #VALUE!, an error cell is
    * returned. MEDIAN of an even count is the mean of the two middle values (page); of nothing it is #NUM! (my choice, not on the page).
-   * STDEV is the sample standard deviation (n - 1), computed in two passes; fewer than two numbers is #DIV/0! (my choice, not on the page).
+   * STDEV is the sample standard deviation (n - 1), computed in two passes with a corrected mean; fewer than two numbers is #DIV/0! (my choice, not on the page).
    * COUNTA counts every non-empty cell of a range, text included, and zero-length text (page); an error cell counts as one value (my choice).
    * A direct argument counts as one. COUNTBLANK counts the empty cells of a range and cells holding zero-length text; a direct argument
    * that is not a range or cell is #VALUE! (my choice). Not built: STDEVP, STDEVA, VAR, MODE, QUARTILE, PERCENTILE, COUNTUNIQUE. */
@@ -477,6 +477,8 @@
     var mean = 0, i, ss = 0;
     for (i = 0; i < n.length; i++) mean += n[i];
     mean /= n.length;
+    var corr = 0; for (i = 0; i < n.length; i++) corr += n[i] - mean;
+    mean += corr / n.length;  // corrected two-pass: STDEV(0.1,0.1,0.1) is 0, not 1e-17
     for (i = 0; i < n.length; i++) ss += (n[i] - mean) * (n[i] - mean);
     var r = Math.sqrt(ss / (n.length - 1));
     return isFinite(r) ? r : new Err("#NUM!");

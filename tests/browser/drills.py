@@ -358,6 +358,55 @@ def sheets_dates_math(ctx):
     pg.set_viewport_size({"width": 1100, "height": 900})
 
 
+def sheets_stats_math(ctx):
+    """Statistics and exact-integer math typed into the real grid, with the float-noise case shown, desktop and 390 px."""
+    pg = fresh(ctx, "/sheets/")
+
+    def setc(a, v):
+        pg.click('input[data-addr="%s"]' % a)
+        pg.fill('input[data-addr="%s"]' % a, v)
+        pg.press('input[data-addr="%s"]' % a, "Tab")
+        pg.wait_for_timeout(80)
+
+    def val(a):
+        return pg.input_value('input[data-addr="%s"]' % a)
+
+    for a, v in (("D1", "10"), ("D2", "4"), ("D3", "text"), ("D5", "2")):
+        setc(a, v)
+    cases = [
+        ("=MEDIAN(D1:D5)", "4", "median of 10, 4, 2"),
+        ("=MEDIAN(D1:D5,100)", "7", "median, even count"),
+        ("=ROUND(STDEV(D1:D5),4)", "4.1633", "sample deviation"),
+        ("=COUNTA(D1:D5)", "4", "COUNTA with text"),
+        ("=COUNTBLANK(D1:D5)", "1", "COUNTBLANK"),
+        ("=MOD(1700000000001,1000)", "1", "MOD, whole numbers"),
+        ("=FLOOR(1234567890123456,1)", "1234567890123456", "FLOOR, 16 digits"),
+        ("=MOD(5.1,1)", "0.0999999999999996", "MOD float noise shown"),
+        ("=ROUND(MOD(5.1,1),10)", "0.1", "ROUND it"),
+        ("=MEDIAN(D3)", "#NUM!", "MEDIAN of no numbers"),
+        ("=STDEV(D1)", "#DIV/0!", "STDEV of one number"),
+        ("=STDEV(0.1,0.1,0.1)", "0", "STDEV equal decimals"),
+    ]
+    for i, (f, _, label) in enumerate(cases, 1):
+        setc("B%d" % i, label)
+    for i, (f, _, label) in enumerate(cases, 1):
+        setc("A%d" % i, f)
+    pg.click('input[data-addr="A14"]')
+    for i, (f, want, label) in enumerate(cases, 1):
+        check("sheets stats math: %s shows %s" % (f, want), val("A%d" % i) == want, val("A%d" % i))
+    pg.locator("details", has_text="Supported functions and limits").first.locator("summary").click()
+    pg.evaluate("window.scrollTo(0, 380)")
+    shot(pg, "sheets_stats_help_desktop")
+    pg.locator("details", has_text="Supported functions and limits").first.locator("summary").click()
+    pg.evaluate("(()=>{const e=document.querySelector('input[data-addr=\"A1\"]');const r=e.getBoundingClientRect();window.scrollBy(0,r.top-120)})()")
+    shot(pg, "sheets_stats_grid_desktop")
+    pg.set_viewport_size({"width": 390, "height": 800})
+    pg.evaluate("(()=>{const e=document.querySelector('input[data-addr=\"A1\"]');const r=e.getBoundingClientRect();window.scrollBy(0,r.top-120)})()")
+    pg.wait_for_timeout(100)
+    shot(pg, "sheets_stats_grid_390")
+    pg.set_viewport_size({"width": 1100, "height": 900})
+
+
 def sheets_sort_filter(ctx):
     pg = fresh(ctx, "/sheets/")
 
@@ -8283,6 +8332,7 @@ DRILLS = {
     "sheets_lookup": sheets_lookup,
     "sheets_half_emoji": sheets_half_emoji,
     "sheets_dates_math": sheets_dates_math,
+    "sheets_stats_math": sheets_stats_math,
     "sheets_fill": sheets_fill,
     "sheets_headers": sheets_headers,
     "slides_drag": slides_drag,

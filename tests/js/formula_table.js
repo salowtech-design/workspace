@@ -384,6 +384,9 @@ const T = [
   ["COUNTBLANK a direct number is #VALUE! (own choice)", {"A1": 1, "A2": "x", "A3": "", "A4": 3, "A5": "=1/0", "B1": "=\"\"", "B2": 10, "B3": 4, "B4": 2, "Z9": "=COUNTBLANK(1)"}, "Z9", "#VALUE!"],
   ["COUNTBLANK a one-cell reference", {"A1": 1, "A2": "x", "A3": "", "A4": 3, "A5": "=1/0", "B1": "=\"\"", "B2": 10, "B3": 4, "B4": 2, "Z9": "=COUNTBLANK(C1)"}, "Z9", 1],
   ["COUNTBLANK of a filled cell reference", {"A1": 1, "A2": "x", "A3": "", "A4": 3, "A5": "=1/0", "B1": "=\"\"", "B2": 10, "B3": 4, "B4": 2, "Z9": "=COUNTBLANK(A1)"}, "Z9", 0],
+  ["STDEV of equal decimals is exactly 0", {"Z9": "=STDEV(0.1,0.1,0.1)"}, "Z9", 0],
+  ["STDEV of seven equal 0.3 is 0", {"Z9": "=STDEV(0.3,0.3,0.3,0.3,0.3,0.3,0.3)"}, "Z9", 0],
+  ["STDEV(0.1,0.2,0.3) keeps its real spread", {"Z9": "=ROUND(STDEV(0.1,0.2,0.3),10)"}, "Z9", 0.1],
 ];
 const chain = {}; for (let i = 1; i <= 3000; i++) chain["A" + i] = i === 1000 ? "=1" : "=A" + (i + 1) + "+1";
 // long dependency chain: rows are capped at 1000 so only A1..A1000 exist; cells past A1000 are #REF!
