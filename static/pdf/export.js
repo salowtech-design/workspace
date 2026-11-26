@@ -92,6 +92,6 @@
       return pdf.save({ useObjectStreams: false }).then(function (out) { return { bytes: out, added: done, signed: signed }; });
     }, function (e) { throw fail(/encrypt/i.test(String(e && e.message)) ? "encrypted" : "damaged", "could not read"); });
   }
-  var api = { MAX_BYTES: 20 * 1024 * 1024, toPage: toPage, rectFor: rectFor, build: build, shownBox: shownBox, SIZE: SIZE };
+  var api = { MAX_BYTES: 20 * 1024 * 1024, toPage: toPage, rectFor: rectFor, build: build, looksSigned: looksSigned, shownBox: shownBox, SIZE: SIZE };
   if (typeof module !== "undefined" && module.exports) module.exports = api; else root.PdfNotesExport = api;
 })(typeof self !== "undefined" ? self : this);

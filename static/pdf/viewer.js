@@ -32,6 +32,7 @@
     return lib;
   }
   function controls() {
+    if (typeof fControls === "function") fControls();
     var on = !!doc;
     $("pdf-prev").disabled = !on || page <= 1; $("pdf-next").disabled = !on || page >= doc.numPages;
     $("pdf-zin").disabled = !on || zoom >= 3; $("pdf-zout").disabled = !on || zoom <= 0.5;
@@ -293,6 +294,107 @@
       nmsg(m);
     }).then(function () { exportDone(myDoc, token); });
   });
+
+  // Form fields (standard AcroForm): listed from the open file, filled here, saved only as a separate copy. Values live in the page's inputs and nowhere else.
+  var fForm = null, fExporting = false, fHold = null, fToken = 0, fInputs = [];
+  function fmsgSet(t) { $("pdf-formstatus").textContent = t; }
+  function fControls() { $("pdf-formfind").disabled = !doc || fExporting; $("pdf-formsave").disabled = !doc || !fForm || fExporting || !fForm.fields.length; }
+  function formsReset() { fToken++; fForm = null; fInputs = []; if (fHold) clearTimeout(fHold.timer); fHold = null; fExporting = false; $("pdf-formlist").hidden = true; $("pdf-formlist").textContent = ""; fmsgSet(""); fControls(); }
+  function el(tag, props) { var e = document.createElement(tag); Object.keys(props || {}).forEach(function (k) { e[k] = props[k]; }); return e; }
+  function renderForm(info) {
+    var host = $("pdf-formlist"); host.textContent = ""; fInputs = [];
+    info.fields.forEach(function (f) {
+      var wrap, ctl, get;
+      if (f.kind === "radio") {
+        wrap = el("fieldset"); wrap.appendChild(el("legend", { textContent: f.name }));
+        var rs = [{ v: "", t: "(none)" }].concat(f.options.map(function (o) { return { v: o, t: o }; })), gname = "pdf-r-" + fInputs.length;
+        var radios = rs.map(function (o) { var l = el("label"), r = el("input", { type: "radio", name: gname, value: o.v, disabled: f.readOnly, checked: o.v === f.value }); l.appendChild(r); l.appendChild(document.createTextNode(" " + o.t)); wrap.appendChild(l); return r; });
+        get = function () { var c = radios.filter(function (r) { return r.checked; })[0]; return c ? c.value : ""; }; ctl = radios;
+      } else {
+        wrap = el("label"); wrap.appendChild(document.createTextNode(f.name + (f.readOnly ? " (read only)" : "") + " "));
+        if (f.kind === "text") { ctl = f.multiline ? el("textarea", { rows: 3 }) : el("input", { type: "text" }); ctl.value = f.value; if (f.max) ctl.maxLength = f.max; get = function () { return ctl.value; }; }
+        else if (f.kind === "check") { ctl = el("input", { type: "checkbox", checked: f.value }); get = function () { return ctl.checked; }; }
+        else {
+          ctl = el("select"); if (f.kind === "list" && f.multi) ctl.multiple = true; else ctl.appendChild(el("option", { value: "", textContent: "(none)" }));
+          f.options.forEach(function (o) { var op = el("option", { value: o, textContent: o }); op.selected = Array.isArray(f.value) ? f.value.indexOf(o) >= 0 : false; ctl.appendChild(op); });
+          if (!ctl.multiple) { var cur = f.value[0] || ""; ctl.value = cur; }
+          get = function () { var s = [].filter.call(ctl.options, function (o) { return o.selected && o.value !== ""; }).map(function (o) { return o.value; }); return s; };
+        }
+        if (f.readOnly) (ctl.length ? ctl : [ctl]).forEach(function (c) { c.disabled = true; });
+        wrap.appendChild(ctl);
+      }
+      host.appendChild(wrap);
+      fInputs.push({ f: f, get: get, orig: JSON.stringify(get()) });
+    });
+    host.hidden = !info.fields.length;
+  }
+  function formNotes(info) {
+    var m = info.fields.length + " field(s) can be filled here.";
+    if (info.skipped.length) m += " Listed but not supported, so left as they are: " + info.skipped.slice(0, 8).map(function (s) { return s.name + " (" + s.kind + ")"; }).join(", ") + (info.skipped.length > 8 ? ", and " + (info.skipped.length - 8) + " more" : "") + ".";
+    if (info.truncated) m += " This file has " + info.total + " fields; only the first " + window.PdfForms.MAX_FIELDS + " are listed.";
+    if (info.xfa) m += " This file also has an XFA form (a different, scripted form type). It is not read or filled here, and the filled copy will not contain the XFA data, so it opens as a plain form.";
+    if (info.signed) m += " This file has a digital signature. A filled copy rewrites the file, so the signature in the copy will not validate.";
+    return m;
+  }
+  $("pdf-formfind").addEventListener("click", function () {
+    if (!doc || fExporting) return;
+    var myDoc = doc, tok = ++fToken; fForm = null; fInputs = []; fHold = null; $("pdf-formlist").hidden = true; $("pdf-formlist").textContent = ""; fmsgSet("Reading the form fields in this browser."); fControls();
+    var libs = window.PDFLib ? Promise.resolve() : loadScript(BASE + "pdf-lib.min.js").catch(function () { throw { stage: "load" }; });
+    libs.then(function () { return myDoc.getData().catch(function () { throw { stage: "read" }; }); }).then(function (bytes) {
+      if (bytes.length > window.PdfForms.MAX_BYTES) throw { stage: "size", mb: Math.round(bytes.length / 1048576) };
+      return window.PdfForms.list(window.PDFLib, bytes, window.PdfNotesExport.looksSigned);
+    }).then(function (info) {
+      if (tok !== fToken || myDoc !== doc) return;
+      fForm = info;
+      if (!info.fields.length && !info.skipped.length) { fmsgSet("This file has no standard form fields."); }
+      else { renderForm(info); fmsgSet(formNotes(info)); }
+      fControls();
+    }).catch(function (e) {
+      if (tok !== fToken || myDoc !== doc) return;
+      var c = e && (e.stage || e.code), m = "The form fields could not be read. Nothing was changed.";
+      if (c === "load") m = "The part of this page that reads forms could not be loaded. Check the connection and try again.";
+      else if (c === "read") m = "This page could not read the open file's bytes again. Open the file again and retry.";
+      else if (c === "size") m = "This file is " + e.mb + " MB. Form filling is limited to " + Math.round(window.PdfForms.MAX_BYTES / 1048576) + " MB so the page does not run out of memory.";
+      else if (c === "encrypted") m = "This file is encrypted, so its form cannot be filled here.";
+      else if (c === "damaged") m = "This file could not be read as a form (it may be damaged).";
+      fmsgSet(m); fControls();
+    });
+  });
+  function saveFilled(r, nameText) {
+    var url = URL.createObjectURL(new Blob([r.bytes], { type: "application/pdf" })), a = document.createElement("a");
+    a.href = url; a.download = nameText.replace(/\.pdf$/i, "").replace(/[^A-Za-z0-9._-]+/g, "_").slice(0, 80) + "-filled.pdf";
+    document.body.appendChild(a); a.click(); a.remove(); setTimeout(function () { URL.revokeObjectURL(url); }, 4000);
+  }
+  $("pdf-formsave").addEventListener("click", function () {
+    if (!doc || !fForm || fExporting) return;
+    var myDoc = doc, nameText = $("pdf-name").textContent || "PDF file", tok = ++fToken, values = {}, changed = 0;
+    fInputs.forEach(function (i) { if (i.f.readOnly) return; var now = i.get(); if (JSON.stringify(now) !== i.orig) { values[i.f.name] = now; changed++; } });
+    if (!changed) { fmsgSet("Nothing was changed in the form, so no copy was made."); return; }
+    var sig = JSON.stringify(values);
+    if (fHold && fHold.doc === myDoc && fHold.sig === sig) { var h = fHold; fHold = null; clearTimeout(h.timer); saveFilled(h.r, nameText); fmsgSet("Downloaded a filled copy. The file you opened was not changed."); return; }
+    if (fHold) { clearTimeout(fHold.timer); fHold = null; }
+    fExporting = true; fControls(); fmsgSet("Building a filled copy in this browser.");
+    myDoc.getData().catch(function () { throw { stage: "read" }; }).then(function (bytes) {
+      if (bytes.length > window.PdfForms.MAX_BYTES) throw { stage: "size", mb: Math.round(bytes.length / 1048576) };
+      return window.PdfForms.fill(window.PDFLib, bytes, values);
+    }).then(function (r) {
+      if (tok !== fToken || myDoc !== doc) return;
+      if (fForm.signed) {
+        fHold = { doc: myDoc, r: r, sig: sig, timer: setTimeout(function () { fHold = null; if (myDoc === doc) fmsgSet("The copy was not downloaded."); }, 15000) };
+        fmsgSet("This file has a digital signature. A filled copy rewrites the file, so the signature in the copy will not validate. The original is not touched. Press Download a filled copy again within 15 seconds, with the same values, to download it anyway.");
+        return;
+      }
+      saveFilled(r, nameText); fmsgSet("Downloaded a filled copy with " + r.filled + " field(s) changed. The file you opened was not changed.");
+    }).catch(function (e) {
+      if (tok !== fToken || myDoc !== doc) return;
+      var c = e && (e.stage || e.code), m = "A filled copy could not be made. Nothing was downloaded and the file you opened was not changed.";
+      if (c === "value") m = "A value could not be written into the file (for example a character its form font cannot draw). Nothing was downloaded. Change that value and try again.";
+      else if (c === "read") m = "This page could not read the open file's bytes again. Open the file again and retry.";
+      else if (c === "size") m = "This file is " + e.mb + " MB. Copies are limited to 20 MB. Nothing was downloaded.";
+      else if (c === "readonly") m = "A field in the file is read only. Nothing was downloaded.";
+      fmsgSet(m);
+    }).then(function () { fExporting = false; fControls(); });
+  });
   $("pdf-clearnotes").addEventListener("click", function () {
     if (!doc || doc !== nDoc || !(nState === "ok" || nState === "bad") || saving) return;
     if (!clearArmed) {
@@ -315,7 +417,7 @@
   function go(p) { if (!doc) return; page = C.pageIndex(p, 0, doc.numPages); controls(); draw(); }
   function closeDoc(msg) {
     token++; cancelCurrent(); fseq.begin(); finding = false; mark = ""; $("pdf-fstop").disabled = true; fmsg(""); $("pdf-q").value = "";
-    var d = doc; doc = null; page = 1; zoom = 1; fitPage = false; rot = 0; notesClose(); $("pdf-text").textContent = ""; shown = "";
+    formsReset(); var d = doc; doc = null; page = 1; zoom = 1; fitPage = false; rot = 0; notesClose(); $("pdf-text").textContent = ""; shown = "";
     settle.then(function () { if (doc) return; canvas.width = 1; canvas.height = 1; canvas.style.width = "0"; canvas.style.height = "0"; });
     var lt = loadTask; loadTask = null; if (lt) { try { lt.destroy(); } catch (e) { /* already gone */ } }
     controls(); status.textContent = msg || "";
@@ -328,7 +430,7 @@
       return t.promise.then(function (d) { return { d: d, t: t }; }, function (e) { try { t.destroy(); } catch (x) { /* gone */ } throw e; });
     }).then(function (r) { return hashed.then(function (h) { r.h = h; return r; }); }).then(function (r) {
       if (!seq.current(mine)) { try { r.t.destroy(); } catch (x) { /* superseded by a newer open */ } return; }
-      var d = r.d; closeDoc(""); doc = d; loadTask = r.t; page = 1; zoom = 1; fitPage = false; rot = 0; $("pdf-name").textContent = name; notesOpen(d, r.h); controls(); draw();
+      var d = r.d; closeDoc(""); doc = d; loadTask = r.t; page = 1; zoom = 1; fitPage = false; rot = 0; $("pdf-name").textContent = name; notesOpen(d, r.h); controls(); fControls(); draw();
     }).catch(function (e) {
       if (!seq.current(mine)) return;
       status.textContent = e && e.name === "PasswordException" ? "This PDF is password protected. Password files are not supported yet." : e && e.name === "InvalidPDFException" ? "That PDF is damaged or not readable." : "The viewer could not open that file.";

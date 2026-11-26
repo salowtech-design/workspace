@@ -111,3 +111,16 @@ def test_module_files_are_served_with_a_javascript_type_by_django_static_serving
             assert r.status_code == 200 and r["Content-Type"].startswith("text/javascript"), r[
                 "Content-Type"
             ]
+
+
+def test_pdf_forms_table_passes_under_node():
+    if not shutil.which("node"):
+        pytest.skip("node not available")
+    r = subprocess.run(  # noqa: S603 - fixed argv
+        [shutil.which("node"), str(ROOT / "tests/js/pdf_forms_table.js")],
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert "23/23 pdf forms rows passed" in r.stdout

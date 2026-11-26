@@ -22,3 +22,7 @@
 .pdf-notelist { padding-left: 1.4em; }
 .pdf-notelist li { margin: 4px 0; overflow-wrap: anywhere; }
 .pdf-notes [hidden] { display: none !important; }
+.pdf-forms [hidden] { display: none !important; }
+.pdf-formlist { display: grid; gap: 8px; max-width: 640px; }
+.pdf-formlist label, .pdf-formlist fieldset { display: block; overflow-wrap: anywhere; }
+.pdf-formlist input[type=text], .pdf-formlist select, .pdf-formlist textarea { display: block; width: 100%; box-sizing: border-box; }

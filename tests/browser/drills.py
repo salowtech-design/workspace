@@ -4911,6 +4911,204 @@ def pdf_thumb_measure(ctx):  # noqa: C901
         )
 
 
+def pdf_forms(ctx):  # noqa: C901
+    """Fill the standard form fields of a PDF in the viewer and download a separate filled copy."""
+    import hashlib
+    import pathlib
+
+    fx = pathlib.Path(__file__).resolve().parents[1] / "js" / "fixtures"
+    basic = (fx / "form_basic.pdf").read_bytes()
+    signed = (fx / "form_signed.pdf").read_bytes()
+    pg = fresh(ctx, "/pdf/")
+    pg.set_viewport_size({"width": 1280, "height": 800})
+
+    def open_pdf(name, data):
+        pg.set_input_files(
+            "#pdf-open", files=[{"name": name, "mimeType": "application/pdf", "buffer": data}]
+        )
+        for _ in range(50):
+            if pg.inner_text("#pdf-where").startswith("Page 1 of"):
+                break
+            pg.wait_for_timeout(300)
+        pg.wait_for_timeout(500)
+
+    def status():
+        return pg.inner_text("#pdf-formstatus")
+
+    def find():
+        pg.click("#pdf-formfind")
+        for _ in range(40):
+            if (
+                pg.is_visible("#pdf-formlist")
+                or "no standard form" in status()
+                or "could not" in status()
+            ):
+                break
+            pg.wait_for_timeout(250)
+
+    # Controls stay off with no file.
+    check(
+        "forms: buttons are off with no file open",
+        pg.is_disabled("#pdf-formfind") and pg.is_disabled("#pdf-formsave"),
+    )
+    open_pdf("form.pdf", basic)
+    check(
+        "forms: find is on once a file is open, save is still off",
+        not pg.is_disabled("#pdf-formfind") and pg.is_disabled("#pdf-formsave"),
+    )
+    find()
+    names = pg.evaluate(
+        "[...document.querySelectorAll('#pdf-formlist > label, #pdf-formlist > fieldset')].map(e=>e.textContent.trim().split(' ')[0].replace(/\\s.*/,''))"
+    )
+    check(
+        "forms: eight fillable fields are listed, the button is named as unsupported",
+        len(names) == 8 and "go (button)" in status() and "8 field(s)" in status(),
+        (names, status()),
+    )
+    check(
+        "forms: the read only field is shown disabled",
+        pg.evaluate(
+            "[...document.querySelectorAll('#pdf-formlist label')].find(l=>l.textContent.indexOf('fixed')===0).querySelector('input').disabled"
+        ),
+    )
+    check(
+        "forms: the text limit is applied to the box",
+        pg.evaluate(
+            "[...document.querySelectorAll('#pdf-formlist label')].find(l=>l.textContent.indexOf('code')===0).querySelector('input').maxLength"
+        )
+        == 4,
+    )
+    # Nothing changed: no copy.
+    pg.click("#pdf-formsave")
+    pg.wait_for_timeout(300)
+    check("forms: saving with no change makes no copy", "no copy was made" in status(), status())
+
+    # Fill.
+    def field(name):
+        return (
+            "[...document.querySelectorAll('#pdf-formlist label')].find(l=>l.textContent.indexOf('%s')===0)"
+            % name
+        )
+
+    pg.evaluate(field("full_name") + ".querySelector('input').value='Akif Hussain'")
+    pg.evaluate(field("agree") + ".querySelector('input').click()")
+    pg.evaluate(field("country") + ".querySelector('select').value='France'")
+    pg.evaluate("document.querySelector('#pdf-formlist input[type=radio][value=large]').click()")
+    pg.evaluate(
+        field("tags")
+        + ".querySelector('select').querySelectorAll('option').forEach(o=>o.selected=(o.value=='a'||o.value=='c'))"
+    )
+    pg.evaluate(field("notes") + ".querySelector('textarea').value='line1\\nline2'")
+    before = hashlib.sha256(basic).hexdigest()
+    with pg.expect_download() as dl:
+        pg.click("#pdf-formsave")
+    path = dl.value.path()
+    out = open(path, "rb").read()
+    check(
+        "forms: the download is a separate PDF named -filled",
+        dl.value.suggested_filename == "form-filled.pdf" and out[:5] == b"%PDF-" and out != basic,
+        dl.value.suggested_filename,
+    )
+    check(
+        "forms: the file that was opened is byte-identical",
+        hashlib.sha256(basic).hexdigest() == before,
+    )
+    check(
+        "forms: the status says the original was not changed",
+        "6 field(s) changed" in status() and "not changed" in status(),
+        status(),
+    )
+    shot = os.environ.get("DRILL_SHOTS", "/tmp")  # noqa: S108
+    pg.set_viewport_size({"width": 390, "height": 800})
+    pg.wait_for_timeout(500)
+    pg.locator("#pdf-forms").scroll_into_view_if_needed()
+    pg.screenshot(path=shot + "/pdf-forms-phone.png")
+    pg.set_viewport_size({"width": 1280, "height": 800})
+    # Reopen the filled copy and read the values back.
+    open_pdf("form-filled.pdf", out)
+    find()
+    vals = pg.evaluate(
+        "(()=>{const q=n=>[...document.querySelectorAll('#pdf-formlist label')].find(l=>l.textContent.indexOf(n)===0);"
+        "return {name:q('full_name').querySelector('input').value,agree:q('agree').querySelector('input').checked,"
+        "country:q('country').querySelector('select').value,size:document.querySelector('#pdf-formlist input[type=radio]:checked').value,"
+        "tags:[...q('tags').querySelectorAll('option')].filter(o=>o.selected).map(o=>o.value).join(),notes:q('notes').querySelector('textarea').value,"
+        "fixed:q('fixed').querySelector('input').value,code:q('code').querySelector('input').value}})()"
+    )
+    check(
+        "forms: the copy reopens with the filled values and the untouched fields as they were",
+        vals
+        == {
+            "name": "Akif Hussain",
+            "agree": True,
+            "country": "France",
+            "size": "large",
+            "tags": "a,c",
+            "notes": "line1\nline2",
+            "fixed": "locked",
+            "code": "",
+        },
+        vals,
+    )
+    # The page shows the filled text too (appearance stream drawn by pdf.js), not only the field value.
+    pg.wait_for_timeout(300)
+    # A value the form font cannot draw is refused and nothing downloads.
+    pg.evaluate(field("full_name") + ".querySelector('input').value='\\u0905\\u0915'")
+    got = []
+    pg.on("download", lambda d: got.append(d))
+    pg.click("#pdf-formsave")
+    pg.wait_for_timeout(1200)
+    check(
+        "forms: a value the font cannot draw is refused, nothing downloaded",
+        not got and "could not be written" in status(),
+        status(),
+    )
+    # Another file replaces the list.
+    open_pdf("form.pdf", basic)
+    check(
+        "forms: opening another file clears the old field list",
+        not pg.is_visible("#pdf-formlist") and status() == "",
+    )
+    # Signed file: first press holds, second press within 15 s downloads.
+    open_pdf("signed.pdf", signed)
+    find()
+    check(
+        "forms: a signed file says so when the fields are listed",
+        "digital signature" in status(),
+        status(),
+    )
+    pg.evaluate(field("full_name") + ".querySelector('input').value='Sam'")
+    got.clear()
+    pg.click("#pdf-formsave")
+    pg.wait_for_timeout(1500)
+    check(
+        "forms: the first press on a signed file downloads nothing and warns",
+        not got and "will not validate" in status() and "again within 15 seconds" in status(),
+        status(),
+    )
+    pg.evaluate(field("full_name") + ".querySelector('input').value='Sam2'")
+    pg.click("#pdf-formsave")
+    pg.wait_for_timeout(1500)
+    check(
+        "forms: changing a value after the warning does not release the held copy",
+        not got,
+        status(),
+    )
+    with pg.expect_download() as dl2:
+        pg.click("#pdf-formsave")
+    check(
+        "forms: pressing again with the same values downloads the copy",
+        dl2.value.suggested_filename == "signed-filled.pdf",
+    )
+    # A file with no form.
+    open_pdf("none.pdf", _two_page_pdf())
+    find()
+    check(
+        "forms: a file with no form says so and offers no save",
+        "no standard form" in status() and pg.is_disabled("#pdf-formsave"),
+        status(),
+    )
+
+
 def _poll_logger(codes, k):
     def log(resp):
         if "/poll/" in resp.url:
@@ -5159,6 +5357,7 @@ DRILLS = {
     "pdf_rotate": pdf_rotate,
     "pdf_notes_turn": pdf_notes_turn,
     "pdf_thumb_measure": pdf_thumb_measure,
+    "pdf_forms": pdf_forms,
     "slides_style": slides_style,
     "sheets_tabs": sheets_tabs,
     "sheets_chart": sheets_chart,

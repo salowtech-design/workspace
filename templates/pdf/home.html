@@ -34,11 +34,18 @@
 <button class="btn" type="submit">Save note</button> <button class="btn" type="button" id="pdf-notecancel">Cancel</button></form>
 <p class="cal-meta" id="pdf-notestatus" role="status"></p>
 <ol class="pdf-notelist" id="pdf-notelist"></ol></div>
+<div class="pdf-forms" id="pdf-forms">
+<p class="pdf-tools"><button class="btn" type="button" id="pdf-formfind" disabled>Find form fields</button>
+<button class="btn" type="button" id="pdf-formsave" disabled>Download a filled copy</button></p>
+<p class="cal-meta" id="pdf-formhint">Fills the standard form fields (text, check boxes, choices) in this browser and downloads a separate copy. The file you opened is not changed, what you type is not stored, and nothing in the file is run or submitted. Signature fields and buttons are listed but not supported. Copies are limited to 20 MB.</p>
+<p class="cal-meta" id="pdf-formstatus" role="status"></p>
+<form id="pdf-formlist" class="pdf-formlist" onsubmit="return false" hidden></form></div>
 <details class="cal-meta" id="pdf-text-wrap" open><summary>Text of this page</summary><pre id="pdf-text" class="pdf-text" tabindex="0" aria-label="Text of the current page"></pre></details>
 <p class="cal-meta" id="pdf-status" role="status"></p>
 </div>
 <script src="/static/pdf/check.js"></script>
 <script src="/static/pdf/notes.js"></script>
 <script src="/static/pdf/export.js"></script>
+<script src="/static/pdf/forms.js"></script>
 <script src="/static/pdf/viewer.js"></script>
 {% endblock %}
