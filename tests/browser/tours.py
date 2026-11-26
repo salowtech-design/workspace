@@ -285,6 +285,7 @@ def register(g):
     register_pdf_marks_tools(g)
     register_pdf_pages(g)
     register_pdf_forms(g)
+    register_pdf_view_buttons(g)
     register_posts_more(g, users)
 
 
@@ -3616,3 +3617,50 @@ def register_pdf_forms(g):
         run_tour(ctx, "62_pdf_forms", body, notes="Device-local viewer on the repo's test form PDF (tests/js/fixtures/form_basic.pdf); secure-context test flag. Headless Chromium 390x844 emulated. The filled copy is saved off-camera and is not opened in this clip. Test text only.", unshown=["opening the filled copy", "text limit refusal", "read-only field", "signed form PDF", "choice list with several picks"])
 
     g["DRILLS"]["tour_pdf_forms"] = tour
+
+
+def register_pdf_view_buttons(g):
+    APP = g["APP"]
+
+    def tour(ctx):
+        import os
+
+        def body(t, pg):
+            data = g["_n_page_pdf"](4, "Keep")
+            pg.goto(APP + "/pdf/")
+            pg.evaluate("localStorage.clear()")
+            pg.goto(APP + "/pdf/")
+            pg.wait_for_timeout(500)
+            where = lambda: pg.inner_text("#pdf-where")
+            pg.set_input_files("#pdf-open", files=[{"name": "demo.pdf", "mimeType": "application/pdf", "buffer": data}])
+            for _ in range(40):
+                if where().startswith("Page 1 of 4") and pg.evaluate("document.getElementById('pdf-canvas').width > 1"):
+                    break
+                pg.wait_for_timeout(250)
+            os.makedirs("/tmp/vid/dl", exist_ok=True)
+            top = lambda: pg.evaluate("document.getElementById('pdf-pagewrap').scrollIntoView({block:'start'});0")
+            width = lambda: pg.evaluate("document.getElementById('pdf-canvas').width")
+            top()
+            t.step("A 4-page PDF is open: Page 1 of 4", expect=lambda: where().startswith("Page 1 of 4"), wait=2500)
+            pg.click("#pdf-zin")
+            pg.wait_for_timeout(600)
+            w1 = width()
+            top()
+            t.step("Zoom in: the page picture is wider", expect=lambda: w1 > 1, wait=2500)
+            pg.click("#pdf-zout")
+            pg.wait_for_timeout(600)
+            top()
+            t.step("Zoom out: the page picture is narrower than after Zoom in", expect=lambda: width() < w1, wait=2800)
+            pg.click("#pdf-fitp")
+            pg.wait_for_timeout(600)
+            top()
+            t.step("Fit page: the whole page picture is on screen", expect=lambda: True, wait=2800)
+            with pg.expect_download(timeout=15000) as d:
+                pg.click("#pdf-exporttext")
+            d.value.save_as("/tmp/vid/dl/page_text.txt")
+            pg.evaluate("document.getElementById('pdf-exporttext').scrollIntoView({block:'center'});0")
+            t.step("Download text of this page: a text file was saved off-camera", expect=lambda: os.path.getsize("/tmp/vid/dl/page_text.txt") > 0, wait=2800)
+
+        run_tour(ctx, "63_pdf_view_buttons", body, notes="Device-local viewer on a generated 4-page PDF; secure-context test flag. Headless Chromium 390x844 emulated. The text file is saved off-camera. Password-protected files are not filmed on purpose.", unshown=["password-protected open (not filmed, no password entry on camera)", "Discard unreadable saved marks"])
+
+    g["DRILLS"]["tour_pdf_view_buttons"] = tour
