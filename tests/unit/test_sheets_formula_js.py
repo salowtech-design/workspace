@@ -14,7 +14,7 @@ def test_formula_function_table_passes_in_node():
         timeout=60,
     )
     assert r.returncode == 0, r.stdout + r.stderr
-    assert "338/338 rows passed" in r.stdout
+    assert "367/367 rows passed" in r.stdout
 
 
 def test_model_table_passes_in_node():

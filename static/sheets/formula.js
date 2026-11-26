@@ -352,7 +352,9 @@
 
   /* ---- date functions on serial numbers (deterministic: no TODAY, NOW or clock) ----
    * The Google Docs Editors help pages for DATE, YEAR, MONTH, DAY and WEEKDAY were read. Serial 0 is 1899-12-30 and
-   * serial 1 is 1899-12-31, so DATE(1900,1,1) is 2 and DATE(1970,1,1) is 25569. A fraction (a time of day) is dropped
+   * serial 1 is 1899-12-31, so DATE(1900,1,1) is 2 and DATE(1970,1,1) is 25569. Excel's 1900 system treats 1900 as a leap
+   * year (Microsoft: https://learn.microsoft.com/en-us/troubleshoot/microsoft-365-apps/excel/wrongly-assumes-1900-is-leap-year
+   * and https://support.microsoft.com/en-us/excel/date-systems-in-excel), so serials differ by a day before 1900-03-01; that is not modelled. A fraction (a time of day) is dropped
    * by rounding the serial down. All arithmetic is UTC, so the browser's time zone and daylight saving never matter.
    * DATE: year, month and day must be numbers (text is #VALUE!, unlike the numeric-text coercion elsewhere in this engine);
    * decimals are cut toward 0; month and day outside their range roll over (DATE(1969,13,1) is 1970-01-01); a year
@@ -398,23 +400,35 @@
 
   /* ---- math functions ----
    * The Google Docs Editors help pages for MOD, POWER, SQRT, FLOOR, CEILING and INT were read. Numbers: numeric text is
-   * accepted as elsewhere in this engine; a range of more than one cell is #VALUE!. MOD takes the sign of the divisor
-   * (MOD(-1,3) is 2), a zero divisor is #DIV/0!, and decimals can still show float noise, so ROUND the result as the page says.
-   * POWER: 0 to a negative power is #DIV/0!, a negative base with a fractional exponent or an overflow is #NUM!;
-   * 0 to the power 0 is 1 (not stated on the page, my choice). SQRT of a negative is #NUM!. INT rounds down, so INT(-1.5) is -2.
+   * accepted as elsewhere in this engine; a range of more than one cell is #VALUE!.
+   * MOD takes the sign of the divisor (MOD(-1,3) is 2) and a zero divisor is #DIV/0!. With two whole numbers the result is the
+   * exact remainder of the two doubles, with no cleaning (MOD(10000000000000,7) is 3, MOD(9007199254740991,2) is 1,
+   * MOD(1700000000001,1000) is 1). With a non-whole operand a remainder within 4 ulps of the dividend of 0 or of the divisor
+   * is 0 (so MOD(0.3,0.1) is 0), because it is the noise of a quotient that is really whole; other remainders keep float noise
+   * from the subtraction (MOD(5.1,1) is 0.0999999999999996), so ROUND them as the page says. A tiny remainder of a tiny
+   * number (MOD(1e-20,3e-20)) is kept: the cutoff scales with the dividend, not with a fixed size.
+   * POWER: 0 to a negative power is #DIV/0!, a negative base with a fractional exponent or an overflow is #NUM!; 0 to the power
+   * 0 is 1 (not on the page, my choice). The ^ operator is older and stays as it was: the same results, but #VALUE! for all
+   * three error cases (0^-1, (-8)^0.5, 10^400). SQRT of a negative is #NUM!. INT rounds down, so INT(-1.5) is -2.
    * FLOOR and CEILING: factor defaults to 1; a zero factor is #DIV/0!. A negative factor is #NUM! in this engine: the pages
-   * describe it in two ways, I did not verify the direction rules, so it is left out rather than guessed. FLOOR(v,f) is
-   * the largest multiple of f at or below v, CEILING the smallest at or above; results are cleaned to 15 significant digits
-   * so FLOOR(23.25,0.18) shows 23.22. The quotient is cleaned the same way before rounding, so MOD(0.3,0.1) is 0 and
-   * CEILING(0.1+0.2,0.1) is 0.3 (plain floating point gives 0.1 and 0.4); this is my choice, the pages only warn about float noise. Not built: ROUNDUP, ROUNDDOWN, MROUND, EXP, LN, LOG. */
+   * describe it in two ways and I did not verify the direction rules, so it is left out rather than guessed. FLOOR(v,f) is the
+   * largest multiple of f at or below v, CEILING the smallest at or above. With two whole numbers the result is exact
+   * (FLOOR(1234567890123456,1) is itself). Otherwise the quotient within 2 ulps of a whole number is taken as that whole
+   * number (only below 2^40) and the result is cleaned to 15 significant digits (16 or more digits are kept), so FLOOR(23.25,0.18)
+   * is 23.22 and CEILING(0.1+0.2,0.1) is 0.3 (plain floating point gives 0.4). Not built: ROUNDUP, ROUNDDOWN, MROUND, EXP, LN, LOG. */
   function mn(v) { v = sc2(v); if (isErr(v)) return v; return num(v); }
-  function clean(x) { return isFinite(x) ? Number(x.toPrecision(15)) : new Err("#NUM!"); }
+  function clean(x) { return !isFinite(x) ? new Err("#NUM!") : Math.abs(x) >= 1e15 ? x : Number(x.toPrecision(15)); }  // 15 digits, but a number of 16 digits or more is kept exactly
+  function snap(q) { var n = Math.round(q); return Math.abs(q - n) <= 2 * Number.EPSILON * Math.abs(q) ? n : q; }  // a quotient within 2 ulps of a whole number is that whole number
+  function fixSign(r, y) { return r !== 0 && (r < 0) !== (y < 0) ? r + y : r; }  // JS % takes the sign of the dividend, MOD of the divisor
   FNX.MOD = function (a) {
     var x = mn(a[0]), y = mn(a[1]); if (isErr(x)) return x; if (isErr(y)) return y;
     if (y === 0) return new Err("#DIV/0!");
-    var q = clean(x / y); if (isErr(q)) return q;
-    var r = x - y * Math.floor(q);
-    return Math.abs(r) <= 1e-12 * Math.max(Math.abs(x), Math.abs(y)) ? 0 : clean(r);  // a remainder that is only float noise is 0
+    var r = x % y;  // exact for the two doubles
+    if (Number.isInteger(x) && Number.isInteger(y)) return fixSign(r, y) + 0;  // whole numbers: the exact remainder, no cleaning at all
+    // not whole numbers: a remainder within 4 ulps of 0 or of the divisor is the noise of a quotient that is really a whole number
+    var tol = 4 * Number.EPSILON * Math.abs(x);
+    if (Math.abs(r) <= tol || Math.abs(Math.abs(y) - Math.abs(r)) <= tol) return 0;
+    return clean(fixSign(r, y));
   };
   FNX.POWER = function (a) {
     var x = mn(a[0]), y = mn(a[1]); if (isErr(x)) return x; if (isErr(y)) return y;
@@ -429,8 +443,9 @@
       var x = mn(a[0]), f = a.length > 1 ? mn(a[1]) : 1; if (isErr(x)) return x; if (isErr(f)) return f;
       if (f === 0) return new Err("#DIV/0!");
       if (f < 0) return new Err("#NUM!");
-      var q = clean(x / f); if (isErr(q)) return q;
-      return clean(fn(q) * f);
+      var raw = x / f; if (!isFinite(raw)) return new Err("#NUM!");
+      if (Number.isInteger(x) && Number.isInteger(f)) { var ri = fn(raw) * f; return isFinite(ri) ? ri : new Err("#NUM!"); }  // whole numbers: no cleaning
+      return clean(fn(Math.abs(raw) < 1099511627776 ? snap(raw) : raw) * f);  // snapping only where a quotient still has fraction digits
     };
   }
   stepFn("FLOOR", Math.floor); stepFn("CEILING", Math.ceil);
