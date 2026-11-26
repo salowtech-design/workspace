@@ -39,8 +39,10 @@ class Tour:
 
     def step(self, text, fn=None, wait=1300, expect=None):
         """Show the caption, do the action, optionally assert a condition, and record the outcome. A failure is shown on screen."""
+        fast = os.path.exists("/tmp/tour_fast")  # debugging aid: short pauses, not for the delivered clips
+        wait = 150 if fast else wait
         self.cap(text)
-        self.pg.wait_for_timeout(600)
+        self.pg.wait_for_timeout(100 if fast else 600)
         ok, detail = True, ""
         try:
             if fn:
@@ -52,6 +54,7 @@ class Tour:
         except Exception as ex:  # shown, logged, and the tour goes on
             ok, detail = False, (str(ex).strip().splitlines() or [""])[0][:160]
         if not ok:
+            print("   step failed:", text, "|", detail, flush=True)
             self.cap("DID NOT WORK: " + text)
             self.pg.wait_for_timeout(1500)
         self.log.append({"step": text, "ok": ok, "detail": detail})
@@ -223,6 +226,7 @@ def register(g):
 
     g["DRILLS"]["tour_drive"] = drive_tour
     register_tasks(g, users)
+    register_calendar(g, users)
 
 
 def register_tasks(g, users):
@@ -285,3 +289,69 @@ def register_tasks(g, users):
 
     g["DRILLS"]["tour_tasks_lists"] = lambda ctx: tasks_tour(ctx, "lists")
     g["DRILLS"]["tour_tasks_projects"] = lambda ctx: tasks_tour(ctx, "projects")
+
+
+def register_calendar(g, users):
+    APP = g["APP"]
+
+    def cal_tour(ctx, which):
+        import concurrent.futures
+        import datetime as dt
+
+        users(ctx)
+        day1 = (dt.date.today() + dt.timedelta(days=2)).isoformat()
+        day2 = (dt.date.today() + dt.timedelta(days=3)).isoformat()
+
+        def fixture():
+            from apps.accounts.models import CustomUser
+            from apps.events import services as es
+
+            two = CustomUser.objects.get(employee_id="ST-LIVE-2")
+            me = CustomUser.objects.get(employee_id="ST-LIVE-1")
+            base = dt.datetime.combine(dt.date.today() + dt.timedelta(days=1), dt.time(10, 0))
+            es.create_event(two, "Rota review (invited by Second)", base, base + dt.timedelta(hours=1), "Asia/Kolkata", [me.pk])
+            es.create_event(two, "Team sync (invited by Second)", base + dt.timedelta(days=1), base + dt.timedelta(days=1, hours=1), "Asia/Kolkata", [me.pk])
+
+        with concurrent.futures.ThreadPoolExecutor(1) as ex:
+            ex.submit(fixture).result()
+
+        def tab(pg, name):
+            pg.click(".cal-tabs a:has-text('%s')" % name)
+
+        def bodyA(t, pg):
+            pg.goto(APP + "/calendar/")
+            t.step("Calendar: Agenda tab, with two invitations from another person", expect=lambda: "invited by Second" in pg.inner_text("body"), wait=2000)
+            t.step("Open the first invitation", lambda: pg.click("a.cal-title:has-text('Rota review')"), expect=lambda: "Guests" in pg.inner_text("body"))
+            t.step("Accept it", lambda: pg.click("button:has-text('Accept')"), expect=lambda: "accepted" in pg.inner_text("body").lower())
+            t.step("Change the answer to Maybe", lambda: pg.click("button:has-text('Maybe')"), expect=lambda: "tentative" in pg.inner_text("body").lower() or "maybe" in pg.inner_text("body").lower())
+            t.step("Decline it", lambda: pg.click("button:has-text('Decline')"), expect=lambda: "declined" in pg.inner_text("body").lower())
+            t.step("New event tab: fill title and times", lambda: (tab(pg, "New event"), pg.fill("input[name=title]", "Planning meeting"), pg.fill("input[name=start]", day1 + "T11:00"), pg.fill("input[name=end]", day1 + "T12:00")))
+            t.step("Add ST-LIVE-3 as a guest and Create", lambda: (pg.fill("textarea[name=guests]", "ST-LIVE-3"), pg.click("button:has-text('Create')")), expect=lambda: "Planning meeting" in pg.inner_text("h2"))
+            t.step("The event page lists the guest and the organiser controls", expect=lambda: "ST-LIVE-3" in pg.inner_text("body") and pg.locator("a:has-text('Edit')").count() >= 1)
+            t.step("Edit: change the title and save", lambda: (pg.click("a:has-text('Edit')"), pg.fill("input[name=title]", "Planning meeting (moved)"), pg.click("button:has-text('Save')")), expect=lambda: "moved" in pg.inner_text("body"))
+            t.step("Back to Agenda, then the Month tab", lambda: (pg.goto(APP + "/calendar/"), tab(pg, "Month")), expect=lambda: pg.locator("table.cal-month").count() == 1)
+            t.step("Next month arrow and back", lambda: (pg.click("a[aria-label='Next month']"), pg.wait_for_timeout(700), pg.click("a[aria-label='Previous month']")), expect=lambda: pg.locator("table.cal-month").count() == 1)
+            t.step("Week tab", lambda: tab(pg, "Week"), expect=lambda: "Week" in pg.inner_text("body") or "week" in pg.url)
+            t.step("Day tab", lambda: tab(pg, "Day"), expect=lambda: "day" in pg.url)
+            t.note("Next clip: repeating events, free or busy, cancelling.", 2.2)
+
+        def bodyB(t, pg):
+            pg.goto(APP + "/calendar/new/")
+            t.step("New event: a weekly repeating event", lambda: (pg.fill("input[name=title]", "Weekly stand-up"), pg.fill("input[name=start]", day2 + "T09:00"), pg.fill("input[name=end]", day2 + "T09:15")))
+            t.step("Choose Weekly, repeat 4 times", lambda: (pg.select_option("select[name=freq]", "weekly"), pg.fill("input[name=count]", "4")))
+            t.step("Create the series", lambda: pg.click("button:has-text('Create')"), expect=lambda: "Occurrences" in pg.inner_text("body"), wait=1800)
+            t.step("The page lists the occurrences", expect=lambda: pg.locator("form[action$='/skip/']").count() >= 2)
+            t.step("Cancel just one occurrence", lambda: pg.locator("form[action$='/skip/'] button").first.click(), expect=lambda: "Cancelled occurrences" in pg.inner_text("body"))
+            t.step("Free or busy tab: look up ST-LIVE-1 and ST-LIVE-2", lambda: (pg.click(".cal-tabs a:has-text('Free or busy')"), pg.fill("input[name=date]", day2), pg.fill("textarea[name=people]", "ST-LIVE-1, ST-LIVE-2"), pg.click("button:has-text('Show')")), expect=lambda: "ST-LIVE-1" in pg.inner_text("body") and "to" in pg.inner_text("body"))
+            t.step("Open the series from Agenda", lambda: (pg.goto(APP + "/calendar/"), pg.click("a.cal-title:has-text('Weekly stand-up')")), expect=lambda: "Cancel whole series" in pg.inner_text("body"))
+            t.step("Cancel whole series: asks to confirm", lambda: pg.click("a:has-text('Cancel whole series')"), expect=lambda: "Cancel the whole series" in pg.inner_text("h2"))
+            t.step("Confirm", lambda: pg.click("button:has-text('Cancel whole series')"), expect=lambda: "Cancelled" in pg.inner_text("body"))
+            t.note("Not built, so not shown: un-cancelling, changing one occurrence, notifying guests.", 3)
+
+        if which == "A":
+            run_tour(ctx, "05_calendar_events", bodyA, notes="Real Django app on real TiDB. The two invitations were created by a script as another person. Headless Chromium 390x844 emulation.", unshown=["event with a different time zone", "edit conflict message", "Earlier/Later occurrences paging", "monthly and daily repeats", "week and day navigation arrows", "event with a guest who is not an active person (error)"])
+        else:
+            run_tour(ctx, "06_calendar_series", bodyB, notes="Real Django app on real TiDB, headless Chromium 390x844 emulation.", unshown=["monthly and daily repeats", "until-date end of repeat", "repeat interval other than 1", "weekday ticks for weekly repeat", "guest answers as a guest of the series", "occurrence date picker"])
+
+    g["DRILLS"]["tour_cal_a"] = lambda ctx: cal_tour(ctx, "A")
+    g["DRILLS"]["tour_cal_b"] = lambda ctx: cal_tour(ctx, "B")
