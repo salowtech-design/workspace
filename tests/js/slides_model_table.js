@@ -234,4 +234,19 @@ const OLD2 = require("./fixtures/slides_model_v2_master_validator.js");
   ok("after: autoNext is true only when the next entry is after-previous", S.autoNext(t2, 0, 1) === true && S.autoNext(t2, 0, 0) === false && S.autoNext(t2, 0, 2) === false && S.autoNext(AD, 0, 0) === false && S.AUTO_MS === 1000);
   ok("after: duplicating a slide keeps the flag on the copy, and the deck stays valid at version 7", (() => { const d = S.ops.duplicateSlide(t2, 0); if (!d) return false; const v = S.validate(d); return d.slides.length === 2 && d.slides[1].anim.length === 2 && d.slides[1].anim[1].after === true && d.slides[1].anim[0].after === undefined && d.slides[1].anim[1].el !== E2 && v !== null && v.v === 7 && v.slides[1].anim[1].after === true; })());
 }
+{
+  // snapping guides while dragging
+  const A0 = { v: 1, theme: "light", slides: [{ id: "a", elements: [], notes: "" }] };
+  let r1 = S.ops.addElement(A0, 0, "rect"), r2 = S.ops.addElement(r1.deck || r1, 0, "rect"); const D = r2.deck || r2; const [P, Q] = D.slides[0].elements.map((e) => e.id);
+  const setp = (d, id, o) => S.ops.updateElement(d, 0, id, o);
+  const D2 = setp(setp(D, P, { x: 100, y: 100, w: 200, h: 100 }), Q, { x: 500, y: 300, w: 100, h: 100 });
+  ok("snap: a move within 6 of another item's left edge shifts to it and reports the line", (() => { const r = S.snapBox(D2, 0, Q, { x: 103, y: 300, w: 100, h: 100 }, "move"); return r.dx === -3 && r.vx.indexOf(100) >= 0; })());
+  ok("snap: 7 away on x gives no shift on x", S.snapBox(D2, 0, Q, { x: 107, y: 301, w: 100, h: 100 }, "move").dx === 0);
+  ok("snap: the middle of the item snaps to the middle of the slide", (() => { const r = S.snapBox(D2, 0, Q, { x: 432, y: 10, w: 100, h: 100 }, "move"); return r.dx === -2 && r.vx.indexOf(480) >= 0; })());
+  ok("snap: the right edge snaps to the slide's right edge, the bottom to its bottom", (() => { const r = S.snapBox(D2, 0, Q, { x: 858, y: 438, w: 100, h: 100 }, "move"); return r.dx === 2 && r.dy === 2 && r.vx.indexOf(960) >= 0 && r.hy.indexOf(540) >= 0; })());
+  ok("snap: an item never snaps to itself", (() => { const r = S.snapBox(D2, 0, Q, { x: 502, y: 302, w: 100, h: 100 }, "move"); return r.dx === 0 && r.dy === 0 && r.vx.length === 0 && r.hy.length === 0; })());
+  ok("snap: resize snaps the right and bottom edge to the other item, and never the left or top", (() => { const r = S.snapBox(D2, 0, P, { x: 100, y: 100, w: 397, h: 198 }, "resize"), q = S.snapBox(D2, 0, P, { x: 104, y: 104, w: 150, h: 150 }, "resize"); return r.dx === 3 && r.dy === 2 && r.vx.indexOf(500) >= 0 && r.hy.indexOf(300) >= 0 && q.dx === 0 && q.dy === 0; })());
+  ok("snap: the nearest of several lines wins", (() => { const r = S.snapBox(D2, 0, Q, { x: 298, y: 300, w: 100, h: 100 }, "move"); return r.dx === 2 && r.vx.indexOf(300) >= 0; })());
+  ok("snap: a bad slide or box gives no shift", (() => { const r = S.snapBox(D2, 9, Q, { x: 1, y: 1, w: 1, h: 1 }, "move"), q = S.snapBox(D2, 0, Q, null, "move"); return r.dx === 0 && q.dx === 0; })());
+}
 console.log(`${n - bad}/${n} slides model rows passed`); process.exit(bad ? 1 : 0);

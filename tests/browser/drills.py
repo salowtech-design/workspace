@@ -2511,6 +2511,68 @@ def sheets_headers(ctx):  # noqa: C901
             pg.screenshot(path=os.path.join(SHOTS, "sheets-headers-66.png"), full_page=False)
 
 
+def slides_snap(ctx):
+    """Dragging snaps an item's edges and middle to the slide's and the other items' lines within 6 slide units, draws the guide line, and Alt held turns it off."""
+    pg = fresh(ctx, "/slides/")
+    KEY = "document.getElementById('slide-root').dataset.storeKey"
+
+    def item(n):
+        return pg.evaluate("(()=>{const d=JSON.parse(localStorage.getItem(%s));const x=d.slides[0].elements[%d];return [x.x,x.y,x.w,x.h];})()" % (KEY, n))
+
+    def geom():
+        return pg.evaluate("(()=>{document.getElementById('sl-canvas-wrap').scrollIntoView({block:'center'});const s=document.querySelector('#sl-canvas-wrap svg').getBoundingClientRect();return {x:s.left,y:s.top,k:s.width/960};})()")
+
+    pg.click("#sl-add-rect")
+    pg.fill("#sl-x", "100")
+    pg.press("#sl-x", "Tab")
+    pg.fill("#sl-y", "100")
+    pg.press("#sl-y", "Tab")
+    pg.click("#sl-add-rect")
+    pg.fill("#sl-x", "500")
+    pg.press("#sl-x", "Tab")
+    pg.fill("#sl-y", "300")
+    pg.press("#sl-y", "Tab")
+    pg.wait_for_timeout(150)
+
+    def drag_left_to(x_target, alt=False, shot_name=None, release=True):
+        cur = item(1)
+        g = geom()
+        cx, cy = g["x"] + (cur[0] + cur[2] / 2) * g["k"], g["y"] + (cur[1] + cur[3] / 2) * g["k"]
+        pg.mouse.move(cx, cy)
+        pg.mouse.down()
+        if alt:
+            pg.keyboard.down("Alt")
+        pg.mouse.move(cx + (x_target - cur[0]) * g["k"], cy, steps=8)
+        n = pg.evaluate("document.querySelectorAll('svg line.sl-guide').length")
+        if shot_name:
+            shot(pg, shot_name)
+        if release:
+            pg.mouse.up()
+        if alt:
+            pg.keyboard.up("Alt")
+        pg.wait_for_timeout(150)
+        return n
+
+    guides = drag_left_to(104, shot_name="slides_snap_guide_desktop")
+    check("snap: 4 units from the other item's left edge, it lands exactly on it", item(1)[0] == 100, item(1))
+    check("snap: a guide line was drawn while the item was held there", guides >= 1, guides)
+    check("snap: no guide line is left after the drop", pg.evaluate("document.querySelectorAll('svg line.sl-guide').length") == 0)
+    drag_left_to(300)
+    drag_left_to(107)
+    check("snap: 7 units away does not snap", abs(item(1)[0] - 107) <= 1, item(1))  # a pixel of rounding in the mouse path is allowed; snapping would give 100
+    drag_left_to(300)
+    n_alt = drag_left_to(104, alt=True)
+    check("snap: with Alt held it does not snap and draws no guide", abs(item(1)[0] - 104) <= 1 and n_alt == 0, (item(1), n_alt))
+    pg.click("#sl-undo")
+    check("snap: one Undo puts the last drag back to where it started", abs(item(1)[0] - 300) <= 1, item(1))
+    pg.set_viewport_size({"width": 390, "height": 800})
+    pg.wait_for_timeout(100)
+    drag_left_to(item(1)[0] + 1)
+    drag_left_to(104, shot_name="slides_snap_guide_390")
+    check("snap: at 390 wide it snaps the same way", item(1)[0] == 100, item(1))
+    pg.set_viewport_size({"width": 1100, "height": 900})
+
+
 def slides_drag(ctx):  # noqa: C901
     """Drag to move, drag the corner square to resize, in real Chromium with the real mouse."""
     pg = fresh(ctx, "/slides/")
@@ -9186,6 +9248,7 @@ DRILLS = {
     "sheets_fill": sheets_fill,
     "sheets_headers": sheets_headers,
     "slides_drag": slides_drag,
+    "slides_snap": slides_snap,
     "slides_images": slides_images,
     "slides_images_edge": slides_images_edge,
     "slides_images_race": slides_images_race,

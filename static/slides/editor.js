@@ -65,14 +65,26 @@
   var drag = null;
   function endDrag() { var w = wrap(); w.removeEventListener("pointermove", onDragMove); w.removeEventListener("pointerup", onDragUp); w.removeEventListener("pointercancel", onDragCancel); w.removeEventListener("lostpointercapture", onDragCancel); document.removeEventListener("keydown", onDragKey, true); try { if (drag) w.releasePointerCapture(drag.id); } catch (e) { /* already released */ } drag = null; if (pendingRefresh) { pendingRefresh = false; setTimeout(refresh, 0); } }
   function dragDelta(ev) { var m = drag.svg.getScreenCTM(); if (!m || !m.a) return { dx: 0, dy: 0 }; return { dx: (ev.clientX - drag.sx) / m.a, dy: (ev.clientY - drag.sy) / m.d }; }
+  // The drag distance after snapping to the guide lines (Alt held: no snapping). g lists the lines that now match, for drawing.
+  function dragSnap(ev) {
+    var d = dragDelta(ev), none = { dx: d.dx, dy: d.dy, vx: [], hy: [] }; if (ev.altKey || !H) return none;
+    var e = drag.e, mv = drag.mode === "move", b = mv ? { x: e.x + d.dx, y: e.y + d.dy, w: e.w, h: e.h } : { x: e.x, y: e.y, w: e.w + d.dx, h: e.h + d.dy };
+    var r = S.snapBox(H.deck, cur, e.id, b, drag.mode); return { dx: d.dx + r.dx, dy: d.dy + r.dy, vx: r.vx, hy: r.hy };
+  }
+  function drawGuides(g) {
+    var old = drag.svg.querySelectorAll("line.sl-guide"); Array.prototype.forEach.call(old, function (n) { n.remove(); });
+    g.vx.forEach(function (x) { drag.svg.appendChild(el("line", { "class": "sl-guide", x1: x, y1: 0, x2: x, y2: S.H, stroke: "#c2185b", "stroke-width": 1.5, "stroke-dasharray": "6 4", "pointer-events": "none", "aria-hidden": "true" })); });
+    g.hy.forEach(function (y) { drag.svg.appendChild(el("line", { "class": "sl-guide", x1: 0, y1: y, x2: S.W, y2: y, stroke: "#c2185b", "stroke-width": 1.5, "stroke-dasharray": "6 4", "pointer-events": "none", "aria-hidden": "true" })); });
+  }
   function onDragMove(ev) {
-    if (!drag || ev.pointerId !== drag.id) return; var d = dragDelta(ev); drag.moved = drag.moved || Math.abs(ev.clientX - drag.sx) + Math.abs(ev.clientY - drag.sy) > 4;
+    if (!drag || ev.pointerId !== drag.id) return; var d = dragSnap(ev); drag.moved = drag.moved || Math.abs(ev.clientX - drag.sx) + Math.abs(ev.clientY - drag.sy) > 4;
     if (!drag.moved) return;
+    drawGuides(d);
     if (drag.mode === "move") { drag.g.setAttribute("transform", "translate(" + d.dx + "," + d.dy + ")"); drag.hit.setAttribute("stroke", "#2e6f95"); }
     else { drag.hit.setAttribute("width", Math.max(10, drag.e.w + d.dx)); drag.hit.setAttribute("height", Math.max(10, drag.e.h + d.dy)); drag.hit.setAttribute("stroke", "#2e6f95"); }
   }
   function onDragUp(ev) {
-    if (!drag || ev.pointerId !== drag.id) return; var d = dragDelta(ev), dr = drag; endDrag();
+    if (!drag || ev.pointerId !== drag.id) return; var d = dragSnap(ev), dr = drag; endDrag();
     if (!dr.moved) { render(); wrap().querySelector("svg").focus(); return; }
     if (unreadable) { render(); return; }
     var e = dr.e, p = dr.mode === "move" ? { x: Math.round(e.x + d.dx), y: Math.round(e.y + d.dy) } : { w: Math.round(e.w + d.dx), h: Math.round(e.h + d.dy) };

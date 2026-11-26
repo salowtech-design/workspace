@@ -250,6 +250,21 @@
     if (key === "End") return { at: n - 1, step: animCount(d, n - 1) };
     return null;
   }
+  // Snapping while dragging (editor only, nothing stored). Lines: the slide's edges and middle, and the edges and middle of the other items on the slide
+  // (not master items). A moving item snaps its left, middle or right to a vertical line and its top, middle or bottom to a horizontal line, when
+  // within SNAP of it; a resized item snaps its right and bottom edge. Returns the shift to apply and the lines that now match.
+  var SNAP = 6;
+  function snapBox(d, i, id, b, mode, tol) {
+    var s = d.slides[i]; if (!s || !b) return { dx: 0, dy: 0, vx: [], hy: [] }; tol = tol === undefined ? SNAP : tol;
+    var xs = [0, W / 2, W], ys = [0, H / 2, H];
+    s.elements.forEach(function (e) { if (e.id === id) return; xs.push(e.x, e.x + e.w / 2, e.x + e.w); ys.push(e.y, e.y + e.h / 2, e.y + e.h); });
+    var cx = mode === "move" ? [b.x, b.x + b.w / 2, b.x + b.w] : [b.x + b.w], cy = mode === "move" ? [b.y, b.y + b.h / 2, b.y + b.h] : [b.y + b.h];
+    function best(c, refs) { var k = null; c.forEach(function (v) { refs.forEach(function (r) { var t = r - v; if (Math.abs(t) <= tol && (k === null || Math.abs(t) < Math.abs(k))) k = t; }); }); return k === null ? 0 : k; }
+    var dx = best(cx, xs), dy = best(cy, ys), vx = [], hy = [];
+    cx.forEach(function (v) { xs.forEach(function (r) { if (Math.abs(v + dx - r) < 0.001 && vx.indexOf(r) < 0) vx.push(r); }); });
+    cy.forEach(function (v) { ys.forEach(function (r) { if (Math.abs(v + dy - r) < 0.001 && hy.indexOf(r) < 0) hy.push(r); }); });
+    return { dx: dx, dy: dy, vx: dx || vx.length ? vx : [], hy: dy || hy.length ? hy : [] };
+  }
   // ids of the items of slide i that are not shown yet at this step
   // true when the next entry (index step) plays by itself, so the show moves on after AUTO_MS without a key
   var AUTO_MS = 1000;
@@ -277,6 +292,6 @@
     return out;
   }
   function textHeight(lines, size) { return Math.ceil(lines.length * size * 1.2); }
-  var api = { autoNext: autoNext, AUTO_MS: AUTO_MS, showStep: showStep, hiddenIds: hiddenIds, animCount: animCount, FX: FX, LAYOUTS: LAYOUTS, countCut: countCut, cut: cut, MAX_NOTES: MAX_NOTES, fmtClock: fmtClock, wrapLines: wrapLines, textHeight: textHeight, showNav: showNav, W: W, H: H, THEMES: THEMES, FILLS: FILLS, MAX_SLIDES: MAX_SLIDES, MAX_EL: MAX_EL, newDeck: newDeck, validate: validate, ops: ops, color: color, textColor: textColor, onFill: onFill, contrast: contrast, loadDeck: loadDeck, describe: describe, describeEls: describeEls, masterOf: masterOf, MAX_MASTER: MAX_MASTER, History: History, copy: copy };
+  var api = { snapBox: snapBox, SNAP: SNAP, autoNext: autoNext, AUTO_MS: AUTO_MS, showStep: showStep, hiddenIds: hiddenIds, animCount: animCount, FX: FX, LAYOUTS: LAYOUTS, countCut: countCut, cut: cut, MAX_NOTES: MAX_NOTES, fmtClock: fmtClock, wrapLines: wrapLines, textHeight: textHeight, showNav: showNav, W: W, H: H, THEMES: THEMES, FILLS: FILLS, MAX_SLIDES: MAX_SLIDES, MAX_EL: MAX_EL, newDeck: newDeck, validate: validate, ops: ops, color: color, textColor: textColor, onFill: onFill, contrast: contrast, loadDeck: loadDeck, describe: describe, describeEls: describeEls, masterOf: masterOf, MAX_MASTER: MAX_MASTER, History: History, copy: copy };
   if (typeof module !== "undefined" && module.exports) module.exports = api; else root.SalowSlides = api;
 })(typeof self !== "undefined" ? self : this);
