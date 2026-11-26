@@ -249,6 +249,7 @@ def register(g):
     register_iam_stepup2(g)
     register_iam_stepup3(g)
     register_bg_probe(g)
+    register_chat_react(g)
 
 
 def register_tasks(g, users):
@@ -1703,3 +1704,42 @@ def register_bg_probe(g):
         check("probe RESULT: that page is the real recovery console, not an error page", "Recovery" in body and "Forbidden" not in body and "denied" not in body.lower(), " ".join(body.split())[:120])
 
     g["DRILLS"]["probe_bg_sudo"] = probe
+
+
+def register_chat_react(g):
+    APP = g["APP"]
+
+    def tour(ctx):
+        import concurrent.futures
+
+        import django
+
+        django.setup()
+
+        def make():
+            from apps.accounts.models import CustomUser
+            from apps.chat import services as cs
+
+            two = CustomUser.objects.get_or_create(employee_id="ST-LIVE-2", defaults={"full_name": "Second Synthetic", "email": "st-live-2@salowtech.com", "email_verified": True,
+                                                   "role": CustomUser.Role.EMPLOYEE, "status": CustomUser.Status.ACTIVE, "is_active": True})[0]
+            me = CustomUser.objects.get(employee_id="ST-LIVE-1")
+            sp = cs.open_dm(me, two.pk)
+            cs.post_message(two, sp.public_id, "Rota published for next week.", "rx-1")
+
+        with concurrent.futures.ThreadPoolExecutor(1) as ex:
+            ex.submit(make).result()
+
+        def body(t, pg):
+            pg.goto(APP + "/chat/")
+            t.step("Chat list", expect=lambda: pg.locator("a:has-text('Second Synthetic')").count() >= 1, wait=1800)
+            t.step("Open the conversation", lambda: pg.click("a:has-text('Second Synthetic')"), expect=lambda: "Rota published" in pg.inner_text("#chat-list"), wait=2000)
+            pressed = lambda k: pg.get_attribute("#m1 button[value=%s]" % k, "aria-pressed") == "true"
+            for k, nm in (("laugh", "Laugh"), ("tada", "Celebrate"), ("pray", "Thanks"), ("eyes", "Looking")):
+                t.step("Press %s on the message: the button shows pressed" % nm, (lambda kk: lambda: pg.click("#m1 button[value=%s]" % kk))(k), expect=(lambda kk: lambda: pressed(kk))(k), wait=2200)
+            t.step("Press Laugh again: it switches off (the toggle works both ways)", lambda: pg.click("#m1 button[value=laugh]"), expect=lambda: not pressed("laugh") and pressed("tada"), wait=2500)
+            t.note("Not shown: thumbs up and heart (clip 01), other people's reactions, Chat history/search/edit/delete (not built, pending the user's choice).", 3)
+
+        run_tour(ctx, "25_chat_reactions", body, notes="Real Django on TiDB under uvicorn, headless Chromium 390x844 emulated. Message from a seeded fixture colleague.",
+                 unshown=["thumbs up and heart (clip 01)", "other people's reactions", "history/search/edit/delete (not built)"])
+
+    g["DRILLS"]["tour_chat_react"] = tour
