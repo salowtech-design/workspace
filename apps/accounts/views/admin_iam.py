@@ -26,6 +26,7 @@ from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import models, transaction
+from django.db.models.functions import Upper as _Upper
 from django.http import StreamingHttpResponse
 from django.shortcuts import redirect, render
 from django.utils import timezone
@@ -1179,8 +1180,9 @@ def admin_iam_dashboard_view(request):  # noqa: C901
 
     users_qs = CustomUser.objects.all().order_by("employee_id")
     if q_search:
-        users_qs = users_qs.filter(employee_id__icontains=q_search) | users_qs.filter(
-            full_name__icontains=q_search
+        # Upper() on both sides: icontains is case-sensitive on TiDB's binary collation
+        users_qs = users_qs.annotate(_u_emp=_Upper("employee_id"), _u_name=_Upper("full_name")).filter(
+            models.Q(_u_emp__contains=q_search.upper()) | models.Q(_u_name__contains=q_search.upper())
         )
 
     # Overview & Telemetry Stats
@@ -1215,7 +1217,7 @@ def admin_iam_dashboard_view(request):  # noqa: C901
     # Section 7 Audit
     audit_qs = AuthEvent.objects.order_by("-time")
     if q_search:
-        audit_qs = audit_qs.filter(employee_id__icontains=q_search)  # filter first: a sliced query cannot be filtered
+        audit_qs = audit_qs.annotate(_u_emp=_Upper("employee_id")).filter(_u_emp__contains=q_search.upper())  # filter first: a sliced query cannot be filtered
     audit_events = audit_qs[:60]
 
     # Section 8 People & Teams
@@ -1226,9 +1228,9 @@ def admin_iam_dashboard_view(request):  # noqa: C901
     # Section 9 Sign-in Investigation
     investigation_events = AuthEvent.objects.order_by("-time")
     if q_flow:
-        investigation_events = investigation_events.filter(
-            models.Q(reference_id__icontains=q_flow) | models.Q(employee_id__icontains=q_flow)
-        )
+        investigation_events = investigation_events.annotate(
+            _u_ref=_Upper("reference_id"), _u_emp=_Upper("employee_id")
+        ).filter(models.Q(_u_ref__contains=q_flow.upper()) | models.Q(_u_emp__contains=q_flow.upper()))
     investigation_events = investigation_events[:60]
     # Sign-in transactions (the real investigation records): search by transaction / correlation /
     # identity reference / reason category, with outcome and stage filters. Each row links to the
@@ -1273,7 +1275,6 @@ def admin_iam_dashboard_view(request):  # noqa: C901
     # are case-blind through Upper() on both sides, so they behave the same on TiDB's case-sensitive collation.
     from datetime import date, datetime, time as _time
 
-    from django.db.models.functions import Upper as _Upper
     from django.utils import timezone as _tz
 
     b_actor = request.GET.get("b_actor", "").strip()[:64]

@@ -60,3 +60,15 @@ def test_certificate_keyword_filter_ignores_case():
     assert found("ci-c1") == [cert.pk]
     assert found(cert.serial_number.lower()) == [cert.pk]
     assert found("nomatch") == []
+
+
+@pytest.mark.django_db
+def test_work_log_and_certificate_filters_treat_percent_and_underscore_literally():
+    me = _u("CI-L1", "Lee Literal")
+    ps.create_post(author=me, title="100% done", content="x")
+    ps.create_post(author=me, title="Plain title", content="y")
+    titles = lambda q: sorted(p.title for p in list_posts_for_user(me, search=q))
+    assert titles("100%") == ["100% done"]
+    assert titles("%") == ["100% done"]
+    assert titles("_") == []
+    assert [c.pk for c in list_all_certificates(search="%")] == []

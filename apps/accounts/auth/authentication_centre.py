@@ -23,6 +23,7 @@ from django.conf import settings
 from django.contrib.auth.hashers import get_hasher
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import connection, models, transaction
+from django.db.models.functions import Upper
 from django.utils import timezone
 
 from apps.accounts.auth.audit import log_auth_event
@@ -348,11 +349,17 @@ def search_auth_records(
 
     if query:
         clean_q = query.strip()
-        qs = qs.filter(
-            models.Q(identity_ref__icontains=clean_q)
-            | models.Q(transaction_id__icontains=clean_q)
-            | models.Q(correlation_id__icontains=clean_q)
-            | models.Q(reason_category__icontains=clean_q)
+        needle = clean_q.upper()
+        qs = qs.annotate(
+            _u_ident=Upper("identity_ref"),
+            _u_txn=Upper("transaction_id"),
+            _u_corr=Upper("correlation_id"),
+            _u_reason=Upper("reason_category"),
+        ).filter(
+            models.Q(_u_ident__contains=needle)
+            | models.Q(_u_txn__contains=needle)
+            | models.Q(_u_corr__contains=needle)
+            | models.Q(_u_reason__contains=needle)
         )
 
     if outcome:
@@ -362,7 +369,7 @@ def search_auth_records(
         qs = qs.filter(stage=stage.lower().strip())
 
     if device:
-        qs = qs.filter(device_ref__icontains=device.strip())
+        qs = qs.annotate(_u_dev=Upper("device_ref")).filter(_u_dev__contains=device.strip().upper())
 
     if risk:
         qs = qs.filter(risk_decision=risk.lower().strip())

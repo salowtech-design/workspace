@@ -15,6 +15,7 @@ from django.contrib import messages
 from django.contrib.auth import update_session_auth_hash
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import ValidationError
+from django.db.models.functions import Upper
 from django.http import JsonResponse
 from django.shortcuts import redirect, render
 from django.utils.http import url_has_allowed_host_and_scheme
@@ -211,9 +212,9 @@ def console_auth_events_view(request):
 
     qs = AuthEvent.objects.all().order_by("-time")
     if code_filter:
-        qs = qs.filter(code__icontains=code_filter)
+        qs = qs.annotate(_u_code=Upper("code")).filter(_u_code__contains=code_filter.upper())
     if emp_filter:
-        qs = qs.filter(employee_id__icontains=emp_filter)
+        qs = qs.annotate(_u_emp=Upper("employee_id")).filter(_u_emp__contains=emp_filter.upper())
 
     events = qs[:100]
     return render(
