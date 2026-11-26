@@ -231,6 +231,7 @@ def register(g):
     register_slides(g)
     register_pdf(g)
     register_attendance(g)
+    register_posts(g)
 
 
 def register_tasks(g, users):
@@ -561,3 +562,30 @@ def register_attendance(g):
                  unshown=["real face verification", "camera preview", "manager approve/reject", "report filters", "history month switching"])
 
     g["DRILLS"]["tour_attendance"] = att_tour
+
+
+def register_posts(g):
+    APP = g["APP"]
+
+    def posts_tour(ctx):
+        def body(t, pg):
+            _step = t.step
+            t.step = lambda text, fn=None, wait=800, expect=None: _step(text, fn, wait=min(wait, 900), expect=expect)
+            txt = lambda: pg.inner_text("body")
+            pg.goto(APP + "/posts/")
+            pg.wait_for_timeout(400)
+            t.step("Work Logs and Feed: the feed", expect=lambda: "Work Logs" in txt(), wait=1800)
+            t.step("Open the new work log form", lambda: pg.goto(APP + "/posts/create/"), expect=lambda: "Submit Work Log" in txt(), wait=1200)
+            t.step("Fill in the title and the details", lambda: (pg.select_option("#id_category", index=0), pg.fill("#id_title", "Wired up the stock report"), pg.fill("#id_content", "Finished the export. Blocker: none. Next: review with the team."), pg.evaluate("document.getElementById('id_content').scrollIntoView({block:'center'});0")), expect=lambda: pg.input_value("#id_title") != "")
+            t.step("Submit the work log: the detail page shows it", lambda: pg.click("form:has(#id_title) button[type=submit]"), expect=lambda: "Wired up the stock report" in txt() and "submitted successfully" in txt(), wait=1800)
+            t.step("Reply with a comment", lambda: (pg.fill("#id_content", "Looks good to me"), pg.click("form[action$='/comments/'] button[type=submit]")), expect=lambda: "Looks good to me" in txt(), wait=1800)
+            t.step("Edit the work log title", lambda: (pg.click("a[href$='/edit/']"), pg.fill("#id_title", "Wired up the stock report v2"), pg.click("form:has(#id_title) button[type=submit]")), expect=lambda: "stock report v2" in txt(), wait=1800)
+            t.step("Back to the feed: the post is listed", lambda: pg.goto(APP + "/posts/"), expect=lambda: "stock report v2" in txt(), wait=1500)
+            t.step("Search for a keyword that matches", lambda: (pg.fill("input[name=q]", "stock"), pg.click("form[method=get] button[type=submit]")), expect=lambda: "stock report v2" in txt(), wait=1500)
+            t.step("Search for a keyword that matches nothing", lambda: (pg.fill("input[name=q]", "zzzznope"), pg.click("form[method=get] button[type=submit]")), expect=lambda: "stock report v2" not in txt(), wait=1500)
+            t.note("Not shown: manager review (needs a reviewer account), category, team and status filters, templates, Pending-review states, another person's post.", 3)
+
+        run_tour(ctx, "12_worklogs_feed", body, notes="Real Django on TiDB, headless Chromium 390x844, employee account only.",
+                 unshown=["manager review (approve/flag)", "category filter", "team filter", "status filter", "quick templates", "editing someone else's post (should refuse)", "a post by another person"])
+
+    g["DRILLS"]["tour_posts"] = posts_tour
