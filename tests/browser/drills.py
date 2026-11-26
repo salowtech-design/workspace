@@ -312,6 +312,52 @@ def sheets_half_emoji(ctx):
     shot(pg, "sheets_half_emoji_status_desktop")
 
 
+def sheets_dates_math(ctx):
+    """Dates and math typed into the real grid: serial numbers, weekday, error codes, and the help text, at desktop and 390 px."""
+    pg = fresh(ctx, "/sheets/")
+
+    def setc(a, v):
+        pg.click('input[data-addr="%s"]' % a)
+        pg.fill('input[data-addr="%s"]' % a, v)
+        pg.press('input[data-addr="%s"]' % a, "Tab")
+        pg.wait_for_timeout(80)
+
+    def val(a):
+        return pg.input_value('input[data-addr="%s"]' % a)
+
+    cases = [
+        ("=DATE(2026,11,26)", "46352", "serial of 2026-11-26"),
+        ("=WEEKDAY(A1)", "5", "weekday, Sunday=1 (Thursday)"),
+        ("=WEEKDAY(A1,2)", "4", "weekday, Monday=1"),
+        ("=DAY(A1+35)", "31", "day, 35 days later"),
+        ("=MONTH(A1+35)", "12", "month, 35 days later"),
+        ("=DATE(1900,1,1)", "2", "serial of 1900-01-01"),
+        ("=MOD(-1,3)", "2", "MOD sign of divisor"),
+        ("=FLOOR(23.25,0.18)", "23.22", "FLOOR by 0.18"),
+        ("=SQRT(-1)", "#NUM!", "SQRT negative"),
+        ("=DATE(10000,1,1)", "#NUM!", "year 10000"),
+        ("=MATCH(9,B1:B2,0)", "#N/A", "no match"),
+    ]
+    for i, (f, _, label) in enumerate(cases, 1):
+        setc("B%d" % i, label)
+    for i, (f, _, label) in enumerate(cases, 1):
+        setc("A%d" % i, f)
+    pg.click('input[data-addr="A12"]')
+    for i, (f, want, label) in enumerate(cases, 1):
+        check("sheets dates math: %s shows %s" % (f, want), val("A%d" % i) == want, val("A%d" % i))
+    pg.locator("details", has_text="Supported functions and limits").first.locator("summary").click()
+    pg.evaluate("window.scrollTo(0, 0)")
+    shot(pg, "sheets_dates_help_desktop")
+    pg.locator("details", has_text="Supported functions and limits").first.locator("summary").click()
+    pg.evaluate("(()=>{const e=document.querySelector('input[data-addr=\"A1\"]');const r=e.getBoundingClientRect();window.scrollBy(0,r.top-120)})()")
+    shot(pg, "sheets_dates_grid_desktop")
+    pg.set_viewport_size({"width": 390, "height": 800})
+    pg.evaluate("(()=>{const e=document.querySelector('input[data-addr=\"A1\"]');const r=e.getBoundingClientRect();window.scrollBy(0,r.top-120)})()")
+    pg.wait_for_timeout(100)
+    shot(pg, "sheets_dates_grid_390")
+    pg.set_viewport_size({"width": 1100, "height": 900})
+
+
 def sheets_sort_filter(ctx):
     pg = fresh(ctx, "/sheets/")
 
@@ -8236,6 +8282,7 @@ DRILLS = {
     "sheets_sort_filter": sheets_sort_filter,
     "sheets_lookup": sheets_lookup,
     "sheets_half_emoji": sheets_half_emoji,
+    "sheets_dates_math": sheets_dates_math,
     "sheets_fill": sheets_fill,
     "sheets_headers": sheets_headers,
     "slides_drag": slides_drag,

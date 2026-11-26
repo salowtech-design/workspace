@@ -395,7 +395,46 @@
     var k = (dt.getUTCDay() - first[ty] + 7) % 7;
     return ty === 3 ? k : k + 1;
   };
-  var ARITY = { DATE: [3, 3], YEAR: [1, 1], MONTH: [1, 1], DAY: [1, 1], WEEKDAY: [1, 2], LEFT: [1, 2], RIGHT: [1, 2], MID: [3, 3], TRIM: [1, 1], SUBSTITUTE: [3, 4], FIND: [2, 3], INDEX: [2, 3], MATCH: [2, 3], VLOOKUP: [3, 4], SUMIF: [2, 3], COUNTIF: [2, 2], AVERAGEIF: [2, 3], SUM: [1, 99], AVERAGE: [1, 99], MIN: [1, 99], MAX: [1, 99], COUNT: [1, 99], ABS: [1, 1], ROUND: [1, 2], LEN: [1, 1], UPPER: [1, 1], LOWER: [1, 1], CONCAT: [1, 99], NOT: [1, 1], AND: [1, 99], OR: [1, 99], IF: [2, 3] };
+
+  /* ---- math functions ----
+   * The Google Docs Editors help pages for MOD, POWER, SQRT, FLOOR, CEILING and INT were read. Numbers: numeric text is
+   * accepted as elsewhere in this engine; a range of more than one cell is #VALUE!. MOD takes the sign of the divisor
+   * (MOD(-1,3) is 2), a zero divisor is #DIV/0!, and decimals can still show float noise, so ROUND the result as the page says.
+   * POWER: 0 to a negative power is #DIV/0!, a negative base with a fractional exponent or an overflow is #NUM!;
+   * 0 to the power 0 is 1 (not stated on the page, my choice). SQRT of a negative is #NUM!. INT rounds down, so INT(-1.5) is -2.
+   * FLOOR and CEILING: factor defaults to 1; a zero factor is #DIV/0!. A negative factor is #NUM! in this engine: the pages
+   * describe it in two ways, I did not verify the direction rules, so it is left out rather than guessed. FLOOR(v,f) is
+   * the largest multiple of f at or below v, CEILING the smallest at or above; results are cleaned to 15 significant digits
+   * so FLOOR(23.25,0.18) shows 23.22. The quotient is cleaned the same way before rounding, so MOD(0.3,0.1) is 0 and
+   * CEILING(0.1+0.2,0.1) is 0.3 (plain floating point gives 0.1 and 0.4); this is my choice, the pages only warn about float noise. Not built: ROUNDUP, ROUNDDOWN, MROUND, EXP, LN, LOG. */
+  function mn(v) { v = sc2(v); if (isErr(v)) return v; return num(v); }
+  function clean(x) { return isFinite(x) ? Number(x.toPrecision(15)) : new Err("#NUM!"); }
+  FNX.MOD = function (a) {
+    var x = mn(a[0]), y = mn(a[1]); if (isErr(x)) return x; if (isErr(y)) return y;
+    if (y === 0) return new Err("#DIV/0!");
+    var q = clean(x / y); if (isErr(q)) return q;
+    var r = x - y * Math.floor(q);
+    return Math.abs(r) <= 1e-12 * Math.max(Math.abs(x), Math.abs(y)) ? 0 : clean(r);  // a remainder that is only float noise is 0
+  };
+  FNX.POWER = function (a) {
+    var x = mn(a[0]), y = mn(a[1]); if (isErr(x)) return x; if (isErr(y)) return y;
+    if (x === 0 && y < 0) return new Err("#DIV/0!");
+    var r = Math.pow(x, y);
+    return isFinite(r) ? r : new Err("#NUM!");
+  };
+  FNX.SQRT = function (a) { var x = mn(a[0]); if (isErr(x)) return x; return x < 0 ? new Err("#NUM!") : Math.sqrt(x); };
+  FNX.INT = function (a) { var x = mn(a[0]); return isErr(x) ? x : Math.floor(x); };
+  function stepFn(name, fn) {
+    FNX[name] = function (a) {
+      var x = mn(a[0]), f = a.length > 1 ? mn(a[1]) : 1; if (isErr(x)) return x; if (isErr(f)) return f;
+      if (f === 0) return new Err("#DIV/0!");
+      if (f < 0) return new Err("#NUM!");
+      var q = clean(x / f); if (isErr(q)) return q;
+      return clean(fn(q) * f);
+    };
+  }
+  stepFn("FLOOR", Math.floor); stepFn("CEILING", Math.ceil);
+  var ARITY = { MOD: [2, 2], POWER: [2, 2], SQRT: [1, 1], INT: [1, 1], FLOOR: [1, 2], CEILING: [1, 2], DATE: [3, 3], YEAR: [1, 1], MONTH: [1, 1], DAY: [1, 1], WEEKDAY: [1, 2], LEFT: [1, 2], RIGHT: [1, 2], MID: [3, 3], TRIM: [1, 1], SUBSTITUTE: [3, 4], FIND: [2, 3], INDEX: [2, 3], MATCH: [2, 3], VLOOKUP: [3, 4], SUMIF: [2, 3], COUNTIF: [2, 2], AVERAGEIF: [2, 3], SUM: [1, 99], AVERAGE: [1, 99], MIN: [1, 99], MAX: [1, 99], COUNT: [1, 99], ABS: [1, 1], ROUND: [1, 2], LEN: [1, 1], UPPER: [1, 1], LOWER: [1, 1], CONCAT: [1, 99], NOT: [1, 1], AND: [1, 99], OR: [1, 99], IF: [2, 3] };
   function truth(v) {
     if (isErr(v)) return v;
     if (typeof v === "boolean") return v;
