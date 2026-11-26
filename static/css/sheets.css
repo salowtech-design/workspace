@@ -33,5 +33,5 @@
 .sheet-scroll input[data-align="center"] { text-align: center; }
 .sheet-scroll input[data-align="right"] { text-align: right; }
 .sheet-barrow { position: sticky; top: 0; z-index: 5; background: #faf6ef; padding: 6px 0; margin: 0; box-shadow: 0 1px 0 #e2d6c4; }
-.sheet-scroll input { scroll-margin-top: calc(var(--sheet-bar-h, 100px) + 8px); }
+.sheet-scroll input { scroll-margin-top: calc(var(--sheet-bar-h, 100px) + 8px); scroll-margin-left: 56px; }  /* the pinned row-number column (about 40px) must not cover the left edge of a focused cell */
 .card.sheet-card { overflow: visible; }

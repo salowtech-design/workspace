@@ -151,9 +151,12 @@
   };
 
   /* ---- lookup and conditional functions ----
-   * Semantics follow Google Sheets' published help for COUNTIF, SUMIF, MATCH and VLOOKUP (checked
-   * against the help pages, not against Google's engine). Written down here so they are exact:
-   * - Indices are 1-based. INDEX row or column 0 (a whole row or column) is not supported: #VALUE!.
+   * Written down here so they are exact. The Google Docs Editors help pages for INDEX, MATCH, VLOOKUP, SUMIF,
+   * COUNTIF and AVERAGEIF were read for these functions; they do not say everything below (edge cases such as
+   * the sum range shape, error cells, blanks and type mixing are this engine's own choices, not checked against
+   * Google's or Excel's engine):
+   * - Indices are 1-based. INDEX row or column 0 (a whole row or column) is not supported: #VALUE!. One index is the row, as in Google; on a range
+   *   wider than one column it would mean a whole row, so it is #VALUE!.
    * - MATCH search_type: positive = 1 (default, ascending, largest <= key), 0 = exact, negative = -1
    *   (descending, smallest >= key). A range taller and wider than 1 gives #N/A. VLOOKUP is_sorted
    *   defaults to TRUE (approximate, ascending first column); FALSE is exact. Approximate modes scan
@@ -242,7 +245,7 @@
       if (isErr(a[0])) return a[0];
       var g = grid(a[0]), r = pos(a[1]); if (isErr(r)) return r;
       var c = a.length > 2 ? pos(a[2]) : null; if (isErr(c)) return c;
-      if (c === null) { if (g.rows === 1 && g.cols > 1) { c = r; r = 1; } else c = 1; }
+      if (c === null) { if (g.cols > 1) return new Err("#VALUE!"); c = 1; }  // Google reads one index as the row and an omitted column as 0, a whole row; whole rows are not supported
       if (r > g.rows || c > g.cols) return new Err("#REF!");
       var v = g.v[(r - 1) * g.cols + (c - 1)];
       return v === undefined ? null : v;
@@ -302,6 +305,9 @@
     SUMIF: function (a) { return condAgg("SUMIF", a); }, COUNTIF: function (a) { return condAgg("COUNTIF", a); }, AVERAGEIF: function (a) { return condAgg("AVERAGEIF", a); } };
 
   /* ---- text functions (Google Sheets help semantics, not its engine) ----
+   * Google's help pages for LEFT, RIGHT, MID, TRIM, SUBSTITUTE and FIND were read. They cover the defaults, FIND's case
+   * sensitivity and #VALUE! when not found, and TRIM keeping non-breaking spaces. Negative counts, an empty search text,
+   * a FIND start past the end, and SUBSTITUTE being case-sensitive with no wildcards are this engine's choices.
    * Counts are whole numbers of UTF-16 units, like LEN: an emoji counts 2. A count below 0 is #VALUE!; a
    * fraction is cut toward 0. LEFT and RIGHT default to 1. MID start is 1-based, below 1 is #VALUE!, past the
    * end gives "". TRIM removes leading and trailing spaces and collapses runs of spaces (only the space

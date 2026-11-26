@@ -121,7 +121,7 @@ const T = [
   ["MATCH does not match a number with numeric text", {"A1": "apple", "B1": "3", "A2": "Banana", "B2": "5", "A3": "cherry", "B3": "7", "B4": "9", "A5": "=1/0", "B5": "11", "A6": "2", "B6": "12", "D1": "1", "D2": "5", "D3": "9", "D4": "12", "D5": "20", "E1": "a", "E2": "b", "E3": "c", "E4": "d", "E5": "e", "F1": "1", "F2": "4", "F3": "9", "F4": "2", "F5": "7", "G1": "9", "G2": "7", "G3": "5", "G4": "3", "G5": "1", "H1": "a", "I1": "b", "J1": "c", "K1": "d", "L1": "TRUE", "L2": "FALSE", "L3": "TRUE", "M1": "1", "M2": "2", "M3": "3", "M4": "4", "M5": "5", "M6": "=1/0", "Z1": "=MATCH(2,A1:A6,0)"}, "Z1", 6],
   ["INDEX row and column", {"A1": "apple", "B1": "3", "A2": "Banana", "B2": "5", "A3": "cherry", "B3": "7", "B4": "9", "A5": "=1/0", "B5": "11", "A6": "2", "B6": "12", "D1": "1", "D2": "5", "D3": "9", "D4": "12", "D5": "20", "E1": "a", "E2": "b", "E3": "c", "E4": "d", "E5": "e", "F1": "1", "F2": "4", "F3": "9", "F4": "2", "F5": "7", "G1": "9", "G2": "7", "G3": "5", "G4": "3", "G5": "1", "H1": "a", "I1": "b", "J1": "c", "K1": "d", "L1": "TRUE", "L2": "FALSE", "L3": "TRUE", "M1": "1", "M2": "2", "M3": "3", "M4": "4", "M5": "5", "M6": "=1/0", "Z1": "=INDEX(A1:B6,3,2)"}, "Z1", 7],
   ["INDEX single column, one index", {"A1": "apple", "B1": "3", "A2": "Banana", "B2": "5", "A3": "cherry", "B3": "7", "B4": "9", "A5": "=1/0", "B5": "11", "A6": "2", "B6": "12", "D1": "1", "D2": "5", "D3": "9", "D4": "12", "D5": "20", "E1": "a", "E2": "b", "E3": "c", "E4": "d", "E5": "e", "F1": "1", "F2": "4", "F3": "9", "F4": "2", "F5": "7", "G1": "9", "G2": "7", "G3": "5", "G4": "3", "G5": "1", "H1": "a", "I1": "b", "J1": "c", "K1": "d", "L1": "TRUE", "L2": "FALSE", "L3": "TRUE", "M1": "1", "M2": "2", "M3": "3", "M4": "4", "M5": "5", "M6": "=1/0", "Z1": "=INDEX(B1:B6,2)"}, "Z1", 5],
-  ["INDEX single row, one index is the column", {"A1": "apple", "B1": "3", "A2": "Banana", "B2": "5", "A3": "cherry", "B3": "7", "B4": "9", "A5": "=1/0", "B5": "11", "A6": "2", "B6": "12", "D1": "1", "D2": "5", "D3": "9", "D4": "12", "D5": "20", "E1": "a", "E2": "b", "E3": "c", "E4": "d", "E5": "e", "F1": "1", "F2": "4", "F3": "9", "F4": "2", "F5": "7", "G1": "9", "G2": "7", "G3": "5", "G4": "3", "G5": "1", "H1": "a", "I1": "b", "J1": "c", "K1": "d", "L1": "TRUE", "L2": "FALSE", "L3": "TRUE", "M1": "1", "M2": "2", "M3": "3", "M4": "4", "M5": "5", "M6": "=1/0", "Z1": "=INDEX(H1:K1,2)"}, "Z1", "b"],
+  ["INDEX one index on a wide range would be a whole row: #VALUE!", {"A1": "apple", "B1": "3", "A2": "Banana", "B2": "5", "A3": "cherry", "B3": "7", "B4": "9", "A5": "=1/0", "B5": "11", "A6": "2", "B6": "12", "D1": "1", "D2": "5", "D3": "9", "D4": "12", "D5": "20", "E1": "a", "E2": "b", "E3": "c", "E4": "d", "E5": "e", "F1": "1", "F2": "4", "F3": "9", "F4": "2", "F5": "7", "G1": "9", "G2": "7", "G3": "5", "G4": "3", "G5": "1", "H1": "a", "I1": "b", "J1": "c", "K1": "d", "L1": "TRUE", "L2": "FALSE", "L3": "TRUE", "M1": "1", "M2": "2", "M3": "3", "M4": "4", "M5": "5", "M6": "=1/0", "Z1": "=INDEX(H1:K1,2)"}, "Z1", "#VALUE!"],
   ["INDEX out of range is #REF!", {"A1": "apple", "B1": "3", "A2": "Banana", "B2": "5", "A3": "cherry", "B3": "7", "B4": "9", "A5": "=1/0", "B5": "11", "A6": "2", "B6": "12", "D1": "1", "D2": "5", "D3": "9", "D4": "12", "D5": "20", "E1": "a", "E2": "b", "E3": "c", "E4": "d", "E5": "e", "F1": "1", "F2": "4", "F3": "9", "F4": "2", "F5": "7", "G1": "9", "G2": "7", "G3": "5", "G4": "3", "G5": "1", "H1": "a", "I1": "b", "J1": "c", "K1": "d", "L1": "TRUE", "L2": "FALSE", "L3": "TRUE", "M1": "1", "M2": "2", "M3": "3", "M4": "4", "M5": "5", "M6": "=1/0", "Z1": "=INDEX(A1:B6,7,1)"}, "Z1", "#REF!"],
   ["INDEX column out of range is #REF!", {"A1": "apple", "B1": "3", "A2": "Banana", "B2": "5", "A3": "cherry", "B3": "7", "B4": "9", "A5": "=1/0", "B5": "11", "A6": "2", "B6": "12", "D1": "1", "D2": "5", "D3": "9", "D4": "12", "D5": "20", "E1": "a", "E2": "b", "E3": "c", "E4": "d", "E5": "e", "F1": "1", "F2": "4", "F3": "9", "F4": "2", "F5": "7", "G1": "9", "G2": "7", "G3": "5", "G4": "3", "G5": "1", "H1": "a", "I1": "b", "J1": "c", "K1": "d", "L1": "TRUE", "L2": "FALSE", "L3": "TRUE", "M1": "1", "M2": "2", "M3": "3", "M4": "4", "M5": "5", "M6": "=1/0", "Z1": "=INDEX(A1:B6,1,3)"}, "Z1", "#REF!"],
   ["INDEX 0 is #VALUE! (whole row not supported)", {"A1": "apple", "B1": "3", "A2": "Banana", "B2": "5", "A3": "cherry", "B3": "7", "B4": "9", "A5": "=1/0", "B5": "11", "A6": "2", "B6": "12", "D1": "1", "D2": "5", "D3": "9", "D4": "12", "D5": "20", "E1": "a", "E2": "b", "E3": "c", "E4": "d", "E5": "e", "F1": "1", "F2": "4", "F3": "9", "F4": "2", "F5": "7", "G1": "9", "G2": "7", "G3": "5", "G4": "3", "G5": "1", "H1": "a", "I1": "b", "J1": "c", "K1": "d", "L1": "TRUE", "L2": "FALSE", "L3": "TRUE", "M1": "1", "M2": "2", "M3": "3", "M4": "4", "M5": "5", "M6": "=1/0", "Z1": "=INDEX(A1:B6,0,1)"}, "Z1", "#VALUE!"],
@@ -217,6 +217,23 @@ const adv = [
   ["COUNTIF criterion over 255 characters is #VALUE!", (() => { const v = new Sheet({ A1: "x", Z1: '=COUNTIF(A1:A1,"' + "a".repeat(256) + '")' }).get("Z1"); return isErr(v) && v.code === "#VALUE!"; })()],
   ["function names that are prototype properties are #NAME?", ["constructor", "toString", "__proto__", "hasOwnProperty", "valueOf"].every((n) => { const v = new Sheet({ Z1: "=" + n + "(1)" }).get("Z1"); return isErr(v) && v.code === "#NAME?"; })],
 ];
+const heavy = {}; for (let r = 1; r <= 10; r++) heavy["A" + r] = "a".repeat(2000);
+for (let k = 1; k <= 60; k++) heavy["C" + k] = '=COUNTIF(A1:A10,"' + "*a".repeat(20) + "b" + (k % 2 ? "" : "?") + '")';
+const heavySheet = new Sheet(heavy); const heavyVals = []; for (let k = 1; k <= 60; k++) { const v = heavySheet.get("C" + k); heavyVals.push(isErr(v) ? v.code : v); }
+const lim60 = heavyVals.filter((v) => v === "#LIMIT!").length, ok60 = heavyVals.filter((v) => v === 0).length;
+const uni = { A1: "\u{1F600}x", Z1: "=LEFT(A1,1)", Z2: "=LEN(LEFT(A1,1))", Z3: "=MID(A1,2,1)", Z4: "=LEN(A1)" };
+const uniSheet = new Sheet(uni);
+const adv2 = [
+  ["work is one budget for the whole sheet: 60 moderate wildcard formulas, early ones finish and later ones hit #LIMIT!", ok60 >= 1 && lim60 >= 1 && ok60 + lim60 === 60],
+  ["SUBSTITUTE growing past 10000 characters is #VALUE!", (() => { const v = new Sheet({ A1: "a".repeat(5001), Z1: '=SUBSTITUTE(A1,"a","bb")' }).get("Z1"); return isErr(v) && v.code === "#VALUE!"; })()],
+  ["SUBSTITUTE growing to exactly 10000 characters is allowed", new Sheet({ A1: "a".repeat(5000), Z1: '=LEN(SUBSTITUTE(A1,"a","bb"))' }).get("Z1") === 10000],
+  ["LEFT counts UTF-16 units like LEN: an emoji is 2 and LEFT 1 leaves half of it (documented)", uniSheet.get("Z4") === 3 && uniSheet.get("Z2") === 1 && uniSheet.get("Z1") === "\ud83d"],
+  ["MID can return the other half; the two halves rejoin to the emoji", uniSheet.get("Z3") === "\ude00" && uniSheet.get("Z1") + uniSheet.get("Z3") === "\u{1F600}"],
+  ["a half emoji survives a JSON export and import unchanged", JSON.parse(JSON.stringify({ v: uniSheet.get("Z1") })).v === "\ud83d"],
+  ["a multi-cell text argument is #VALUE! (LEFT, TRIM, FIND, SUBSTITUTE)", ['=LEFT(A1:A2,1)', '=TRIM(A1:A2)', '=FIND("a",A1:A2)', '=SUBSTITUTE(A1:A2,"a","b")'].every((f) => { const v = new Sheet({ A1: "a", A2: "b", Z1: f }).get("Z1"); return isErr(v) && v.code === "#VALUE!"; })],
+  ["INDEX with a column omitted on a one-column range returns the row", new Sheet({ A1: "p", A2: "q", Z1: "=INDEX(A1:A2,2)" }).get("Z1") === "q"],
+  ["INDEX with 0 as the column is #VALUE!", (() => { const v = new Sheet({ A1: "p", B1: "q", Z1: "=INDEX(A1:B1,1,0)" }).get("Z1"); return isErr(v) && v.code === "#VALUE!"; })()],
+];
 const extra = [
   ["1000-cell chain, order independent", asc === 1000 && top === 1000 && mid === 501 && top2 === 1000],
   ["600-cell cycle reports #CIRC! or the depth limit, never a crash", isErr(cy) && (cy.code === "#CIRC!" || cy.code === "#LIMIT!")],
@@ -226,7 +243,7 @@ const extra = [
   ["non-scalar cell values are dropped", new Sheet({ A1: { x: 1 }, A2: [1], A3: NaN, A4: "ok" }).get("A4") === "ok" && new Sheet({ A1: { x: 1 } }).get("A1") === ""],
 ];
 let bad = 0;
-extra.push(...adv);
+extra.push(...adv, ...adv2);
 for (const [d, ok] of extra) if (!ok) { bad++; console.log("FAIL", d); }
 for (const [d, cells, at, want] of T) {
   const got = new Sheet(cells).get(at);

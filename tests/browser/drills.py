@@ -251,9 +251,18 @@ def sheets_lookup(ctx):
     pg.locator('input[data-addr="A1"]').scroll_into_view_if_needed()
     pg.evaluate("(()=>{const e=document.querySelector('input[data-addr=\"A1\"]');const r=e.getBoundingClientRect();window.scrollBy(0,r.top-120)})()")
     shot(pg, "sheets_lookup_grid_desktop")
+    # the focused cell must be fully clear of the pinned row-number column
+    clear = pg.evaluate("(()=>{const e=document.querySelector('input[data-addr=\"A1\"]').getBoundingClientRect();const h=document.querySelector('.sheet-scroll tr:nth-child(2) > th').getBoundingClientRect();return e.left>=h.right-0.5})()")
+    check("sheets lookup: focused A1 is not covered by the row numbers (desktop)", clear, str(clear))
     pg.set_viewport_size({"width": 390, "height": 800})
     pg.evaluate("(()=>{const e=document.querySelector('input[data-addr=\"A1\"]');const r=e.getBoundingClientRect();window.scrollBy(0,r.top-120)})()")
+    clear = pg.evaluate("(()=>{const e=document.querySelector('input[data-addr=\"A1\"]').getBoundingClientRect();const h=document.querySelector('.sheet-scroll tr:nth-child(2) > th').getBoundingClientRect();return e.left>=h.right-0.5})()")
+    check("sheets lookup: focused A1 is not covered by the row numbers (390 px)", clear, str(clear))
     shot(pg, "sheets_lookup_grid_390")
+    pg.locator('input[data-addr="C1"]').focus()
+    pg.evaluate("(()=>{const e=document.querySelector('input[data-addr=\"C1\"]');const r=e.getBoundingClientRect();window.scrollBy(0,r.top-120)})()")
+    pg.wait_for_timeout(100)
+    shot(pg, "sheets_lookup_results_390")
     pg.set_viewport_size({"width": 1100, "height": 900})
 
 
