@@ -235,6 +235,7 @@ def register(g):
     register_certs(g)
     register_automation(g)
     register_find(g)
+    register_security(g)
 
 
 def register_tasks(g, users):
@@ -793,3 +794,56 @@ def register_find(g):
                  unshown=["Department filter with departments", "Task results", "Calendar results", "team detail page (no link in the app)", "manager and admin only profile fields", "direct reports list", "search throttle", "30 per module truncation notice"])
 
     g["DRILLS"]["tour_find"] = find_tour
+
+
+def register_security(g):
+    APP = g["APP"]
+
+    def sec_tour(ctx):
+        import concurrent.futures
+
+        import django
+
+        django.setup()
+
+        def seed(n):
+            from apps.accounts.models import CustomUser, UserSession
+
+            me = CustomUser.objects.get(employee_id="ST-LIVE-1")
+            for i in range(n):
+                UserSession.objects.get_or_create(user=me, session_key="tourfixture%02d" % i, defaults={"ip_address": "203.0.113.%d" % (10 + i), "user_agent": "Test fixture row %d (not a real device)" % (i + 1)})
+
+        def run(fn, *a):
+            with concurrent.futures.ThreadPoolExecutor(1) as ex:
+                return ex.submit(fn, *a).result()
+
+        def body(t, pg):
+            _step = t.step
+            t.step = lambda text, fn=None, wait=800, expect=None: _step(text, fn, wait=min(wait, 900), expect=expect)
+            txt = lambda: pg.inner_text("body")
+            seen = []
+            pg.on("dialog", lambda d: (seen.append(d.message), d.accept("")))
+            fits = "[...document.querySelectorAll('main input:not([type=hidden]),main select,main button,main .card')].every(e=>e.getBoundingClientRect().right<=window.innerWidth+1)"
+            pg.goto(APP + "/auth/security/")
+            t.step("Security page: passkeys empty message, This Device session, recent events", expect=lambda: "No passkeys registered" in txt() and "This Device" in txt(), wait=2200)
+            t.step("Page content fits the 390 px screen", expect=lambda: pg.evaluate(fits), wait=1400)
+            t.step("Terminate All Other Sessions is hidden while there is only this session", expect=lambda: pg.locator("button:has-text('Terminate All Other Sessions')").count() == 0, wait=1400)
+            run(seed, 1)
+            t.step("Setup (test fixture): one extra session row is added to the database; it is not a real second device", lambda: pg.reload(), expect=lambda: "Test fixture row 1" in txt() and pg.locator("button:has-text('Terminate All Other Sessions')").count() == 1, wait=2200)
+            t.step("Revoke that one session", lambda: pg.click("button:has-text('Revoke') >> nth=-1") if pg.locator("form[action*='sessions'] button:has-text('Revoke')").count() else None, expect=lambda: "Session successfully terminated" in txt() and "Test fixture row 1" not in txt(), wait=2200)
+            run(seed, 3)
+            t.step("Setup again: three fixture rows. Terminate All Other Sessions is offered", lambda: pg.reload(), expect=lambda: pg.locator("button:has-text('Terminate All Other Sessions')").count() == 1, wait=2000)
+            t.step("Terminate all others: it says 3 were ended and only This Device remains", lambda: pg.click("button:has-text('Terminate All Other Sessions')"), expect=lambda: "Terminated 3 other" in txt() and "Test fixture row" not in txt() and "This Device" in txt(), wait=2400)
+            t.step("Enroll Passkey: the label prompt appears (headless browser has no authenticator, so enrolment is not completed)", lambda: pg.click("#enroll-passkey-btn"), expect=lambda: any("label for this passkey" in m for m in seen), wait=2200)
+            t.step("Change Password page opens", lambda: pg.goto(APP + "/auth/security/password/change/"), expect=lambda: "Current Password" in txt() and pg.evaluate(fits), wait=1800)
+            t.step("Different new and confirm passwords are refused (made-up test text, not a real password)", lambda: (pg.fill("#current_password", "not-the-real-one-1"), pg.fill("#new_password", "Aaaaaaaaaaaa1!x"), pg.fill("#confirm_password", "Bbbbbbbbbbbb2!y"), pg.click("form:has(#new_password) button[type=submit]")), expect=lambda: "do not match" in txt(), wait=2200)
+            t.step("Matching new password but wrong current password is refused", lambda: (pg.fill("#current_password", "not-the-real-one-1"), pg.fill("#new_password", "Aaaaaaaaaaaa1!x"), pg.fill("#confirm_password", "Aaaaaaaaaaaa1!x"), pg.click("form:has(#new_password) button[type=submit]")), expect=lambda: "/password/change/" in pg.url and "successfully" not in txt() and pg.locator(".alert, [role=alert], .error, .form-error").count() + (1 if "ncorrect" in txt() or "nvalid" in txt() or "wrong" in txt().lower() else 0) >= 1, wait=2400)
+            t.step("Idle lock screen shows", lambda: pg.goto(APP + "/auth/security/idle-lock/"), expect=lambda: "password" in txt().lower() and "Unlock" in txt(), wait=2000)
+            t.step("A wrong password on the lock screen is refused: Incorrect password entered.", lambda: (pg.fill("input[name=password]", "not-the-real-one-1"), pg.click("form:has(input[name=password]) button[type=submit]")), expect=lambda: "Incorrect password entered" in txt(), wait=2200)
+            t.step("Directory table on a phone: the table itself scrolls sideways inside its card to reach the Actions column; the page does not widen", lambda: (pg.goto(APP + "/directory/"), pg.evaluate("(()=>{const w=document.querySelectorAll('.table-responsive table')[0];w.scrollIntoView({block:'center'});w.scrollLeft=0;return 0})()"), pg.wait_for_timeout(900), pg.evaluate("document.querySelectorAll('.table-responsive table')[0].scrollTo({left:9999,behavior:'smooth'});0")), expect=lambda: print('TBL', pg.evaluate("(()=>{const w=document.querySelectorAll('.table-responsive table')[0];return [w.scrollWidth,w.clientWidth,getComputedStyle(w).overflowX,document.documentElement.scrollWidth,window.innerWidth,w.scrollLeft]})()"), flush=True) or pg.evaluate("(()=>{const w=document.querySelectorAll('.table-responsive table')[0];return w.scrollWidth>w.clientWidth && w.scrollLeft>20 && getComputedStyle(w).overflowX==='auto' && document.documentElement.scrollWidth<=window.innerWidth+8})()"), wait=2600)
+            t.note("Not shown: a successful password change, a successful unlock, passkey enrolment and revoke, Recovery Console and Backups links (admin only), a real second device.", 3)
+
+        run_tour(ctx, "16_security_sessions", body, notes="Real Django on TiDB, headless Chromium 390x844 emulated. Fixture (ORM): extra session rows, not real devices. No real password is typed; made-up strings only. The sign-in and step-up are not recorded.",
+                 unshown=["successful password change (needs the real password)", "successful idle unlock", "passkey enrolment and revoke", "Recovery Console link (admin only)", "Backups link (Super Admin only)", "a real second device session", "security events beyond the first rows", "alerts page and acknowledge"])
+
+    g["DRILLS"]["tour_sec"] = sec_tour
