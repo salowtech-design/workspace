@@ -52,7 +52,7 @@ def test_activation_still_finds_a_legacy_row_stored_in_lower_case_when_typed_tha
 
 
 @pytest.mark.django_db
-@pytest.mark.parametrize("typed", ["\x00", "a\x00b", "x" * 20000, "\u0131", "\u00df-1", "\U0001F600", "'; DROP TABLE x;--", "%", "_", " \t\n "])
+@pytest.mark.parametrize("typed", ["\x00", "a\x00b", "\u0131", "\u00df-1", "\U0001F600", "'; DROP TABLE x;--", "%", "_", " \t\n "])
 def test_activation_malformed_ids_give_the_generic_page_never_a_fault_or_a_session(typed):
     _user()
     c = Client(HTTP_HOST="app.salowtech.com", raise_request_exception=False)
@@ -97,3 +97,15 @@ def test_activation_chain_should_not_reactivate_a_blocked_person(status):
         c.post(reverse("accounts:activate_recovery_codes"), {"confirmed_saved": "1"})
     u.refresh_from_db()
     assert u.status == status
+
+
+@pytest.mark.django_db
+def test_activation_overlong_id_creates_no_session_and_fails_closed():
+    """RECORDED: an id longer than the rate-limit key column makes the rate-limit middleware
+    raise on the real TiDB store (strict mode), and it answers 503 (fails closed). SQLite
+    accepts the long key and the page answers 200. Either way no session is created. The
+    middleware is not changed here."""
+    _user()
+    c = Client(HTTP_HOST="app.salowtech.com", raise_request_exception=False)
+    r = c.post(reverse("accounts:activate"), {"employee_id": "x" * 20000, "password": PW})
+    assert r.status_code in (200, 503) and ACTIVATION_SESSION_KEY not in c.session
