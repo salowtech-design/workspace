@@ -140,6 +140,52 @@ def _person_policy(user, action, p):
     )
 
 
+CHAT_SNIPPET = 80
+
+
+def search_chat(user, query, limit):
+    """Chat message text, only in conversations the person is an active member of (the same rule the
+    conversation page uses). The title is the conversation label and the start of the message."""
+    from django.urls import reverse
+
+    from apps.chat.models import Member, Message, Space
+
+    needle = query.upper()
+    mine = Member.objects.filter(person=user, left_at__isnull=True).values("space_id")
+    rows = (
+        Message.objects.annotate(_b=Upper("body"))
+        .filter(_b__contains=needle, space_id__in=mine)
+        .select_related("space")
+        .order_by("-id")[:limit]
+    )
+    for m in rows:
+        sp = m.space
+        if sp.kind == Space.DM:
+            other = (
+                Member.objects.filter(space=sp).exclude(person=user).select_related("person").first()
+            )
+            label = other.person.full_name if other else "Direct message"
+        else:
+            label = sp.name
+        text = " ".join(m.body.split())
+        if len(text) > CHAT_SNIPPET:
+            text = text[:CHAT_SNIPPET].rstrip() + "..."
+        if m.thread_root_seq:
+            url = reverse("chat:thread", args=[sp.public_id, m.thread_root_seq])
+        else:
+            url = reverse("chat:space", args=[sp.public_id])
+        yield ("chat_message", m, f"{label}: {text}", url)
+
+
+def _chat_policy(user, action, m):
+    from apps.chat.models import Member
+
+    return (
+        action == "view"
+        and Member.objects.filter(space_id=m.space_id, person=user, left_at__isnull=True).exists()
+    )
+
+
 def register_all():
     from apps.core.foundation.search import register_searcher
 
@@ -147,8 +193,10 @@ def register_all():
     register_policy("project", _project_policy)
     register_policy("event", _event_policy)
     register_policy("post", _post_policy)
+    register_policy("chat_message", _chat_policy)
     register_policy(PERSON, _person_policy)
     register_searcher("tasks", search_tasks)
     register_searcher("calendar", search_events)
     register_searcher("people", search_people)
     register_searcher("posts", search_posts)
+    register_searcher("chat", search_chat)
