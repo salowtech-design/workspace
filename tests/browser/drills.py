@@ -7996,8 +7996,10 @@ def finder_projects(ctx):
 
 def task_assign_second(ctx):
     """A second real login (own browser context, own random password and authenticator secret, never
-    printed): the lead assigns the member; the member sees the task under Assigned to me, cannot
-    assign (message), and after removal loses the project, the task list entry and the finder hit."""
+    printed): the lead assigns the member; the member sees the task in the In projects part of
+    Assigned to me, sees no Assign control on the board, and after removal loses the project page,
+    the Assigned entry and the finder hit. The second context carries the same page-error and
+    request-leak checks as the first."""
     import concurrent.futures
     import secrets as _sec
 
@@ -8038,7 +8040,11 @@ def task_assign_second(ctx):
     pg.wait_for_load_state()
     check("assign second: the lead assigns the member and the card says so", pg.locator("text=Assigned to Second Member").count() == 1)
 
-    pg2 = ctx.browser.new_context(viewport={"width": 390, "height": 800}).new_page()
+    ctx2 = ctx.browser.new_context(viewport={"width": 390, "height": 800})
+    errs, only_loopback = ctx.salow_hooks
+    ctx2.route("**/*", only_loopback)  # same request-leak check as the first context
+    pg2 = ctx2.new_page()
+    pg2.on("pageerror", lambda e: errs.append(scrub(e)))  # same page-error check
     pg2.set_default_timeout(8000)
     pg2.goto(APP + "/sign-in/")
     pg2.wait_for_timeout(800)
@@ -8055,7 +8061,9 @@ def task_assign_second(ctx):
     pg2.wait_for_load_state()
     pg2.wait_for_timeout(1200)
     pg2.goto(APP + "/tasks/assigned/")
-    check("assign second: the Assigned page does not list project tasks (current build; separate by design of this slice)", "Zork task for member" not in pg2.inner_text("body"))
+    body2 = pg2.inner_text("body")
+    check("assign second: the member's Assigned page lists the project task with its project and links to it", "Zork task for member" in body2 and "Zork second login" in body2 and pg2.locator("a.task-title:has-text('Zork task for member')").count() == 1)
+    pg2.screenshot(path=os.path.join(shots, "task_assigned_page_member_390.png"), full_page=True)
     pg2.goto(APP + "/tasks/projects/%s/" % pid)
     check("assign second: the member's own login sees the card saying who it is assigned to", "Assigned to Second Member" in pg2.inner_text("body"))
     pg2.screenshot(path=os.path.join(shots, "task_assign_member_view_390.png"), full_page=True)
@@ -8076,6 +8084,8 @@ def task_assign_second(ctx):
     check("assign second: after removal the project page is a 404 for them", r.status == 404, str(r.status))
     pg2.goto(APP + "/search/?q=zork")
     check("assign second: after removal search no longer shows the project", "Zork second login" not in pg2.inner_text("body"))
+    pg2.goto(APP + "/tasks/assigned/")
+    check("assign second: after removal the Assigned page no longer lists the task", "Zork task for member" not in pg2.inner_text("body"))
     pg2.close()
 
 
@@ -8175,6 +8185,7 @@ def run_group(p, names, secure, state=None, keep=None):  # noqa: C901
             route.abort()
 
     ctx.route("**/*", only_loopback)
+    ctx.salow_hooks = (errs, only_loopback)  # a drill that opens a second context attaches the same checks
     pg = ctx.new_page()
     pg.on("pageerror", lambda e: errs.append(scrub(e)))
     try:

@@ -390,7 +390,7 @@ def test_project_task_edit_version_preserve_and_lead_only():
 
 
 @pytest.mark.django_db
-def test_assign_noop_stale_and_updated_at_and_member_pages_stay_separate():
+def test_assign_noop_stale_and_updated_at_and_personal_pages_stay_separate():
     from apps.tasks.models import ProjectTask
     from apps.tasks.services import StaleVersion
 
@@ -406,8 +406,8 @@ def test_assign_noop_stale_and_updated_at_and_member_pages_stay_separate():
     with pytest.raises(StaleVersion):
         pj.assign_task(a, t, None, expected_version=1)  # a real change with a stale version
     assert ProjectTask.objects.get(pk=t.pk).assignee_id == m.pk
-    cm = _c(m)  # the assigned member's personal and assigned pages do not show project tasks
-    assert b"projtask" not in cm.get(reverse("tasks:assigned")).content
+    cm = _c(m)  # the personal list page and the personal-task service stay free of project tasks;
+    # the Assigned page shows them in their own "In projects" section (test_assigned_page_*)
     assert b"projtask" not in cm.get(reverse("tasks:home")).content
     assert list(svc.assigned_to(m)) == []
 
@@ -997,3 +997,78 @@ def test_race_removal_vs_comment(monkeypatch, locked):
     assert outcomes == [["ok", "ok"]] * rounds, outcomes
     assert saw_commit == [not locked] * rounds, saw_commit
     assert (after_removal == 0) if locked else (after_removal == rounds), (after_removal, rounds)
+
+
+@pytest.mark.django_db
+def test_assigned_page_lists_project_tasks_only_for_current_members():
+    from django.test import Client
+    from django.urls import reverse
+    from django.utils import timezone
+
+    a, m, other = _u("AP-A"), _u("AP-M"), _u("AP-O")
+    p = pj.create_project(a, "Assign list proj")
+    mem = _member(p, m)
+    col = p.columns.first()
+    t = pj.add_task(a, p, col.pk, "Given to M")
+    pj.add_task(a, p, col.pk, "Not given")
+    pj.assign_task(a, t, m)
+
+    def page(u):
+        c = Client(HTTP_HOST="app.salowtech.com")
+        c.force_login(u)
+        r = c.get(reverse("tasks:assigned"))
+        assert r.status_code == 200
+        return r.content.decode()
+
+    html = page(m)
+    assert "Given to M" in html and "Assign list proj" in html and "Not given" not in html
+    assert f"/tasks/projects/{p.public_id}/" in html
+    assert "Given to M" not in page(other) and "Given to M" not in page(a)  # not the lead, not a stranger
+    ProjectMember.objects.filter(pk=mem.pk).update(removed_at=timezone.now())
+    assert "Given to M" not in page(m)  # a removed member no longer sees it
+    assert "Nothing has been given to you." in page(m)
+    ProjectMember.objects.filter(pk=mem.pk).update(removed_at=None)
+    assert "Given to M" in page(m)
+    Project.objects.filter(pk=p.pk).update(deleted_at=timezone.now())
+    assert "Given to M" not in page(m)
+
+
+@pytest.mark.django_db
+def test_assigned_page_query_count_does_not_grow_with_the_number_of_project_tasks(django_assert_max_num_queries):
+    from django.db import connection
+    from django.test.utils import CaptureQueriesContext
+
+    a, m = _u("AQ-A"), _u("AQ-M")
+    p = pj.create_project(a, "Q")
+    _member(p, m)
+
+    def count():
+        c = _c(m)
+        with CaptureQueriesContext(connection) as ctx:
+            assert c.get(reverse("tasks:assigned")).status_code == 200
+        return len(ctx)
+
+    pj.assign_task(a, pj.add_task(a, p, p.columns.first().pk, "one"), m)
+    count()  # warm the per-process caches (session, permissions) so the two counts compare like with like
+    few = count()
+    for i in range(12):
+        pj.assign_task(a, pj.add_task(a, p, p.columns.first().pk, f"more {i}"), m)
+    assert count() == few, "the page runs more queries as tasks are added"
+
+
+@pytest.mark.django_db
+def test_assigned_page_hides_deleted_tasks_and_a_task_whose_assignee_is_not_a_member():
+    from django.utils import timezone
+
+    a, m = _u("AE-A"), _u("AE-M")
+    p = pj.create_project(a, "Edge proj")
+    mem = _member(p, m)
+    t1 = pj.add_task(a, p, p.columns.first().pk, "Deleted one")
+    t2 = pj.add_task(a, p, p.columns.first().pk, "Stale assignee")
+    pj.assign_task(a, t1, m)
+    pj.assign_task(a, t2, m)
+    pj.delete_task(a, t1)
+    # a removal that leaves the old assignee on the task (the stale-assignee case the card keeps showing)
+    ProjectMember.objects.filter(pk=mem.pk).update(removed_at=timezone.now())
+    html = _c(m).get(reverse("tasks:assigned")).content.decode()
+    assert "Deleted one" not in html and "Stale assignee" not in html

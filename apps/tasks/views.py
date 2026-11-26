@@ -11,6 +11,7 @@ from django.views.decorators.http import require_http_methods, require_POST
 
 from apps.accounts.models import CustomUser
 from apps.core.foundation.permissions import can
+from apps.tasks import projects
 from apps.tasks import services as svc
 from apps.tasks.models import Task, TaskList
 
@@ -78,6 +79,7 @@ def assigned_view(request):
         {
             "lists": svc.lists_for(request.user),
             "tasks": svc.assigned_to(request.user),
+            "project_tasks": list(projects.assigned_in_projects(request.user)),
             "tab": "assigned",
         },
     )

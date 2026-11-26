@@ -169,6 +169,23 @@ def assign_task(user, task, person, expected_version=None):
     return t
 
 
+def assigned_in_projects(user):
+    """Project tasks given to this person, only in projects where they are still a member. Read
+    only: no notice and no change; the task is worked on in its project."""
+    return (
+        ProjectTask.objects.filter(
+            assignee=user,
+            deleted_at__isnull=True,
+            project__deleted_at__isnull=True,
+            project__members__person=user,
+            project__members__removed_at__isnull=True,
+        )
+        .select_related("project", "column")
+        .distinct()
+        .order_by("due_date", "id")
+    )
+
+
 def tasks_by_column(project, q="", milestone=None, overdue_before=None):
     """Board rows by column. Filters narrow what is shown and never change data:
     q = title contains (case-insensitive), milestone = a Milestone pk of this project or

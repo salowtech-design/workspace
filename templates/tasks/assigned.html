@@ -13,6 +13,15 @@
     {% if t.due_date %}<span class="task-meta">Due {{ t.due_date|date:"j M Y" }}</span>{% endif %}
     <span class="task-meta">From {{ t.task_list.owner.full_name }}</span>
   </div>
-  {% empty %}<div class="tasks-empty">Nothing has been given to you.</div>{% endfor %}
+  {% endfor %}
+  {% if project_tasks %}<h3 class="tasks-sub">In projects</h3>
+  {% for t in project_tasks %}
+  <div class="task-row">
+    <a class="task-title" href="{% url 'tasks:project' t.project.public_id %}">{{ t.title }}</a>
+    {% if t.due_date %}<span class="task-meta">Due {{ t.due_date|date:"j M Y" }}</span>{% endif %}
+    <span class="task-meta">{{ t.project.name }}, {{ t.column.name }}</span>
+  </div>
+  {% endfor %}{% endif %}
+  {% if not tasks and not project_tasks %}<div class="tasks-empty">Nothing has been given to you.</div>{% endif %}
 </div>
 {% endblock %}
