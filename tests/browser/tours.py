@@ -273,6 +273,7 @@ def register(g):
     register_worklog_filter(g, users)
     register_event_edit_conflict(g, users)
     register_event_occurrence_paging(g, users)
+    register_event_series_guest(g, users)
     register_posts_more(g, users)
 
 
@@ -2949,3 +2950,44 @@ def register_event_occurrence_paging(g, users):
         run_tour(ctx, "50_event_occurrence_paging", body, notes="Real Django on TiDB, headless Chromium 390x844 emulated. Fixture by script: a daily series of 45, 20 shown per page.", unshown=["paging with cancelled occurrences in between"])
 
     g["DRILLS"]["tour_event_occurrence_paging"] = tour
+
+
+def register_event_series_guest(g, users):
+    APP = g["APP"]
+
+    def tour(ctx):
+        import concurrent.futures
+        import datetime as dt
+
+        users(ctx)
+
+        def make():
+            from apps.accounts.models import CustomUser
+            from apps.events import services as es
+
+            two = CustomUser.objects.get(employee_id="ST-LIVE-2")
+            me = CustomUser.objects.get(employee_id="ST-LIVE-1")
+            base = dt.datetime.combine(dt.date.today() + dt.timedelta(days=1), dt.time(16, 0))
+            es.create_event(two, "Weekly sync (series by Second)", base, base + dt.timedelta(minutes=30), "Asia/Kolkata", [me.pk], rule={"freq": "weekly", "count": 6})
+
+        with concurrent.futures.ThreadPoolExecutor(1) as ex:
+            ex.submit(make).result()
+
+        def body(t, pg):
+            txt = lambda: pg.inner_text("body")
+            def go(sel):
+                with pg.expect_navigation():
+                    pg.click(sel)
+            def show(sel):
+                pg.evaluate("s => document.querySelector(s).scrollIntoView({block:'start'})", sel)
+            pg.goto(APP + "/calendar/")
+            t.step("Agenda: a weekly series that Second invited me to", expect=lambda: "Weekly sync" in txt(), wait=3000)
+            t.step("Open the series", lambda: (go("a.cal-title:has-text('Weekly sync')"), show(".cal-meta")), expect=lambda: "One answer from a guest covers the whole series" in txt() and "Your answer: needs_action" in txt(), wait=4500)
+            t.step("Accept: the answer covers the whole series", lambda: (go("button:text-is('Accept')"), show(".cal-actions")), expect=lambda: "Your answer: accepted" in txt(), wait=4000)
+            t.step("Decline: the answer changes for the whole series", lambda: (go("button:text-is('Decline')"), show(".cal-actions")), expect=lambda: "Your answer: declined" in txt(), wait=4000)
+            t.step("Agenda: the declined series is no longer listed", lambda: go(".cal-tabs a:text-is('Agenda')"), expect=lambda: "Weekly sync" not in txt(), wait=4000)
+            t.note("Not shown: a guest answering for one occurrence only. It is not built: one answer covers the series.", 3)
+
+        run_tour(ctx, "51_event_series_guest", body, notes="Real Django on TiDB, headless Chromium 390x844 emulated. Fixture by script: a weekly series of 6 by ST-LIVE-2 with ST-LIVE-1 as a guest.", unshown=["answer for one occurrence only (not built)"])
+
+    g["DRILLS"]["tour_event_series_guest"] = tour
