@@ -261,6 +261,7 @@ def register(g):
     register_worklog_date(g)
     register_search_tour(g, users)
     register_att_checkout(g, users)
+    register_chat_gaps(g)
     register_posts_more(g, users)
 
 
@@ -2431,3 +2432,49 @@ def register_att_checkout(g, users):
         run_tour(ctx, "38_attendance_checkout", body, notes="Real Django on TiDB, headless Chromium 390x844 emulated. Fixture by script: the signed-in account is HR; Second Synthetic has an open session and a pending check-out request.", unshown=["Admin view", "worker's own page", "non-report approval"])
 
     g["DRILLS"]["tour_att_checkout"] = tour
+
+
+def register_chat_gaps(g):
+    APP = g["APP"]
+
+    def tour(ctx):
+        import concurrent.futures
+
+        import django
+
+        django.setup()
+
+        def make():
+            from apps.accounts.models import CustomUser
+            from apps.chat import services as cs
+
+            two = CustomUser.objects.get_or_create(employee_id="ST-LIVE-2", defaults={"full_name": "Second Synthetic", "email": "st-live-2@salowtech.com", "email_verified": True,
+                                                   "role": CustomUser.Role.EMPLOYEE, "status": CustomUser.Status.ACTIVE, "is_active": True})[0]
+            me = CustomUser.objects.get(employee_id="ST-LIVE-1")
+            sp = cs.open_dm(me, two.pk)
+            cs.post_message(two, sp.public_id, "Oldest message in this chat", "g-0")
+            for i in range(1, 105):
+                cs.post_message(two, sp.public_id, "Filler message %d" % i, "g-%d" % i)
+            m = cs.post_message(me, sp.public_id, "My question: who is on call?", "g-me")
+            seq = getattr(m, "seq", None) or cs.Message.objects.filter(space=sp).order_by("-seq").first().seq
+            cs.react(two, sp.public_id, seq, "tada")
+            cs.react(two, sp.public_id, seq, "eyes")
+
+        with concurrent.futures.ThreadPoolExecutor(1) as ex:
+            ex.submit(make).result()
+
+        def body(t, pg):
+            txt = lambda: pg.inner_text("body")
+            pg.goto(APP + "/chat/")
+            t.step("Chat list", expect=lambda: pg.locator("a:has-text('Second Synthetic')").count() >= 1, wait=1800)
+            t.step("Open the conversation (105 unread messages): it opens at the first unread, the oldest one", lambda: pg.click("a:has-text('Second Synthetic')"), expect=lambda: "Oldest message in this chat" in txt() and "who is on call" not in txt(), wait=3000)
+            t.step("At the bottom of this page of 100 there is a Newer messages link", lambda: pg.evaluate("window.scrollTo(0, document.body.scrollHeight)"), expect=lambda: "Newer messages" in txt(), wait=3500)
+            t.step("Press Newer messages", lambda: pg.click("a:has-text('Newer messages')"), expect=lambda: "who is on call" in txt(), wait=2600)
+            t.step("My message with the other person's reactions (Celebrate and Looking, one each)", lambda: pg.evaluate("(()=>{const e=[...document.querySelectorAll('li,article,div')].filter(x=>x.textContent.indexOf('who is on call')>=0).pop(); e.scrollIntoView({block:'center'}); return 0})()"), expect=lambda: True, wait=4500)
+            t.step("This page has an Earlier messages link at the top", lambda: pg.evaluate("window.scrollTo(0,0)"), expect=lambda: "Earlier messages" in txt(), wait=3500)
+            t.step("Press Earlier messages: back to the oldest messages", lambda: pg.click("a:has-text('Earlier messages')"), expect=lambda: "Oldest message in this chat" in txt() or "Filler message" in txt(), wait=3000)
+            t.note("Not shown: live polling, edit, delete, files and search (not built).", 3)
+
+        run_tour(ctx, "39_chat_gaps", body, notes="Real Django on TiDB under uvicorn, headless Chromium 390x844 emulated. Fixture by script: 106 messages from a second person, one from me, and the second person's two reactions on mine.", unshown=["Newer link", "live polling", "edit/delete/files/search (not built)"])
+
+    g["DRILLS"]["tour_chat_gaps"] = tour
