@@ -6588,6 +6588,71 @@ DRILLS = {
 }
 
 
+# Drills that need a secure context (navigator.locks) run in their own browser, started with a flag that treats the plain-HTTP drill origin as
+# secure. This is a test browser setting only, not the app's policy or an HTTPS deployment. Other drills never get the flag.
+SECURE_DRILLS = ("pdf_notes_turn", "pdf_marks_secure")
+
+
+def run_group(p, names, secure, state=None, keep=None):  # noqa: C901
+    b = p.chromium.launch(
+        channel="chromium",
+        args=[
+            "--no-proxy-server",
+            "--host-resolver-rules=MAP app.salowtech.com 127.0.0.1, EXCLUDE localhost",
+        ]
+        # Test browser only: one drill needs a secure context (navigator.locks) on the plain-HTTP drill origin. Not the app's policy.
+        + (["--unsafely-treat-insecure-origin-as-secure=" + APP.rstrip("/")] if secure else []),
+    )
+    ctx = b.new_context(viewport={"width": 1100, "height": 900}, storage_state=state)
+    ctx.set_default_timeout(8000)
+    errs = []
+    remote = []
+
+    app_u = urlsplit(APP)
+
+    def only_loopback(route):
+        u = urlsplit(route.request.url)
+        if u.scheme in ("data", "blob", "about"):
+            route.continue_()
+        elif u.scheme == "http" and u.hostname == app_u.hostname and u.port == app_u.port:
+            route.continue_()
+        else:
+            remote.append((u.scheme or "?") + "://" + (u.hostname or "?") + ":" + str(u.port))
+            route.abort()
+
+    ctx.route("**/*", only_loopback)
+    pg = ctx.new_page()
+    pg.on("pageerror", lambda e: errs.append(scrub(e)))
+    try:
+        # Before any credential is typed: the server we reach must be on this machine.
+        r = pg.goto(APP + "/health")
+        addr = r.server_addr() if r else None
+        if not addr or addr["ipAddress"] not in ("127.0.0.1", "::1"):
+            print("ABORT: the app address is not loopback, nothing was typed")
+            return 2
+        if state is None:
+            login(pg)
+        else:
+            pg.goto(APP + "/")
+    except Exception as ex:
+        print("FAIL login:", describe(ex))
+        return 1
+    if "/sign-in" in pg.url:
+        print("FAIL login: still on the sign-in page")
+        return 1
+    for n in names:
+        try:
+            DRILLS[n](ctx)
+        except Exception as ex:  # a crashed drill is a failure, not a skip
+            check(n + ": drill ran to the end", False, describe(ex))
+    check("no uncaught page errors", not errs, errs[:2])
+    check("no request left this machine", not remote, remote[:3])
+    if keep is not None:
+        keep.append(ctx.storage_state())
+    b.close()
+    return 0
+
+
 def main():
     names = sys.argv[1:] or [n for n in DRILLS if n != "selftest_scrub"]
     unknown = [n for n in names if n not in DRILLS]
@@ -6595,62 +6660,23 @@ def main():
         print("unknown drill:", ", ".join(unknown), "| known:", ", ".join(DRILLS))
         return 2
     t0 = time.time()
+    groups = [
+        (False, [n for n in names if n not in SECURE_DRILLS]),
+        (True, [n for n in names if n in SECURE_DRILLS]),
+    ]
+    saved = []  # the second browser reuses the first sign-in (one MFA code per run)
     with sync_playwright() as p:
-        b = p.chromium.launch(
-            channel="chromium",
-            args=[
-                "--no-proxy-server",
-                "--host-resolver-rules=MAP app.salowtech.com 127.0.0.1, EXCLUDE localhost",
-            ]
-            # Test browser only: one drill needs a secure context (navigator.locks) on the plain-HTTP drill origin. Not the app's policy.
-            + (
-                ["--unsafely-treat-insecure-origin-as-secure=" + APP.rstrip("/")]
-                if names in (["pdf_notes_turn"], ["pdf_marks_secure"])
-                else []
-            ),
-        )
-        ctx = b.new_context(viewport={"width": 1100, "height": 900})
-        ctx.set_default_timeout(8000)
-        errs = []
-        remote = []
-
-        app_u = urlsplit(APP)
-
-        def only_loopback(route):
-            u = urlsplit(route.request.url)
-            if u.scheme in ("data", "blob", "about"):
-                route.continue_()
-            elif u.scheme == "http" and u.hostname == app_u.hostname and u.port == app_u.port:
-                route.continue_()
-            else:
-                remote.append((u.scheme or "?") + "://" + (u.hostname or "?") + ":" + str(u.port))
-                route.abort()
-
-        ctx.route("**/*", only_loopback)
-        pg = ctx.new_page()
-        pg.on("pageerror", lambda e: errs.append(scrub(e)))
-        try:
-            # Before any credential is typed: the server we reach must be on this machine.
-            r = pg.goto(APP + "/health")
-            addr = r.server_addr() if r else None
-            if not addr or addr["ipAddress"] not in ("127.0.0.1", "::1"):
-                print("ABORT: the app address is not loopback, nothing was typed")
-                return 2
-            login(pg)
-        except Exception as ex:
-            print("FAIL login:", describe(ex))
-            return 1
-        if "/sign-in" in pg.url:
-            print("FAIL login: still on the sign-in page")
-            return 1
-        for n in names:
-            try:
-                DRILLS[n](ctx)
-            except Exception as ex:  # a crashed drill is a failure, not a skip
-                check(n + ": drill ran to the end", False, describe(ex))
-        check("no uncaught page errors", not errs, errs[:2])
-        check("no request left this machine", not remote, remote[:3])
-        b.close()
+        for secure, group in groups:
+            if not group:
+                continue
+            if secure:
+                print(
+                    "secure-context drills run in their own browser (test flag): "
+                    + ", ".join(group)
+                )
+            code = run_group(p, group, secure, saved[0] if saved else None, saved)
+            if code:
+                return code
     print("%d/%d checks passed in %.0f s" % (sum(results), len(results), time.time() - t0))
     return 0 if all(results) else 1
 
