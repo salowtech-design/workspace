@@ -88,7 +88,16 @@
     }
   }
   root.appendChild(table);
+  function showVal() {
+    var v = $("sheet-val"); if (!v) return;
+    var raw = cur ? cells[cur] : null;
+    if (typeof raw !== "string" || raw[0] !== "=") { v.textContent = ""; return; }
+    var sv = new F.Sheet(cells).get(cur), shown = F.isErr(sv) ? sv.code : String(sv);
+    var f = fmtLocked ? {} : M.fmtFor(fmtRules, cur, F.parseAddr);
+    v.textContent = "Result: " + (F.isErr(sv) ? shown : M.fmtText(f.nf, shown));
+  }
   function show() {
+    showVal();
     var sh = new F.Sheet(cells);
     Object.keys(inputs).forEach(function (a) {
       var sv = sh.get(a), shown = F.isErr(sv) ? sv.code : String(sv), col = cfLocked ? null : M.cfColor(cfRules, a, shown, F.parseAddr);
@@ -114,7 +123,7 @@
   }
   table.addEventListener("focusin", function (e) {
     var a = e.target.dataset && e.target.dataset.addr; if (!a) return;
-    cur = a; orig = cells[a] || ""; e.target.value = orig; bar.value = orig; sel.textContent = a; e.target.select();
+    cur = a; orig = cells[a] || ""; e.target.value = orig; bar.value = orig; sel.textContent = a; showVal(); e.target.select();
   });
   table.addEventListener("focusout", function (e) { var a = e.target.dataset && e.target.dataset.addr; if (a) commit(a, e.target.value); show(); });
   table.addEventListener("input", function (e) { if (e.target.dataset && e.target.dataset.addr === cur) bar.value = e.target.value; });
@@ -460,7 +469,7 @@
   function switchTo(id, keep) {
     var next = M.setActive(meta, id); if (!next) return;
     if (!commitMeta(next)) return;
-    H = histFor(id); chartRange = null; out.textContent = ""; cur = null; bar.value = ""; sel.textContent = "";
+    H = histFor(id); chartRange = null; out.textContent = ""; cur = null; bar.value = ""; sel.textContent = ""; showVal();
     var hadFilter = !!filt; filt = null; sync(); renderTabs();
     tabMsg.textContent = "Now on " + meta.tabs.filter(function (t) { return t.id === id; })[0].name + ". Undo history is kept for each tab until you reload." + (hadFilter ? " The filter was cleared." : "");
     var again = keep && tabBar.querySelector('button[data-tab="' + id + '"]'); if (again) again.focus();
