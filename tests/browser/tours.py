@@ -3115,13 +3115,24 @@ def register_certs_filter(g):
                     pg.click(sel)
             def show():
                 pg.evaluate("document.querySelector('.certificate-table-card').scrollIntoView({block:'start'})")
+            def act(q, status=None):
+                pg.fill("input[name=q]", q)
+                if status is not None:
+                    pg.select_option("select[name=status]", status)
+                go("button:text-is('Filter')")
+                show()
             pg.goto(APP + "/certificates/")
             t.step("Certificate list as Admin: both certificates", lambda: show(), expect=lambda: "Teamwork" in txt() and "Safety" in txt(), wait=3500)
-            t.step("Type teamwork in small letters and press Filter: only Teamwork", lambda: (pg.fill("input[name=q]", "teamwork"), go("button:text-is('Filter')"), show()), expect=lambda: "Teamwork" in txt() and "Safety" not in txt(), wait=4000)
-            t.step("Search the recipient name second synthetic in small letters: Teamwork again", lambda: (pg.fill("input[name=q]", "second synthetic"), go("button:text-is('Filter')"), show()), expect=lambda: "Teamwork" in txt() and "Safety" not in txt(), wait=4000)
-            t.step("Search the employee ID st-live-3 in small letters: only Safety", lambda: (pg.fill("input[name=q]", "st-live-3"), go("button:text-is('Filter')"), show()), expect=lambda: "Safety" in txt() and "Teamwork" not in txt(), wait=4000)
-            t.step("Same search with status Active: nothing, because Safety is revoked", lambda: (pg.select_option("select[name=status]", "active"), go("button:text-is('Filter')"), show()), expect=lambda: "Safety" not in txt() and "Teamwork" not in txt(), wait=4000)
-            t.step("Status Revoked with the same search: Safety is back", lambda: (pg.select_option("select[name=status]", "revoked"), go("button:text-is('Filter')"), show()), expect=lambda: "Safety" in txt() and "Teamwork" not in txt(), wait=4000)
+            act("teamwork")  # the caption below appears after the page has reloaded
+            t.step("Searched teamwork in small letters: only Teamwork", expect=lambda: "Teamwork" in txt() and "Safety" not in txt(), wait=4000)
+            act("second synthetic")
+            t.step("Searched the recipient name second synthetic in small letters: Teamwork again", expect=lambda: "Teamwork" in txt() and "Safety" not in txt(), wait=4000)
+            act("st-live-3")
+            t.step("Searched the employee ID st-live-3 in small letters: only Safety", expect=lambda: "Safety" in txt() and "Teamwork" not in txt(), wait=4000)
+            act("st-live-3", "active")
+            t.step("Same search with status Active: no rows, and the message is readable", expect=lambda: "Safety" not in txt() and "Teamwork" not in txt() and "No certificates found." in txt() and pg.evaluate("(() => { const r = document.querySelector('.certificate-empty').getBoundingClientRect(); return r.left >= 0 && r.right <= window.innerWidth; })()"), wait=4500)
+            act("st-live-3", "revoked")
+            t.step("Same search with status Revoked: Safety is back", expect=lambda: "Safety" in txt() and "Teamwork" not in txt(), wait=4000)
             t.note("Not shown: searching by serial number, and the revoked and valid status wording in the table.", 3)
 
         run_tour(ctx, "54_certs_filter", body, notes="Real Django on TiDB, headless Chromium 390x844 emulated. Fixture by script: ST-LIVE-1 made Admin, two certificates (one revoked) for two people.", unshown=["search by serial number"])

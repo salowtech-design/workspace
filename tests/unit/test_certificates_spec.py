@@ -620,3 +620,18 @@ class TestCertificateLinkedReissue:
             )
         )
         assert bad.status_code == 302 and Certificate.objects.count() == before
+
+
+def test_empty_certificate_list_message_sits_outside_the_scrolling_table():
+    import re
+
+    from django.template.loader import render_to_string
+
+    page = render_to_string(
+        "certificates/list.html",
+        {"certificates": [], "can_issue": True, "search_query": "zzz", "selected_status": ""},
+    )
+    assert "No certificates found." in page
+    table = re.search(r"<table.*?</table>", page, re.S).group(0)
+    assert "No certificates found." not in table  # not in a wide table cell, where a phone clips it
+    assert "<th>Serial Number</th>" in table  # the columns stay

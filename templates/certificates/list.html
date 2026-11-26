@@ -91,15 +91,13 @@
             </div>
           </td>
         </tr>
-        {% empty %}
-        <tr>
-          <td colspan="6" class="s-402f8c2d">
-            No certificates found.
-          </td>
-        </tr>
         {% endfor %}
       </tbody>
     </table>
   </div>
+  {% if not certificates %}
+  {# Outside the sideways-scrolling table, so the message is centred on the screen and not in a wide cell #}
+  <p class="s-402f8c2d certificate-empty">No certificates found.</p>
+  {% endif %}
 </div>
 {% endblock %}
