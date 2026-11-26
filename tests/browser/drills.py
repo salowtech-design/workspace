@@ -7697,7 +7697,56 @@ def cal_month(ctx):
     check("cal month: a bad month shows the error text", "Month must look like" in pg.inner_text("body"))
 
 
+def cal_series(ctx):
+    """Repeating events on the real stack: form creates a weekly series, month/day show every occurrence, one occurrence is cancelled from its detail page, the series keeps the rest."""
+    pg = ctx.pages[0]
+    pg.goto(APP + "/calendar/new/")
+    pg.fill("input[name=title]", "Team sync")
+    pg.fill("input[name=start]", "2026-12-01T10:00")
+    pg.fill("input[name=end]", "2026-12-01T10:30")
+    pg.select_option("select[name=freq]", "weekly")
+    pg.check("input[name=weekday][value='1']")
+    pg.check("input[name=weekday][value='3']")
+    pg.fill("input[name=count]", "6")
+    pg.evaluate("document.querySelector('.cal-repeat').scrollIntoView()")
+    shot(pg, "cal_series_form")
+    pg.click(".cal-form button[type=submit]")
+    pg.wait_for_load_state()
+    body = pg.inner_text("body")
+    check("cal series: detail says it repeats weekly on Tue and Thu, 6 times", "Repeats every week on Tue, Thu, 6 times" in body, body[:300])
+    check("cal series: detail says single occurrences cannot be changed", "cannot change a single occurrence" in body)
+    detail = pg.url
+    pg.goto(APP + "/calendar/month/?m=2026-12")
+    cell = lambda d: pg.evaluate(  # noqa: E731
+        "(d)=>{for(const td of document.querySelectorAll('.cal-month td')){if(td.classList.contains('cal-other'))continue;"
+        "if(td.querySelector('.cal-dn').textContent.trim().split(' ')[0]===d)return td.innerText}return null}", d)
+    hit = [d for d in ("1", "3", "8", "10", "15", "17") if "Team sync" in (cell(d) or "")]
+    check("cal series: month shows 1,3,8,10,15,17 Dec", hit == ["1", "3", "8", "10", "15", "17"], str(hit))
+    check("cal series: 22 Dec has none (count 6 used up)", "Team sync" not in (cell("22") or ""))
+    pg.goto(detail)
+    pg.click("button[aria-label='Cancel only the occurrence on Thursday 3 December 2026']")
+    pg.wait_for_load_state()
+    body = pg.inner_text("body")
+    check("cal series: the page says 3 Dec was cancelled and others unchanged", "3 Dec 2026" in body and "other occurrences are unchanged" in body, body[:400])
+    shot(pg, "cal_series_detail")
+    pg.goto(APP + "/calendar/month/?m=2026-12")
+    check("cal series: 3 Dec is gone, 8 Dec stays", "Team sync" not in (cell("3") or "") and "Team sync" in (cell("8") or ""))
+    pg.goto(APP + "/calendar/day/?d=2026-12-03")
+    check("cal series: the day page for 3 Dec lists nothing", "Team sync" not in pg.inner_text("body"))
+    pg.set_viewport_size({"width": 390, "height": 800})
+    pg.goto(APP + "/calendar/new/")
+    check("cal series: new-event form has no sideways scroll at 390 px", not pg.evaluate("document.documentElement.scrollWidth > document.documentElement.clientWidth"))
+    pg.select_option("select[name=freq]", "weekly")
+    pg.evaluate("document.querySelector('.cal-repeat').scrollIntoView()")
+    shot(pg, "cal_series_form_390")
+    pg.goto(detail)
+    check("cal series: detail has no sideways scroll at 390 px", not pg.evaluate("document.documentElement.scrollWidth > document.documentElement.clientWidth"))
+    shot(pg, "cal_series_detail_390")
+    pg.set_viewport_size({"width": 1100, "height": 900})
+
+
 DRILLS = {
+    "cal_series": cal_series,
     "cal_month": cal_month,
     "slides_show": slides_show,
     "slides_edit": slides_edit,

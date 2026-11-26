@@ -27,4 +27,4 @@
 .cal .cal-day{margin:0 0 14px}.cal .cal-day h3{font-size:15px;margin:0 0 4px;color:#5c2018}
 .cal .cal-nav a{white-space:nowrap}
 @media (max-width:600px){.cal .cal-nav{flex-wrap:wrap;row-gap:6px}.cal .cal-nav strong{order:-1;flex:0 0 100%;text-align:center}}
-.cal .cal-repeat{border:1px solid #d9c8bf;border-radius:8px;padding:10px 14px;display:flex;flex-direction:column;gap:10px}.cal .cal-inline{display:inline-flex;flex-direction:row;gap:4px;margin-right:8px;font-weight:400}.cal select{border:1px solid #d9c8bf;border-radius:8px;padding:6px 10px;font:inherit;background:#fff}
+.cal .cal-repeat{border:1px solid #d9c8bf;border-radius:8px;padding:10px 14px;display:flex;flex-direction:column;gap:10px}.cal .cal-form label.cal-inline{display:inline-flex;flex-direction:row;align-items:center;gap:4px;margin-right:8px;font-weight:400}.cal .cal-form label.cal-inline input{width:auto}.cal .cal-repeat input[type=number]{width:100%;box-sizing:border-box;border:1px solid #d9c8bf;border-radius:8px;padding:6px 10px;font:inherit}.cal select{border:1px solid #d9c8bf;border-radius:8px;padding:6px 10px;font:inherit;background:#fff}
