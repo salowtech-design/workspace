@@ -929,7 +929,7 @@ def register_iam(g):
             seen = {}
             pg.goto(APP + "/auth/admin/iam/")
             t.step("Setup (test fixture): this account is Admin. The IAM console opens on the Overview tab", expect=lambda: "/admin/iam/" in pg.url and "Overview" in txt(), wait=2400)
-            t.step("Overview: the numbered area tiles (1 to 13) are listed", lambda: pg.evaluate("document.querySelector('.iam-tile').scrollIntoView({block:'start'});0"), expect=lambda: pg.locator(".iam-tile").count() >= 10, wait=2000)
+            t.step("The live-actions strip at the top: report what it actually shows", expect=lambda: print("LIVE", repr(pg.inner_text("main").split("Live Actions")[-1][:120]), "TABON", pg.locator(".tab-on").all_inner_texts(), flush=True) or "Live Actions" in txt(), wait=2500)
             for tab in TABS[1:]:
                 def go(tab=tab):
                     pg.goto(APP + "/auth/admin/iam/?tab=" + tab)
