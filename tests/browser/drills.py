@@ -9040,6 +9040,99 @@ def task_assign_second(ctx):
     pg2.close()
 
 
+def iam_audit_filters(ctx):
+    """The IAM console audit filters on the IAM host, in a real browser. Stand-ins, said plainly: the IAM host name is mapped to loopback by the
+    browser flag, and the IAM session is created in the drill database (not signed in through the IAM sign-in page), carried in a cookie
+    named salow_iam_session because the production __Host- name cannot be stored over plain HTTP."""
+    import concurrent.futures
+
+    import django
+
+    django.setup()
+    shots = os.environ.get("DRILL_SHOTS", "/tmp")  # noqa: S108
+    iam_url = "http://iam.salowtech.com:%d" % urlsplit(APP).port
+
+    def seed():
+        from datetime import timedelta
+
+        from django.contrib.auth.hashers import make_password
+        from django.utils import timezone
+
+        from apps.accounts.auth.iam_auth import create_iam_admin_identity, create_iam_session
+        from apps.accounts.models import CustomUser
+        from apps.core.models import AuditLog
+
+        mk = lambda eid, name: CustomUser.objects.create(  # noqa: E731
+            employee_id=eid, full_name=name, email=eid.lower() + "@salowtech.com", email_verified=True, password=make_password("x" * 24),
+            role=CustomUser.Role.SUPER_ADMIN, status=CustomUser.Status.ACTIVE, is_active=True,
+        )
+        a, b = mk("ST-IAMA-1", "Iam Admin A"), mk("ST-IAMB-2", "Iam Person B")
+        AuditLog.objects.create(actor=a, action="Role.Granted", target_type="user", target_id="1")
+        AuditLog.objects.create(actor=b, action="File.Shared", target_type="file", target_id="2")
+        AuditLog.objects.create(actor=a, action="Recent.Row", target_type="user", target_id="3")
+        admin, _ = create_iam_admin_identity(user=a, admin_id="IAM-DRILL01", password="IamDrillSecretPassword2026!#", role="super_admin")
+        fake = type("R", (), {"META": {"REMOTE_ADDR": "127.0.0.1"}, "headers": {}})()
+        sess = create_iam_session(admin, fake)
+        sess.assurance_level = 2
+        sess.stepup_expires_at = timezone.now() + timedelta(minutes=20)
+        sess.save()
+        return fake.session_key_iam
+
+    with concurrent.futures.ThreadPoolExecutor(1) as ex:
+        token = ex.submit(seed).result()
+    errs, remote, _only = ctx.salow_hooks
+    iam_u = urlsplit(iam_url)
+
+    def route(r):
+        u = urlsplit(r.request.url)
+        if u.scheme in ("data", "blob", "about") or (u.scheme == "http" and u.hostname == iam_u.hostname and u.port == iam_u.port):
+            r.continue_()
+        else:
+            remote.append((u.scheme or "?") + "://" + (u.hostname or "?") + ":" + str(u.port))
+            r.abort()
+
+    c2 = ctx.browser.new_context(viewport={"width": 1100, "height": 900})
+    c2.route("**/*", route)
+    c2.add_cookies([{"name": "salow_iam_session", "value": token, "url": iam_url}])
+    pg = c2.new_page()
+    pg.on("pageerror", lambda e: errs.append(scrub(e)))
+    pg.set_default_timeout(8000)
+    pg.goto(iam_url + "/iam/dashboard/?tab=audit")
+    ok_page = pg.locator("form.audit-filter").count() == 1
+    check("iam audit: the IAM host page opens with the filter form", ok_page, pg.url)
+    if not ok_page:
+        c2.close()
+        return
+    rows = lambda: pg.evaluate("Array.from(document.querySelectorAll('form.audit-filter ~ .table-container tbody tr')).map(r=>r.innerText)")  # noqa: E731
+    check("iam audit: with no filter all three business rows show", sum(1 for t in rows() if any(k in t for k in ("Role.Granted", "File.Shared", "Recent.Row"))) == 3, len(rows()))
+    pg.fill("input[name=b_actor]", "st-iama")
+    pg.click("form.audit-filter button[type=submit]")
+    pg.wait_for_load_state()
+    t = " ".join(rows())
+    check("iam audit: actor filter (typed in lower case) keeps A's two rows and drops B's", "Role.Granted" in t and "Recent.Row" in t and "File.Shared" not in t, t[:200])
+    pg.fill("input[name=b_action]", "recent")
+    pg.click("form.audit-filter button[type=submit]")
+    pg.wait_for_load_state()
+    t = " ".join(rows())
+    check("iam audit: action filter narrows to the one row", "Recent.Row" in t and "Role.Granted" not in t, t[:200])
+    check("iam audit: the form keeps the typed values", pg.input_value("input[name=b_actor]") == "st-iama" and pg.input_value("input[name=b_action]") == "recent")
+    pg.fill("input[name=b_action]", "")
+    pg.evaluate("document.querySelector('input[name=b_from]').value='0001-01-01'")
+    pg.click("form.audit-filter button[type=submit]")
+    pg.wait_for_load_state()
+    check("iam audit: a date outside the supported range shows the note, not an error page", "outside 1000-01-02 to 9999-12-30" in pg.inner_text("body") and "Recent.Row" in " ".join(rows()), pg.inner_text("body")[:80])
+    pg.goto(iam_url + "/iam/dashboard/?tab=audit&b_actor=st-iama")
+    pg.evaluate("document.querySelector('form.audit-filter').scrollIntoView({block:'start'})")
+    shot(pg, "iam_audit_filter_desktop")
+    pg.set_viewport_size({"width": 390, "height": 800})
+    pg.goto(iam_url + "/iam/dashboard/?tab=audit&b_actor=st-iama&b_from=0001-01-01")
+    pg.evaluate("document.querySelector('form.audit-filter').scrollIntoView({block:'start'})")
+    pg.wait_for_timeout(100)
+    check("iam audit: at 390 the page does not scroll sideways", pg.evaluate("document.documentElement.scrollWidth <= window.innerWidth + 1"), pg.evaluate("document.documentElement.scrollWidth"))
+    shot(pg, "iam_audit_filter_390")
+    c2.close()
+
+
 def second_context_selftest(ctx):
     """Proves the second context is covered by the shared checks: a page error and an off-machine
     request made in a second context land in the shared lists (then the lists are cleared so the
@@ -9069,6 +9162,7 @@ def second_context_selftest(ctx):
 
 DRILLS = {
     "second_context_selftest": second_context_selftest,
+    "iam_audit_filters": iam_audit_filters,
     "task_assign_second": task_assign_second,
     "finder_projects": finder_projects,
     "task_filters": task_filters,
@@ -9151,7 +9245,7 @@ def run_group(p, names, secure, state=None, keep=None):  # noqa: C901
         channel="chromium",
         args=[
             "--no-proxy-server",
-            "--host-resolver-rules=MAP app.salowtech.com 127.0.0.1, EXCLUDE localhost",
+            "--host-resolver-rules=MAP app.salowtech.com 127.0.0.1, MAP iam.salowtech.com 127.0.0.1, EXCLUDE localhost",
         ]
         # Test browser only: one drill needs a secure context (navigator.locks) on the plain-HTTP drill origin. Not the app's policy.
         + (["--unsafely-treat-insecure-origin-as-secure=" + APP.rstrip("/")] if secure else []),
