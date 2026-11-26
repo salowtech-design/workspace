@@ -77,9 +77,9 @@ def test_business_audit_date_extremes_are_noted_not_500_and_recent_rows_still_ma
 
     rows, html = go("&b_from=0001-01-01")
     assert rows == ["Recent.Row"] and "outside 1000-01-02 to 9999-12-30" in html  # ignored with a note, row still listed
-    rows, html = go("&b_to=9999-12-31")
-    assert rows == ["Recent.Row"] and "outside 1000-01-02 to 9999-12-30" in html
-    for q in ("&b_from=0999-12-31", "&b_from=1000-01-01", "&b_to=10000-01-01"):
+    rows, html = go("&b_to=10000-01-01")  # not a valid date at all
+    assert rows == ["Recent.Row"] and "was not a date" in html
+    for q in ("&b_from=0999-12-31", "&b_from=1000-01-01", "&b_to=9999-12-31"):
         rows, html = go(q)
         assert rows == ["Recent.Row"] and "outside 1000-01-02 to 9999-12-30" in html, q
     rows, html = go("&b_from=1000-01-02&b_to=9999-12-30")  # the edges themselves are accepted
