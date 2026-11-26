@@ -9045,6 +9045,7 @@ def iam_audit_filters(ctx):
     browser flag, and the IAM session is created in the drill database (not signed in through the IAM sign-in page), carried in a cookie
     named salow_iam_session because the production __Host- name cannot be stored over plain HTTP."""
     import concurrent.futures
+    import secrets as _sec
 
     import django
 
@@ -9063,14 +9064,14 @@ def iam_audit_filters(ctx):
         from apps.core.models import AuditLog
 
         mk = lambda eid, name: CustomUser.objects.create(  # noqa: E731
-            employee_id=eid, full_name=name, email=eid.lower() + "@salowtech.com", email_verified=True, password=make_password("x" * 24),
+            employee_id=eid, full_name=name, email=eid.lower() + "@salowtech.com", email_verified=True, password=make_password(_sec.token_urlsafe(24) + "aA1!"),
             role=CustomUser.Role.SUPER_ADMIN, status=CustomUser.Status.ACTIVE, is_active=True,
         )
         a, b = mk("ST-IAMA-1", "Iam Admin A"), mk("ST-IAMB-2", "Iam Person B")
         AuditLog.objects.create(actor=a, action="Role.Granted", target_type="user", target_id="1")
         AuditLog.objects.create(actor=b, action="File.Shared", target_type="file", target_id="2")
         AuditLog.objects.create(actor=a, action="Recent.Row", target_type="user", target_id="3")
-        admin, _ = create_iam_admin_identity(user=a, admin_id="IAM-DRILL01", password="IamDrillSecretPassword2026!#", role="super_admin")
+        admin, _ = create_iam_admin_identity(user=a, admin_id="IAM-DRILL01", password=_sec.token_urlsafe(24) + "aA1!#", role="super_admin")
         fake = type("R", (), {"META": {"REMOTE_ADDR": "127.0.0.1"}, "headers": {}})()
         sess = create_iam_session(admin, fake)
         sess.assurance_level = 2
