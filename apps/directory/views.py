@@ -3,7 +3,7 @@ from django.shortcuts import get_object_or_404, render
 
 from apps.accounts.models import CustomUser
 from apps.accounts.permissions import require_permission
-from apps.directory.models import Team
+from apps.directory.models import Team, TeamMembership
 from apps.directory.selectors import (
     get_departments,
     get_direct_reports,
@@ -51,10 +51,17 @@ def employee_profile_view(request, employee_id: str):
         get_direct_reports(target_user) if target_user.role == CustomUser.Role.MANAGER else None
     )
 
+    teams = [
+        m.team
+        for m in TeamMembership.objects.filter(user=target_user)
+        .select_related("team", "team__department")
+        .order_by("team__name")
+    ]
     return render(
         request,
         "directory/profile.html",
         {
+            "teams": teams,
             "profile_user": target_user,
             "is_privileged": is_privileged,
             "direct_reports": direct_reports,

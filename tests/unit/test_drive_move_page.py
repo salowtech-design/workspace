@@ -302,6 +302,9 @@ def test_a_folder_past_the_first_fifty_is_found_by_name_and_still_goes_through_c
     r = _move(_c(a), one, str(last.public_id))  # what the Move here button posts
     one.refresh_from_db()
     assert one.parent_id is None and "Confirm move" in r.content.decode()  # the audience check still runs
+    many = _c(a).get(find, {"q": "Dest"}).content.decode()  # 56 matches: capped at 50, and it says so
+    assert many.count("Move here") == MOVE_TARGET_MAX and "Only the first 50 matches are shown" in many
+    assert "Only the first" not in _c(a).get(find, {"q": "dest055"}).content.decode()
     assert b"No folder of yours" in _c(a).get(find, {"q": "zzz"}).content
     assert b"Move here" not in _c(a).get(find).content  # no query, no list
     # a search never shows someone else's folder, a trashed one, or the item itself

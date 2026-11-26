@@ -45,6 +45,17 @@
             {% endif %}
         </div>
 
+        {% if teams %}
+        <div class="s-0f2d52c5">
+            <h4 class="s-4a92f790">Teams</h4>
+            <ul class="s-617170e2">
+                {% for t in teams %}
+                <li><a href="{% url 'directory:team_detail' t.code %}" class="s-cc50ce22">{{ t.name }} [{{ t.code }}]</a> <span class="s-7326de92">{{ t.department.name }}</span></li>
+                {% endfor %}
+            </ul>
+        </div>
+        {% endif %}
+
         {% if direct_reports %}
         <div class="s-0f2d52c5">
             <h4 class="s-4a92f790">Direct Reports</h4>

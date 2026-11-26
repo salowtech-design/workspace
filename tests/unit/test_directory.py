@@ -736,3 +736,27 @@ def test_onboarding_start_does_not_mask_an_unrelated_integrity_failure(monkeypat
 
     monkeypatch.setattr(ds, "_start_onboarding", dup)
     assert ds.start_onboarding(person, admin) == []
+
+
+@pytest.mark.django_db
+def test_profile_lists_teams_with_links_and_the_team_page_links_back_to_profiles():
+    from django.test import Client
+    from django.urls import reverse
+
+    dept = Department.objects.create(code="tl", name="Team Link Dept")
+    t1 = Team.objects.create(code="tl-a", name="Alpha Team", department=dept)
+    t2 = Team.objects.create(code="tl-b", name="Beta Team", department=dept)
+    Team.objects.create(code="tl-c", name="Other Team", department=dept)
+    me = _emp("TL-ME", "Viewer Person")
+    sub = _emp("TL-SUB", "Subject Person")
+    TeamMembership.objects.create(team=t1, user=sub)
+    TeamMembership.objects.create(team=t2, user=sub)
+    c = Client()
+    c.force_login(me)
+    page = c.get(reverse("directory:profile", args=["TL-SUB"]), HTTP_HOST="app.salowtech.com").content.decode()
+    assert reverse("directory:team_detail", args=["TL-A"]) in page and "Alpha Team [TL-A]" in page
+    assert reverse("directory:team_detail", args=["TL-B"]) in page and "Team Link Dept" in page
+    assert "Other Team" not in page  # only the person's own teams
+    assert "Teams</h4>" not in c.get(reverse("directory:profile", args=["TL-ME"]), HTTP_HOST="app.salowtech.com").content.decode()
+    team = c.get(reverse("directory:team_detail", args=["TL-A"]), HTTP_HOST="app.salowtech.com").content.decode()
+    assert reverse("directory:profile", args=["TL-SUB"]) in team

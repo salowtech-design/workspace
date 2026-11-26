@@ -267,6 +267,7 @@ def register(g):
     register_drive_move(g)
     register_drive_confirm(g, users)
     register_drive_find(g, users)
+    register_team_link(g, users)
     register_posts_more(g, users)
 
 
@@ -2693,3 +2694,40 @@ def register_drive_find(g, users):
         run_tour(ctx, "44_drive_find_folder", body, notes="Real Django on TiDB, headless Chromium 390x844 emulated. Fixture by script: 55 folders Archive 00 to 54 (the last shared with Second Synthetic as viewer) and a private folder Reports.", unshown=["no-match search", "more than 50 matches"])
 
     g["DRILLS"]["tour_drive_find"] = tour
+
+
+def register_team_link(g, users):
+    APP = g["APP"]
+
+    def tour(ctx):
+        import concurrent.futures
+
+        users(ctx)
+
+        def make():
+            from apps.accounts.models import CustomUser
+            from apps.directory.models import Department, Team, TeamMembership
+
+            one = CustomUser.objects.get(employee_id="ST-LIVE-1")
+            two = CustomUser.objects.get(employee_id="ST-LIVE-2")
+            d = Department.objects.create(code="OPS", name="Operations")
+            t = Team.objects.create(code="FIELD", name="Field Team", department=d)
+            TeamMembership.objects.create(team=t, user=one)
+            TeamMembership.objects.create(team=t, user=two)
+
+        with concurrent.futures.ThreadPoolExecutor(1) as ex:
+            ex.submit(make).result()
+
+        def body(t, pg):
+            txt = lambda: pg.inner_text("body")
+            pg.goto(APP + "/directory/profile/ST-LIVE-2/")
+            t.step("Second Synthetic's profile: a Teams section lists Field Team", lambda: pg.evaluate("[...document.querySelectorAll('h4')].find(x=>x.textContent.trim()==='Teams').scrollIntoView({block:'center'})"), expect=lambda: "Field Team [FIELD]" in txt(), wait=3500)
+            t.step("Press Field Team: the team page opens", lambda: pg.click("a:has-text('Field Team')"), expect=lambda: "Team Members" in txt(), wait=3000)
+            t.step("Members are listed, and each ID is a link", lambda: pg.evaluate("document.querySelector('table').scrollIntoView({block:'center'})"), expect=lambda: pg.locator("table a:text-is('ST-LIVE-1')").count() == 1, wait=3500)
+            t.step("Press ST-LIVE-1: that person's profile opens", lambda: pg.click("table a:text-is('ST-LIVE-1')"), expect=lambda: "Employee Details" in txt() and "Field Team" in txt(), wait=3000)
+            t.step("Their profile lists the same team", lambda: pg.evaluate("[...document.querySelectorAll('h4')].find(x=>x.textContent.trim()==='Teams').scrollIntoView({block:'center'})"), expect=lambda: True, wait=3000)
+            t.note("Not shown: a person with no team (no Teams section), or a role without team access.", 3)
+
+        run_tour(ctx, "45_team_link", body, notes="Real Django on TiDB, headless Chromium 390x844 emulated. Fixture by script: department Operations, team Field Team with ST-LIVE-1 and ST-LIVE-2.", unshown=["no-team profile", "role without team access"])
+
+    g["DRILLS"]["tour_team_link"] = tour
