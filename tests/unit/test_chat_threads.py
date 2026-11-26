@@ -116,7 +116,7 @@ def test_a_long_thread_is_reachable_in_pages_with_nothing_skipped(monkeypatch):
     for i in range(7):
         cs.post_message(b, sp.public_id, "r%d" % i, "L%d" % i, 1)
     seen, after, pages = [], 0, 0
-    while True:
+    for _ in range(10):  # bounded, so a broken pager fails instead of hanging
         _sp, _root, rep, more = cs.thread(a, sp.public_id, 1, after)
         seen += [m.body for m in rep]
         pages += 1
