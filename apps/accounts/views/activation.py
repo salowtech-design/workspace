@@ -9,6 +9,7 @@ from django.contrib import messages
 from django.shortcuts import redirect, render
 
 from apps.accounts.auth.activation import verify_and_consume_code
+from apps.accounts.auth.employee_id import normalize_employee_id
 from apps.accounts.auth.errors import AuthException
 from apps.accounts.auth.mfa_totp import get_or_create_pending_totp, verify_totp_code
 from apps.accounts.auth.passwords import set_user_password
@@ -26,7 +27,7 @@ def activate_code_view(request):
 
     error = None
     if request.method == "POST":
-        emp_id = request.POST.get("employee_id", "").strip()
+        emp_id = normalize_employee_id(request.POST.get("employee_id", ""))
         submitted_cred = (
             request.POST.get("password") or request.POST.get("activation_code") or ""
         ).strip()
@@ -34,7 +35,7 @@ def activate_code_view(request):
 
         try:
             # First check if user exists and password matches
-            user = CustomUser.objects.filter(employee_id__iexact=emp_id).first()
+            user = CustomUser.objects.filter(employee_id=emp_id).first()
             if user and user.has_usable_password() and user.check_password(submitted_cred):
                 request.session[ACTIVATION_SESSION_KEY] = user.id
                 request.session.set_expiry(1800)  # 30 minute activation session
