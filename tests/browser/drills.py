@@ -6458,6 +6458,61 @@ def pdf_marks_keep(ctx):  # noqa: C901
     )
 
 
+def pdf_marks_shot(ctx):  # noqa: C901
+    """A simple marks plus notes example at phone width, for a picture of the marks copy panel. Needs a secure context (flagged test browser)."""
+    shots = os.environ.get("DRILL_SHOTS", "/tmp")  # noqa: S108
+    pg = fresh(ctx, "/pdf/")
+    pg.set_viewport_size({"width": 390, "height": 800})
+    pg.reload()
+    if not pg.evaluate("!!(navigator.locks && navigator.locks.request)"):
+        check("marks shot: the browser offers a secure context", False, "navigator.locks missing")
+        return
+    pg.set_input_files(
+        "#pdf-open",
+        files=[
+            {
+                "name": "report.pdf",
+                "mimeType": "application/pdf",
+                "buffer": _n_page_pdf(2, "Report"),
+            }
+        ],
+    )
+    for _ in range(50):
+        if pg.inner_text("#pdf-where").startswith("Page 1 of 2") and pg.evaluate(
+            "document.getElementById('pdf-canvas').width > 1"
+        ):
+            break
+        pg.wait_for_timeout(250)
+    pg.wait_for_timeout(900)
+    pg.click("#pdf-addpagenote")
+    pg.fill("#pdf-notetext", "Check the totals")
+    pg.click("#pdf-noteform button[type=submit]")
+    pg.wait_for_timeout(500)
+    pg.click("#pdf-tool-hl")
+    pg.evaluate("document.getElementById('pdf-marks').scrollIntoView({block: 'start'});0")
+    pg.wait_for_timeout(200)
+    x, y, w, h = pg.evaluate(
+        "(()=>{const r=document.getElementById('pdf-marks').getBoundingClientRect();return [r.left,r.top,r.width,r.height]})()"
+    )
+    pg.mouse.move(x + 0.15 * w, y + 0.12 * h)
+    pg.mouse.down()
+    pg.mouse.move(x + 0.8 * w, y + 0.2 * h, steps=5)
+    pg.mouse.up()
+    pg.wait_for_timeout(300)
+    pg.check("#pdf-markwithnotes")
+    pg.evaluate("document.getElementById('pdf-marksbox').scrollIntoView({block: 'start'});0")
+    pg.wait_for_timeout(300)
+    check(
+        "marks shot: one mark and one note, the tick box is on and the list shows the mark",
+        pg.is_checked("#pdf-markwithnotes")
+        and pg.locator("#pdf-marklist li").count() == 1
+        and pg.locator("#pdf-notelist li").count() == 1,
+    )
+    pg.screenshot(path=os.path.join(shots, "pdf-marks-notes-panel-390.png"))
+    sw = pg.evaluate("document.documentElement.scrollWidth")
+    check("marks shot: the page does not scroll sideways at 390 px", sw <= 390, str(sw))
+
+
 def pdf_order(ctx):  # noqa: C901
     """Reorder and remove pages from a list, then download that order."""
     shots = os.environ.get("DRILL_SHOTS", "/tmp")  # noqa: S108
@@ -7088,6 +7143,7 @@ DRILLS = {
     "pdf_marks": pdf_marks,
     "pdf_marks_secure": pdf_marks_secure,
     "pdf_marks_keep": pdf_marks_keep,
+    "pdf_marks_shot": pdf_marks_shot,
     "slides_style": slides_style,
     "sheets_tabs": sheets_tabs,
     "sheets_chart": sheets_chart,
@@ -7109,7 +7165,7 @@ DRILLS = {
 
 # Drills that need a secure context (navigator.locks) run in their own browser, started with a flag that treats the plain-HTTP drill origin as
 # secure. This is a test browser setting only, not the app's policy or an HTTPS deployment. Other drills never get the flag.
-SECURE_DRILLS = ("pdf_notes_turn", "pdf_marks_secure", "pdf_marks_keep")
+SECURE_DRILLS = ("pdf_notes_turn", "pdf_marks_secure", "pdf_marks_keep", "pdf_marks_shot")
 
 
 def run_group(p, names, secure, state=None, keep=None):  # noqa: C901
