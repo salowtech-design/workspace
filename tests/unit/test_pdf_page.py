@@ -123,4 +123,4 @@ def test_pdf_forms_table_passes_under_node():
         timeout=60,
     )
     assert r.returncode == 0, r.stdout + r.stderr
-    assert "23/23 pdf forms rows passed" in r.stdout
+    assert "32/32 pdf forms rows passed" in r.stdout

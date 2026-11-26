@@ -19,7 +19,7 @@ async function makeForm(extra) {
 const done = (async () => {
   const bytes = await makeForm(), before = sha(bytes);
   const info = await F.list(P, bytes, E.looksSigned);
-  const by = Object.fromEntries(info.fields.map((x) => [x.name, x]));
+  const by = Object.assign(Object.create(null), Object.fromEntries(info.fields.map((x) => [x.name, x])));
   ok("every supported field type is listed with its kind", ["full_name:text", "code:text", "notes:text", "fixed:text", "agree:check", "size:radio", "country:dropdown", "tags:list"].every((s) => by[s.split(":")[0]] && by[s.split(":")[0]].kind === s.split(":")[1]));
   ok("a push button is listed as not supported, not as a field", info.skipped.some((s) => s.name === "go") && !by.go);
   ok("text limit, multiline and read only are carried", by.code.max === 4 && by.notes.multiline === true && by.fixed.readOnly === true && by.fixed.value === "locked");
@@ -44,6 +44,27 @@ const done = (async () => {
   ok("an unknown field is refused", (await code({ nope: "x" })) === "missing");
   ok("text the form font cannot draw is refused as a value, not written broken", (await code({ full_name: "\u0905\u0915\u0940\u092b" })) === "value");
   ok("damaged input gets the damaged code", (await code({ full_name: "x" }, new Uint8Array([1, 2, 3]))) === "damaged");
+  // Exact identifiers: two names that share their first 200 characters stay distinct, and the display label is the only shortened part.
+  const pre = "p".repeat(210), twin = await (async () => { const d = await P.PDFDocument.create(), pg = d.addPage([300, 300]), f = d.getForm(); f.createTextField(pre + "A").addToPage(pg, { x: 10, y: 10, width: 50, height: 15 }); f.createTextField(pre + "B").addToPage(pg, { x: 10, y: 40, width: 50, height: 15 }); return d.save({ useObjectStreams: false }); })();
+  const ti = await F.list(P, twin, E.looksSigned);
+  ok("long names keep their full identifier and a shortened label", ti.fields.length === 2 && ti.fields[0].name.length === 211 && ti.fields[0].label.length === 200 && ti.fields[0].name !== ti.fields[1].name);
+  const tw2 = await F.fill(P, twin, Object.assign(Object.create(null), { [pre + "B"]: "second" })), tl = await F.list(P, tw2.bytes, E.looksSigned);
+  ok("filling one of two names with the same first 200 characters changes only that field", tl.fields.find((x) => x.name === pre + "B").value === "second" && tl.fields.find((x) => x.name === pre + "A").value === "");
+  ok("a shortened label does not match a field", (await code({ [pre.slice(0, 200)]: "x" }, twin)) === "missing");
+  // Names that are also object keys.
+  const odd = await (async () => { const d = await P.PDFDocument.create(), pg = d.addPage([300, 300]), f = d.getForm(); ["__proto__", "constructor", "toString", "hasOwnProperty"].forEach((nm, i) => f.createTextField(nm).addToPage(pg, { x: 10, y: 10 + 30 * i, width: 50, height: 15 })); return d.save({ useObjectStreams: false }); })();
+  const ov = Object.create(null); ov["__proto__"] = "a"; ov["constructor"] = "b"; ov["toString"] = "c"; ov["hasOwnProperty"] = "d";
+  const of = await F.fill(P, odd, ov), ol = await F.list(P, of.bytes, E.looksSigned), om = new Map(ol.fields.map((x) => [x.name, x.value]));
+  ok("fields named like object keys are filled and read back exactly", om.get("__proto__") === "a" && om.get("constructor") === "b" && om.get("toString") === "c" && om.get("hasOwnProperty") === "d" && ({}).polluted === undefined && Object.getPrototypeOf({}) === Object.prototype);
+  // Untouched fields are not redrawn: a marker appearance on an untouched field survives a fill of another field.
+  const mk = await makeForm(async (d, pg, f) => { const w = f.getTextField("code").acroField.getWidgets()[0], st = d.context.stream("q 1 0 0 rg 0 0 5 5 re f Q % marker"); const ap = d.context.obj({ N: d.context.register(st) }); w.dict.set(P.PDFName.of("AP"), ap); f.getTextField("code").acroField.dict.set(P.PDFName.of("V"), P.PDFHexString.fromText("\u0905")); });
+  const apBytes = async (b) => { const dd = await P.PDFDocument.load(b), w = dd.getForm().getTextField("code").acroField.getWidgets()[0], n = w.dict.lookup(P.PDFName.of("AP")).lookup(P.PDFName.of("N")); return Buffer.from(n.getContents()).toString("latin1"); };
+  const mf = await F.fill(P, mk, { full_name: "x" });
+  ok("an untouched field keeps its own appearance and value (nothing redrawn)", (await apBytes(mf.bytes)) === (await apBytes(mk)) && (await F.list(P, mf.bytes, E.looksSigned)).fields.find((x) => x.name === "code").value === "\u0905");
+  ok("control: filling that same field does redraw its appearance", (await apBytes((await F.fill(P, mk, { code: "ab" })).bytes)) !== (await apBytes(mk)));
+  // Output cap.
+  const big = await (async () => { const d = await P.PDFDocument.create(), pg = d.addPage([100, 100]); d.getForm().createTextField("t").addToPage(pg, { x: 1, y: 1, width: 50, height: 15 }); d.context.register(d.context.stream(require("crypto").randomBytes(F.MAX_BYTES + 1000))); return d.save({ useObjectStreams: false }); })();
+  ok("a filled copy over the size limit is refused", (await code({ t: "x" }, big)) === "size");
   // no form at all
   const plain = await P.PDFDocument.create(); plain.addPage([100, 100]);
   const pi = await F.list(P, await plain.save(), E.looksSigned);
@@ -55,6 +76,8 @@ const done = (async () => {
   // XFA flag
   const xfBase = Buffer.from(await makeForm()).toString("latin1"); const xf = Buffer.from(xfBase.replace("/Fields", "/XFA [(template) (<xdp/>)] /Fields"), "latin1");
   ok("an XFA form is flagged", (await F.list(P, xf, E.looksSigned)).xfa === true);
+  ok("filling an XFA form is refused, not written without the XFA data", (await code({ full_name: "x" }, xf)) === "xfa");
+  ok("a form without XFA is not refused", (await code({ full_name: "x" })) === "none");
   // embedded actions are carried, not run: JavaScript in a field stays in the file and nothing here evaluates it
   const js = await makeForm(async (d, pg, f) => { f.getTextField("full_name").acroField.dict.set(P.PDFName.of("AA"), d.context.obj({ K: { S: "JavaScript", JS: P.PDFString.of("globalThis.__ran = 1") } })); });
   globalThis.__ran = 0; const jr = await F.fill(P, js, { full_name: "x" });

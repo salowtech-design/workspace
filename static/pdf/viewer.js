@@ -296,22 +296,22 @@
   });
 
   // Form fields (standard AcroForm): listed from the open file, filled here, saved only as a separate copy. Values live in the page's inputs and nowhere else.
-  var fForm = null, fExporting = false, fHold = null, fToken = 0, fInputs = [];
+  var fForm = null, fExporting = false, fHold = null, fFindArm = 0, fToken = 0, fInputs = [];
   function fmsgSet(t) { $("pdf-formstatus").textContent = t; }
-  function fControls() { $("pdf-formfind").disabled = !doc || fExporting; $("pdf-formsave").disabled = !doc || !fForm || fExporting || !fForm.fields.length; }
-  function formsReset() { fToken++; fForm = null; fInputs = []; if (fHold) clearTimeout(fHold.timer); fHold = null; fExporting = false; $("pdf-formlist").hidden = true; $("pdf-formlist").textContent = ""; fmsgSet(""); fControls(); }
+  function fControls() { $("pdf-formfind").disabled = !doc || fExporting; $("pdf-formsave").disabled = !doc || !fForm || fExporting || !fForm.fields.length || fForm.xfa; }
+  function formsReset() { fToken++; fForm = null; fInputs = []; if (fHold) clearTimeout(fHold.timer); fHold = null; fExporting = false; if (fFindArm) { clearTimeout(fFindArm); fFindArm = 0; } $("pdf-formlist").hidden = true; $("pdf-formlist").textContent = ""; fmsgSet(""); fControls(); }
   function el(tag, props) { var e = document.createElement(tag); Object.keys(props || {}).forEach(function (k) { e[k] = props[k]; }); return e; }
   function renderForm(info) {
     var host = $("pdf-formlist"); host.textContent = ""; fInputs = [];
     info.fields.forEach(function (f) {
       var wrap, ctl, get;
       if (f.kind === "radio") {
-        wrap = el("fieldset"); wrap.appendChild(el("legend", { textContent: f.name }));
+        wrap = el("fieldset"); wrap.appendChild(el("legend", { textContent: f.label }));
         var rs = [{ v: "", t: "(none)" }].concat(f.options.map(function (o) { return { v: o, t: o }; })), gname = "pdf-r-" + fInputs.length;
         var radios = rs.map(function (o) { var l = el("label"), r = el("input", { type: "radio", name: gname, value: o.v, disabled: f.readOnly, checked: o.v === f.value }); l.appendChild(r); l.appendChild(document.createTextNode(" " + o.t)); wrap.appendChild(l); return r; });
         get = function () { var c = radios.filter(function (r) { return r.checked; })[0]; return c ? c.value : ""; }; ctl = radios;
       } else {
-        wrap = el("label"); wrap.appendChild(document.createTextNode(f.name + (f.readOnly ? " (read only)" : "") + " "));
+        wrap = el("label"); wrap.appendChild(document.createTextNode(f.label + (f.readOnly ? " (read only)" : "") + " "));
         if (f.kind === "text") { ctl = f.multiline ? el("textarea", { rows: 3 }) : el("input", { type: "text" }); ctl.value = f.value; if (f.max) ctl.maxLength = f.max; get = function () { return ctl.value; }; }
         else if (f.kind === "check") { ctl = el("input", { type: "checkbox", checked: f.value }); get = function () { return ctl.checked; }; }
         else {
@@ -332,12 +332,15 @@
     var m = info.fields.length + " field(s) can be filled here.";
     if (info.skipped.length) m += " Listed but not supported, so left as they are: " + info.skipped.slice(0, 8).map(function (s) { return s.name + " (" + s.kind + ")"; }).join(", ") + (info.skipped.length > 8 ? ", and " + (info.skipped.length - 8) + " more" : "") + ".";
     if (info.truncated) m += " This file has " + info.total + " fields; only the first " + window.PdfForms.MAX_FIELDS + " are listed.";
-    if (info.xfa) m += " This file also has an XFA form (a different, scripted form type). It is not read or filled here, and the filled copy will not contain the XFA data, so it opens as a plain form.";
+    if (info.xfa) m += " This file also has an XFA form (a different, scripted form type). It is not read or filled here, and a filled copy is not offered for it, because writing a copy would drop that data.";
     if (info.signed) m += " This file has a digital signature. A filled copy rewrites the file, so the signature in the copy will not validate.";
     return m;
   }
   $("pdf-formfind").addEventListener("click", function () {
     if (!doc || fExporting) return;
+    var typed = fInputs.some(function (i) { return !i.f.readOnly && JSON.stringify(i.get()) !== i.orig; });
+    if (typed && !fFindArm) { fFindArm = setTimeout(function () { fFindArm = 0; }, 8000); fmsgSet("Finding the fields again will discard what you typed. Press Find form fields again within 8 seconds to discard it, or press Download a filled copy first."); return; }
+    if (fFindArm) { clearTimeout(fFindArm); fFindArm = 0; }
     var myDoc = doc, tok = ++fToken; fForm = null; fInputs = []; fHold = null; $("pdf-formlist").hidden = true; $("pdf-formlist").textContent = ""; fmsgSet("Reading the form fields in this browser."); fControls();
     var libs = window.PDFLib ? Promise.resolve() : loadScript(BASE + "pdf-lib.min.js").catch(function () { throw { stage: "load" }; });
     libs.then(function () { return myDoc.getData().catch(function () { throw { stage: "read" }; }); }).then(function (bytes) {
@@ -367,7 +370,7 @@
   }
   $("pdf-formsave").addEventListener("click", function () {
     if (!doc || !fForm || fExporting) return;
-    var myDoc = doc, nameText = $("pdf-name").textContent || "PDF file", tok = ++fToken, values = {}, changed = 0;
+    var myDoc = doc, nameText = $("pdf-name").textContent || "PDF file", tok = ++fToken, values = Object.create(null), changed = 0;
     fInputs.forEach(function (i) { if (i.f.readOnly) return; var now = i.get(); if (JSON.stringify(now) !== i.orig) { values[i.f.name] = now; changed++; } });
     if (!changed) { fmsgSet("Nothing was changed in the form, so no copy was made."); return; }
     var sig = JSON.stringify(values);
@@ -390,10 +393,11 @@
       var c = e && (e.stage || e.code), m = "A filled copy could not be made. Nothing was downloaded and the file you opened was not changed.";
       if (c === "value") m = "A value could not be written into the file (for example a character its form font cannot draw). Nothing was downloaded. Change that value and try again.";
       else if (c === "read") m = "This page could not read the open file's bytes again. Open the file again and retry.";
-      else if (c === "size") m = "This file is " + e.mb + " MB. Copies are limited to 20 MB. Nothing was downloaded.";
+      else if (c === "size") m = e.mb ? "This file is " + e.mb + " MB. Copies are limited to 20 MB. Nothing was downloaded." : "The filled copy would be over 20 MB. Nothing was downloaded.";
       else if (c === "readonly") m = "A field in the file is read only. Nothing was downloaded.";
+      else if (c === "xfa") m = "This file has an XFA form, which a copy made here would drop. Nothing was downloaded.";
       fmsgSet(m);
-    }).then(function () { fExporting = false; fControls(); });
+    }).then(function () { if (tok === fToken) { fExporting = false; fControls(); } });
   });
   $("pdf-clearnotes").addEventListener("click", function () {
     if (!doc || doc !== nDoc || !(nState === "ok" || nState === "bad") || saving) return;

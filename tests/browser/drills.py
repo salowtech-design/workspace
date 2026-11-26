@@ -5099,6 +5099,116 @@ def pdf_forms(ctx):  # noqa: C901
         "forms: pressing again with the same values downloads the copy",
         dl2.value.suggested_filename == "signed-filled.pdf",
     )
+    # Held signed copy does not survive reopening the same bytes as a new open.
+    open_pdf("signed.pdf", signed)
+    find()
+    pg.evaluate(field("full_name") + ".querySelector('input').value='Sam'")
+    got.clear()
+    pg.click("#pdf-formsave")
+    pg.wait_for_timeout(1500)
+    held = "again within 15 seconds" in status()
+    open_pdf("signed.pdf", signed)
+    check(
+        "forms: reopening a file clears the field list and the held signed copy",
+        held
+        and not pg.is_visible("#pdf-formlist")
+        and status() == ""
+        and pg.is_disabled("#pdf-formsave"),
+        status(),
+    )
+    find()
+    pg.evaluate(field("full_name") + ".querySelector('input').value='Sam'")
+    pg.click("#pdf-formsave")
+    pg.wait_for_timeout(1500)
+    check(
+        "forms: after reopening, the first press warns again and downloads nothing",
+        not got and "again within 15 seconds" in status(),
+        status(),
+    )
+    # XFA file: listed with a notice, no filled copy offered.
+    open_pdf("xfa.pdf", (fx / "form_xfa.pdf").read_bytes())
+    find()
+    check(
+        "forms: an XFA file is flagged and the filled copy is not offered",
+        "XFA" in status() and pg.is_disabled("#pdf-formsave") and not got,
+        status(),
+    )
+    # Switching during field discovery: the old file's fields must not appear.
+    open_pdf("form.pdf", basic)
+    pg.evaluate(
+        "document.getElementById('pdf-formfind').click(); document.getElementById('pdf-close').click()"
+    )
+    pg.wait_for_timeout(2000)
+    check(
+        "forms: closing during field discovery leaves no old fields or text",
+        not pg.is_visible("#pdf-formlist")
+        and pg.inner_text("#pdf-formlist") == ""
+        and status() == "",
+        status(),
+    )
+    open_pdf("form.pdf", basic)
+    pg.evaluate("document.getElementById('pdf-formfind').click()")
+    pg.set_input_files(
+        "#pdf-open",
+        files=[
+            {
+                "name": "other.pdf",
+                "mimeType": "application/pdf",
+                "buffer": (fx / "form_other.pdf").read_bytes(),
+            }
+        ],
+    )
+    pg.wait_for_timeout(3000)
+    shown = pg.evaluate(
+        "[...document.querySelectorAll('#pdf-formlist label, #pdf-formlist fieldset')].map(e=>e.textContent.trim())"
+    )
+    check(
+        "forms: opening another file during discovery shows none of the first file's fields",
+        not any("full_name" in t for t in shown) and pg.inner_text("#pdf-name") == "other.pdf",
+        (shown, status()),
+    )
+    find()
+    shown = pg.evaluate(
+        "[...document.querySelectorAll('#pdf-formlist label')].map(e=>e.textContent.trim())"
+    )
+    check(
+        "forms: the new file lists only its own field",
+        len(shown) == 1 and shown[0].startswith("other_field"),
+        shown,
+    )
+    # Switching during export: nothing downloads and the panel stays clean.
+    open_pdf("form.pdf", basic)
+    find()
+    pg.evaluate(field("full_name") + ".querySelector('input').value='Zed'")
+    got.clear()
+    pg.evaluate(
+        "document.getElementById('pdf-formsave').click(); document.getElementById('pdf-close').click()"
+    )
+    pg.wait_for_timeout(2500)
+    check(
+        "forms: closing during export downloads nothing and clears the panel",
+        not got and not pg.is_visible("#pdf-formlist") and status() == "",
+        status(),
+    )
+    # Typed edits are not discarded by a second Find without a warning.
+    open_pdf("form.pdf", basic)
+    find()
+    pg.evaluate(field("full_name") + ".querySelector('input').value='Keep me'")
+    pg.click("#pdf-formfind")
+    pg.wait_for_timeout(500)
+    kept = pg.evaluate(field("full_name") + ".querySelector('input').value")
+    check(
+        "forms: Find again with typed edits warns and keeps them",
+        kept == "Keep me" and "discard what you typed" in status(),
+        (kept, status()),
+    )
+    pg.click("#pdf-formfind")
+    pg.wait_for_timeout(1500)
+    check(
+        "forms: pressing Find again a second time discards them and reads fresh",
+        pg.evaluate(field("full_name") + ".querySelector('input').value") == "",
+        status(),
+    )
     # A file with no form.
     open_pdf("none.pdf", _two_page_pdf())
     find()

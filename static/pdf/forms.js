@@ -2,7 +2,7 @@
 // The original bytes are never changed and nothing is stored. Nothing inside the file is run: no scripts, no actions, no submit.
 (function (root) {
   "use strict";
-  var MAX_FIELDS = 300, MAX_NAME = 200, MAX_OPTIONS = 200;
+  var MAX_BYTES = 20 * 1024 * 1024, MAX_FIELDS = 300, MAX_NAME = 200, MAX_OPTIONS = 200;
   function fail(code, msg) { var e = new Error(msg); e.code = code; return e; }
   function kindOf(L, f) {
     if (f instanceof L.PDFTextField) return "text";
@@ -26,10 +26,10 @@
     return load(L, bytes, true).then(function (pdf) {
       var xfa = hasXfa(L, pdf), form = pdf.getForm(), all = form.getFields(), out = { fields: [], skipped: [], truncated: false, signed: looksSigned(L, pdf, bytes), xfa: xfa, total: all.length };
       all.slice(0, MAX_FIELDS).forEach(function (f) {
-        var name = String(f.getName()).slice(0, MAX_NAME), k = kindOf(L, f);
+        var full = String(f.getName()), name = full.slice(0, MAX_NAME), k = kindOf(L, f);
         try {
           if (k === "signature" || k === "button" || k === "other") { out.skipped.push({ name: name, kind: k }); return; }
-          var o = { name: name, kind: k, readOnly: !!f.isReadOnly(), required: !!f.isRequired() };
+          var o = { name: full, label: name, kind: k, readOnly: !!f.isReadOnly(), required: !!f.isRequired() };
           if (k === "text") { o.value = f.getText() || ""; o.max = f.getMaxLength() || 0; o.multiline = !!f.isMultiline(); o.password = !!f.isPassword(); if (o.password) { out.skipped.push({ name: name, kind: "password text" }); return; } }
           else if (k === "check") o.value = !!f.isChecked();
           else {
@@ -45,13 +45,14 @@
       return out;
     });
   }
-  // values: { name: value } for the fields the person changed. Returns the new file; fields not named are left exactly as they were.
+  // values: a null-prototype map of full field name to value for the fields the person changed. Returns the new file; fields not named are left exactly as they were.
   function fill(L, bytes, values) {
-    return load(L, bytes).then(function (pdf) {
+    // XFA data cannot be kept by this writer, and dropping it silently would change the document, so a file that has it is refused.
+    return load(L, bytes, true).then(function (pdf) {
+      if (hasXfa(L, pdf)) throw fail("xfa", "xfa form");
       var form = pdf.getForm(), done = 0, names = Object.keys(values);
       names.forEach(function (name) {
-        var f = form.getFieldMaybe ? form.getFieldMaybe(name) : null, k, v = values[name];
-        if (!f) { var m = form.getFields().filter(function (x) { return String(x.getName()).slice(0, MAX_NAME) === name; }); f = m[0]; }
+        var f = form.getFieldMaybe(name), k, v = values[name]; // exact full name only; the shortened label is for display
         if (!f) throw fail("missing", "field not found");
         k = kindOf(L, f);
         if (f.isReadOnly()) throw fail("readonly", "read only");
@@ -71,9 +72,9 @@
         done++;
       });
       if (done) { try { form.updateFieldAppearances(); } catch (e) { throw fail("value", "text could not be drawn"); } }
-      return pdf.save({ useObjectStreams: false }).then(function (out) { return { bytes: out, filled: done }; });
+      return pdf.save({ useObjectStreams: false }).then(function (out) { if (out.length > MAX_BYTES) throw fail("size", "copy too large"); return { bytes: out, filled: done }; });
     });
   }
-  var api = { MAX_BYTES: 20 * 1024 * 1024, MAX_FIELDS: MAX_FIELDS, list: list, fill: fill };
+  var api = { MAX_BYTES: MAX_BYTES, MAX_FIELDS: MAX_FIELDS, list: list, fill: fill };
   if (typeof module !== "undefined" && module.exports) module.exports = api; else root.PdfForms = api;
 })(typeof self !== "undefined" ? self : this);
