@@ -5939,6 +5939,54 @@ def pdf_marks_secure(ctx):  # noqa: C901
         pg.locator("#pdf-marklist li").count() == 1,
     )
 
+    # A copy with the marks and, only when asked, the notes.
+    if pg.is_visible("#pdf-noteform"):
+        pg.click("#pdf-notecancel")
+    pg.evaluate("document.getElementById('pdf-notes').scrollIntoView({block:'start'});0")
+    pg.click("#pdf-addpagenote")
+    pg.fill("#pdf-notetext", "combined note")
+    pg.click("#pdf-noteform button[type=submit]")
+    pg.wait_for_timeout(600)
+    box_on = not pg.is_disabled("#pdf-markwithnotes")
+    check(
+        "marks secure: with a note saved, the notes tick box on the marks copy is available and starts off",
+        box_on and not pg.is_checked("#pdf-markwithnotes"),
+    )
+
+    def copy_bytes():
+        with pg.expect_download() as dl:
+            pg.click("#pdf-markcopy")
+        return open(dl.value.path(), "rb").read(), dl.value.suggested_filename
+
+    plain, plain_name = copy_bytes()
+    pg.check("#pdf-markwithnotes")
+    both, both_name = copy_bytes()
+    shots_dir = os.environ.get("DRILL_SHOTS", "/tmp")  # noqa: S108
+    open(os.path.join(shots_dir, "pdf-marks-notes-copy.pdf"), "wb").write(both)
+    check(
+        "marks secure: without the tick the copy has the mark and no note; with it the copy has the mark and the note (separate file name)",
+        plain.count(b"/Subtype /Highlight") + plain.count(b"/Subtype /Ink") == 1
+        and plain.count(b"/Subtype /Text") == 0
+        and both.count(b"/Subtype /Text") == 1
+        and both.count(b"/Subtype /Highlight") + both.count(b"/Subtype /Ink") == 1
+        and plain_name.endswith("-marks.pdf")
+        and both_name.endswith("-marks-notes.pdf"),
+        "%s %s | %d %d"
+        % (plain_name, both_name, plain.count(b"/Subtype /Text"), both.count(b"/Subtype /Text")),
+    )
+    check(
+        "marks secure: the status names both counts",
+        "1 mark(s) and 1 note(s)" in pg.inner_text("#pdf-markstatus"),
+        pg.inner_text("#pdf-markstatus"),
+    )
+    pg.click("#pdf-clearnotes")
+    pg.click("#pdf-clearnotes")
+    pg.wait_for_timeout(500)
+    check(
+        "marks secure: with no notes left the tick box is off and unavailable",
+        pg.is_disabled("#pdf-markwithnotes") and not pg.is_checked("#pdf-markwithnotes"),
+    )
+
 
 def pdf_marks_keep(ctx):  # noqa: C901
     import re

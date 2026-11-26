@@ -131,6 +131,7 @@
     var on = nState === "ok" && !!doc;
     $("pdf-addnote").disabled = !on; $("pdf-addpagenote").disabled = !on; $("pdf-exportnotes").disabled = !on || !notes.length; $("pdf-exportcopy").disabled = !on || !notes.length || exporting;
     $("pdf-clearnotes").disabled = !(nState === "ok" || nState === "bad") || !doc;
+    mNotesBox();
     $("pdf-addnote").setAttribute("aria-pressed", adding ? "true" : "false");
     $("pdf-stage").classList.toggle("pdf-adding", adding);
   }
@@ -588,9 +589,14 @@
   // Marks: area highlights and pen strokes drawn over the page, kept only in this tab and written into a separate downloaded copy.
   var mMarks = [], mTool = "off", mDrag = null, mHold = null, mBusy = false, mToken = 0, SVGNS = "http://www.w3.org/2000/svg";
   function mmsg(t) { $("pdf-markstatus").textContent = t; }
+  // "Also add my notes" on the marks copy: only when this file's notes are on and there is at least one. Read at the press, so changing it changes the copy asked for.
+  function mNotesBox() {
+    var b = $("pdf-markwithnotes"), ok = nState === "ok" && !!doc && notes.length > 0;
+    b.disabled = !ok || mBusy; if (!ok) b.checked = false;
+  }
   function mUsable() { return !!doc && !rot && drawn === page; }
   function mControls() {
-    var on = !!doc && !rot && !mBusy;
+    var on = !!doc && !rot && !mBusy; mNotesBox();
     $("pdf-tool-hl").disabled = !on; $("pdf-tool-pen").disabled = !on; $("pdf-markcopy").disabled = !on || !mMarks.length; $("pdf-markclear").disabled = !on || !mMarks.length;
     $("pdf-tool-hl").setAttribute("aria-pressed", mTool === "hl" ? "true" : "false"); $("pdf-tool-pen").setAttribute("aria-pressed", mTool === "pen" ? "true" : "false");
     var svg = $("pdf-marks"); svg.classList.toggle("pdf-marks-on", mTool !== "off" && on);
@@ -739,20 +745,29 @@
   $("pdf-markclear").addEventListener("click", function () { if (mBusy) return; mApply([], mState === "ok" ? "All marks for this file were removed from this device." : mBad ? "All marks removed from this tab. The saved marks that could not be read are still on this device." : "All marks removed from this tab.", function () { $("pdf-tool-hl").focus(); }); });
   $("pdf-markcopy").addEventListener("click", function () {
     if (!doc || mBusy || !mMarks.length) return;
-    var myDoc = doc, nameText = $("pdf-name").textContent || "PDF file", tok = ++mToken, sig = JSON.stringify(mMarks);
-    if (mHold && mHold.doc === myDoc && mHold.sig === sig) { var h = mHold; mHold = mClearHold(); pSave(h.r, nameText, "-marks.pdf"); mmsg("Downloaded a copy with " + h.r.added + " mark(s). The file you opened was not changed."); return; }
+    var withNotes = !$("pdf-markwithnotes").disabled && $("pdf-markwithnotes").checked && nState === "ok" && notes.length > 0, snapN = withNotes ? notes.slice() : [];
+    var myDoc = doc, nameText = $("pdf-name").textContent || "PDF file", tok = ++mToken, sig = JSON.stringify(mMarks) + (withNotes ? "|notes|" + N.dump(snapN) : "");
+    var sfx = withNotes ? "-marks-notes.pdf" : "-marks.pdf", said = function (r) { return "Downloaded a copy with " + r.added + " mark(s)" + (withNotes ? " and " + r.notes + " note(s)" : "") + ". The file you opened was not changed."; };
+    if (mHold && mHold.doc === myDoc && mHold.sig === sig) { var h = mHold; mHold = mClearHold(); pSave(h.r, nameText, sfx); mmsg(said(h.r)); return; }
     mHold = mClearHold(); mBusy = true; mControls(); mmsg("Building the copy in this browser.");
     var libs = window.PDFLib ? Promise.resolve() : loadScript(BASE + "pdf-lib.min.js").catch(function () { throw { stage: "load" }; });
     libs.then(function () { return myDoc.getData().catch(function () { throw { stage: "read" }; }); }).then(function (bytes) {
-      return window.PdfMarks.build(window.PDFLib, window.PdfNotesExport, bytes, mMarks.slice());
+      // Marks first (it refuses XFA files and files with an unsafe annotation list), then the notes are added to that result.
+      return window.PdfMarks.build(window.PDFLib, window.PdfNotesExport, bytes, mMarks.slice()).then(function (r1) {
+        if (!withNotes) return r1;
+        return window.PdfNotesExport.build(window.PDFLib, r1.bytes, snapN).then(function (r2) {
+          if (r2.bytes.length > window.PdfNotesExport.MAX_BYTES) throw { stage: "size" };
+          return { bytes: r2.bytes, added: r1.added, notes: r2.added, signed: r1.signed };
+        });
+      });
     }).then(function (r) {
       if (tok !== mToken || myDoc !== doc) return;
       if (r.signed) {
         mHold = { doc: myDoc, r: r, sig: sig, timer: setTimeout(function () { mHold = null; if (myDoc === doc) mmsg("The copy was not downloaded."); }, 15000) };
-        mmsg("This file has a digital signature. A copy rewrites the file, so the signature in the copy will not validate. The original is not touched. Press Download a copy with marks again within 15 seconds, with no changes to the marks, to download it anyway.");
+        mmsg("This file has a digital signature. A copy rewrites the file, so the signature in the copy will not validate. The original is not touched. Press Download a copy with marks again within 15 seconds, with no changes to the marks or the notes choice, to download it anyway.");
         return;
       }
-      pSave(r, nameText, "-marks.pdf"); mmsg("Downloaded a copy with " + r.added + " mark(s). The file you opened was not changed.");
+      pSave(r, nameText, sfx); mmsg(said(r));
     }).catch(function (e) {
       if (tok !== mToken || myDoc !== doc) return;
       var c = e && (e.stage || e.code), m = "The copy could not be made. Nothing was downloaded and the file you opened was not changed.";
