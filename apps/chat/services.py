@@ -257,8 +257,9 @@ def spaces_for(user):
     return out
 
 
-def react(actor, public_id, seq, kind):
-    """Toggle one reaction by the actor on message `seq`. Returns True when added, False when removed.
+def react(actor, public_id, seq, kind, want=None):
+    """Set one reaction by the actor on message `seq`. want=None toggles; want=True or False asks for that
+    state, so a repeated or stale press (a second tab) is a no-op instead of a flip. Returns the state after.
     A kind outside the fixed set is a ValidationError. Anyone not in the space, an unknown space and an
     unknown message all get the same 404. The space row lock is taken first, as in post_message, so a
     member who leaves cannot slip a reaction in between the check and the write."""
@@ -279,6 +280,10 @@ def react(actor, public_id, seq, kind):
             raise Http404
         _pause()
         existing = Reaction.objects.filter(message=msg, person=me, kind=kind)
+        if want is True and existing.exists():
+            return True
+        if want is False and not existing.exists():
+            return False
         if existing.exists():
             existing.delete()
             audit(me, "chat.reaction.remove", "space", sp.pk, seq=seq, kind=kind)
@@ -305,3 +310,16 @@ def attach_reactions(rows, user):
             (k, e, label, counts.get((m.pk, k), 0), (m.pk, k) in mine) for k, e, label in REACTIONS
         ]
     return rows
+
+
+REFRESH_MAX = 200  # most messages one refresh covers
+
+
+def reactions_in(actor, public_id, first, last):
+    """{seq: [(kind, count, mine)...]} for messages first..last (at most REFRESH_MAX of them). 404 for a non-member."""
+    sp, _ = _visible_space(actor, public_id)
+    first = max(1, int(first))
+    last = min(int(last), first + REFRESH_MAX - 1)
+    msgs = list(Message.objects.filter(space=sp, seq__gte=first, seq__lte=last))
+    attach_reactions(msgs, actor)
+    return {m.seq: [(k, n, mine) for k, _e, _l, n, mine in m.reacts] for m in msgs}

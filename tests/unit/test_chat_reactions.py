@@ -131,6 +131,68 @@ def test_reaction_rate_limit(monkeypatch):
     assert Reaction.objects.filter(person=a).count() == 2  # the third press was refused
 
 
+@pytest.mark.django_db
+def test_wanted_state_makes_a_repeated_or_stale_press_a_no_op():
+    a, b, sp = _dm()
+    assert cs.react(a, sp.public_id, 1, "heart", True) is True
+    assert cs.react(a, sp.public_id, 1, "heart", True) is True  # a second tab pressing "on" again
+    assert Reaction.objects.filter(person=a).count() == 1
+    assert cs.react(a, sp.public_id, 1, "heart", False) is False
+    assert cs.react(a, sp.public_id, 1, "heart", False) is False
+    assert Reaction.objects.count() == 0
+    assert cs.react(a, sp.public_id, 1, "heart") is True  # no wanted state still toggles
+
+
+@pytest.mark.django_db
+def test_fetch_post_answers_json_without_a_redirect_and_the_form_post_still_redirects():
+    a, b, sp = _dm()
+    c = _c(a)
+    url = reverse("chat:react", args=[sp.public_id])
+    r = c.post(url, {"seq": 1, "kind": "heart", "want": "1"}, HTTP_X_CHAT_FETCH="1")
+    assert r.status_code == 200 and r.json()["seq"] == 1
+    got = {k: (n, mine) for k, n, mine in r.json()["reacts"]}
+    assert got["heart"] == (1, True) and got["tada"] == (0, False)
+    r = c.post(url, {"seq": 1, "kind": "heart", "want": "1"}, HTTP_X_CHAT_FETCH="1")
+    assert r.json()["reacts"][1] == ["heart", 1, True]  # pressed again with want on: unchanged
+    assert c.post(url, {"seq": 1, "kind": "bogus"}, HTTP_X_CHAT_FETCH="1").status_code == 400
+    assert c.post(url, {"seq": 9, "kind": "heart"}, HTTP_X_CHAT_FETCH="1").status_code == 404
+    assert c.post(url, {"seq": 1, "kind": "heart", "want": "0"}).status_code == 302
+    assert Reaction.objects.count() == 0
+
+
+@pytest.mark.django_db
+def test_reactions_refresh_endpoint_membership_window_and_privacy():
+    a, b, sp = _dm()
+    cs.post_message(b, sp.public_id, "second", "c2")
+    cs.react(b, sp.public_id, 1, "eyes")
+    cs.react(a, sp.public_id, 2, "heart")
+    url = reverse("chat:reactions", args=[sp.public_id])
+    r = _c(a).get(url + "?first=1&last=2")
+    j = r.json()["reacts"]
+    assert r.status_code == 200 and r["Cache-Control"] == "no-store"
+    assert [x for x in j["1"] if x[0] == "eyes"] == [["eyes", 1, False]]
+    assert [x for x in j["2"] if x[0] == "heart"] == [["heart", 1, True]]
+    assert "RX-B" not in r.content.decode() and "person" not in r.content.decode()  # counts only, no names
+    assert list(_c(a).get(url + "?first=2&last=2").json()["reacts"]) == ["2"]
+    assert _c(a).get(url).status_code == 400
+    assert _c(a).get(url + "?first=5&last=2").status_code == 400
+    assert _c(_u("RX-C")).get(url + "?first=1&last=2").status_code == 404
+    from django.test import Client
+
+    assert Client(HTTP_HOST="app.salowtech.com").get(url + "?first=1&last=2").status_code == 401
+    big = _c(a).get(url + "?first=1&last=100000")
+    assert big.status_code == 200 and set(big.json()["reacts"]) == {"1", "2"}
+
+
+@pytest.mark.django_db
+def test_react_routes_are_not_served_on_the_iam_host():
+    a, b, sp = _dm()
+    c = _c(a)
+    for path in (f"/chat/space/{sp.public_id}/react/", f"/chat/space/{sp.public_id}/reactions/?first=1&last=1"):
+        assert c.post(path, {"seq": 1, "kind": "heart"}, HTTP_HOST="iam.salowtech.com").status_code == 404
+        assert c.get(path, HTTP_HOST="iam.salowtech.com").status_code == 404
+
+
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.parametrize("locked", [True, False])
 def test_race_one_person_pressing_twice_at_once(monkeypatch, locked):

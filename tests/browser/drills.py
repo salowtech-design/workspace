@@ -4554,6 +4554,163 @@ def chat_poll_429(ctx):  # noqa: C901
     )
 
 
+def chat_reactions(ctx):  # noqa: C901
+    """Chat reactions in a real browser: press toggles, counts and pressed state survive reload, a second person's reaction is counted, desktop and 390 px."""
+    import concurrent.futures
+
+    import django
+
+    django.setup()
+
+    def make():
+        from apps.accounts.models import CustomUser
+        from apps.chat import services as cs
+
+        me = CustomUser.objects.get(employee_id="ST-LIVE-1")
+        other, _ = CustomUser.objects.get_or_create(
+            employee_id="ST-LIVE-2",
+            defaults={
+                "full_name": "Second Synthetic",
+                "email": "live.two@salowtech.com",
+                "email_verified": True,
+                "role": CustomUser.Role.EMPLOYEE,
+                "status": CustomUser.Status.ACTIVE,
+                "is_active": True,
+            },
+        )
+        sp = cs.open_dm(me, other.pk)
+        cs.post_message(other, sp.public_id, "Lunch at one? Reply with a reaction.", "rx-1")
+        cs.post_message(me, sp.public_id, "Yes, see you there.", "rx-2")
+        cs.react(other, sp.public_id, 1, "thumbs_up")
+        cs.react(other, sp.public_id, 1, "eyes")
+        return sp.public_id
+
+    with concurrent.futures.ThreadPoolExecutor(1) as ex:
+        space_id = ex.submit(make).result()
+    pg = ctx.pages[0]
+    url = APP + "/chat/space/%s/" % space_id
+
+    def label(seq, key):
+        return pg.get_attribute("#m%d button[value=%s]" % (seq, key), "aria-label")
+
+    def pressed(seq, key):
+        return pg.get_attribute("#m%d button[value=%s]" % (seq, key), "aria-pressed")
+
+    pg.goto(url)
+    pg.wait_for_timeout(500)
+    check(
+        "reactions: another person's reactions show as counts, not pressed",
+        label(1, "thumbs_up") == "Thumbs up, 1" and pressed(1, "thumbs_up") == "false"
+        and label(1, "eyes") == "Looking, 1" and label(1, "heart") == "Heart",
+        (label(1, "thumbs_up"), label(1, "eyes"), label(1, "heart")),
+    )
+    pg.click("#m1 button[value=thumbs_up]")
+    pg.wait_for_load_state()
+    pg.wait_for_timeout(500)
+    check(
+        "reactions: pressing adds mine to the count and marks it pressed",
+        label(1, "thumbs_up") == "Thumbs up, 2, you reacted" and pressed(1, "thumbs_up") == "true",
+        (label(1, "thumbs_up"), pressed(1, "thumbs_up")),
+    )
+    pg.click("#m1 button[value=tada]")
+    pg.wait_for_load_state()
+    pg.wait_for_timeout(500)
+    pg.reload()
+    pg.wait_for_timeout(500)
+    check(
+        "reactions: after reload the exact state is the same (thumbs 2 mine, tada 1 mine, eyes 1 not mine, message 2 untouched)",
+        label(1, "thumbs_up") == "Thumbs up, 2, you reacted"
+        and label(1, "tada") == "Celebrate, 1, you reacted"
+        and label(1, "eyes") == "Looking, 1"
+        and label(2, "thumbs_up") == "Thumbs up",
+        (label(1, "thumbs_up"), label(1, "tada"), label(1, "eyes"), label(2, "thumbs_up")),
+    )
+    shot(pg, "chat_reactions_desktop")
+    pg.click("#m1 button[value=thumbs_up]")
+    pg.wait_for_load_state()
+    pg.wait_for_timeout(500)
+    check(
+        "reactions: pressing again removes mine only",
+        label(1, "thumbs_up") == "Thumbs up, 1" and pressed(1, "thumbs_up") == "false",
+        (label(1, "thumbs_up"), pressed(1, "thumbs_up")),
+    )
+    # a forged kind straight to the endpoint is refused and stores nothing
+    res = pg.evaluate(
+        """async()=>{const f=document.querySelector('#m1 form');const d=new FormData(f);d.set('kind','<b>x</b>');
+        const r=await fetch(f.action,{method:'POST',body:d,credentials:'same-origin',redirect:'manual'});return r.status+':'+r.type}"""
+    )
+    pg.reload()
+    pg.wait_for_timeout(400)
+    check(
+        "reactions: a forged reaction name is refused and the counts are unchanged",
+        pg.locator("#m1 .chat-react-btn").count() == 6 and label(1, "tada") == "Celebrate, 1, you reacted",
+        res,
+    )
+    # in place: a half-typed message and the page itself survive a press (no reload)
+    pg.evaluate("window.__noReload = 'same page'")
+    pg.fill("textarea[name=body]", "half typed message")
+    pg.click("#m2 button[value=laugh]")
+    pg.wait_for_timeout(700)
+    check(
+        "reactions: pressing keeps the half-typed message and does not reload the page",
+        pg.input_value("textarea[name=body]") == "half typed message"
+        and pg.evaluate("window.__noReload") == "same page"
+        and label(2, "laugh") == "Laugh, 1, you reacted",
+        (pg.input_value("textarea[name=body]"), label(2, "laugh")),
+    )
+    # a second person (service call, not a second browser login) reacts to a message already on screen: it appears by polling
+    def peer():
+        from apps.accounts.models import CustomUser
+        from apps.chat import services as cs
+
+        cs.react(CustomUser.objects.get(employee_id="ST-LIVE-2"), space_id, 2, "heart")
+
+    before = label(2, "heart")
+    with concurrent.futures.ThreadPoolExecutor(1) as ex:
+        ex.submit(peer).result()
+    check("reactions: before the poll the page still shows the old count", before == "Heart", before)
+    t0 = time.time()
+    while label(2, "heart") != "Heart, 1" and time.time() - t0 < 40:
+        pg.wait_for_timeout(500)
+    print("reactions: peer reaction appeared after %.1f s" % (time.time() - t0))
+    check(
+        "reactions: the peer's reaction shows up by itself, same page, draft kept, my own state unchanged",
+        pg.evaluate("window.__noReload") == "same page"
+        and pg.input_value("textarea[name=body]") == "half typed message"
+        and label(2, "heart") == "Heart, 1" and label(2, "laugh") == "Laugh, 1, you reacted",
+        (label(2, "heart"), label(2, "laugh")),
+    )
+    # a stale second tab: tab B turns thumbs-up on for message 2, tab A (still showing it off) presses it too
+    tb = ctx.new_page()
+    tb.goto(url)
+    tb.wait_for_timeout(500)
+    tb.click("#m2 button[value=thumbs_up]")
+    tb.wait_for_timeout(700)
+    tb.close()
+    check("reactions: tab A still shows thumbs-up off", pressed(2, "thumbs_up") == "false", pressed(2, "thumbs_up"))
+    pg.click("#m2 button[value=thumbs_up]")
+    pg.wait_for_timeout(700)
+    check(
+        "reactions: the stale press asks for 'on' and does not flip it back off (count 1, mine)",
+        label(2, "thumbs_up") == "Thumbs up, 1, you reacted" and pressed(2, "thumbs_up") == "true",
+        (label(2, "thumbs_up"), pressed(2, "thumbs_up")),
+    )
+    pg.set_viewport_size({"width": 390, "height": 800})
+    pg.reload()
+    pg.wait_for_timeout(500)
+    box = pg.evaluate(
+        "(()=>{const b=document.querySelector('#m1 .chat-react-btn').getBoundingClientRect();"
+        "const f=document.querySelector('#m1').getBoundingClientRect();return [b.height,f.right,document.documentElement.scrollWidth]})()"
+    )
+    check(
+        "reactions: at 390 px the page does not scroll sideways and buttons are at least 28 px tall",
+        box[0] >= 28 and box[2] <= 390,
+        box,
+    )
+    shot(pg, "chat_reactions_390")
+    pg.set_viewport_size({"width": 1280, "height": 800})
+
+
 def chat_poll_real(ctx):  # noqa: C901
     """Chat, real server and TiDB: a message sent by the second person while this person's polls are rate limited arrives once and the position advances."""
     import concurrent.futures
@@ -8436,6 +8593,7 @@ DRILLS = {
     "chat_poll_tabs": chat_poll_tabs,
     "chat_poll_429": chat_poll_429,
     "chat_poll_real": chat_poll_real,
+    "chat_reactions": chat_reactions,
     "pdf_fit": pdf_fit,
     "pdf_rotate": pdf_rotate,
     "pdf_notes_turn": pdf_notes_turn,

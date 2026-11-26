@@ -12,4 +12,5 @@ urlpatterns = [
     path("space/<uuid:space_id>/send/", views.send, name="send"),
     path("space/<uuid:space_id>/poll/", views.poll, name="poll"),
     path("space/<uuid:space_id>/react/", views.react, name="react"),
+    path("space/<uuid:space_id>/reactions/", views.reactions, name="reactions"),
 ]

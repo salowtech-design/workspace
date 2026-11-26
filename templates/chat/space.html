@@ -5,7 +5,7 @@
 <div class="card cal"><div class="cal-head"><h2>{{ label }}</h2></div>
 <div class="cal-tabs"><a href="{% url 'chat:home' %}">All conversations</a></div>
 {% if older %}<p><a href="{% url 'chat:space' space.public_id %}?before={{ older }}">Earlier messages</a></p>{% endif %}
-<div class="chat-list" id="chat-list" data-last="{{ last }}"{% if live %} data-poll="{% url 'chat:poll' space.public_id %}"{% endif %}>{% include "chat/_messages.html" %}</div>
+<div class="chat-list" id="chat-list" data-last="{{ last }}" data-first="{{ first }}" data-reactions="{% url 'chat:reactions' space.public_id %}"{% if live %} data-poll="{% url 'chat:poll' space.public_id %}"{% endif %}>{% include "chat/_messages.html" %}</div>
 {% if not rows %}<p class="cal-meta">No messages yet.</p>{% endif %}
 {% if newer %}<p><a href="{% url 'chat:space' space.public_id %}?after={{ newer }}">Newer messages</a></p>{% endif %}
 <p class="cal-meta" id="chat-status" role="status"></p>
@@ -13,6 +13,6 @@
 <input type="hidden" name="client_msg_id" value="{{ client_msg_id }}">
 <label>Message<textarea name="body" rows="2" maxlength="8000" required autofocus>{{ draft }}</textarea></label>
 <button class="btn" type="submit">Send</button></form>
-<p class="cal-meta">Messages are plain text. While this tab is open and visible, new messages usually appear within about 10 seconds, and slower while Chat is being rate limited. In this build only the people in this conversation can open it in the app; this does not describe database or backup access. Edit, delete, files and reactions are not built.</p>
+<p class="cal-meta">Messages are plain text. While this tab is open and visible, new messages usually appear within about 10 seconds, and slower while Chat is being rate limited. In this build only the people in this conversation can open it in the app; this does not describe database or backup access. Edit, delete and files are not built. Reactions are six fixed choices; counts refresh with the same polling as messages.</p>
 </div>
 {% endblock %}

@@ -6,7 +6,7 @@ from django.contrib.auth import get_user_model
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db.models.functions import Upper
-from django.http import Http404, HttpResponse
+from django.http import Http404, HttpResponse, JsonResponse
 from django.shortcuts import redirect, render
 from django.urls import reverse
 from django.views.decorators.http import require_POST
@@ -124,6 +124,7 @@ def _page(request, space_id, *, status=200, draft="", client_msg_id=None):
             "label": _label(sp, request.user),
             "rows": rows,
             "last": last,
+            "first": first,
             "older": first if first > 1 else None,
             "newer": last if last < sp.last_seq else None,
             "client_msg_id": client_msg_id or uuid.uuid4().hex,
@@ -167,22 +168,53 @@ def send(request, space_id):
 
 
 REACT_LIMIT = 60  # reaction changes per person per minute
+REACT_POLL_LIMIT = 30  # reaction refreshes per person per minute
+
+
+def _want(raw):
+    return {"1": True, "0": False}.get(raw)  # anything else toggles
 
 
 @login_required
 @active_only
 @require_POST
 def react(request, space_id):
+    """Set a reaction. The page's script sends X-Chat-Fetch and gets JSON (so a half-typed message is never
+    lost to a reload). Without the script the form posts normally and is redirected back."""
+    js = request.headers.get("X-Chat-Fetch") == "1"
     if throttled(request.user, "chat-react", REACT_LIMIT):
+        if js:
+            return JsonResponse({"error": "Too many reactions in a minute. Wait and try again."}, status=429)
         messages.error(request, "Too many reactions in a minute. Wait and try again.")
         return redirect("chat:space", space_id=space_id)
+    seq = request.POST.get("seq")
     try:
-        cs.react(request.user, space_id, request.POST.get("seq"), request.POST.get("kind", ""))
+        cs.react(request.user, space_id, seq, request.POST.get("kind", ""), _want(request.POST.get("want")))
     except ValidationError as exc:
+        if js:
+            return JsonResponse({"error": " ".join(exc.messages)}, status=400)
         messages.error(request, " ".join(exc.messages))
-    return redirect(
-        reverse("chat:space", args=[space_id]) + "#m" + str(_int(request.POST.get("seq")) or "")
-    )
+    if js:
+        out = cs.reactions_in(request.user, space_id, seq, seq)
+        return JsonResponse({"seq": int(seq), "reacts": out.get(int(seq), [])})
+    return redirect(reverse("chat:space", args=[space_id]) + "#m" + str(_int(seq) or ""))
+
+
+def reactions(request, space_id):
+    """Current reaction counts for the messages on screen (first..last), as JSON. 401 when signed out, like poll."""
+    if not request.user.is_authenticated:
+        return HttpResponse(status=401)
+    if cs._live(request.user.pk) is None:
+        raise Http404
+    if throttled(request.user, "chat-react-poll", REACT_POLL_LIMIT):
+        return HttpResponse(status=429)
+    first, last = _int(request.GET.get("first")), _int(request.GET.get("last"))
+    if not first or not last or last < first:
+        return HttpResponse(status=400)
+    out = cs.reactions_in(request.user, space_id, first, last)
+    resp = JsonResponse({"reacts": {str(k): v for k, v in out.items()}})
+    resp["Cache-Control"] = "no-store"
+    return resp
 
 
 POLL_LIMIT = 30  # polls per person per minute

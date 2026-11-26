@@ -1,10 +1,47 @@
 (function () {
   var list = document.getElementById("chat-list");
-  if (!list || !list.dataset.poll) return;
+  if (!list) return;
   var status = document.getElementById("chat-status");
+  var pressing = 0;
+  // Reactions: a press is sent in place (the compose box and the scroll position are untouched). The page asks for the
+  // wanted state (the opposite of what it shows), so a stale tab cannot flip a reaction back. Without this script the form posts normally.
+  function paint(seq, reacts) {
+    var msg = list.querySelector("#m" + seq);
+    if (!msg) return;
+    reacts.forEach(function (r) {
+      var b = msg.querySelector('.chat-react-btn[data-kind="' + r[0] + '"]');
+      if (!b) return;
+      var n = r[1], mine = !!r[2], label = b.dataset.label;
+      b.classList.toggle("on", mine);
+      b.setAttribute("aria-pressed", mine ? "true" : "false");
+      b.setAttribute("aria-label", label + (n ? ", " + n : "") + (mine ? ", you reacted" : ""));
+      var c = b.querySelector(".chat-react-n");
+      if (n && !c) { c = document.createElement("span"); c.className = "chat-react-n"; c.setAttribute("aria-hidden", "true"); b.appendChild(c); }
+      if (c) { if (n) c.textContent = String(n); else c.remove(); }
+    });
+  }
+  function say(t) { if (status) status.textContent = t; }
+  list.addEventListener("click", function (ev) {
+    var b = ev.target.closest && ev.target.closest(".chat-react-btn");
+    if (!b || !b.form || b.disabled || !window.fetch || !window.FormData) return;
+    ev.preventDefault();
+    var d = new FormData(b.form);
+    d.set("kind", b.dataset.kind);
+    d.set("want", b.getAttribute("aria-pressed") === "true" ? "0" : "1");
+    b.disabled = true; pressing += 1;
+    fetch(b.form.action, { method: "POST", body: d, credentials: "same-origin", redirect: "manual", headers: { "X-Chat-Fetch": "1", Accept: "application/json" } })
+      .then(function (r) {
+        if (r.status === 429) { say("Too many reactions in a minute. Wait and try again."); return null; }
+        if (r.status === 404) { say("This conversation is no longer available to you."); return null; }
+        if (!r.ok) { say(r.type === "opaqueredirect" || r.status === 401 || r.status === 403 ? "Your session has ended. Reload the page to sign in again." : "The reaction was not saved."); return null; }
+        return r.json().then(function (j) { say(""); paint(j.seq, j.reacts); });
+      })
+      .catch(function () { say("The reaction was not saved."); })
+      .then(function () { b.disabled = false; pressing -= 1; });
+  });
+  if (!list.dataset.poll) return;
   var failures = 0, busy = false, timer = null, stopped = false, slow = 0, notBefore = 0;
   var EVERY = 10000, SLOW_FIRST = 20000, SLOW_MAX = 120000;
-  function say(t) { if (status) status.textContent = t; }
   function stop(t) { stopped = true; clearTimeout(timer); say(t); }
   function later(ms) { clearTimeout(timer); if (!stopped) timer = setTimeout(tick, Math.min(ms, 2147483647)); } // a longer wait is rechecked by tick() against notBefore, never shortened
   // 429 means the server is rate limiting this person's polls. It is not a failure of the page. When the server sends Retry-After the
@@ -22,6 +59,17 @@
     notBefore = Date.now() + wait;
     say("Chat is being rate limited right now, so updates are slower. It will try again by itself.");
     return wait;
+  }
+  // Peers' reactions on messages already on screen: one small JSON call per poll, skipped while one of my own presses is in flight.
+  function refresh() {
+    var first = parseInt(list.dataset.first, 10), last = parseInt(list.dataset.last, 10);
+    if (!list.dataset.reactions || !first || !last || pressing) return null;
+    return fetch(list.dataset.reactions + "?first=" + first + "&last=" + last, { credentials: "same-origin", redirect: "manual", headers: { Accept: "application/json" } })
+      .then(function (r) {
+        if (r.status === 429) { later(slowDown(r)); return null; }
+        if (!r.ok) return null;
+        return r.json().then(function (j) { if (pressing) return; Object.keys(j.reacts).forEach(function (k) { paint(k, j.reacts[k]); }); });
+      });
   }
   function tick() {
     if (stopped || document.visibilityState !== "visible" || busy) { later(EVERY); return; } // hidden tabs neither fetch nor read
@@ -41,6 +89,7 @@
         if (html.trim()) { list.insertAdjacentHTML("beforeend", html); list.scrollTop = list.scrollHeight; }
         if (last) list.dataset.last = last;
         if (more) say("More new messages. Reload to see them.");
+        return refresh();
       });
     }).catch(function () {
       failures += 1; if (failures >= 5) stop("Live updates paused. Reload the page to continue.");
