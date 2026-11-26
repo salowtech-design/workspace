@@ -194,9 +194,18 @@ def move_item(request, kind, item_id):
         if destination is None or not can(request.user, "view", "drive.folder", destination):
             messages.error(request, "That destination folder was not found.")
             return _back(item)
-    if request.POST.get("confirm") != "1":
-        gain, lose = svc.move_audience(item, destination)
-        if gain:  # widening: show who gets access and wait for a second press
+    try:  # refuse an invalid move before asking anyone to confirm it
+        svc.check_move(request.user, item, destination)
+    except ValidationError as exc:
+        messages.error(request, " ".join(exc.messages))
+        return _back(item)
+    except PermissionDenied:
+        messages.error(request, "You do not have permission to do that.")
+        return _back(item)
+    gain, lose = svc.move_audience(item, destination)
+    if gain:  # widening: the confirmation must match the sharing as it is right now
+        digest = svc.audience_digest(item, destination, gain)
+        if request.POST.get("confirm") != "1" or request.POST.get("digest") != digest:
             owner = item.owner_id == request.user.pk
             return render(
                 request,
@@ -208,6 +217,8 @@ def move_item(request, kind, item_id):
                     "owner": owner,  # names only for the owner; others see counts
                     "gain": gain,
                     "lose": lose,
+                    "digest": digest,
+                    "changed": request.POST.get("confirm") == "1",  # a stale or missing digest
                     "back": _back(item).url,
                 },
             )

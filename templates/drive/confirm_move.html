@@ -4,6 +4,7 @@
 {% block content %}
 <div class="card drive">
   <div class="drive-head"><h2>Confirm move</h2></div>
+  {% if changed %}<p class="tasks-conflict"><strong>The sharing changed since you last looked.</strong> Check the list again before you confirm.</p>{% endif %}
   <p>Move <strong>{{ item.name }}</strong> into <strong>{% if destination %}{{ destination.name }}{% else %}the top level of My Drive{% endif %}</strong>?</p>
   <p class="drive-meta">This gives more people access to {{ item.name }}, because it takes on the sharing of the place you move it into.</p>
   {% if owner %}
@@ -15,7 +16,7 @@
   <p class="drive-meta">{% if owner %}These people lose access or get a weaker role, because they had it through the place it is leaving:{% else %}{{ lose|length }} {% if lose|length == 1 %}person loses{% else %}people lose{% endif %} access or get a weaker role.{% endif %}</p>
   {% if owner %}<ul>{% for u, old, new in lose %}<li>{{ u.full_name }} ({{ u.employee_id }}) {% if new %}goes from {{ old }} to {{ new }}{% else %}loses {{ old }} access{% endif %}</li>{% endfor %}</ul>{% endif %}
   {% endif %}
-  <p class="drive-meta">Sharing set directly on {{ item.name }} stays as it is.</p>
-  <form method="post" action="{% url 'drive:move' kind item.public_id %}" class="drive-inline">{% csrf_token %}<input type="hidden" name="destination" value="{% if destination %}{{ destination.public_id }}{% endif %}"><input type="hidden" name="confirm" value="1"><button class="btn btn-primary btn-small" type="submit">Move and share</button> <a class="btn btn-secondary btn-small" href="{{ back }}">Cancel</a></form>
+  <p class="drive-meta">Sharing set directly on {{ item.name }}{% if kind == "folder" %}, or on anything inside it,{% endif %} stays as it is. This list only counts sharing that {{ item.name }} gets from the place it is in or moves to. Someone listed as losing access may still reach parts of it that were shared with them separately.</p>
+  <form method="post" action="{% url 'drive:move' kind item.public_id %}" class="drive-inline">{% csrf_token %}<input type="hidden" name="destination" value="{% if destination %}{{ destination.public_id }}{% endif %}"><input type="hidden" name="confirm" value="1"><input type="hidden" name="digest" value="{{ digest }}"><button class="btn btn-primary btn-small" type="submit">Move and share</button> <a class="btn btn-secondary btn-small" href="{{ back }}">Cancel</a></form>
 </div>
 {% endblock %}

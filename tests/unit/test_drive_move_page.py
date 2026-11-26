@@ -20,6 +20,12 @@ def _c(user):
     return c
 
 
+def _digest(resp):
+    import re
+
+    return re.search(r'name="digest" value="([0-9a-f]+)"', resp.content.decode()).group(1)
+
+
 def _move(client, folder, dest):
     return client.post(reverse("drive:move", args=["folder", folder.public_id]), {"destination": dest}, follow=True)
 
@@ -134,7 +140,7 @@ def test_move_into_a_shared_folder_asks_first_names_who_gains_and_moves_only_on_
     body = r.content.decode()
     assert one.parent_id == private.pk and not can(v, "view", "drive.folder", one)
     assert "Confirm move" in body and "Person MV-O (MV-O) gets access as viewer" in body and "Shared box" in body
-    r = _c(a).post(url, {"destination": str(shared.public_id), "confirm": "1"}, follow=True)
+    r = _c(a).post(url, {"destination": str(shared.public_id), "confirm": "1", "digest": _digest(r)}, follow=True)
     one.refresh_from_db()
     assert one.parent_id == shared.pk and b"Moved." in r.content
     assert can(v, "view", "drive.folder", one)
@@ -179,7 +185,7 @@ def test_file_move_audience_counts_the_destination_shares_and_keeps_the_files_ow
     r = _c(a).post(url, {"destination": str(dest.public_id)})
     f.refresh_from_db()
     assert f.folder_id is None and b"Person MV-X (MV-X) gets access as editor" in r.content
-    _c(a).post(url, {"destination": str(dest.public_id), "confirm": "1"})
+    _c(a).post(url, {"destination": str(dest.public_id), "confirm": "1", "digest": _digest(r)})
     f.refresh_from_db()
     assert f.folder_id == dest.pk and v.drive_shares.filter(file=f).exists()
 
@@ -234,3 +240,43 @@ def test_a_file_row_lists_every_folder_even_when_a_file_and_folder_share_a_numbe
     assert m, "the file row has no Move control"
     file_form = m.group(0)
     assert ">Same number</option>" in file_form
+
+
+@pytest.mark.django_db
+def test_sharing_that_changes_between_the_two_presses_needs_a_fresh_confirmation():
+    a, v, w = _u("MV-AB"), _u("MV-AC"), _u("MV-AD")
+    dst = svc.create_folder(a, "Dst")
+    svc.share(a, dst, v, "viewer")
+    one = svc.create_folder(a, "One")
+    url = reverse("drive:move", args=["folder", one.public_id])
+    first = _c(a).post(url, {"destination": str(dst.public_id)})
+    d1 = _digest(first)
+    svc.share(a, dst, w, "editor")  # someone else gets the destination between the two presses
+    r = _c(a).post(url, {"destination": str(dst.public_id), "confirm": "1", "digest": d1})
+    one.refresh_from_db()
+    body = r.content.decode()
+    assert one.parent_id is None and "The sharing changed since you last looked" in body
+    assert "MV-AD (MV-AD) gets access as editor" in body and _digest(r) != d1
+    for bad in ({}, {"digest": "0" * 32}, {"digest": "forged"}):  # missing or forged digest
+        r2 = _c(a).post(url, {"destination": str(dst.public_id), "confirm": "1", **bad})
+        one.refresh_from_db()
+        assert one.parent_id is None and "Confirm move" in r2.content.decode()
+    _c(a).post(url, {"destination": str(dst.public_id), "confirm": "1", "digest": _digest(r)})
+    one.refresh_from_db()
+    assert one.parent_id == dst.pk
+
+
+@pytest.mark.django_db
+def test_an_invalid_move_is_refused_before_any_confirmation_is_shown():
+    a, v = _u("MV-AE"), _u("MV-AF")
+    dst = svc.create_folder(a, "Dst")
+    svc.share(a, dst, v, "viewer")
+    svc.create_folder(a, "One", parent=dst)  # name already used in Dst
+    one = svc.create_folder(a, "One")
+    r = _c(a).post(reverse("drive:move", args=["folder", one.public_id]), {"destination": str(dst.public_id)}, follow=True)
+    one.refresh_from_db()
+    assert one.parent_id is None and b"already used in the destination" in r.content and b"Confirm move" not in r.content
+    child = svc.create_folder(a, "Child", parent=one)
+    svc.share(a, child, v, "viewer")
+    r = _c(a).post(reverse("drive:move", args=["folder", one.public_id]), {"destination": str(child.public_id)}, follow=True)
+    assert b"into itself" in r.content and b"Confirm move" not in r.content

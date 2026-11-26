@@ -529,6 +529,25 @@ def move(user, item, destination):
     return item
 
 
+def check_move(user, item, destination):
+    """The move rules without changing anything: raises exactly what move() would raise for permission,
+    destination, nesting and name problems. move() still re-checks everything under its locks."""
+    kind = _kind(item)
+    require(user, "move", kind, item)
+    _check_destination(user, item, destination)
+    if _name_taken(destination, item.name, item.owner_id, exclude=item):
+        raise ValidationError("That name is already used in the destination.")
+
+
+def audience_digest(item, destination, gain):
+    """A short fingerprint of what a confirmation showed: the item, the destination and each person with
+    their new and old role. If the sharing changes before the second press, the fingerprint differs."""
+    import hashlib
+
+    parts = [str(item.pk), _kind(item), str(getattr(destination, "pk", "")), *(f"{u.pk}:{n}:{o or ''}" for u, n, o in gain)]
+    return hashlib.sha256("|".join(parts).encode()).hexdigest()[:32]
+
+
 _ROLE_RANK = {"viewer": 1, "commenter": 2, "editor": 3}
 
 
