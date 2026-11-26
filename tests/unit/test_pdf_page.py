@@ -137,3 +137,16 @@ def test_pdf_thumbs_table_passes_under_node():
     )
     assert r.returncode == 0, r.stdout + r.stderr
     assert "7/7 pdf thumbs rows passed" in r.stdout
+
+
+def test_pdf_pages_table_passes_under_node():
+    if not shutil.which("node"):
+        pytest.skip("node not available")
+    r = subprocess.run(  # noqa: S603 - fixed argv
+        [shutil.which("node"), str(ROOT / "tests/js/pdf_pages_table.js")],
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert "15/15 pdf pages rows passed" in r.stdout

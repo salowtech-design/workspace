@@ -33,6 +33,7 @@
   }
   function controls() {
     if (typeof fControls === "function") fControls();
+    if (typeof pControls === "function") pControls();
     var on = !!doc;
     $("pdf-prev").disabled = !on || page <= 1; $("pdf-next").disabled = !on || page >= doc.numPages;
     $("pdf-zin").disabled = !on || zoom >= 3; $("pdf-zout").disabled = !on || zoom <= 0.5;
@@ -400,6 +401,79 @@
       fmsgSet(m);
     }).then(function () { if (tok === fToken) { fExporting = false; fControls(); } });
   });
+
+  // Pages: keep chosen pages as a new file, or merge this file with added files. Separate copies only.
+  var pExtras = [], pBusy = false, pHold = null, pToken = 0;
+  function pmsg(t) { $("pdf-pagesstatus").textContent = t; }
+  function pControls() { var on = !!doc && !pBusy; $("pdf-range").disabled = !doc; $("pdf-splitgo").disabled = !on; $("pdf-mergeadd").disabled = !on || pExtras.length >= window.PdfPages.MAX_FILES - 1; $("pdf-mergeclear").disabled = !on || !pExtras.length; $("pdf-mergego").disabled = !on || !pExtras.length; }
+  function pList() { var ol = $("pdf-mergelist"); ol.textContent = ""; pExtras.forEach(function (x) { var li = document.createElement("li"); li.textContent = x.name + " (" + Math.round(x.bytes.length / 1024) + " KB)"; ol.appendChild(li); }); }
+  function pagesReset() { pToken++; pExtras = []; if (pHold) clearTimeout(pHold.timer); pHold = null; pBusy = false; $("pdf-range").value = ""; pList(); pmsg(""); pControls(); }
+  function pSave(r, nameText, suffix) {
+    var url = URL.createObjectURL(new Blob([r.bytes], { type: "application/pdf" })), a = document.createElement("a");
+    a.href = url; a.download = nameText.replace(/\.pdf$/i, "").replace(/[^A-Za-z0-9._-]+/g, "_").slice(0, 80) + suffix;
+    document.body.appendChild(a); a.click(); a.remove(); setTimeout(function () { URL.revokeObjectURL(url); }, 4000);
+  }
+  function pRun(mode) {
+    if (!doc || pBusy) return;
+    var myDoc = doc, nameText = $("pdf-name").textContent || "PDF file", tok = ++pToken, sel = null;
+    if (mode === "split") { sel = window.PdfPages.parseRanges($("pdf-range").value, myDoc.numPages); if (sel.error) { pmsg(sel.error); return; } }
+    var sig = mode + "|" + (sel ? sel.pages.join(",") : "") + "|" + pExtras.map(function (x) { return x.name + ":" + x.bytes.length; }).join(";");
+    if (pHold && pHold.doc === myDoc && pHold.sig === sig) { var h = pHold; pHold = null; clearTimeout(h.timer); pSave(h.r, nameText, mode === "split" ? "-pages.pdf" : "-merged.pdf"); pmsg("Downloaded a new file with " + h.r.pageCount + " page(s). The files you opened were not changed."); return; }
+    if (pHold) { clearTimeout(pHold.timer); pHold = null; }
+    pBusy = true; pControls(); pmsg("Building the new file in this browser.");
+    var extras = pExtras.slice();
+    var libs = window.PDFLib ? Promise.resolve() : loadScript(BASE + "pdf-lib.min.js").catch(function () { throw { stage: "load" }; });
+    libs.then(function () { return myDoc.getData().catch(function () { throw { stage: "read" }; }); }).then(function (bytes) {
+      var parts = [{ bytes: bytes, pages: sel ? sel.pages : null, name: nameText }];
+      if (mode === "merge") extras.forEach(function (x) { parts.push({ bytes: x.bytes, pages: null, name: x.name }); });
+      return window.PdfPages.build(window.PDFLib, parts, window.PdfNotesExport.looksSigned);
+    }).then(function (r) {
+      if (tok !== pToken || myDoc !== doc) return;
+      if (r.signed.length) {
+        pHold = { doc: myDoc, r: r, sig: sig, timer: setTimeout(function () { pHold = null; if (myDoc === doc) pmsg("The new file was not downloaded."); }, 15000) };
+        pmsg("This includes a digitally signed file (" + r.signed.slice(0, 3).join(", ").slice(0, 120) + "). The signature will not validate in the new file. The originals are not touched. Press the same button again within 15 seconds, with the same choices, to download it anyway.");
+        return;
+      }
+      pSave(r, nameText, mode === "split" ? "-pages.pdf" : "-merged.pdf"); pmsg("Downloaded a new file with " + r.pageCount + " page(s). The files you opened were not changed.");
+    }).catch(function (e) {
+      if (tok !== pToken || myDoc !== doc) return;
+      var c = e && (e.stage || e.code), who = e && e.name2 ? " (" + String(e.name2).slice(0, 80) + ")" : "", m = "The new file could not be made. Nothing was downloaded and the files you opened were not changed.";
+      if (c === "load") m = "The part of this page that writes PDFs could not be loaded. Check the connection and try again.";
+      else if (c === "read") m = "This page could not read the open file's bytes again. Open the file again and retry.";
+      else if (c === "size") m = "The files together, or the new file, are over 20 MB. Nothing was downloaded.";
+      else if (c === "pages") m = "A new file is limited to " + window.PdfPages.MAX_PAGES + " pages. Nothing was downloaded.";
+      else if (c === "files") m = "A merge is limited to " + window.PdfPages.MAX_FILES + " files. Nothing was downloaded.";
+      else if (c === "encrypted") m = "A file" + who + " is encrypted, so it cannot be copied. Nothing was downloaded.";
+      else if (c === "damaged") m = "A file" + who + " could not be read (it may be damaged). Nothing was downloaded.";
+      pmsg(m);
+    }).then(function () { if (tok === pToken) { pBusy = false; pControls(); } });
+  }
+  $("pdf-splitgo").addEventListener("click", function () { pRun("split"); });
+  $("pdf-mergego").addEventListener("click", function () { pRun("merge"); });
+  $("pdf-mergeclear").addEventListener("click", function () { if (pBusy) return; pExtras = []; pHold = null; pList(); pmsg("Added files cleared."); pControls(); });
+  $("pdf-mergeadd").addEventListener("change", function (e) {
+    var files = [].slice.call(e.target.files || []); e.target.value = ""; if (!doc || pBusy || !files.length) return;
+    var myDoc = doc, tok = pToken, room = window.PdfPages.MAX_FILES - 1 - pExtras.length;
+    if (files.length > room) { pmsg("A merge is limited to " + window.PdfPages.MAX_FILES + " files including this one. Nothing was added."); return; }
+    var total = pExtras.reduce(function (a, x) { return a + x.bytes.length; }, 0) + files.reduce(function (a, f) { return a + f.size; }, 0);
+    if (total > window.PdfPages.MAX_BYTES) { pmsg("Added files may total at most 20 MB (with this file counted at read time). Nothing was added."); return; }
+    pBusy = true; pControls(); pmsg("Reading the added files.");
+    var added = [], chain = Promise.resolve();
+    files.forEach(function (f) {
+      chain = chain.then(function () { return new Promise(function (ok, no) { var r = new FileReader(); r.onerror = function () { no({ bad: f.name }); }; r.onload = function () { ok(new Uint8Array(r.result)); }; r.readAsArrayBuffer(f); }); }).then(function (b) {
+        var head = ""; for (var i = 0; i < Math.min(b.length, 1024); i++) head += String.fromCharCode(b[i]);
+        var chk = C.check(f.name, f.size, head); if (!chk.ok) throw { bad: f.name, why: chk.why };
+        added.push({ name: f.name.slice(0, 120), bytes: b });
+      });
+    });
+    chain.then(function () {
+      if (tok !== pToken || myDoc !== doc) return;
+      pExtras = pExtras.concat(added); pHold = null; pList(); pmsg(added.length + " file(s) added after this one.");
+    }).catch(function (err) {
+      if (tok !== pToken || myDoc !== doc) return;
+      pmsg("Nothing was added: " + (err && err.bad ? String(err.bad).slice(0, 80) + " " + (err.why ? "(" + err.why + ")" : "could not be read") : "a file could not be read") + ".");
+    }).then(function () { if (tok === pToken) { pBusy = false; pControls(); } });
+  });
   $("pdf-clearnotes").addEventListener("click", function () {
     if (!doc || doc !== nDoc || !(nState === "ok" || nState === "bad") || saving) return;
     if (!clearArmed) {
@@ -460,7 +534,7 @@
   function go(p) { if (!doc) return; page = C.pageIndex(p, 0, doc.numPages); controls(); draw(); }
   function closeDoc(msg) {
     token++; cancelCurrent(); fseq.begin(); finding = false; mark = ""; $("pdf-fstop").disabled = true; fmsg(""); $("pdf-q").value = "";
-    formsReset(); thClose(); var d = doc; doc = null; page = 1; zoom = 1; fitPage = false; rot = 0; notesClose(); $("pdf-text").textContent = ""; shown = "";
+    formsReset(); pagesReset(); thClose(); var d = doc; doc = null; page = 1; zoom = 1; fitPage = false; rot = 0; notesClose(); $("pdf-text").textContent = ""; shown = "";
     settle.then(function () { if (doc) return; canvas.width = 1; canvas.height = 1; canvas.style.width = "0"; canvas.style.height = "0"; });
     var lt = loadTask; loadTask = null; if (lt) { try { lt.destroy(); } catch (e) { /* already gone */ } }
     controls(); status.textContent = msg || "";

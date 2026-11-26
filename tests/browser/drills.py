@@ -5528,6 +5528,166 @@ def pdf_thumbs_cancel(ctx):  # noqa: C901
     )
 
 
+def pdf_pages(ctx):  # noqa: C901
+    """Keep chosen pages as a new PDF, or merge the open file with added files."""
+    import pathlib
+    import re
+
+    fx = pathlib.Path(__file__).resolve().parents[1] / "js" / "fixtures"
+    signed = (fx / "form_signed.pdf").read_bytes()
+    pg = fresh(ctx, "/pdf/")
+    pg.set_viewport_size({"width": 1280, "height": 800})
+
+    def open_pdf(name, data):
+        pg.set_input_files(
+            "#pdf-open", files=[{"name": name, "mimeType": "application/pdf", "buffer": data}]
+        )
+        for _ in range(50):
+            if pg.inner_text("#pdf-where").startswith("Page 1 of"):
+                break
+            pg.wait_for_timeout(250)
+        pg.wait_for_timeout(400)
+
+    def status():
+        return pg.inner_text("#pdf-pagesstatus")
+
+    def npages(b):
+        return len(re.findall(rb"/Type\s*/Page[^s]", b))
+
+    check(
+        "pages: controls are off with no file",
+        pg.is_disabled("#pdf-range")
+        and pg.is_disabled("#pdf-splitgo")
+        and pg.is_disabled("#pdf-mergeadd")
+        and pg.is_disabled("#pdf-mergego"),
+    )
+    open_pdf("six.pdf", _n_page_pdf(6))
+    check(
+        "pages: split and add are on once a file is open, merge waits for added files",
+        not pg.is_disabled("#pdf-splitgo")
+        and not pg.is_disabled("#pdf-mergeadd")
+        and pg.is_disabled("#pdf-mergego"),
+    )
+    got = []
+    pg.on("download", lambda d: got.append(d))
+    for bad, frag in (
+        ("", "Type the pages"),
+        ("9", "out of range"),
+        ("4-2", "backwards"),
+        ("a", "not a page"),
+    ):
+        pg.fill("#pdf-range", bad)
+        pg.click("#pdf-splitgo")
+        pg.wait_for_timeout(250)
+        check(
+            "pages: range %r is refused with a reason and nothing downloads" % bad,
+            frag in status() and not got,
+            status(),
+        )
+    pg.fill("#pdf-range", "4, 2")
+    with pg.expect_download() as dl:
+        pg.click("#pdf-splitgo")
+    out = open(dl.value.path(), "rb").read()
+    i4, i2 = out.find(b"(Page 4)"), out.find(b"(Page 2)")
+    check(
+        "pages: split gives a separate -pages file with exactly the chosen pages in the order typed",
+        dl.value.suggested_filename == "six-pages.pdf"
+        and npages(out) == 2
+        and 0 <= i4 < i2
+        and b"(Page 1)" not in out
+        and b"(Page 6)" not in out,
+        (dl.value.suggested_filename, npages(out), i4, i2),
+    )
+    check(
+        "pages: the status says the originals were not changed",
+        "not changed" in status() and "2 page" in status(),
+        status(),
+    )
+    two = _two_page_pdf()
+    pg.set_input_files(
+        "#pdf-mergeadd",
+        files=[
+            {"name": "two.pdf", "mimeType": "application/pdf", "buffer": two},
+            {"name": "<b>two-b</b>.pdf", "mimeType": "application/pdf", "buffer": two},
+        ],
+    )
+    pg.wait_for_timeout(800)
+    names = pg.evaluate("[...document.querySelectorAll('#pdf-mergelist li')].map(l=>l.textContent)")
+    check(
+        "pages: added files are listed as text and merge turns on",
+        len(names) == 2
+        and "<b>two-b</b>.pdf" in names[1]
+        and pg.evaluate("document.querySelectorAll('#pdf-mergelist b').length") == 0
+        and not pg.is_disabled("#pdf-mergego"),
+        names,
+    )
+    with pg.expect_download() as dl2:
+        pg.click("#pdf-mergego")
+    out2 = open(dl2.value.path(), "rb").read()
+    check(
+        "pages: merge gives the open file's 6 pages then both added files (10 pages)",
+        dl2.value.suggested_filename == "six-merged.pdf"
+        and npages(out2) == 10
+        and out2.find(b"(Page 1)") < out2.find(b"(Page 6)"),
+        (dl2.value.suggested_filename, npages(out2)),
+    )
+    open_pdf("merged.pdf", out2)
+    check(
+        "pages: the merged file opens in the viewer with 10 pages",
+        pg.inner_text("#pdf-where").startswith("Page 1 of 10"),
+        pg.inner_text("#pdf-where"),
+    )
+    check(
+        "pages: opening another file clears the added files",
+        pg.locator("#pdf-mergelist li").count() == 0
+        and pg.is_disabled("#pdf-mergego")
+        and status() == "",
+    )
+    pg.set_input_files(
+        "#pdf-mergeadd",
+        files=[{"name": "junk.pdf", "mimeType": "application/pdf", "buffer": b"not a pdf at all"}],
+    )
+    pg.wait_for_timeout(600)
+    check(
+        "pages: a file that is not a PDF is refused and nothing is added",
+        "Nothing was added" in status() and pg.locator("#pdf-mergelist li").count() == 0,
+        status(),
+    )
+    open_pdf("signed.pdf", signed)
+    pg.fill("#pdf-range", "1")
+    got.clear()
+    pg.click("#pdf-splitgo")
+    pg.wait_for_timeout(1200)
+    check(
+        "pages: a signed input warns on the first press and downloads nothing",
+        not got and "will not validate" in status() and "again within 15 seconds" in status(),
+        status(),
+    )
+    pg.set_input_files(
+        "#pdf-mergeadd", files=[{"name": "two.pdf", "mimeType": "application/pdf", "buffer": two}]
+    )
+    pg.wait_for_timeout(800)
+    pg.click("#pdf-splitgo")
+    pg.wait_for_timeout(1200)
+    check(
+        "pages: adding a file after the warning drops the held copy and warns again",
+        not got and "again within 15 seconds" in status(),
+        status(),
+    )
+    with pg.expect_download() as dl3:
+        pg.click("#pdf-splitgo")
+    check(
+        "pages: the same choice pressed again downloads",
+        dl3.value.suggested_filename == "signed-pages.pdf",
+    )
+    pg.set_viewport_size({"width": 390, "height": 800})
+    pg.wait_for_timeout(400)
+    pg.locator("#pdf-pages").scroll_into_view_if_needed()
+    pg.screenshot(path=os.environ.get("DRILL_SHOTS", "/tmp") + "/pdf-pages-phone.png")  # noqa: S108
+    sw = pg.evaluate("[document.documentElement.scrollWidth, window.innerWidth]")
+    check("pages: the panel does not widen the page at 390", sw[0] <= sw[1], sw)
+
+
 def _poll_logger(codes, k):
     def log(resp):
         if "/poll/" in resp.url:
@@ -5780,6 +5940,7 @@ DRILLS = {
     "pdf_thumbs": pdf_thumbs,
     "pdf_thumbs_layout": pdf_thumbs_layout,
     "pdf_thumbs_cancel": pdf_thumbs_cancel,
+    "pdf_pages": pdf_pages,
     "slides_style": slides_style,
     "sheets_tabs": sheets_tabs,
     "sheets_chart": sheets_chart,
