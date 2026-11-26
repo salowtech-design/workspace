@@ -105,6 +105,23 @@ class RateLimitMiddleware:
         except Exception as e:
             logger.debug("Failed to clear sudo cache: %s", e)
 
+    @staticmethod
+    def _valid_ip_or_none(value):
+        """The forwarded value (stripped, spelling kept so existing keys do not change) when it is an IP address, or None when it is not one.
+
+        The trusted-proxy choice is unchanged; this only stops a malformed value from being stored
+        (the address columns are bounded IP fields) and falls back to the proxy's own address."""
+        import ipaddress
+
+        value = (value or "").strip()
+        if not value or len(value) > 45:
+            return None
+        try:
+            ipaddress.ip_address(value)
+            return value
+        except ValueError:
+            return None
+
     def _get_client_ip(self, request) -> str:
         remote_addr = request.META.get("REMOTE_ADDR", "127.0.0.1")
         trusted_proxies = getattr(
@@ -114,14 +131,14 @@ class RateLimitMiddleware:
         # 1. Direct Cloudflare header if request arrives via trusted reverse proxy
         cf_ip = request.META.get("HTTP_CF_CONNECTING_IP")
         if cf_ip and remote_addr in trusted_proxies:
-            client_ip = cf_ip.strip()
+            client_ip = self._valid_ip_or_none(cf_ip) or remote_addr
             request.client_ip = client_ip
             return client_ip
 
         # 2. X-Forwarded-For: evaluated only when REMOTE_ADDR is an authenticated trusted proxy
         x_forwarded_for = request.META.get("HTTP_X_FORWARDED_FOR")
         if x_forwarded_for and remote_addr in trusted_proxies:
-            client_ip = x_forwarded_for.split(",")[0].strip()
+            client_ip = self._valid_ip_or_none(x_forwarded_for.split(",")[0]) or remote_addr
             request.client_ip = client_ip
             return client_ip
 
