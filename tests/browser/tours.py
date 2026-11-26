@@ -278,6 +278,7 @@ def register(g):
     register_event_week_day_arrows(g, users)
     register_certs_filter(g)
     register_empty_states(g, users)
+    register_project_filters(g, users)
     register_posts_more(g, users)
 
 
@@ -3162,3 +3163,78 @@ def register_empty_states(g, users):
         run_tour(ctx, "55_empty_states", body, notes="Real Django on TiDB, headless Chromium 390x844 emulated. No fixture: the account has no passkey and no person matches the search.", unshown=["empty team members page", "empty security events"])
 
     g["DRILLS"]["tour_empty_states"] = tour
+
+
+def register_project_filters(g, users):
+    APP = g["APP"]
+
+    def tour(ctx):
+        users(ctx)
+        import concurrent.futures
+
+        import django
+
+        django.setup()
+        ids = {}
+
+        def make():
+            import datetime as dt
+
+            from apps.accounts.models import CustomUser
+            from apps.tasks import projects as pj
+            from apps.tasks.models import TaskComment
+
+            me = CustomUser.objects.get(employee_id="ST-LIVE-1")
+            p = pj.create_project(me, "Filter project")
+            cols = list(p.columns.order_by("position"))
+            ms = pj.create_milestone(me, p, "Launch", None)
+            past = dt.date.today() - dt.timedelta(days=5)
+            future = dt.date.today() + dt.timedelta(days=30)
+            a = pj.add_task(me, p, cols[0].pk, "Late and open", due=past)
+            pj.add_task(me, p, cols[2].pk, "Late but done", due=past)
+            c = pj.add_task(me, p, cols[1].pk, "Future work", due=future)
+            pj.set_milestone(me, c, ms.pk)
+            for i in range(103):
+                TaskComment.objects.create(task=a, author=me, body="Note number %d" % (i + 1))
+            ids["p"] = str(p.public_id)
+            ids["a"] = str(a.public_id)
+
+        with concurrent.futures.ThreadPoolExecutor(1) as ex:
+            ex.submit(make).result()
+
+        def body(t, pg):
+            txt = lambda: pg.inner_text("body")
+            cards = lambda: [x.strip() for x in pg.locator(".task-card .task-title").all_inner_texts()]
+            pg.goto(APP + "/tasks/projects/%s/" % ids["p"])
+            pg.wait_for_timeout(1500)
+            t.step("The board shows all three tasks", expect=lambda: len(cards()) == 3, wait=2000)
+            pg.check("input[name=overdue]")
+            pg.click("button:has-text('Filter')")
+            pg.wait_for_timeout(1200)
+            pg.locator("[role=status]").first.scroll_into_view_if_needed()
+            t.step("Overdue filter: only the late task that is not Done stays", expect=lambda: cards() == ["Late and open"] and "Showing 1 of 3" in txt(), wait=3000)
+            pg.goto(APP + "/tasks/projects/%s/" % ids["p"])
+            pg.select_option("select[name=milestone]", label="Launch")
+            pg.click("button:has-text('Filter')")
+            pg.wait_for_timeout(1200)
+            pg.locator("[role=status]").first.scroll_into_view_if_needed()
+            t.step("Milestone filter (Launch): only the task with that milestone", expect=lambda: cards() == ["Future work"], wait=3000)
+            pg.click("a:has-text('Clear')")
+            pg.wait_for_timeout(1200)
+            t.step("Clear: all three tasks are back", expect=lambda: len(cards()) == 3 and "Showing" not in txt(), wait=2500)
+            pg.goto(APP + "/tasks/projects/task/%s/comments/" % ids["a"])
+            pg.wait_for_timeout(1200)
+            t.step("Comments page: newest 100 of 103 are shown with an Older comments link", expect=lambda: pg.locator(".comment").count() == 100 and "Older comments" in txt(), wait=2500)
+            pg.click("a:has-text('Older comments')")
+            pg.wait_for_timeout(1200)
+            t.step("Older comments: the 3 earliest, with a link back to the newest", expect=lambda: pg.locator(".comment").count() == 3 and "Note number 1" in txt() and "Newest comments" in txt(), wait=3000)
+            pg.click("a:has-text('Newest comments')")
+            pg.wait_for_timeout(1000)
+            pg.fill("#cbody", "Posted from the tour")
+            pg.click(".comment-form button[type=submit]")
+            pg.wait_for_timeout(1500)
+            t.step("Post a comment: it appears at the end of the newest page", expect=lambda: "Comment posted." in txt() and "Posted from the tour" in txt(), wait=3000)
+
+        run_tour(ctx, "56_project_filters_comments", body, notes="Real Django on TiDB, headless Chromium 390x844 emulated. Project, milestone, tasks and 103 comments were created by script as the signed-in lead.", unshown=["second member commenting", "comment rate limit", "filter combined with search"])
+
+    g["DRILLS"]["tour_project_filters"] = tour
