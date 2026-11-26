@@ -258,6 +258,7 @@ def register(g):
     register_slides_more(g)
     register_att_more(g, users)
     register_certs_more(g)
+    register_worklog_date(g)
     register_posts_more(g, users)
 
 
@@ -2315,3 +2316,16 @@ def register_certs_more(g):
         run_tour(ctx, "35_certificates_more", body, notes="Real Django on TiDB, headless Chromium 390x844 emulated. Fixture: ST-LIVE-1 made Admin; two certificates issued by script, one revoked by script. The browser's print dialog is not recorded.", unshown=["Print / Save PDF dialog", "template description text", "revoke step-up (earlier clip)"])
 
     g["DRILLS"]["tour_certs_more"] = tour
+
+
+def register_worklog_date(g):
+    APP = g["APP"]
+
+    def tour(ctx):
+        def body(t, pg):
+            pg.goto(APP + "/posts/create/")
+            t.step("New work log form: Work Date is today's date in India", lambda: pg.evaluate("document.getElementById('id_work_date').scrollIntoView({block:'center'})"), expect=lambda: pg.input_value("#id_work_date") != "", wait=3500)
+            open("/tmp/vid/dl/worklog_date.txt", "w").write(pg.input_value("#id_work_date"))
+        run_tour(ctx, "36_worklog_date", body, notes="Real Django on TiDB, headless Chromium 390x844 emulated. Shows only the prefilled Work Date on the new log form.", unshown=["saving the log", "editing an existing log"])
+
+    g["DRILLS"]["tour_worklog_date"] = tour
