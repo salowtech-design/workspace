@@ -4920,7 +4920,7 @@ def pdf_forms(ctx):  # noqa: C901
 
     fx = pathlib.Path(__file__).resolve().parents[1] / "js" / "fixtures"
     basic = (fx / "form_basic.pdf").read_bytes()
-    signed = (fx / "form_signed3.pdf").read_bytes()
+    signed = (fx / "form_signed.pdf").read_bytes()
     pg = fresh(ctx, "/pdf/")
     pg.set_viewport_size({"width": 1280, "height": 800})
 
@@ -5700,8 +5700,10 @@ def pdf_order(ctx):  # noqa: C901
     sw = pg.evaluate("[document.documentElement.scrollWidth, window.innerWidth]")
     check("order: the list does not widen the page at 390", sw[0] <= sw[1], sw)
     pg.click("#pdf-orderstart")
+    pg.locator("#pdf-orderlist li").nth(0).locator("button").nth(2).click()
+    pg.locator("#pdf-orderlist li").nth(1).locator("button").nth(0).click()
     pg.locator("#pdf-pages").scroll_into_view_if_needed()
-    pg.screenshot(path=shots + "/pdf-order-phone.png")
+    pg.locator("#pdf-pages").screenshot(path=shots + "/pdf-order-phone.png")
 
 
 def pdf_pages(ctx):  # noqa: C901
