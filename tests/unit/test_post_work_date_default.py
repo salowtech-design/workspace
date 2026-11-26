@@ -27,6 +27,19 @@ def test_given_work_date_is_kept():
 
 @pytest.mark.django_db
 def test_posted_work_date_is_kept_on_submit():
-    form = PostForm(data={"title": "t", "category": "general", "content": "c", "work_date": "2026-01-05"})
-    form.is_valid()
-    assert form.cleaned_data.get("work_date") == dt.date(2026, 1, 5) or "work_date" not in form.errors
+    from apps.posts.models import Post
+
+    cat = list(Post.Category)[0].value
+    form = PostForm(data={"title": "t", "category": cat, "content": "c", "work_date": "2026-01-05"})
+    assert form.is_valid(), form.errors
+    assert form.cleaned_data["work_date"] == dt.date(2026, 1, 5)
+
+
+@pytest.mark.django_db
+def test_existing_log_keeps_its_own_date():
+    from apps.posts.models import Post
+
+    form = PostForm(instance=Post(work_date=dt.date(2026, 1, 5)))
+    with timezone.override(IST), mock.patch("django.utils.timezone.now", return_value=FAKE_NOW):
+        html = str(form["work_date"])
+    assert 'value="2026-01-05"' in html, html
