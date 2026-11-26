@@ -4805,6 +4805,10 @@ def chat_threads(ctx):  # noqa: C901
     pg.set_viewport_size({"width": 390, "height": 800})
     pg.wait_for_timeout(200)
     shot(pg, "chat_threads_390")
+    pg.evaluate("window.scrollTo(0, document.body.scrollHeight);0")
+    pg.wait_for_timeout(200)
+    shot(pg, "chat_threads_390_form")
+    check("threads: at 390 px the last reply, the reply box and Send reply are on screen", pg.evaluate("(()=>{const r=document.querySelector('.chat-compose button').getBoundingClientRect();return r.bottom<=800&&r.top>=0})()") and pg.is_visible(".chat-msg:last-of-type"))
     check("threads: no sideways scroll at 390 px", pg.evaluate("document.documentElement.scrollWidth <= 390"), pg.evaluate("document.documentElement.scrollWidth"))
     pg.set_viewport_size({"width": 1100, "height": 900})
 

@@ -82,7 +82,7 @@ def test_thread_page_lists_root_and_replies_and_counts():
     a, b, sp = _dm()
     cs.post_message(b, sp.public_id, "r1", "c2", 1)
     cs.post_message(a, sp.public_id, "r2", "c3", 1)
-    _sp, root, replies = cs.thread(a, sp.public_id, 1)
+    _sp, root, replies, more = cs.thread(a, sp.public_id, 1)
     assert root.seq == 1 and [m.body for m in replies] == ["r1", "r2"]
     rows = cs.attach_threads(sp, list(Message.objects.filter(space=sp).order_by("seq")))
     assert rows[0].reply_count == 2 and rows[1].root.seq == 1 and rows[1].reply_count == 0
@@ -107,3 +107,20 @@ def test_pages_render_reply_link_marker_and_form_without_script_injection():
     r = c.post(reverse("chat:send", args=[sp.public_id]), {"body": "bad", "client_msg_id": "f2", "thread_root_seq": "2"})
     assert r.status_code == 400 and not Message.objects.filter(body="bad").exists()
     assert c.get(reverse("chat:thread", args=[sp.public_id, 2])).status_code == 404
+
+
+@pytest.mark.django_db
+def test_a_long_thread_is_reachable_in_pages_with_nothing_skipped(monkeypatch):
+    a, b, sp = _dm()
+    monkeypatch.setattr(cs, "THREAD_MAX", 3)
+    for i in range(7):
+        cs.post_message(b, sp.public_id, "r%d" % i, "L%d" % i, 1)
+    seen, after, pages = [], 0, 0
+    while True:
+        _sp, _root, rep, more = cs.thread(a, sp.public_id, 1, after)
+        seen += [m.body for m in rep]
+        pages += 1
+        if not more:
+            break
+        after = rep[-1].seq
+    assert seen == ["r%d" % i for i in range(7)] and pages == 3

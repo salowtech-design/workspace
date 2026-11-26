@@ -4,11 +4,13 @@
 {% block content %}
 <div class="card cal"><div class="cal-head"><h2>Thread in {{ label }}</h2></div>
 <div class="cal-tabs"><a href="{% url 'chat:space' space.public_id %}">Back to the conversation</a></div>
+{% if after %}<p><a href="{% url 'chat:thread' space.public_id root.seq %}">Back to the first replies</a></p>{% endif %}
 <div class="chat-list" id="chat-list" data-reactions="">{% include "chat/_messages.html" %}</div>
+{% if more %}<p><a href="{% url 'chat:thread' space.public_id root.seq %}?after={{ more }}" class="chat-thread-more">Later replies</a></p>{% endif %}
 <form method="post" action="{% url 'chat:send' space.public_id %}" class="cal-form chat-compose">{% csrf_token %}
 <input type="hidden" name="client_msg_id" value="{{ client_msg_id }}"><input type="hidden" name="thread_root_seq" value="{{ root.seq }}">
 <label>Reply<textarea name="body" rows="2" maxlength="8000" required></textarea></label>
 <button class="btn" type="submit">Send reply</button></form>
-<p class="cal-meta">The reply is also shown in the conversation, in order. The same people can see it. This page shows up to 200 replies.</p>
+<p class="cal-meta">The reply is also shown in the conversation, in order. The same people can see it. This page shows {{ per_page }} replies at a time; use the links to reach the rest. Every reply is also in the conversation.</p>
 </div>
 {% endblock %}

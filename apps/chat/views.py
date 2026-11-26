@@ -182,7 +182,8 @@ def thread_view(request, space_id, root_seq):
     """One first-level message with its replies and a reply form (same members as the conversation)."""
     if throttled(request.user, "chat-thread", THREAD_LIMIT):
         return HttpResponse(status=429)
-    sp, root, replies = cs.thread(request.user, space_id, root_seq)
+    after = _int(request.GET.get("after")) or 0
+    sp, root, replies, more = cs.thread(request.user, space_id, root_seq, after)
     rows = [root] + replies
     cs.attach_reactions(rows, request.user)
     cs.attach_threads(sp, rows)
@@ -190,7 +191,8 @@ def thread_view(request, space_id, root_seq):
         request,
         "chat/thread.html",
         {"space": sp, "label": _label(sp, request.user), "root": root, "replies": rows[1:], "rows": rows,
-         "me": request.user, "client_msg_id": uuid.uuid4().hex},
+         "me": request.user, "client_msg_id": uuid.uuid4().hex, "more": replies[-1].seq if more else None,
+         "after": after, "per_page": cs.THREAD_MAX},
     )
 
 

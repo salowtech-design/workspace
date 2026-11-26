@@ -212,21 +212,21 @@ def attach_threads(sp, rows):
     return rows
 
 
-def thread(actor, public_id, root_seq):
+def thread(actor, public_id, root_seq, after=0):
     """A first-level message and its replies, oldest first (member only; 404 for a non-member or a
-    message that is not a first-level message of this space)."""
+    message that is not a first-level message of this space). Returns (space, root, replies after `after`, more)."""
     sp, _ = _visible_space(actor, public_id)
     root = Message.objects.filter(
         space=sp, seq=max(0, int(root_seq)), thread_root_seq__isnull=True
     ).select_related("author").first()
     if root is None:
         raise Http404
-    replies = list(
-        Message.objects.filter(space=sp, thread_root_seq=root.seq)
+    rows = list(
+        Message.objects.filter(space=sp, thread_root_seq=root.seq, seq__gt=max(0, int(after)))
         .select_related("author")
-        .order_by("seq")[:THREAD_MAX]
+        .order_by("seq")[: THREAD_MAX + 1]
     )
-    return sp, root, replies
+    return sp, root, rows[:THREAD_MAX], len(rows) > THREAD_MAX
 
 
 def _visible_space(actor, public_id):
