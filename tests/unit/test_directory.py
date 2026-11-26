@@ -760,3 +760,51 @@ def test_profile_lists_teams_with_links_and_the_team_page_links_back_to_profiles
     assert "Teams</h4>" not in c.get(reverse("directory:profile", args=["TL-ME"]), HTTP_HOST="app.salowtech.com").content.decode()
     team = c.get(reverse("directory:team_detail", args=["TL-A"]), HTTP_HOST="app.salowtech.com").content.decode()
     assert reverse("directory:profile", args=["TL-SUB"]) in team
+
+
+@pytest.mark.django_db
+def test_profile_hides_teams_from_someone_without_the_team_view_permission(monkeypatch):
+    from django.test import Client
+    from django.urls import reverse
+
+    from apps.accounts import permissions as perms
+
+    dept = Department.objects.create(code="tg", name="Gate Dept")
+    team = Team.objects.create(code="tg-a", name="Gated Team", department=dept)
+    me, sub = _emp("TG-ME", "Gate Viewer"), _emp("TG-SUB", "Gate Subject")
+    TeamMembership.objects.create(team=team, user=sub)
+    c = Client()
+    c.force_login(me)
+    url = reverse("directory:profile", args=["TG-SUB"])
+    assert "Gated Team" in c.get(url, HTTP_HOST="app.salowtech.com").content.decode()
+    # the same person keeps profile access but loses team access: no names, department or links
+    reduced = {r: set(p) for r, p in perms.ROLE_PERMISSIONS.items()}
+    reduced[me.role].discard(perms.PERM_TEAM_VIEW)
+    monkeypatch.setattr(perms, "ROLE_PERMISSIONS", reduced)
+    r = c.get(url, HTTP_HOST="app.salowtech.com")
+    body = r.content.decode()
+    assert r.status_code == 200 and "Gate Subject" in body
+    assert "Gated Team" not in body and "Gate Dept" not in body and "/directory/teams/" not in body
+    assert c.get(reverse("directory:team_detail", args=["TG-A"]), HTTP_HOST="app.salowtech.com").status_code == 403
+
+
+@pytest.mark.django_db
+def test_team_page_shows_plain_ids_when_the_viewer_cannot_open_profiles(monkeypatch):
+    from django.test import Client
+    from django.urls import reverse
+
+    from apps.accounts import permissions as perms
+
+    dept = Department.objects.create(code="tp", name="Plain Dept")
+    team = Team.objects.create(code="tp-a", name="Plain Team", department=dept)
+    me, sub = _emp("TP-ME", "Plain Viewer"), _emp("TP-SUB", "Plain Subject")
+    TeamMembership.objects.create(team=team, user=sub)
+    c = Client()
+    c.force_login(me)
+    url = reverse("directory:team_detail", args=["TP-A"])
+    assert "/directory/profile/TP-SUB/" in c.get(url, HTTP_HOST="app.salowtech.com").content.decode()
+    reduced = {r: set(p) for r, p in perms.ROLE_PERMISSIONS.items()}
+    reduced[me.role].discard(perms.PERM_USER_VIEW)  # team access without profile access
+    monkeypatch.setattr(perms, "ROLE_PERMISSIONS", reduced)
+    body = c.get(url, HTTP_HOST="app.salowtech.com").content.decode()
+    assert "TP-SUB" in body and "/directory/profile/" not in body

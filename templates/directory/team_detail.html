@@ -26,7 +26,7 @@
             <tbody>
                 {% for membership in memberships %}
                 <tr>
-                    <td><a href="{% url 'directory:profile' membership.user.employee_id %}">{{ membership.user.employee_id }}</a></td>
+                    <td>{% if can_open_profiles %}<a href="{% url 'directory:profile' membership.user.employee_id %}">{{ membership.user.employee_id }}</a>{% else %}{{ membership.user.employee_id }}{% endif %}</td>
                     <td>{{ membership.user.full_name }}</td>
                     <td><span class="badge badge-outline">{{ membership.user.get_role_display }}</span></td>
                     <td class="s-7326de92">{{ membership.joined_at|date:"d M Y" }}</td>

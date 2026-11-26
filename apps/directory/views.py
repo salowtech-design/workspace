@@ -2,7 +2,7 @@ from django.contrib.auth.decorators import login_required
 from django.shortcuts import get_object_or_404, render
 
 from apps.accounts.models import CustomUser
-from apps.accounts.permissions import require_permission
+from apps.accounts.permissions import PERM_TEAM_VIEW, PERM_USER_VIEW, has_permission, require_permission
 from apps.directory.models import Team, TeamMembership
 from apps.directory.selectors import (
     get_departments,
@@ -51,12 +51,17 @@ def employee_profile_view(request, employee_id: str):
         get_direct_reports(target_user) if target_user.role == CustomUser.Role.MANAGER else None
     )
 
-    teams = [
-        m.team
-        for m in TeamMembership.objects.filter(user=target_user)
-        .select_related("team", "team__department")
-        .order_by("team__name")
-    ]
+    # Team names, departments and links are shown only to someone who may open team pages themselves.
+    teams = (
+        [
+            m.team
+            for m in TeamMembership.objects.filter(user=target_user)
+            .select_related("team", "team__department")
+            .order_by("team__name")
+        ]
+        if has_permission(request.user, PERM_TEAM_VIEW)
+        else []
+    )
     return render(
         request,
         "directory/profile.html",
@@ -85,6 +90,7 @@ def team_detail_view(request, team_code: str):
         {
             "team": team,
             "memberships": memberships,
+            "can_open_profiles": has_permission(request.user, PERM_USER_VIEW),  # else plain IDs, no links
         },
     )
 
