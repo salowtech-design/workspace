@@ -1,4 +1,5 @@
 import uuid
+from types import SimpleNamespace
 
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
@@ -11,7 +12,7 @@ from django.views.decorators.http import require_POST
 from apps.accounts.models import CustomUser
 from apps.core.foundation.permissions import can
 from apps.drive import services as svc
-from apps.drive.models import DriveFile, Folder
+from apps.drive.models import DriveFile, Folder, Share
 
 
 def _item(kind, item_id):
@@ -67,7 +68,7 @@ def drive_home(request):
     return render(
         request,
         "drive/browse.html",
-        {"folder": None, "folders": folders, "files": files, "crumbs": [], "can_edit": True, "move_targets": _move_targets(request.user)},
+        {"folder": None, "folders": folders, "files": files, "crumbs": [], "can_edit": True, **_move_ctx(request.user)},
     )
 
 
@@ -91,7 +92,7 @@ def folder_view(request, folder_id):
             "can_edit": can(request.user, "edit", "drive.folder", folder),
             "is_owner": owner,
             "shares": shares,
-            "move_targets": _move_targets(request.user) if owner else [],
+            **(_move_ctx(request.user) if owner else {"move_targets": [], "move_more": False}),
         },
     )
 
@@ -144,9 +145,39 @@ def rename_item(request, kind, item_id):
     return _back(item)
 
 
+MOVE_TARGET_MAX = 50  # options per Move list; the list repeats on each row, so it is capped
+
+
 def _move_targets(user):
-    """Folders the person owns and can move into: the service still checks every move."""
-    return list(Folder.objects.filter(owner=user, trashed_at__isnull=True).order_by("name", "id"))
+    """The owner's own live folders, at most MOVE_TARGET_MAX by name, each marked `shared` when it or
+    a folder above it is shared (moving there widens the audience). The service still checks every move."""
+    rows = list(
+        Folder.objects.filter(owner=user, trashed_at__isnull=True).values_list(
+            "pk", "parent_id", "name", "public_id"
+        )
+    )
+    parents = {pk: parent for pk, parent, _, _ in rows}
+    direct = set(Share.objects.filter(folder_id__in=list(parents)).values_list("folder_id", flat=True))
+
+    def shared(pk):
+        n = 0
+        while pk is not None and n <= 30:
+            if pk in direct:
+                return True
+            pk, n = parents.get(pk), n + 1
+        return False
+
+    rows.sort(key=lambda r: (r[2].lower(), r[0]))
+    out = [
+        SimpleNamespace(pk=pk, name=name, public_id=pid, shared=shared(pk))
+        for pk, _, name, pid in rows[:MOVE_TARGET_MAX]
+    ]
+    return out, len(rows) > MOVE_TARGET_MAX
+
+
+def _move_ctx(user):
+    targets, more = _move_targets(user)
+    return {"move_targets": targets, "move_more": more}
 
 
 @login_required

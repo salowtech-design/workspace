@@ -264,6 +264,7 @@ def register(g):
     register_chat_gaps(g)
     register_task_conflict(g)
     register_sessions_scroll(g, users)
+    register_drive_move(g)
     register_posts_more(g, users)
 
 
@@ -2569,3 +2570,45 @@ def register_sessions_scroll(g, users):
         run_tour(ctx, "41_sessions_scroll", body, notes="Real Django on TiDB, headless Chromium 390x844 emulated. Fixture by script: the signed-in account is HR; Second Synthetic has one completed session today.", unshown=["Admin view", "many rows"])
 
     g["DRILLS"]["tour_sessions_scroll"] = tour
+
+
+def register_drive_move(g):
+    APP = g["APP"]
+
+    def tour(ctx):
+        import concurrent.futures
+
+        import django
+
+        django.setup()
+
+        def make():
+            from apps.accounts.models import CustomUser
+            from apps.drive import services as svc
+
+            me = CustomUser.objects.get(employee_id="ST-LIVE-1")
+            svc.create_folder(me, "Reports")
+            svc.create_folder(me, "Archive")
+
+        with concurrent.futures.ThreadPoolExecutor(1) as ex:
+            ex.submit(make).result()
+
+        def body(t, pg):
+            txt = lambda: pg.inner_text("body")
+            row = lambda name: "(()=>{const r=[...document.querySelectorAll('.drive-row')].find(x=>x.querySelector('.drive-name').textContent.trim()==='%s'); r.scrollIntoView({block:'center'}); return 0})()" % name
+            pg.goto(APP + "/drive/")
+            pg.evaluate("window.scrollTo(0,0)")
+            t.step("My Drive: the sharing note, two folders, Reports and Archive, each with a Move choice", lambda: pg.evaluate(row("Reports")), expect=lambda: pg.locator("select[aria-label='Move to']").count() == 2, wait=3500)
+            def choose():
+                r = pg.locator(".drive-row:has(a.drive-name:text-is('Reports'))")
+                r.locator("select[name=destination]").select_option(label="Archive")
+            t.step("On the Reports row, choose Archive as the place to move it to", choose, expect=lambda: pg.locator(".drive-row:has(a.drive-name:text-is('Reports')) select[name=destination]").evaluate("e=>e.options[e.selectedIndex].text") == "Archive", wait=3500)
+            t.step("Press Move: it opens Archive, which now contains Reports", lambda: pg.locator(".drive-row:has(a.drive-name:text-is('Reports'))").locator("button:text-is('Move')").click(), expect=lambda: "Moved." in txt() and "/drive/folder/" in pg.url, wait=1800)
+            t.step("Archive folder page: the breadcrumb says My Drive / Archive and Reports is listed inside it", lambda: pg.evaluate(row("Reports")), expect=lambda: "Reports" in txt(), wait=4000)
+            pg.goto(APP + "/drive/")
+            t.step("Back at My Drive top level: only Archive is listed, Reports is gone from here", lambda: pg.evaluate(row("Archive")), expect=lambda: "Archive" in pg.inner_text(".drive-list, main") and pg.locator(".drive-row:has(a.drive-name:text-is('Reports'))").count() == 0, wait=4000)
+            t.note("Not shown: moving back to Top level, a refused move (into itself), moving a file (upload is not built), a Viewer's refusal.", 3)
+
+        run_tour(ctx, "42_drive_move", body, notes="Real Django on TiDB, headless Chromium 390x844 emulated. Two folders created by script.", unshown=["move to top level", "refused moves", "files", "viewer refusal"])
+
+    g["DRILLS"]["tour_drive_move"] = tour
