@@ -5591,10 +5591,10 @@ def pdf_marks(ctx):  # noqa: C901
         and pg.is_disabled("#pdf-tool-pen")
         and pg.is_disabled("#pdf-markcopy"),
     )
-    hint = pg.inner_text("#pdf-markhint")
+    hint = pg.text_content("#pdf-markhint")
     check(
         "marks: before use the panel says area only, tab only and no keyboard drawing",
-        "does not select or recognise text" in hint
+        "selects letters or copies text" in hint
         and "kept in this browser on this device" in hint
         and "no keyboard way to draw" in hint,
     )
