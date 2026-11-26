@@ -399,20 +399,19 @@ def respond_view(request, event_id):
     return redirect("events:detail", event_id=event_id)
 
 
-@login_required
-@require_POST
 def _back(request, event_id):
     """Back to the series page, on the same page of occurrences (a valid from date only)."""
     from django.urls import reverse
 
-    raw = request.POST.get("from", "")
     try:
-        dt.datetime.strptime(raw, "%Y-%m-%d")
-        return redirect(reverse("events:detail", args=[event_id]) + f"?from={raw}")
+        d = dt.datetime.strptime(request.POST.get("from", ""), "%Y-%m-%d").date()
+        return redirect(reverse("events:detail", args=[event_id]) + f"?from={d.isoformat()}")
     except ValueError:
         return redirect("events:detail", event_id=event_id)
 
 
+@login_required
+@require_POST
 def skip_view(request, event_id):
     """Organiser cancels one occurrence of a repeating event (by its local date)."""
     ev = es.get_event(request.user, event_id)

@@ -388,3 +388,21 @@ def test_skip_redirects_back_to_the_same_page_and_ignores_a_bad_from():
     r = c.post(u, {"date": "2027-03-26", "from": "//evil.example/x"})
     assert r.status_code == 302 and "?" not in r["Location"] and "evil" not in r["Location"]
     assert EventException.objects.filter(event=ev).count() == 2
+
+
+@pytest.mark.django_db
+def test_skip_view_guards_anonymous_post_and_authenticated_get_write_nothing():
+    org = _u("R18")
+    ev = mk(org, "2027-03-01T10:00", "2027-03-01T11:00", freq="daily", count=5)
+    u = reverse("events:skip", args=[ev.public_id])
+    anon = Client(HTTP_HOST="app.salowtech.com")
+    r = anon.post(u, {"date": "2027-03-02"})
+    assert r.status_code == 302 and "login" in r["Location"]
+    c = Client(HTTP_HOST="app.salowtech.com")
+    c.force_login(org)
+    assert c.get(u, {"date": "2027-03-02"}).status_code == 405
+    assert c.get(u).status_code == 405
+    assert EventException.objects.count() == 0 and Event.objects.get(pk=ev.pk).version == 1
+    # the return date is normalised, not echoed
+    r = c.post(u, {"date": "2027-03-02", "from": "2027-3-5"})
+    assert r["Location"].endswith("?from=2027-03-05"), r["Location"]
