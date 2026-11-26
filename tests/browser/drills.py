@@ -9500,7 +9500,7 @@ DRILLS = {
 
 # Drills that need a secure context (navigator.locks) run in their own browser, started with a flag that treats the plain-HTTP drill origin as
 # secure. This is a test browser setting only, not the app's policy or an HTTPS deployment. Other drills never get the flag.
-SECURE_DRILLS = ("tour_pdf", "pdf_signature", "pdf_password_secure", "pdf_notes_turn", "pdf_marks_secure", "pdf_marks_keep", "pdf_marks_shot")
+SECURE_DRILLS = ("tour_pdf", "tour_pdf_more", "pdf_signature", "pdf_password_secure", "pdf_notes_turn", "pdf_marks_secure", "pdf_marks_keep", "pdf_marks_shot")
 
 
 def run_group(p, names, secure, state=None, keep=None):  # noqa: C901

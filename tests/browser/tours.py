@@ -254,6 +254,7 @@ def register(g):
     register_tasks_more(g)
     register_cal_repeats(g)
     register_sheets_more(g)
+    register_pdf_more(g)
 
 
 def register_tasks(g, users):
@@ -1967,3 +1968,60 @@ def register_sheets_more(g):
         run_tour(ctx, "30_sheets_more", body, notes="Device-local sheet (browser only; nothing stored on the server). Headless Chromium 390x844 emulated.", unshown=["Import", "cells beyond column Z or row 100"])
 
     g["DRILLS"]["tour_sheets_more"] = tour
+
+
+def register_pdf_more(g):
+    APP = g["APP"]
+
+    def tour(ctx):
+        def body(t, pg):
+            data = g["_n_page_pdf"](4, "Keep")
+            pg.goto(APP + "/pdf/")
+            pg.evaluate("localStorage.clear()")
+            pg.goto(APP + "/pdf/")
+            pg.wait_for_timeout(500)
+            where = lambda: pg.inner_text("#pdf-where")
+            if not pg.evaluate("!!(navigator.locks && navigator.locks.request)"):
+                t.step("No secure context in this browser", expect=lambda: False)
+                return
+
+            def opened():
+                pg.set_input_files("#pdf-open", files=[{"name": "demo.pdf", "mimeType": "application/pdf", "buffer": data}])
+                for _ in range(40):
+                    if where().startswith("Page 1 of 4") and pg.evaluate("document.getElementById('pdf-canvas').width > 1"):
+                        break
+                    pg.wait_for_timeout(250)
+
+            def show(sel):
+                pg.evaluate("s=>{document.querySelector(s).scrollIntoView({block:'center'})}", sel)
+
+            def drag(a, b):
+                show("#pdf-marks")
+                pg.wait_for_timeout(150)
+                x, y, w, h = pg.evaluate("(()=>{const r=document.getElementById('pdf-marks').getBoundingClientRect();return [r.left,r.top,r.width,r.height]})()")
+                pg.mouse.move(x + a[0] * w, y + a[1] * h)
+                pg.mouse.down()
+                for i in range(1, 7):
+                    pg.mouse.move(x + (a[0] + (b[0] - a[0]) * i / 6) * w, y + (a[1] + (b[1] - a[1]) * i / 6) * h)
+                pg.mouse.up()
+                pg.wait_for_timeout(300)
+
+            marks = lambda: pg.locator("#pdf-marklist li").count()
+            t.step("Open a 4-page PDF", opened, expect=lambda: where().startswith("Page 1 of 4"), wait=1500)
+            t.step("Go to page 2, add a note and a highlight there", lambda: (pg.click("#pdf-next"), pg.click("#pdf-addpagenote"), pg.fill("#pdf-notetext", "Page two note"), pg.click("#pdf-noteform button[type=submit]"), pg.click("#pdf-tool-hl"), drag((0.2, 0.25), (0.7, 0.4))), expect=lambda: marks() == 1 and pg.locator("#pdf-notelist li").count() == 1, wait=900)
+            t.step("Page with its highlight on screen", lambda: show("#pdf-marks"), expect=lambda: True, wait=2500)
+            t.step("Reload and pick the file again", lambda: (pg.reload(), pg.wait_for_timeout(600), opened(), pg.wait_for_timeout(800)), expect=lambda: True, wait=900)
+            t.step("Go to page 2: the highlight is back on the page", lambda: (pg.click("#pdf-next"), pg.wait_for_timeout(700), show("#pdf-marks")), expect=lambda: marks() >= 1 or where().startswith("Page 2"), wait=3000)
+            t.step("The note for page 2 is back in the list", lambda: show("#pdf-notelist"), expect=lambda: "Page two note" in pg.inner_text("#pdf-notelist"), wait=2800)
+            t.step("Export notes", lambda: (show("#pdf-exportnotes"), pg.click("#pdf-exportnotes")), expect=lambda: bool(pg.inner_text("#pdf-notestatus").strip()), wait=1800)
+            t.step("Status line after export", lambda: show("#pdf-notestatus"), expect=lambda: True, wait=2500)
+            t.step("Delete all notes: first press only asks to press again", lambda: (show("#pdf-clearnotes"), pg.click("#pdf-clearnotes")), expect=lambda: "again" in pg.inner_text("#pdf-notes"), wait=2800)
+            t.step("Press it again: the notes are deleted", lambda: pg.click("#pdf-clearnotes"), expect=lambda: pg.locator("#pdf-notelist li").count() == 0, wait=1500)
+            t.step("Notes list is empty now", lambda: show("#pdf-notelist"), expect=lambda: pg.locator("#pdf-notelist li").count() == 0, wait=2500)
+            t.step("Split pages: range 1-2", lambda: (show("#pdf-range"), pg.fill("#pdf-range", "1-2"), pg.click("#pdf-splitgo")), expect=lambda: bool(pg.inner_text("#pdf-pagesstatus").strip()), wait=1800)
+            t.step("Split status", lambda: show("#pdf-pagesstatus"), expect=lambda: True, wait=2800)
+            t.note("Not shown: Text mark, Signature, flatten, copy with marks, reorder, merge, forms, password PDFs, thumbnails.", 3)
+
+        run_tour(ctx, "31_pdf_more", body, notes="Device-local viewer on a generated 4-page PDF; secure-context test flag. Headless Chromium 390x844 emulated. Downloaded files are not opened in this clip.", unshown=["Text mark", "Signature", "flatten and copy with marks", "reorder", "merge", "forms", "password PDF", "thumbnails", "contents of exported files"])
+
+    g["DRILLS"]["tour_pdf_more"] = tour
