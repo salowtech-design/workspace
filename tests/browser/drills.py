@@ -3884,6 +3884,166 @@ def slides_images_edge(ctx):  # noqa: C901
     )
 
 
+TMP_TWO = "/tmp/deck-two-pics.json"  # noqa: S108
+TMP_EXTRA = "/tmp/deck-extra-pic.json"  # noqa: S108
+
+
+def slides_images_race(ctx):  # noqa: C901
+    """Pictures: quick adds cannot pass the cap, a late load cannot wipe a drag, a failed deck save or a failed import leaves the deck alone, an import stores only what it uses."""
+    import json as _json
+
+    pg = fresh(ctx, "/slides/")
+    KEY = "document.getElementById('slide-root').dataset.storeKey"
+    wipe = (
+        "new Promise(r=>{const q=indexedDB.deleteDatabase('salow.slides.pictures.'+%s);q.onsuccess=q.onerror=q.onblocked=()=>r()})"
+        % KEY
+    )
+    pg.evaluate(wipe)
+    pg.reload()
+    pg.wait_for_timeout(400)
+
+    def deck():
+        return pg.evaluate("JSON.parse(localStorage.getItem(%s))" % KEY)
+
+    def status():
+        return pg.inner_text("#sl-status")
+
+    def idb_count():
+        return pg.evaluate(
+            "new Promise(res=>{const r=indexedDB.open('salow.slides.pictures.'+%s,1);r.onupgradeneeded=()=>r.result.createObjectStore('img',{keyPath:'hash'});r.onsuccess=()=>{const t=r.result.transaction('img');const q=t.objectStore('img').count();q.onsuccess=()=>{r.result.close();res(q.result)}}})"
+            % KEY
+        )
+
+    def put(name, data):
+        pg.set_input_files(
+            "#sl-img-file", files=[{"name": name, "mimeType": "image/png", "buffer": data}]
+        )
+
+    def pics():
+        d = deck()
+        return (
+            [e for sl in d["slides"] for e in sl["elements"] if e["type"] == "image"] if d else []
+        )
+
+    # two adds fired back to back near the cap: only one may pass
+    for k in range(4):
+        put("n%d.png" % k, _png(1000, 600, noise=True))
+        pg.wait_for_timeout(1500)
+    put("a.png", _png(1000, 600, noise=True))
+    put("b.png", _png(1000, 600, noise=True))
+    pg.wait_for_timeout(4000)
+    check(
+        "race: two quick 1.8 MB adds with 7.2 MB already in the deck add exactly one (9.0 MB) and refuse the other for the 10 MB cap",
+        len(pics()) == 5 and idb_count() == 5 and "10 MB" in status(),
+        str((len(pics()), idb_count(), status())),
+    )
+    # a failed deck save after a good store write: the deck on disk is unchanged and the message says so
+    pg.evaluate("localStorage.clear()")
+    pg.reload()
+    pg.wait_for_timeout(500)
+    base = idb_count()
+    saved = pg.evaluate("localStorage.getItem(%s)" % KEY)
+    pg.evaluate(
+        "(()=>{window.__si=Storage.prototype.setItem;Storage.prototype.setItem=function(){throw new DOMException('full','QuotaExceededError')};return 1})()"
+    )
+    put("s.png", _png(30, 30, (9, 9, 9)))
+    pg.wait_for_timeout(1200)
+    st = status()
+    pg.evaluate("(()=>{Storage.prototype.setItem=window.__si;return 1})()")
+    check(
+        "race: when the deck cannot be saved the stored deck is unchanged, the picture file is kept with nothing referring to it, and the status says the deck was not saved",
+        pg.evaluate("localStorage.getItem(%s)" % KEY) == saved
+        and idb_count() == base + 1
+        and "would not store the deck" in st,
+        st,
+    )
+    # a late picture load during a drag does not remove the dragged item
+    pg.evaluate("localStorage.clear()")
+    pg.reload()
+    pg.wait_for_timeout(500)
+    put("d.png", _png(60, 40, (10, 90, 160)))
+    pg.wait_for_timeout(1200)
+    pg.evaluate("localStorage.setItem('__delay','2500')")
+    pg.add_init_script(
+        "(()=>{const d=Object.getOwnPropertyDescriptor(IDBTransaction.prototype,'oncomplete');Object.defineProperty(IDBTransaction.prototype,'oncomplete',{configurable:true,get:d.get,set(f){d.set.call(this,f?function(e){const a=this,r=arguments;setTimeout(()=>f.apply(a,r),Number(localStorage.getItem('__delay')||0))}:f)}})})()"
+    )
+    x0 = pics()[0]["x"]
+    pg.reload()
+    pg.wait_for_timeout(300)
+    box = pg.evaluate(
+        "(()=>{const r=document.querySelector('#sl-canvas-wrap svg rect[data-id]').getBoundingClientRect();return [r.x+r.width/2,r.y+r.height/2]})()"
+    )
+    pg.mouse.move(box[0], box[1])
+    pg.mouse.down()
+    pg.mouse.move(box[0] + 60, box[1], steps=4)
+    pg.wait_for_timeout(3200)
+    kept = pg.evaluate(
+        "(()=>{const h=document.querySelector('#sl-canvas-wrap svg rect[data-id]');return !!h&&!!h.parentNode.getAttribute('transform')})()"
+    )
+    pg.mouse.up()
+    pg.wait_for_timeout(800)
+    img = pg.evaluate("!!document.querySelector('#sl-canvas-wrap svg image')")
+    check(
+        "race: a picture finishing its load during a drag leaves the drag preview in place, the drop moves the item, and the picture draws afterwards",
+        kept and pics()[0]["x"] > x0 and img,
+        str((kept, x0, pics()[0]["x"], img)),
+    )
+    pg.evaluate("localStorage.setItem('__delay','0')")
+    # import: only referenced pictures are stored, and a failure midway leaves the deck alone
+    pg.evaluate("localStorage.clear()")
+    pg.evaluate(wipe)
+    pg.reload()
+    pg.wait_for_timeout(500)
+    put("p1.png", _png(40, 20, (200, 0, 0)))
+    pg.wait_for_timeout(1000)
+    put("p2.png", _png(40, 20, (0, 200, 0)))
+    pg.wait_for_timeout(1000)
+    msgs = []
+    pg.on("dialog", lambda d: (msgs.append(d.message), d.accept()))
+    with pg.expect_download() as dl:
+        pg.click("#sl-export-pics")
+    full = _json.loads(open(dl.value.path()).read())
+    extra = _png(50, 50, (1, 2, 200))
+    import base64
+    import hashlib
+
+    full2 = _json.loads(_json.dumps(full))
+    full2["pictures"].append(
+        {
+            "hash": hashlib.sha256(extra).hexdigest(),
+            "type": "image/png",
+            "data": base64.b64encode(extra).decode(),
+        }
+    )
+    open(TMP_TWO, "w").write(_json.dumps(full))
+    open(TMP_EXTRA, "w").write(_json.dumps(full2))
+    pg.evaluate("localStorage.clear()")
+    pg.evaluate(wipe)
+    pg.reload()
+    pg.wait_for_timeout(500)
+    pg.set_input_files("#sl-import", TMP_EXTRA)
+    pg.wait_for_timeout(1500)
+    check(
+        "race: importing a file that carries a third, unused picture stores only the two the deck uses and says one was ignored",
+        len(pics()) == 2 and idb_count() == 2 and any("no slide uses" in t for t in msgs),
+        str((len(pics()), idb_count(), msgs)),
+    )
+    pg.evaluate("localStorage.clear()")
+    pg.evaluate(wipe)
+    pg.reload()
+    pg.wait_for_timeout(500)
+    pg.evaluate(
+        "(()=>{window.__n=0;window.__add=IDBObjectStore.prototype.add;IDBObjectStore.prototype.add=function(v){const r=window.__add.call(this,v);if(++window.__n===2)this.transaction.abort();return r;};return 1})()"
+    )
+    pg.set_input_files("#sl-import", TMP_TWO)
+    pg.wait_for_timeout(1500)
+    check(
+        "race: a store failure midway through an import leaves the deck unchanged and says picture files may have been kept",
+        not pics() and "was not changed" in status() and "nothing refers to them" in status(),
+        status(),
+    )
+
+
 DRILLS = {
     "slides_show": slides_show,
     "slides_edit": slides_edit,
@@ -3896,6 +4056,7 @@ DRILLS = {
     "slides_drag": slides_drag,
     "slides_images": slides_images,
     "slides_images_edge": slides_images_edge,
+    "slides_images_race": slides_images_race,
     "slides_style": slides_style,
     "sheets_tabs": sheets_tabs,
     "sheets_chart": sheets_chart,

@@ -8,7 +8,7 @@
  * by the browser whose size must match the header. */
 (function (root) {
   "use strict";
-  var LIMITS = { MAX_BYTES: 2000000, MAX_DIM: 4096, MAX_PIXELS: 12000000, MAX_DECK_BYTES: 10000000 };
+  var LIMITS = { MAX_BYTES: 2000000, MAX_DIM: 4096, MAX_PIXELS: 12000000, MAX_DECK_BYTES: 10000000, MAX_IMPORT_DECK: 7000000, MAX_IMPORT_FILE: 20500000 };  // import caps are sized from the worst-case deck JSON and export (tests/js/slides_images.js computes them)
   function u32(b, i) { return ((b[i] << 24) | (b[i + 1] << 16) | (b[i + 2] << 8) | b[i + 3]) >>> 0; }
   function fail(reason) { return { ok: false, reason: reason }; }
   function dims(type, w, h) {

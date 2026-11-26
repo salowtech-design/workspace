@@ -33,6 +33,18 @@ const samples = [new Uint8Array(0), new Uint8Array([1, 2, 3]), new Uint8Array(55
 Promise.all(samples.map((x) => Promise.all([I.sha256(x, true), I.sha256(x)]))).then((rs) => {
   ok("sha256: the plain-code fallback equals the browser digest and node's for 0, 3, 55, 56, 64, 1000 and 100000 bytes", rs.every((p, k) => p[0] === p[1] && p[0] === crypto.createHash("sha256").update(Buffer.from(samples[k])).digest("hex")));
 });
+{
+  // worst case sizes: the largest deck the model accepts, and a with-pictures export holding 10 MB of pictures in 20 entries
+  const M = require("../../static/slides/model.js"); let d = M.newDeck(); const t = "\u{1F600}".repeat(1000);
+  d.slides = Array.from({ length: M.MAX_SLIDES }, (_, i) => ({ id: "s" + i, notes: "n".repeat(2000), elements: Array.from({ length: M.MAX_EL }, (_, k) => ({ id: "e" + i + "_" + k, type: "text", x: 100, y: 100, w: 400, h: 80, fill: "#7a2e22", text: t, size: 120, b: true, i: true, al: "center" })) }));
+  d.master = { elements: Array.from({ length: M.MAX_MASTER }, (_, k) => ({ id: "m" + k, type: "text", x: 0, y: 0, w: 400, h: 80, fill: "theme", text: t, size: 32 })) };
+  const v = M.validate(JSON.parse(JSON.stringify(d))), deckJson = Buffer.byteLength(JSON.stringify(v));
+  const entry = (n) => ({ hash: "a".repeat(64), type: "image/jpeg", data: "A".repeat(Math.ceil(n / 3) * 4) });
+  const exp = Buffer.byteLength(JSON.stringify({ format: "salow-slides-with-pictures", version: 1, deck: v, pictures: Array.from({ length: 20 }, () => entry(I.LIMITS.MAX_DECK_BYTES / 20)) }));
+  console.log("worst-case plain deck bytes:", deckJson, "worst-case export bytes:", exp);
+  ok("import caps: the largest deck the model accepts fits the plain-deck cap and the largest with-pictures export fits the file cap", v !== null && deckJson < I.LIMITS.MAX_IMPORT_DECK && exp < I.LIMITS.MAX_IMPORT_FILE);
+  ok("import caps: the file cap is under 1.3 x the worst case", I.LIMITS.MAX_IMPORT_FILE < exp * 1.3);
+}
 I.sha256(new Uint8Array([1, 2, 3])).then((h) => {
   ok("sha256: matches the reference value", h === crypto.createHash("sha256").update(Buffer.from([1, 2, 3])).digest("hex") && /^[0-9a-f]{64}$/.test(h));
   console.log(`${n - bad}/${n} slides image rows passed`); process.exit(bad ? 1 : 0);

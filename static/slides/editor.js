@@ -31,7 +31,9 @@
     }).catch(function () { urls[hash] = "missing"; }).then(function () { refresh(); });
     return null;
   }
-  function refresh() { if (H) { render(); if (show.open) showDraw(); } }
+  // A picture that finishes loading redraws the slide, but never in the middle of a drag: that would remove the item being dragged. It runs when the drag ends.
+  var pendingRefresh = false;
+  function refresh() { if (drag) { pendingRefresh = true; return; } if (H) { render(); if (show.open) showDraw(); } }
   function el(n, at, tx) { var x = document.createElementNS(NS, n); Object.keys(at || {}).forEach(function (k) { x.setAttribute(k, at[k]); }); if (tx !== undefined) x.textContent = tx; return x; }
   // Shape and text of one item, shared by the editor and the slide show.
   function drawEl(g, d, e) {
@@ -61,7 +63,7 @@
   function apply(next, note) { if (!next) return false; if (!H.change(next, note)) return false; cur = Math.min(cur, H.deck.slides.length - 1); render(); return true; }
   // Dragging an item moves it, dragging the blue corner square resizes it. Nothing is stored until the pointer is released, so a drag is one Undo step; Esc or a cancelled pointer drops it.
   var drag = null;
-  function endDrag() { var w = wrap(); w.removeEventListener("pointermove", onDragMove); w.removeEventListener("pointerup", onDragUp); w.removeEventListener("pointercancel", onDragCancel); w.removeEventListener("lostpointercapture", onDragCancel); document.removeEventListener("keydown", onDragKey, true); try { if (drag) w.releasePointerCapture(drag.id); } catch (e) { /* already released */ } drag = null; }
+  function endDrag() { var w = wrap(); w.removeEventListener("pointermove", onDragMove); w.removeEventListener("pointerup", onDragUp); w.removeEventListener("pointercancel", onDragCancel); w.removeEventListener("lostpointercapture", onDragCancel); document.removeEventListener("keydown", onDragKey, true); try { if (drag) w.releasePointerCapture(drag.id); } catch (e) { /* already released */ } drag = null; if (pendingRefresh) { pendingRefresh = false; setTimeout(refresh, 0); } }
   function dragDelta(ev) { var m = drag.svg.getScreenCTM(); if (!m || !m.a) return { dx: 0, dy: 0 }; return { dx: (ev.clientX - drag.sx) / m.a, dy: (ev.clientY - drag.sy) / m.d }; }
   function onDragMove(ev) {
     if (!drag || ev.pointerId !== drag.id) return; var d = dragDelta(ev); drag.moved = drag.moved || Math.abs(ev.clientX - drag.sx) + Math.abs(ev.clientY - drag.sy) > 4;
@@ -188,25 +190,35 @@
     if (!store || !IM) { status.textContent = "This browser cannot keep pictures here, so none was added."; return; }
     $("sl-img-file").click();
   });
+  // Adds are queued one at a time, and the byte total is read again from the current deck right before the deck is changed, so two quick adds can never both pass the
+  // cap on a stale total. The picture store is add-only: if a later step fails, the file stays stored (nothing refers to it) and the message says the deck was not changed.
+  var addQ = Promise.resolve();
+  function deckPicHashes() { var hs = []; H.deck.slides.forEach(function (sl) { sl.elements.forEach(function (x) { if (x.type === "image") hs.push(x.img); }); }); return hs; }
+  function addPicture(f) {
+    return f.arrayBuffer().then(function (buf) { return IM.qualify(new Uint8Array(buf)); }).then(function (rec) {
+      function commit(tries) {
+        var snap = H.deck, at = cur;
+        if (!S.ops.addImage(snap, at, rec.hash, rec.w, rec.h, "")) throw new Error("This slide or deck is full (30 items per slide, 20 pictures per deck). Nothing was added to the deck.");
+        var hs = deckPicHashes();
+        return store.sizes(hs).then(function (sz) {
+          if (hs.indexOf(rec.hash) < 0 && sz.total + rec.bytes.length > MAXB) throw new Error("Pictures in this deck would pass " + MAXB / 1e6 + " MB. Nothing was added to the deck.");
+          return store.put(rec);
+        }).then(function () {
+          if (H.deck !== snap || cur !== at) { if (tries > 3) throw new Error("The deck kept changing while the picture was being checked. Nothing was added to the deck."); return commit(tries + 1); }
+          urls[rec.hash] = "data:" + rec.type + ";base64," + b64(rec.bytes);
+          var r = S.ops.addImage(H.deck, cur, rec.hash, rec.w, rec.h, "");
+          selId = r.id;
+          if (!apply(r.deck, "Picture added (" + rec.w + " by " + rec.h + " pixels). Describe it in the Description box for screen readers.")) { selId = null; render(); throw new Error("The deck was not changed. The picture file is kept in this browser but nothing refers to it."); }
+        });
+      }
+      return commit(0);
+    });
+  }
   $("sl-img-file").addEventListener("change", function (ev) {
     var f = ev.target.files[0]; ev.target.value = ""; if (!f || unreadable || editMaster) return;
     if (f.size > IM.LIMITS.MAX_BYTES) { status.textContent = "That file is " + (f.size / 1e6).toFixed(1) + " MB. The limit is " + IM.LIMITS.MAX_BYTES / 1e6 + " MB per picture. Nothing was added."; return; }
     status.textContent = "Checking the picture on this device...";
-    var at = cur, snap = H.deck;
-    f.arrayBuffer().then(function (buf) { return IM.qualify(new Uint8Array(buf)); }).then(function (rec) {
-      var dry = S.ops.addImage(snap, at, rec.hash, rec.w, rec.h, "");
-      if (!dry) throw new Error("This slide or deck is full (30 items per slide, 20 pictures per deck). Nothing was added.");
-      var hs = []; snap.slides.forEach(function (sl) { sl.elements.forEach(function (x) { if (x.type === "image") hs.push(x.img); }); });
-      return store.sizes(hs).then(function (sz) {
-        var already = hs.indexOf(rec.hash) >= 0;
-        if (!already && sz.total + rec.bytes.length > MAXB) throw new Error("Pictures in this deck would pass " + MAXB / 1e6 + " MB. Nothing was added.");
-        return store.put(rec);
-      }).then(function () {
-        urls[rec.hash] = "data:" + rec.type + ";base64," + b64(rec.bytes);
-        if (H.deck !== snap || cur !== at) { var r2 = S.ops.addImage(H.deck, cur, rec.hash, rec.w, rec.h, ""); if (!r2) throw new Error("The deck changed while the picture was being checked and is now full. Nothing was added."); dry = r2; } else dry = S.ops.addImage(H.deck, cur, rec.hash, rec.w, rec.h, "");
-        selId = dry.id; if (!apply(dry.deck, "Picture added (" + rec.w + " by " + rec.h + " pixels). Describe it in the Description box for screen readers.")) { selId = null; render(); }
-      });
-    }).catch(function (err) { status.textContent = (err && err.message ? err.message : "The picture could not be added.") + (store ? "" : ""); });
+    addQ = addQ.then(function () { return addPicture(f); }).catch(function (err) { status.textContent = err && err.message ? err.message : "The picture could not be added."; });
   });
   [["sl-back", -1, "Item sent backward."], ["sl-fwd", 1, "Item brought forward."]].forEach(function (c) {
     $(c[0]).addEventListener("click", function () { var e = sel(); if (e && apply(eop("moveElement", e.id, c[1]), c[2])) { var b = $(c[0]); if (b.disabled) $("sl-del-el").focus(); else b.focus(); } });
@@ -294,28 +306,29 @@
   function importWithPictures(raw, finish) {
     var d = S.validate(raw && raw.deck), list = raw && raw.pictures;
     if (raw.version !== 1 || !d || !Array.isArray(list) || list.length > S.MAX_EL * 20 || !store) { status.textContent = "That file is not a usable deck with pictures. Your deck was not changed."; return; }
-    var seen = Object.create(null), total = 0, jobs = [];
+    var seen = Object.create(null), total = 0, jobs = [], wanted = deckHashes(d), ignored = 0;
     for (var k = 0; k < list.length; k++) {
       var p = list[k];
       if (!p || typeof p.hash !== "string" || typeof p.data !== "string" || seen[p.hash] || p.data.length > Math.ceil(IM.LIMITS.MAX_BYTES * 4 / 3) + 8 || p.data.length % 4 || !B64.test(p.data)) { status.textContent = "That file has a damaged picture entry. Your deck was not changed."; return; }
       seen[p.hash] = true;
+      if (wanted.indexOf(p.hash) < 0) { ignored++; continue; }  // a picture the deck does not use is neither decoded nor stored
       var bin; try { bin = atob(p.data); } catch (x) { status.textContent = "That file has a damaged picture entry. Your deck was not changed."; return; }
       var u8 = new Uint8Array(bin.length); for (var q = 0; q < bin.length; q++) u8[q] = bin.charCodeAt(q);
       total += u8.length; jobs.push({ hash: p.hash, bytes: u8 });
     }
     if (total > MAXB) { status.textContent = "The pictures in that file pass " + MAXB / 1e6 + " MB. Your deck was not changed."; return; }
     Promise.all(jobs.map(function (j) { return IM.qualify(j.bytes).then(function (rec) { if (rec.hash !== j.hash) throw new Error("A picture in that file does not match its fingerprint."); return rec; }); })).then(function (recs) {
-      var need = deckHashes(d).filter(function (h) { return !seen[h]; });
+      var have = Object.create(null); jobs.forEach(function (j) { have[j.hash] = true; }); var need = wanted.filter(function (h) { return !have[h]; });
       return store.sizes(need).then(function (sz) { return { recs: recs, absent: sz.missing }; });
     }).then(function (r) {
-      var msg = "Replace this deck with the " + d.slides.length + " slides and " + r.recs.length + " picture file(s) in this file? The pictures are kept in this browser. You can undo the deck change until you reload." + (r.absent.length ? " " + r.absent.length + " picture(s) it uses are not in the file or this browser and will show as 'Picture missing'." : "");
+      var msg = "Replace this deck with the " + d.slides.length + " slides and " + r.recs.length + " picture file(s) in this file? The pictures are kept in this browser." + (ignored ? " " + ignored + " picture file(s) in the file that no slide uses are ignored." : "") + " You can undo the deck change until you reload." + (r.absent.length ? " " + r.absent.length + " picture(s) it uses are not in the file or this browser and will show as 'Picture missing'." : "");
       if (!window.confirm(msg)) { status.textContent = "Import cancelled. Your deck was not changed."; return; }
       return Promise.all(r.recs.map(function (rec) { return store.put(rec).then(function () { urls[rec.hash] = "data:" + rec.type + ";base64," + b64(rec.bytes); }); })).then(function () { finish(d, r.absent.length); });
-    }).catch(function (err) { status.textContent = (err && err.message ? err.message : "The pictures could not be stored.") + " Your deck was not changed."; });
+    }).catch(function (err) { status.textContent = (err && err.message ? err.message : "The pictures could not be stored.") + " Your deck was not changed. Picture files that were already checked may have been kept in this browser; nothing refers to them."; });
   }
   $("sl-import").addEventListener("change", function (e) {
     var f = e.target.files[0]; if (!f) return;
-    if (f.size > 14000000) { status.textContent = "That file is too large. Your deck was not changed."; return; }
+    if (f.size > (IM ? IM.LIMITS.MAX_IMPORT_FILE : 1000000)) { status.textContent = "That file is too large. Your deck was not changed."; return; }
     var rd = new FileReader();
     rd.onload = function () {
       var rawObj = null, d = null, cutN = 0; try { rawObj = JSON.parse(String(rd.result)); } catch (x) { rawObj = null; }
@@ -324,7 +337,7 @@
         if (!apply(deck, "Imported " + deck.slides.length + " slides." + (absent ? " " + absent + " picture(s) are missing and show as grey boxes." : "") + " You can undo this import.")) { cur = prev; selId = prevSel; status.textContent = H.blocked ? H.note : "That deck is the same as the current one, so the deck did not change." + (deckHashes(deck).length ? " Its pictures are kept in this browser." : ""); refresh(); }
       }
       if (rawObj && typeof rawObj === "object" && rawObj.format === WRAP) { importWithPictures(rawObj, done); return; }
-      if (f.size > 1000000) { status.textContent = "That file is too large. Your deck was not changed."; return; }
+      if (f.size > (IM ? IM.LIMITS.MAX_IMPORT_DECK : 1000000)) { status.textContent = "That file is too large. Your deck was not changed."; return; }
       try { d = S.validate(rawObj); cutN = S.countCut(rawObj); } catch (x) { d = null; }
       if (!d) { status.textContent = "That file is not a usable deck. Your deck was not changed."; return; }
       var refs = deckHashes(d).length;
