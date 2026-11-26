@@ -118,3 +118,35 @@ def test_certificate_lookup_never_picks_between_values_that_differ_only_by_case(
     assert verify_certificate("St-Cert-2026-Ab12Cd")[1] == "not_found"
     assert get_certificate_by_identifier("a" * 64).pk == a.pk
     assert get_certificate_by_identifier("A" * 64).pk == b.pk
+
+
+@pytest.mark.django_db
+def test_certificate_lookup_ambiguity_ends_the_lookup_for_hash_and_across_fields():
+    from apps.certificates.models import Certificate
+    from apps.certificates.selectors import get_certificate_by_identifier
+    from apps.certificates.services import verify_certificate
+
+    admin = CustomUser.objects.create_superuser(employee_id="CI-ADM4", full_name="Ada Admin", password="SuperMasterAdminPassword2026!")
+    rec = _u("CI-V3", "Xia Cross", role="intern")
+    tpl = CertificateTemplate.objects.create(code="CI_X", title="Template", description_template="Done.")
+    base = dict(
+        recipient=rec, title="T", description="d", issued_by=admin, template=tpl,
+        recipient_name="Xia Cross", recipient_role="Intern", issue_date=date(2026, 11, 16),
+    )  # fmt: skip
+    # Mixed-case hash ambiguity: two hashes differ only by case, and a third certificate's serial is the mixed-case text,
+    # so a fall-through from an ambiguous hash must not reach it.
+    Certificate.objects.create(serial_number="S-ONE", verification_hash="b" * 64, **base)
+    Certificate.objects.create(serial_number="S-TWO", verification_hash="B" * 64, **base)
+    assert get_certificate_by_identifier("b" * 64).verification_hash == "b" * 64  # exact
+    assert get_certificate_by_identifier(("b" * 63) + "B") is None
+    assert verify_certificate(("b" * 63) + "B")[1] == "not_found"
+    # Ambiguous serial does not fall through to a hash that equals the typed text.
+    Certificate.objects.create(serial_number="amb-serial", verification_hash="c" * 64, **base)
+    Certificate.objects.create(serial_number="AMB-SERIAL", verification_hash="d" * 64, **base)
+    Certificate.objects.create(serial_number="S-THREE", verification_hash="Amb-Serial", **base)
+    assert get_certificate_by_identifier("Amb-Serial") is None
+    # Cross namespace: one value that is one certificate's serial and another's hash.
+    Certificate.objects.create(serial_number="SHARED-VALUE-1", verification_hash="e" * 64, **base)
+    Certificate.objects.create(serial_number="S-FOUR", verification_hash="SHARED-VALUE-1", **base)
+    assert get_certificate_by_identifier("SHARED-VALUE-1") is None
+    assert get_certificate_by_identifier("e" * 64).serial_number == "SHARED-VALUE-1"

@@ -8,36 +8,55 @@ from apps.accounts.models import CustomUser
 from apps.certificates.models import Certificate, CertificateTemplate
 
 
-def _case_folded_unique(field: str, value: str) -> Optional[Certificate]:
-    """An exact match wins. Otherwise a case-blind match is used only when it is the single candidate.
+_AMBIGUOUS = object()
 
-    The unique indexes on TiDB's binary collation do not stop two values that differ only by letter case
-    (the app never creates them: serials are upper case, hashes lower-case hex). If rows written around the
-    app ever collide that way, no certificate is picked arbitrarily: the lookup finds nothing.
+
+def _case_folded_unique(field: str, value: str):
+    """One field: the certificate, None when absent, or _AMBIGUOUS.
+
+    An exact match wins. Otherwise a case-blind match counts only when it is the single candidate.
+    TiDB's binary-collation unique index does not stop two values that differ only by letter case. The app
+    never creates them (serials are upper case, hashes lower-case hex), but rows written around the app
+    could, and the guard does not rely on that format.
     """
     base = Certificate.objects.select_related("recipient", "issued_by", "template")
     exact = base.filter(**{field: value}).first()
     if exact:
         return exact
     folded = list(base.annotate(_fold=Upper(field)).filter(_fold=value.upper())[:2])
-    return folded[0] if len(folded) == 1 else None
+    if len(folded) > 1:
+        return _AMBIGUOUS
+    return folded[0] if folded else None
 
 
 def get_certificate_by_serial_uuid_or_hash(identifier: str) -> Optional[Certificate]:
-    """Serial, then UUID (any letter case), then verification hash. Shared by the lookup and public verify."""
+    """Find by serial, UUID (any letter case) or verification hash. Shared by the lookup and public verify.
+
+    Ambiguity ends the lookup with no certificate, which is different from absent: two certificates that
+    match one field only by case, or one value that matches different certificates in different fields,
+    never fall through to another field or pick one arbitrarily.
+    """
     clean_id = identifier.strip()
-    cert = _case_folded_unique("serial_number", clean_id)
-    if cert:
-        return cert
+    found = []
+    for field in ("serial_number", "verification_hash"):
+        hit = _case_folded_unique(field, clean_id)
+        if hit is _AMBIGUOUS:
+            return None
+        if hit:
+            found.append(hit)
     try:
-        cert = (
+        by_uuid = (
             Certificate.objects.select_related("recipient", "issued_by", "template")
             .filter(uuid=uuid.UUID(clean_id))
             .first()
         )
     except ValueError:
-        cert = None
-    return cert or _case_folded_unique("verification_hash", clean_id)
+        by_uuid = None
+    if by_uuid:
+        found.append(by_uuid)
+    if len({c.pk for c in found}) > 1:
+        return None
+    return found[0] if found else None
 
 
 def get_certificate_by_identifier(identifier: str) -> Optional[Certificate]:
