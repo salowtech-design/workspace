@@ -1139,7 +1139,7 @@ def register_iam_forms(g):
         cookie = {"name": box["cookie"], "value": box["raw"], "domain": "iam.salowtech.com", "path": "/", "httpOnly": True, "sameSite": "Lax"}
 
         def body(t, pg):
-            pg.context.add_init_script("(()=>{const s=document.createElement('style');s.textContent='#issued-act-code,[data-copy]{visibility:hidden!important;color:transparent!important}';document.documentElement.appendChild(s);new MutationObserver(()=>{if(!s.isConnected)document.documentElement.appendChild(s);}).observe(document,{childList:true,subtree:true});})();")
+            pg.context.add_init_script("(()=>{const P='[hidden in recording]';const mask=()=>{const e=document.getElementById('issued-act-code');if(e&&e.textContent.trim()!==P){e.setAttribute('data-len',String(e.textContent.trim().length));e.textContent=P;}document.querySelectorAll('[data-copy]').forEach(b=>b.removeAttribute('data-copy'));};new MutationObserver(mask).observe(document,{childList:true,subtree:true,characterData:true});document.addEventListener('DOMContentLoaded',mask);mask();})();")
             txt = lambda: pg.inner_text("body")
             form = lambda a: pg.locator("form", has=pg.locator("input[name=action][value=%s]" % a)).first
 
@@ -1156,8 +1156,31 @@ def register_iam_forms(g):
             pg.goto(IAM + "/dashboard/?tab=identity")
             t.step("Setup (fixture): IAM host, administrator session made off camera at the basic assurance level. Identity tab, Create Employee form", lambda: form("create_employee").scroll_into_view_if_needed(), expect=lambda: form("create_employee").count() == 1, wait=2200)
             t.step("Create an employee with an outside email domain: it is refused with a message", lambda: fill_create("ST-NEW-1", "New Synthetic", "new1@example.com"), expect=lambda: "@salowtech.com" in txt(), wait=3000)
-            t.step("Create an employee with a company email: the page says the account was created", lambda: (pg.goto(IAM + "/dashboard/?tab=identity"), fill_create("ST-NEW-1", "New Synthetic", "new1@salowtech.com")), expect=lambda: "Account created for New Synthetic" in txt(), wait=3500)
-            t.note("The one-time activation code box is hidden in this recording by a style added by the recording script. The code is not on screen.", 3)
+            off = {}
+
+            def create_off_camera():
+                # A separate, unrecorded browser context: the success page shows a one-time code, which must never be filmed.
+                c2 = pg.context.browser.new_context(viewport={"width": 390, "height": 844})
+                try:
+                    c2.add_cookies([cookie])
+                    q = c2.new_page()
+                    q.goto(IAM + "/dashboard/?tab=identity")
+                    f2 = q.locator("form", has=q.locator("input[name=action][value=create_employee]")).first
+                    f2.locator("input[name=employee_id]").fill("ST-NEW-1")
+                    f2.locator("input[name=full_name]").fill("New Synthetic")
+                    f2.locator("input[name=email]").fill("new1@salowtech.com")
+                    f2.locator("select[name=role]").select_option("employee")
+                    f2.locator("button[type=submit]").click()
+                    q.wait_for_timeout(1500)
+                    off["banner"] = "Account created for New Synthetic" in q.inner_text("body")
+                    off["card"] = q.locator("#issued-act-code").count() == 1
+                    n = len(q.inner_text("#issued-act-code").strip()) if off["card"] else 0
+                    off["len_ok"] = 8 <= n <= 40
+                finally:
+                    c2.close()
+
+            t.step("Create an employee with a company email. This one is done in a separate unrecorded tab, because the success page shows a one-time code that must not be filmed. The script checks the result", create_off_camera, expect=lambda: off.get("banner") and off.get("card") and off.get("len_ok"), wait=1200)
+            t.note("Off camera result (checked by script, code never printed): account-created banner present, one-time code card present, code length in the normal range.", 3)
             t.step("Create the same Employee ID again: refused as already in use", lambda: (pg.goto(IAM + "/dashboard/?tab=identity"), fill_create("ST-NEW-1", "New Synthetic", "new2@salowtech.com")), expect=lambda: "already in use" in txt(), wait=3000)
             def suspend():
                 pg.goto(IAM + "/dashboard/?tab=lifecycle")
