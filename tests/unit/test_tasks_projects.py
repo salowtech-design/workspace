@@ -791,15 +791,15 @@ def test_board_filters_title_milestone_overdue_and_hide_only():
     ca = _c(a)
     allt, _ = _board_titles(ca, p)
     assert sorted(allt) == ["Alpha plan", "Beta 100%_x", "Delta", "Gamma done"]
-    assert _board_titles(ca, p, q="ALPHA")[0] == ["Alpha plan"]
+    assert _board_titles(ca, p, q="ALPHA")[0] == ["Alpha plan"], "title search"
     assert _board_titles(ca, p, q="100%_")[0] == ["Beta 100%_x"]  # % and _ are literal
     assert _board_titles(ca, p, q="%")[0] == ["Beta 100%_x"]
-    assert _board_titles(ca, p, milestone=str(m1.pk))[0] == ["Alpha plan"]
+    assert _board_titles(ca, p, milestone=str(m1.pk))[0] == ["Alpha plan"], "milestone"
     assert sorted(_board_titles(ca, p, milestone="none")[0]) == ["Beta 100%_x", "Delta", "Gamma done"]
     # overdue = due before today and not in Done: due today is not overdue, Done is excluded
-    assert _board_titles(ca, p, overdue="1")[0] == ["Alpha plan"]
+    assert _board_titles(ca, p, overdue="1")[0] == ["Alpha plan"], "overdue"
     titles, html = _board_titles(ca, p, q="alpha", overdue="1", milestone=str(m1.pk))
-    assert titles == ["Alpha plan"] and "Showing 1 of 4 tasks" in html
+    assert titles == ["Alpha plan"] and "Showing 1 of 4 tasks" in html, "combined"
     assert _board_titles(ca, p, q="nothing")[0] == [] and "No matching tasks." in _board_titles(ca, p, q="nothing")[1]
     # junk values never error and never filter by an unknown milestone
     for junk in ({"milestone": "\u00b2"}, {"milestone": "99999999999999999999"}, {"milestone": "abc"}, {"overdue": "yes"}, {"q": "x" * 500}):
