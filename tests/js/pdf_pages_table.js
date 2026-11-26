@@ -46,6 +46,9 @@ const done = (async () => {
   ok("with the reference cut switched off, the real Dest-leak source is refused by the page-count check", nc === "leak");
   const rp = await G.build(P, [{ bytes: lk, pages: [1, 2, 1], name: "rep" }]);
   ok("a page repeated (1,2,1) builds 3 pages and the guard does not refuse it", rp.pageCount === 3 && (Buffer.from(rp.bytes).toString("latin1").match(/\/Type\s*\/Page[^s]/g) || []).length === 3);
+  const t3 = await (async () => { const d = await P.PDFDocument.create(); for (let i = 1; i <= 3; i++) { const pg = d.addPage([200, 200]); pg.node.set(P.PDFName.of("Contents"), d.context.register(d.context.stream("BT 12 0 0 12 10 100 Tm (PG" + i + ") Tj ET"))); } return d.save({ useObjectStreams: false }); })();
+  const r3 = await G.build(P, [{ bytes: t3, pages: [3, 1, 3], name: "t3" }]);
+  ok("3,1,3 on a 3-page file builds 3 pages with 3 page objects and the guard does not refuse", r3.pageCount === 3 && (Buffer.from(r3.bytes).toString("latin1").match(/\/Type\s*\/Page[^s]/g) || []).length === 3);
   // Populated actions: scripts, chains and page-level actions must be gone from the copy, a plain web link must stay.
   const act = await (async () => { const d = await P.PDFDocument.create(), pg = d.addPage([300, 300]), x = d.context, R = (o) => x.register(x.obj(o));
     const js = { S: "JavaScript", JS: P.PDFString.of("app.alert(JSMARK1)") };
