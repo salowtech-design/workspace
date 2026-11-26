@@ -6130,6 +6130,8 @@ def pdf_forms(ctx):  # noqa: C901
         pg.click("#pdf-formsave")
     path = dl.value.path()
     out = open(path, "rb").read()
+    if os.environ.get("DRILL_SHOTS"):
+        open(os.path.join(os.environ["DRILL_SHOTS"], "form-filled.pdf"), "wb").write(out)
     check(
         "forms: the download is a separate PDF named -filled",
         dl.value.suggested_filename == "form-filled.pdf" and out[:5] == b"%PDF-" and out != basic,
