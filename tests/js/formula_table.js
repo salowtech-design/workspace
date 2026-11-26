@@ -349,6 +349,13 @@ const T = [
   ["^ stays #VALUE! for 0^-1 while POWER says #DIV/0! (documented difference)", {"Z1": "=0^-1"}, "Z1", "#VALUE!"],
   ["^ stays #VALUE! for a negative base with a fractional exponent while POWER says #NUM!", {"Z1": "=(-8)^0.5"}, "Z1", "#VALUE!"],
   ["^ and POWER agree on ordinary results", {"Z1": "=2^0.5-POWER(2,0.5)"}, "Z1", 0],
+  ["MOD keeps 0.5 of 1e15+0.5 (exactly representable)", {"Z1": "=MOD(1000000000000000.5,1)"}, "Z1", 0.5],
+  ["MOD keeps 0.5 of 1e15+0.5 by 2", {"Z1": "=MOD(1000000000000000.5,2)"}, "Z1", 0.5],
+  ["FLOOR of 1234567890123.456 by 0.001 is not above the input", {"Z1": "=FLOOR(1234567890123.456,0.001)<=1234567890123.456"}, "Z1", true],
+  ["CEILING of 1234567890123.456 by 0.001 is not below the input", {"Z1": "=CEILING(1234567890123.456,0.001)>=1234567890123.456"}, "Z1", true],
+  ["FLOOR 1234567890.123 by 0.001 unchanged", {"Z1": "=FLOOR(1234567890.123,0.001)"}, "Z1", 1234567890.123],
+  ["CEILING 1234567890.123 by 0.001 unchanged", {"Z1": "=CEILING(1234567890.123,0.001)"}, "Z1", 1234567890.123],
+  ["MOD(10.5,0.5) still 0 (exact multiple)", {"Z1": "=MOD(10.5,0.5)"}, "Z1", 0],
 ];
 const chain = {}; for (let i = 1; i <= 3000; i++) chain["A" + i] = i === 1000 ? "=1" : "=A" + (i + 1) + "+1";
 // long dependency chain: rows are capped at 1000 so only A1..A1000 exist; cells past A1000 are #REF!

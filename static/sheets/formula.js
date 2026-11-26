@@ -414,7 +414,7 @@
    * describe it in two ways and I did not verify the direction rules, so it is left out rather than guessed. FLOOR(v,f) is the
    * largest multiple of f at or below v, CEILING the smallest at or above. With two whole numbers the result is exact
    * (FLOOR(1234567890123456,1) is itself). Otherwise the quotient within 2 ulps of a whole number is taken as that whole
-   * number (only below 2^40) and the result is cleaned to 15 significant digits (16 or more digits are kept), so FLOOR(23.25,0.18)
+   * number (only below 2^40) and the result is cleaned to 15 significant digits (16 or more digits are kept), unless that would put a floor above or a ceiling below the input, in which case the uncleaned result (or the input itself, when it is already a multiple) is returned. MOD applies its noise rule only where the quotient is below 2^40, so FLOOR(23.25,0.18)
    * is 23.22 and CEILING(0.1+0.2,0.1) is 0.3 (plain floating point gives 0.4). Not built: ROUNDUP, ROUNDDOWN, MROUND, EXP, LN, LOG. */
   function mn(v) { v = sc2(v); if (isErr(v)) return v; return num(v); }
   function clean(x) { return !isFinite(x) ? new Err("#NUM!") : Math.abs(x) >= 1e15 ? x : Number(x.toPrecision(15)); }  // 15 digits, but a number of 16 digits or more is kept exactly
@@ -427,7 +427,7 @@
     if (Number.isInteger(x) && Number.isInteger(y)) return fixSign(r, y) + 0;  // whole numbers: the exact remainder, no cleaning at all
     // not whole numbers: a remainder within 4 ulps of 0 or of the divisor is the noise of a quotient that is really a whole number
     var tol = 4 * Number.EPSILON * Math.abs(x);
-    if (Math.abs(r) <= tol || Math.abs(Math.abs(y) - Math.abs(r)) <= tol) return 0;
+    if (Math.abs(x / y) < 1099511627776 && (Math.abs(r) <= tol || Math.abs(Math.abs(y) - Math.abs(r)) <= tol)) return 0;  // only where the quotient is small enough to have fraction digits: MOD(1e15+0.5,1) is 0.5
     return clean(fixSign(r, y));
   };
   FNX.POWER = function (a) {
@@ -445,7 +445,12 @@
       if (f < 0) return new Err("#NUM!");
       var raw = x / f; if (!isFinite(raw)) return new Err("#NUM!");
       if (Number.isInteger(x) && Number.isInteger(f)) { var ri = fn(raw) * f; return isFinite(ri) ? ri : new Err("#NUM!"); }  // whole numbers: no cleaning
-      return clean(fn(Math.abs(raw) < 1099511627776 ? snap(raw) : raw) * f);  // snapping only where a quotient still has fraction digits
+      var res = fn(Math.abs(raw) < 1099511627776 ? snap(raw) : raw) * f, c = clean(res), down = fn === Math.floor;  // snapping only where a quotient still has fraction digits
+      if (isErr(c)) return c;
+      var slack = 4 * Number.EPSILON * Math.abs(x);
+      if (down ? c > x + slack : c < x - slack) c = res;  // cleaning to 15 digits must not push a floor above, or a ceiling below, the input
+      if (down ? c > x + slack : c < x - slack) c = x;    // still on the wrong side by float noise: x is already a multiple of f
+      return c;
     };
   }
   stepFn("FLOOR", Math.floor); stepFn("CEILING", Math.ceil);
