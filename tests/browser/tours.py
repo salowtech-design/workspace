@@ -3153,7 +3153,11 @@ def register_empty_states(g, users):
             pg.goto(APP + "/directory/?q=zzzznomatch")
             t.step("People search with no match: the message is fully on the screen", expect=inview("No employees match the search filter."), wait=4000)
             pg.goto(APP + "/auth/security/")
-            t.step("Security and Sessions with no passkey: the message is fully on the screen", expect=inview("No passkeys registered."), wait=4000)
+            pg.wait_for_timeout(1500)
+            pg.locator("text=No passkeys registered.").first.scroll_into_view_if_needed()
+            pg.evaluate("window.scrollBy(0, 250)")
+            pg.wait_for_timeout(1500)
+            t.step("Security and Sessions with no passkey: the message is fully on the screen", expect=lambda: pg.evaluate("() => { const e = [...document.querySelectorAll('p')].filter(x => x.textContent.indexOf('No passkeys registered.') >= 0)[0]; const r = e.getBoundingClientRect(); return r.left >= 0 && r.right <= window.innerWidth && r.top >= 0 && r.bottom <= window.innerHeight - 120; }"), wait=4000)
 
         run_tour(ctx, "55_empty_states", body, notes="Real Django on TiDB, headless Chromium 390x844 emulated. No fixture: the account has no passkey and no person matches the search.", unshown=["empty team members page", "empty security events"])
 
