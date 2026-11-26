@@ -274,6 +274,7 @@ def register(g):
     register_event_edit_conflict(g, users)
     register_event_occurrence_paging(g, users)
     register_event_series_guest(g, users)
+    register_event_time_zone(g, users)
     register_posts_more(g, users)
 
 
@@ -2991,3 +2992,39 @@ def register_event_series_guest(g, users):
         run_tour(ctx, "51_event_series_guest", body, notes="Real Django on TiDB, headless Chromium 390x844 emulated. Fixture by script: a weekly series of 6 by ST-LIVE-2 with ST-LIVE-1 as a guest.", unshown=["answer for one occurrence only (not built)"])
 
     g["DRILLS"]["tour_event_series_guest"] = tour
+
+
+def register_event_time_zone(g, users):
+    APP = g["APP"]
+
+    def tour(ctx):
+        import datetime as dt
+        from zoneinfo import ZoneInfo
+
+        users(ctx)
+        day = dt.date.today() + dt.timedelta(days=2)
+        local = dt.datetime.combine(day, dt.time(9, 0), tzinfo=ZoneInfo("America/New_York"))
+        ist = local.astimezone(ZoneInfo("Asia/Kolkata"))
+        ist_text = ist.strftime("%H:%M")  # what the day view in the workspace's own zone must show
+        ist_day = ist.date().isoformat()
+
+        def body(t, pg):
+            txt = lambda: pg.inner_text("body")
+            def go(sel):
+                with pg.expect_navigation():
+                    pg.click(sel)
+            def show(sel):
+                pg.evaluate("s => document.querySelector(s).scrollIntoView({block:'center'})", sel)
+            pg.goto(APP + "/calendar/new/")
+            t.step("New event: 09:00 to 10:00 on %s, time zone America/New_York" % day.isoformat(), lambda: (pg.fill("input[name=title]", "New York partner call"), pg.fill("input[name=start]", day.isoformat() + "T09:00"), pg.fill("input[name=end]", day.isoformat() + "T10:00"), pg.fill("input[name=tz]", "America/New_York")), expect=lambda: pg.input_value("input[name=tz]") == "America/New_York", wait=2500)
+            t.step("Create: the event page shows 09:00 in America/New_York", lambda: (go("button:has-text('Create')"), show(".cal-when")), expect=lambda: "09:00 to 10:00 (America/New_York)" in txt(), wait=4000)
+            t.step("Agenda: the same event, with its own zone in brackets", lambda: (go(".cal-tabs a:text-is('Agenda')"), show(".cal-row")), expect=lambda: "New York partner call" in txt() and "(America/New_York)" in txt(), wait=4000)
+            t.step("Day view for that day in the workspace zone shows the converted time %s" % ist_text, lambda: (pg.goto(APP + "/calendar/day/?d=" + ist_day), show(".cal-row")), expect=lambda: "New York partner call" in txt() and ist_text in txt(), wait=4500)
+            pg.goto(APP + "/calendar/new/")
+            t.step("New event with an unknown time zone Mars/Base", lambda: (pg.fill("input[name=title]", "Bad zone"), pg.fill("input[name=start]", day.isoformat() + "T09:00"), pg.fill("input[name=end]", day.isoformat() + "T10:00"), pg.fill("input[name=tz]", "Mars/Base")), expect=lambda: pg.input_value("input[name=tz]") == "Mars/Base", wait=2000)
+            t.step("Create: refused with Unknown time zone, nothing created", lambda: (go("button:has-text('Create')"), pg.locator("text=Unknown time zone").first.scroll_into_view_if_needed(), pg.evaluate("window.scrollBy(0, -120)")), expect=lambda: "Unknown time zone" in txt() and pg.locator("text=Unknown time zone").first.is_visible(), wait=4500)
+            t.note("Not shown: a local time that does not exist on a clock-change day (unit tested only).", 3)
+
+        run_tour(ctx, "52_event_time_zone", body, notes="Real Django on TiDB, headless Chromium 390x844 emulated. The workspace zone is Asia/Kolkata; the event is in America/New_York.", unshown=["clock-change gap time"])
+
+    g["DRILLS"]["tour_event_time_zone"] = tour
