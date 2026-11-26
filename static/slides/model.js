@@ -114,7 +114,7 @@
     // copy of slide i placed right after it, with fresh ids so ids stay unique; null at the slide or item caps
     duplicateSlide: function (d, i) {
       var src = d.slides[i]; if (!src || d.slides.length >= MAX_SLIDES) return null;
-      var n = copy(d), c = copy(src); c.id = uid(); var idmap = {}; c.elements.forEach(function (e) { var o = e.id; e.id = uid(); idmap[o] = e.id; }); if (c.anim) c.anim = c.anim.map(function (a) { return { el: idmap[a.el], fx: a.fx }; }); n.slides.splice(i + 1, 0, c); return n;
+      var n = copy(d), c = copy(src); c.id = uid(); var idmap = {}; c.elements.forEach(function (e) { var o = e.id; e.id = uid(); idmap[o] = e.id; }); if (c.anim) c.anim = c.anim.map(function (a) { var o = { el: idmap[a.el], fx: a.fx }; if (a.after === true) o.after = true; return o; }); n.slides.splice(i + 1, 0, c); return n;
     },
     // speaker notes for slide i: plain text, cut at MAX_NOTES (the page also stops typing there, so nothing is cut silently)
     setNotes: function (d, i, text) { if (!d.slides[i] || typeof text !== "string") return null; var n = copy(d); n.slides[i].notes = cut(text, MAX_NOTES); return n; },

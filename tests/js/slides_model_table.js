@@ -232,6 +232,6 @@ const OLD2 = require("./fixtures/slides_model_v2_master_validator.js");
   ok("after: validate marks the deck 7 even when the file said version 6", (() => { const d = JSON.parse(JSON.stringify(t2)); d.v = 6; return S.validate(d).v === 7; })());
   ok("after: the flag moves with its entry, and removing the animation removes it", (() => { const m = S.ops.moveAnim(t2, 0, E2, -1); return m.slides[0].anim[0].el === E2 && m.slides[0].anim[0].after === true && S.ops.setAnim(t2, 0, E2, "none").v === 6; })());
   ok("after: autoNext is true only when the next entry is after-previous", S.autoNext(t2, 0, 1) === true && S.autoNext(t2, 0, 0) === false && S.autoNext(t2, 0, 2) === false && S.autoNext(AD, 0, 0) === false && S.AUTO_MS === 1000);
-  ok("after: duplicating a slide keeps the flag", (() => { const d = S.ops.dupSlide ? S.ops.dupSlide(t2, 0) : null; return !d || d.slides[1].anim[1].after === true; })());
+  ok("after: duplicating a slide keeps the flag on the copy, and the deck stays valid at version 7", (() => { const d = S.ops.duplicateSlide(t2, 0); if (!d) return false; const v = S.validate(d); return d.slides.length === 2 && d.slides[1].anim.length === 2 && d.slides[1].anim[1].after === true && d.slides[1].anim[0].after === undefined && d.slides[1].anim[1].el !== E2 && v !== null && v.v === 7 && v.slides[1].anim[1].after === true; })());
 }
 console.log(`${n - bad}/${n} slides model rows passed`); process.exit(bad ? 1 : 0);
