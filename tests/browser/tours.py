@@ -67,7 +67,7 @@ class Tour:
         self.log.append({"step": text, "ok": None, "detail": "note"})
 
 
-def run_tour(ctx, name, body, w=390, h=844, scale=2, notes="", unshown=()):
+def run_tour(ctx, name, body, w=390, h=844, scale=2, notes="", unshown=(), extra_cookies=()):
     out = os.environ.get("DRILL_VIDEO", "")
     if not out:
         print("tour %s skipped: DRILL_VIDEO is not set" % name)
@@ -81,8 +81,12 @@ def run_tour(ctx, name, body, w=390, h=844, scale=2, notes="", unshown=()):
     )
     c.set_default_timeout(8000)
     c.add_cookies(ctx.cookies())
+    if extra_cookies:
+        c.add_cookies(list(extra_cookies))
     errs, remote, guard = ctx.salow_hooks
     c.route("**/*", guard)
+    if extra_cookies:  # the IAM host name maps to the same local server; only that exact host and port is let through
+        c.route("http://iam.salowtech.com:%s/**" % os.environ["DRILL_APP"].rsplit(":", 1)[1], lambda r: r.continue_())
     c.add_init_script(OVERLAY)
     pg = c.new_page()
     perr = []
@@ -238,6 +242,7 @@ def register(g):
     register_security(g)
     register_admin(g)
     register_iam(g)
+    register_iam_live(g)
 
 
 def register_tasks(g, users):
@@ -951,3 +956,74 @@ def register_iam(g):
             pass
 
     g["DRILLS"]["tour_iam"] = iam_tour
+
+
+def register_iam_live(g):
+    APP = g["APP"]
+
+    def iam_live_tour(ctx):
+        import concurrent.futures
+
+        import django
+
+        django.setup()
+        box = {}
+
+        def mk():
+            from django.conf import settings
+
+            from apps.accounts.auth.iam_auth import create_iam_session
+            from apps.accounts.models import CustomUser, IAMAdminIdentity
+
+            u = CustomUser.objects.get(employee_id="ST-LIVE-1")
+            adm = IAMAdminIdentity.objects.create(admin_id="IAM-FIXTURE-1", user=u, password_hash="!", role="admin", status="active")
+
+            class R:  # minimal request stand-in for the session helper
+                META = {"REMOTE_ADDR": "127.0.0.1", "HTTP_USER_AGENT": "drill"}
+                client_ip = "127.0.0.1"
+
+            r = R()
+            sess = create_iam_session(adm, r, assurance_level=1)
+            box["raw"], box["pk"], box["cookie"] = r.session_key_iam, sess.pk, getattr(settings, "IAM_SESSION_COOKIE_NAME", "salow_iam_session")
+
+        def emit(event, msg):
+            from apps.accounts.auth.audit import log_auth_event
+
+            log_auth_event(event=event, code="OK", step="fixture", employee_id="ST-LIVE-1", message=msg)
+
+        def revoke():
+            from apps.accounts.models import IAMSession
+
+            IAMSession.objects.filter(pk=box["pk"]).update(is_active=False)
+
+        def run(fn, *a):
+            with concurrent.futures.ThreadPoolExecutor(1) as ex:
+                ex.submit(fn, *a).result()
+
+        run(mk)
+        host = "iam.salowtech.com"
+        IAM = "http://iam.salowtech.com:" + APP.rsplit(":", 1)[1]
+        cookie = {"name": box["cookie"], "value": box["raw"], "domain": host, "path": "/", "httpOnly": True, "sameSite": "Lax"}
+
+        def body(t, pg):
+            txt = lambda: pg.inner_text("body")
+            status = lambda: pg.inner_text("#iam-live-events-status")
+            pg.goto(IAM + "/dashboard/?tab=identity")
+            t.step("Setup (test fixture): an IAM administrator session was created off camera and loaded into the browser. The IAM console page opens with the Live Actions strip", lambda: pg.evaluate("document.getElementById('iam-live-events').scrollIntoView({block:'center'});0"), expect=lambda: pg.locator("#iam-live-events").count() == 1, wait=2200)
+            t.step("The strip connects: its status line reads Live", expect=lambda: status().startswith("Live"), wait=2500)
+            t.note("The status line shows which way it is connected (push or polling). Read it in the frame.", 2.5)
+            n0 = pg.locator("#iam-live-events-body tr").count()
+            t.step("Test fixture emits one IAM event (written by the server-side audit logger, not typed into the page)", lambda: run(emit, "iam_fixture_probe", "Fixture event written for the live strip check"), wait=3500, expect=lambda: pg.locator("#iam-live-events-body tr", has_text="iam_fixture_probe").count() == 1)
+            t.step("The new row is at the top of the strip with domain IAM and the event name (scroll the strip sideways for the rest)", lambda: pg.evaluate("document.getElementById('iam-live-events').scrollIntoView({block:'center'});0"), expect=lambda: pg.locator("#iam-live-events-body tr", has_text="iam_fixture_probe").first.inner_text().split("\t")[1].strip() == "IAM", wait=2800)
+            mode = pg.locator("#iam-live-events-body tr", has_text="iam_fixture_probe").get_attribute("data-mode")
+            t.log.append({"step": "Delivery mode recorded on that row: %s" % mode, "ok": None, "detail": "note"})
+            t.step("The same event is not shown twice", expect=lambda: pg.locator("#iam-live-events-body tr", has_text="iam_fixture_probe").count() == 1, wait=3000)
+            t.step("Negative control: the fixture revokes this IAM session. The strip stops and says so", lambda: run(revoke), expect=lambda: ("Signed out" in status()) or ("closed" in status().lower()), wait=8000)
+            t.step("After revoking, a second fixture event does not appear", lambda: run(emit, "iam_fixture_probe_two", "Second fixture event after revoke"), expect=lambda: pg.locator("#iam-live-events-body tr", has_text="probe_two").count() == 0, wait=4000)
+            t.note("Not shown: IAM password and authenticator sign-in (session made off camera), Super Admin step-up, real DNS and TLS.", 3)
+
+        run_tour(ctx, "19_iam_live_feed", body, extra_cookies=[cookie],
+                 notes="Real Django on TiDB under the uvicorn ASGI server, headless Chromium 390x844 emulated. The IAM session is a fixture made through the app's own session helper, not through the login form. Page opened on the IAM host name iam.salowtech.com (mapped to the local server by the browser, plain http, no real DNS or TLS).",
+                 unshown=["IAM login with password and authenticator", "Super Admin step-up"])
+
+    g["DRILLS"]["tour_iam_live"] = iam_live_tour
