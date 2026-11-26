@@ -4929,6 +4929,164 @@ def chat_two_users(ctx):  # noqa: C901
     c2.close()
 
 
+def pdf_password(ctx):  # noqa: C901
+    """PDF page: a password PDF asks for the password in the page, retry and cancel work, nothing is stored or sent, copies stay refused."""
+    import hashlib
+    import subprocess
+    import tempfile
+
+    PW = "open sesame 42 zq"
+    with tempfile.TemporaryDirectory() as td:
+        plain, enc = os.path.join(td, "p.pdf"), os.path.join(td, "e.pdf")
+        open(plain, "wb").write(_n_page_pdf(2, "Locked"))
+        subprocess.run(["qpdf", "--encrypt", PW, "owner-" + PW, "256", "--", plain, enc], check=True)
+        data = open(enc, "rb").read()
+    plain_data = _n_page_pdf(1, "Plain")
+    pg = fresh(ctx, "/pdf/")
+    sent, logs = [], []
+    pg.on("request", lambda r: sent.append((r.url, r.post_data or "")))
+    pg.on("console", lambda m: logs.append(m.text))
+
+    def put(name, buf):
+        pg.set_input_files("#pdf-open", files=[{"name": name, "mimeType": "application/pdf", "buffer": buf}])
+
+    def wait_for(fn, secs=20):
+        t0 = time.time()
+        while not fn() and time.time() - t0 < secs:
+            pg.wait_for_timeout(250)
+        return fn()
+
+    def form_up():
+        return not pg.evaluate("document.getElementById('pdf-pwform').hidden")
+
+    put("locked.pdf", data)
+    wait_for(form_up)
+    check(
+        "password: an encrypted PDF shows the password box and says why; nothing is open yet",
+        form_up() and "needs a password" in pg.inner_text("#pdf-status") and not pg.inner_text("#pdf-where").startswith("Page 1 of"),
+        (form_up(), pg.inner_text("#pdf-status"), pg.inner_text("#pdf-where")),
+    )
+    pg.fill("#pdf-pw", "wrong password 1")
+    pg.click("#pdf-pwgo")
+    wait_for(lambda: "did not work" in pg.inner_text("#pdf-status"))
+    check(
+        "password: a wrong password says so, asks again and the box is empty",
+        form_up() and "did not work" in pg.inner_text("#pdf-status") and pg.input_value("#pdf-pw") == "",
+        (form_up(), pg.inner_text("#pdf-status"), pg.input_value("#pdf-pw")),
+    )
+    pg.fill("#pdf-pw", PW)
+    pg.click("#pdf-pwgo")
+    wait_for(lambda: pg.inner_text("#pdf-where").startswith("Page 1 of"))
+    check(
+        "password: the right password opens it (2 pages), the box is hidden and empty",
+        pg.inner_text("#pdf-where").startswith("Page 1 of 2") and not form_up() and pg.input_value("#pdf-pw") == "" and pg.inner_text("#pdf-name") == "locked.pdf",
+        (pg.inner_text("#pdf-where"), form_up(), pg.inner_text("#pdf-name")),
+    )
+    pg.click("#pdf-next")
+    pg.wait_for_timeout(600)
+    check("password: the second page can be shown", pg.inner_text("#pdf-where").startswith("Page 2 of 2"), pg.inner_text("#pdf-where"))
+    leaks = pg.evaluate(
+        "(()=>{const o=[];for(const s of [localStorage,sessionStorage]){for(let i=0;i<s.length;i++){o.push(s.key(i)+'='+s.getItem(s.key(i)))}}o.push(document.cookie);return o.join('|')})()"
+    )
+    check(
+        "password: the password (right or wrong) is in no storage, cookie, request or console line",
+        "open sesame" not in leaks and "wrong password" not in leaks
+        and not any("open sesame" in u + b or "wrong password" in u + b for u, b in sent)
+        and not any("open sesame" in m or "wrong password" in m for m in logs),
+        (len(leaks), len(sent), len(logs)),
+    )
+    check(
+        "password: no request left the app host while opening",
+        all(urlsplit(u).hostname in (urlsplit(APP).hostname, "") or u.startswith(("data:", "blob:")) for u, _ in sent),
+        [u for u, _ in sent if urlsplit(u).hostname != urlsplit(APP).hostname][:3],
+    )
+    # cancel: back to the unopened state, the earlier file stays open
+    put("locked2.pdf", data)
+    wait_for(form_up)
+    pg.fill("#pdf-pw", "half typed")
+    pg.click("#pdf-pwcancel")
+    pg.wait_for_timeout(500)
+    check(
+        "password: Cancel hides and empties the box, says nothing was opened or stored, the earlier file stays",
+        not form_up() and pg.input_value("#pdf-pw") == "" and "Not opened" in pg.inner_text("#pdf-status") and pg.inner_text("#pdf-name") == "locked.pdf",
+        (form_up(), pg.inner_text("#pdf-status"), pg.inner_text("#pdf-name")),
+    )
+    # a pending prompt then another file: the prompt goes away and the new file opens
+    put("locked3.pdf", data)
+    wait_for(form_up)
+    pg.fill("#pdf-pw", "stays only in the box")
+    put("plain.pdf", plain_data)
+    wait_for(lambda: pg.inner_text("#pdf-name") == "plain.pdf")
+    check(
+        "password: opening another file while asked drops the prompt and the typed text",
+        pg.inner_text("#pdf-name") == "plain.pdf" and not form_up() and pg.input_value("#pdf-pw") == "",
+        (pg.inner_text("#pdf-name"), form_up(), pg.input_value("#pdf-pw")),
+    )
+    # a pending prompt then Close
+    put("locked4.pdf", data)
+    wait_for(form_up)
+    pg.fill("#pdf-pw", "typed then closed")
+    pg.click("#pdf-close")
+    pg.wait_for_timeout(400)
+    check(
+        "password: Close while asked drops the prompt and the typed text",
+        not form_up() and pg.input_value("#pdf-pw") == "" and pg.inner_text("#pdf-name") == "",
+        (form_up(), pg.input_value("#pdf-pw"), pg.inner_text("#pdf-name")),
+    )
+    # an empty submit does not call pdf.js, and a later right password still works
+    put("locked5.pdf", data)
+    wait_for(form_up)
+    pg.click("#pdf-pwgo")
+    pg.wait_for_timeout(300)
+    still = form_up() and "Type the password" in pg.inner_text("#pdf-status")
+    pg.fill("#pdf-pw", PW)
+    pg.click("#pdf-pwgo")
+    wait_for(lambda: pg.inner_text("#pdf-where").startswith("Page 1 of"))
+    check("password: an empty press keeps asking, then the right password opens it", still and pg.inner_text("#pdf-where").startswith("Page 1 of 2"), (still, pg.inner_text("#pdf-where")))
+    shot(pg, "pdf_password_open")
+    del hashlib
+
+
+def pdf_password_secure(ctx):
+    """Secure-context page: an encrypted PDF opened with its password still cannot be copied, nothing downloads, and the stored original bytes are untouched (the page never writes the file)."""
+    import subprocess
+    import tempfile
+
+    PW = "open sesame 42 zq"
+    with tempfile.TemporaryDirectory() as td:
+        plain, enc = os.path.join(td, "p.pdf"), os.path.join(td, "e.pdf")
+        open(plain, "wb").write(_n_page_pdf(2, "Locked"))
+        subprocess.run(["qpdf", "--encrypt", PW, "owner-" + PW, "256", "--", plain, enc], check=True)
+        data = open(enc, "rb").read()
+    pg = fresh(ctx, "/pdf/")
+    pg.set_input_files("#pdf-open", files=[{"name": "locked.pdf", "mimeType": "application/pdf", "buffer": data}])
+    t0 = time.time()
+    while pg.evaluate("document.getElementById('pdf-pwform').hidden") and time.time() - t0 < 20:
+        pg.wait_for_timeout(250)
+    pg.fill("#pdf-pw", PW)
+    pg.click("#pdf-pwgo")
+    t0 = time.time()
+    while not pg.inner_text("#pdf-where").startswith("Page 1 of") and time.time() - t0 < 20:
+        pg.wait_for_timeout(250)
+    got = []
+    pg.on("download", lambda d: got.append(d))
+    check("password copy: the file opens with its password in the secure page", pg.inner_text("#pdf-where").startswith("Page 1 of 2"), pg.inner_text("#pdf-where") + " | " + pg.inner_text("#pdf-notestatus")[:80])
+    pg.click("#pdf-addpagenote")
+    pg.wait_for_timeout(300)
+    pg.fill("#pdf-notetext", "a note")
+    pg.click("#pdf-noteform button[type=submit]")
+    pg.wait_for_timeout(700)
+    pg.click("#pdf-exportcopy")
+    pg.wait_for_timeout(2000)
+    check(
+        "password copy: Download a copy is refused for the encrypted file and nothing is downloaded",
+        "encrypted" in pg.inner_text("#pdf-notestatus") and not got,
+        (pg.inner_text("#pdf-notestatus")[:140], len(got)),
+    )
+    leaks = pg.evaluate("(()=>{const o=[];for(const s of [localStorage,sessionStorage]){for(let i=0;i<s.length;i++){o.push(s.key(i)+'='+s.getItem(s.key(i)))}}return o.join('|')})()")
+    check("password copy: the password is in no storage after notes were saved", "open sesame" not in leaks, len(leaks))
+
+
 def chat_poll_real(ctx):  # noqa: C901
     """Chat, real server and TiDB: a message sent by the second person while this person's polls are rate limited arrives once and the position advances."""
     import concurrent.futures
@@ -8813,6 +8971,8 @@ DRILLS = {
     "chat_poll_real": chat_poll_real,
     "chat_reactions": chat_reactions,
     "chat_two_users": chat_two_users,
+    "pdf_password": pdf_password,
+    "pdf_password_secure": pdf_password_secure,
     "pdf_fit": pdf_fit,
     "pdf_rotate": pdf_rotate,
     "pdf_notes_turn": pdf_notes_turn,
@@ -8853,7 +9013,7 @@ DRILLS = {
 
 # Drills that need a secure context (navigator.locks) run in their own browser, started with a flag that treats the plain-HTTP drill origin as
 # secure. This is a test browser setting only, not the app's policy or an HTTPS deployment. Other drills never get the flag.
-SECURE_DRILLS = ("pdf_notes_turn", "pdf_marks_secure", "pdf_marks_keep", "pdf_marks_shot")
+SECURE_DRILLS = ("pdf_password_secure", "pdf_notes_turn", "pdf_marks_secure", "pdf_marks_keep", "pdf_marks_shot")
 
 
 def run_group(p, names, secure, state=None, keep=None):  # noqa: C901

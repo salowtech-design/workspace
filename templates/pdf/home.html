@@ -69,6 +69,9 @@
 <form id="pdf-formlist" class="pdf-formlist" onsubmit="return false" hidden></form></div>
 <details class="cal-meta" id="pdf-text-wrap" open><summary>Text of this page</summary><pre id="pdf-text" class="pdf-text" tabindex="0" aria-label="Text of the current page"></pre></details>
 <p class="cal-meta" id="pdf-status" role="status"></p>
+<form id="pdf-pwform" class="pdf-tools" hidden autocomplete="off"><label>Password for this PDF <input type="password" id="pdf-pw" maxlength="256" autocomplete="off" autocapitalize="off" spellcheck="false"></label>
+<button class="btn" type="submit" id="pdf-pwgo">Open</button> <button class="btn" type="button" id="pdf-pwcancel">Cancel</button>
+<span class="cal-meta">Used only to open this file in this tab. It is not stored, sent or logged, and is cleared when you press Open.</span></form>
 </div>
 <script src="/static/pdf/check.js"></script>
 <script src="/static/pdf/notes.js"></script>

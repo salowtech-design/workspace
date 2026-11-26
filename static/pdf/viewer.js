@@ -848,11 +848,33 @@
     var lt = loadTask; loadTask = null; if (lt) { try { lt.destroy(); } catch (e) { /* already gone */ } }
     controls(); status.textContent = msg || "";
   }
+  // Password PDFs: the page asks, pdf.js gets the answer once, and the box is emptied at once. The password lives only inside the open call
+  // (never in storage, a URL, a log line or a request). Cancel, a new file, Close or leaving the page drops the pending open.
+  var pwPending = null, pwBox = $("pdf-pw"), pwForm = $("pdf-pwform");
+  function pwHide() { pwBox.value = ""; pwForm.hidden = true; }
+  function pwDrop() { var p = pwPending; pwPending = null; pwHide(); if (p) { try { p.t.destroy(); } catch (e) { /* already gone */ } } }
+  function pwAsk(update, reason, mine, t) {
+    if (!seq.current(mine)) { try { t.destroy(); } catch (e) { /* superseded */ } return; }
+    pwPending = { update: update, mine: mine, t: t };
+    pwBox.value = ""; pwForm.hidden = false;
+    status.textContent = reason === 2 ? "That password did not work. Try again, or press Cancel." : "This PDF needs a password. It is used only to open it here and is not stored.";
+    pwBox.focus();
+  }
+  pwForm.addEventListener("submit", function (e) {
+    e.preventDefault(); var p = pwPending; if (!p) return;
+    var v = pwBox.value; pwBox.value = ""; if (!v) { status.textContent = "Type the password, or press Cancel."; return; }
+    if (!seq.current(p.mine)) { pwDrop(); return; }
+    pwPending = null; pwForm.hidden = true; status.textContent = "Opening...";
+    p.update(v); // a wrong one asks again through pwAsk with reason 2
+  });
+  $("pdf-pwcancel").addEventListener("click", function () { seq.begin(); pwDrop(); status.textContent = "Not opened. That PDF needs a password. Nothing was stored."; });
+  window.addEventListener("pagehide", pwDrop);
   function open(buf, name, mine) {
     var canSave = !!(navigator.locks && navigator.locks.request);
     var hashed = canSave ? N.sha256Hex(buf).catch(function () { return ""; }) : Promise.resolve(""); // taken before the reader can take the bytes
     loadLib().then(function (m) {
       var t = m.getDocument({ data: new Uint8Array(buf), isEvalSupported: false, disableAutoFetch: true, disableStream: true, standardFontDataUrl: BASE + "standard_fonts/" });
+      t.onPassword = function (update, reason) { pwAsk(update, reason, mine, t); };
       return t.promise.then(function (d) { return { d: d, t: t }; }, function (e) { try { t.destroy(); } catch (x) { /* gone */ } throw e; });
     }).then(function (r) { return hashed.then(function (h) { r.h = h; return r; }); }).then(function (r) {
       if (!seq.current(mine)) { try { r.t.destroy(); } catch (x) { /* superseded by a newer open */ } return; }
@@ -864,7 +886,7 @@
   }
   $("pdf-open").addEventListener("change", function (e) {
     var f = e.target.files && e.target.files[0]; e.target.value = ""; if (!f) return;
-    var mine = seq.begin();
+    var mine = seq.begin(); pwDrop();
     var head = new FileReader();
     head.onerror = function () { if (!seq.current(mine)) return; status.textContent = "This browser could not read that file."; };
     head.onload = function () {
@@ -893,7 +915,7 @@
   var rz = null;
   window.addEventListener("resize", function () { clearTimeout(rz); rz = setTimeout(function () { if (doc) draw(); }, 200); });
   $("pdf-page").addEventListener("change", function () { var n = parseInt(this.value, 10); if (isNaN(n)) { controls(); return; } go(n); });
-  $("pdf-close").addEventListener("click", function () { seq.begin(); closeDoc("File closed. Nothing was stored."); $("pdf-name").textContent = ""; });
+  $("pdf-close").addEventListener("click", function () { seq.begin(); pwDrop(); closeDoc("File closed. Nothing was stored."); $("pdf-name").textContent = ""; });
   var rz = null; window.addEventListener("resize", function () { clearTimeout(rz); rz = setTimeout(function () { if (doc) draw(); }, 150); });
   controls();
 })();
