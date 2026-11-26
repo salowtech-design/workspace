@@ -46,3 +46,12 @@ def test_slides_model_table_passes_in_node():
     )
     assert r.returncode == 0, r.stdout + r.stderr
     assert "138/138 slides model rows passed" in r.stdout
+
+
+@pytest.mark.django_db
+def test_slides_page_loads_images_js_before_editor_js_and_serves_it_on_the_workspace_host():
+    c = Client(HTTP_HOST=HOST)
+    c.force_login(_u("SL-3"))
+    html = c.get("/slides/").content.decode()
+    assert 0 < html.index("/static/slides/images.js") < html.index("/static/slides/editor.js")
+    assert (ROOT / "static/slides/images.js").is_file()
