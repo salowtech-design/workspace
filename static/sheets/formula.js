@@ -450,7 +450,51 @@
     };
   }
   stepFn("FLOOR", Math.floor); stepFn("CEILING", Math.ceil);
-  var ARITY = { MOD: [2, 2], POWER: [2, 2], SQRT: [1, 1], INT: [1, 1], FLOOR: [1, 2], CEILING: [1, 2], DATE: [3, 3], YEAR: [1, 1], MONTH: [1, 1], DAY: [1, 1], WEEKDAY: [1, 2], LEFT: [1, 2], RIGHT: [1, 2], MID: [3, 3], TRIM: [1, 1], SUBSTITUTE: [3, 4], FIND: [2, 3], INDEX: [2, 3], MATCH: [2, 3], VLOOKUP: [3, 4], SUMIF: [2, 3], COUNTIF: [2, 2], AVERAGEIF: [2, 3], SUM: [1, 99], AVERAGE: [1, 99], MIN: [1, 99], MAX: [1, 99], COUNT: [1, 99], ABS: [1, 1], ROUND: [1, 2], LEN: [1, 1], UPPER: [1, 1], LOWER: [1, 1], CONCAT: [1, 99], NOT: [1, 1], AND: [1, 99], OR: [1, 99], IF: [2, 3] };
+  /* ---- statistical functions ----
+   * The Google Docs Editors help pages for MEDIAN (3094025), COUNTA (3093991), COUNTBLANK (3093403) and STDEV (3094054) were read.
+   * Like SUM and AVERAGE here, a direct cell reference counts as a reference. MEDIAN and STDEV take numbers only: text and blanks in a
+   * range are ignored (the MEDIAN page says text is ignored), a direct argument that is not numeric is #VALUE!, an error cell is
+   * returned. MEDIAN of an even count is the mean of the two middle values (page); of nothing it is #NUM! (my choice, not on the page).
+   * STDEV is the sample standard deviation (n - 1), computed in two passes; fewer than two numbers is #DIV/0! (my choice, not on the page).
+   * COUNTA counts every non-empty cell of a range, text included, and zero-length text (page); an error cell counts as one value (my choice).
+   * A direct argument counts as one. COUNTBLANK counts the empty cells of a range and cells holding zero-length text; a direct argument
+   * that is not a range or cell is #VALUE! (my choice). Not built: STDEVP, STDEVA, VAR, MODE, QUARTILE, PERCENTILE, COUNTUNIQUE. */
+  function numsOf(a) {
+    var n = flatten(a); if (isErr(n)) return n;
+    if (meter && meter(n.length)) throw new Err("#LIMIT!");
+    return n;
+  }
+  FNX.MEDIAN = function (a) {
+    var n = numsOf(a); if (isErr(n)) return n;
+    if (!n.length) return new Err("#NUM!");
+    n.sort(function (p, q) { return p - q; });
+    var m = n.length >> 1;
+    return n.length % 2 ? n[m] : (n[m - 1] + n[m]) / 2;
+  };
+  FNX.STDEV = function (a) {
+    var n = numsOf(a); if (isErr(n)) return n;
+    if (n.length < 2) return new Err("#DIV/0!");
+    var mean = 0, i, ss = 0;
+    for (i = 0; i < n.length; i++) mean += n[i];
+    mean /= n.length;
+    for (i = 0; i < n.length; i++) ss += (n[i] - mean) * (n[i] - mean);
+    var r = Math.sqrt(ss / (n.length - 1));
+    return isFinite(r) ? r : new Err("#NUM!");
+  };
+  FNX.COUNTA = function (a) {
+    var c = 0;
+    a.forEach(function (x) { if (Array.isArray(x)) x.forEach(function (y) { if (y !== null && y !== undefined) c++; }); else c++; });
+    return c;
+  };
+  FNX.COUNTBLANK = function (a) {
+    var c = 0;
+    for (var i = 0; i < a.length; i++) {
+      if (!Array.isArray(a[i])) return new Err("#VALUE!");
+      a[i].forEach(function (y) { if (y === null || y === undefined || y === "") c++; });
+    }
+    return c;
+  };
+  var ARITY = { MEDIAN: [1, 99], STDEV: [1, 99], COUNTA: [1, 99], COUNTBLANK: [1, 99], MOD: [2, 2], POWER: [2, 2], SQRT: [1, 1], INT: [1, 1], FLOOR: [1, 2], CEILING: [1, 2], DATE: [3, 3], YEAR: [1, 1], MONTH: [1, 1], DAY: [1, 1], WEEKDAY: [1, 2], LEFT: [1, 2], RIGHT: [1, 2], MID: [3, 3], TRIM: [1, 1], SUBSTITUTE: [3, 4], FIND: [2, 3], INDEX: [2, 3], MATCH: [2, 3], VLOOKUP: [3, 4], SUMIF: [2, 3], COUNTIF: [2, 2], AVERAGEIF: [2, 3], SUM: [1, 99], AVERAGE: [1, 99], MIN: [1, 99], MAX: [1, 99], COUNT: [1, 99], ABS: [1, 1], ROUND: [1, 2], LEN: [1, 1], UPPER: [1, 1], LOWER: [1, 1], CONCAT: [1, 99], NOT: [1, 1], AND: [1, 99], OR: [1, 99], IF: [2, 3] };
   function truth(v) {
     if (isErr(v)) return v;
     if (typeof v === "boolean") return v;
@@ -538,7 +582,7 @@
             if (cnd) return sc(ev(n.a[1]));
             return n.a.length > 2 ? sc(ev(n.a[2])) : false;
           }
-          var agg = !OWN.call(FNX, n.f) && (n.f === "SUM" || n.f === "AVERAGE" || n.f === "MIN" || n.f === "MAX" || n.f === "COUNT");
+          var agg = n.f === "MEDIAN" || n.f === "STDEV" || n.f === "COUNTA" || n.f === "COUNTBLANK" || !OWN.call(FNX, n.f) && (n.f === "SUM" || n.f === "AVERAGE" || n.f === "MIN" || n.f === "MAX" || n.f === "COUNT");
           // a direct cell reference counts as a reference (text and blanks ignored), like a one-cell range
           var args = n.a.map(function (x) { var v = ev(x); return agg && x.n === "cell" ? [v] : v; });
           var res;
