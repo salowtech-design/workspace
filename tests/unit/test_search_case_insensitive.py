@@ -94,3 +94,27 @@ def test_certificate_lookup_by_serial_uuid_or_hash_ignores_case():
         assert got is not None and got.pk == cert.pk and status != "not_found", ident
     assert get_certificate_by_identifier("no-such-serial") is None
     assert verify_certificate("no-such-serial")[1] == "not_found"
+
+
+@pytest.mark.django_db
+def test_certificate_lookup_never_picks_between_values_that_differ_only_by_case():
+    from apps.certificates.models import Certificate
+    from apps.certificates.selectors import get_certificate_by_identifier
+    from apps.certificates.services import verify_certificate
+
+    admin = CustomUser.objects.create_superuser(employee_id="CI-ADM3", full_name="Ada Admin", password="SuperMasterAdminPassword2026!")
+    rec = _u("CI-V2", "Wes Collide", role="intern")
+    tpl = CertificateTemplate.objects.create(code="CI_W", title="Template", description_template="Done.")
+    base = dict(
+        recipient=rec, title="T", description="d", issued_by=admin, template=tpl,
+        recipient_name="Wes Collide", recipient_role="Intern", issue_date=date(2026, 11, 16),
+    )  # fmt: skip
+    # Rows written around the app (the unique index is case-sensitive here), differing only by letter case.
+    a = Certificate.objects.create(serial_number="ST-CERT-2026-AB12CD", verification_hash="a" * 64, **base)
+    b = Certificate.objects.create(serial_number="st-cert-2026-ab12cd", verification_hash="A" * 64, **base)
+    assert get_certificate_by_identifier("ST-CERT-2026-AB12CD").pk == a.pk  # exact wins
+    assert get_certificate_by_identifier("st-cert-2026-ab12cd").pk == b.pk
+    assert get_certificate_by_identifier("St-Cert-2026-Ab12Cd") is None  # ambiguous: nothing picked
+    assert verify_certificate("St-Cert-2026-Ab12Cd")[1] == "not_found"
+    assert get_certificate_by_identifier("a" * 64).pk == a.pk
+    assert get_certificate_by_identifier("A" * 64).pk == b.pk

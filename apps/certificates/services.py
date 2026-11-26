@@ -7,7 +7,6 @@ from typing import Optional, Tuple
 
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import transaction
-from django.db.models.functions import Upper
 from django.utils import timezone
 from django.utils.html import escape
 
@@ -223,32 +222,9 @@ def verify_certificate(
     Logs each verification inquiry to CertificateVerificationLog and AuditLog.
     """
     clean_id = identifier.strip()
-    cert = (
-        Certificate.objects.select_related("recipient", "issued_by", "template")
-        .annotate(_u_serial=Upper("serial_number"))  # Upper() on both sides: iexact is case-sensitive on TiDB's binary collation
-        .filter(_u_serial=clean_id.upper())
-        .first()
-    )
-    if not cert:
-        # Check by UUID
-        try:
-            val_uuid = uuid.UUID(clean_id)
-            cert = (
-                Certificate.objects.select_related("recipient", "issued_by", "template")
-                .filter(uuid=val_uuid)
-                .first()
-            )
-        except ValueError:
-            pass
+    from apps.certificates.selectors import get_certificate_by_serial_uuid_or_hash
 
-    if not cert:
-        # Check by hash
-        cert = (
-            Certificate.objects.select_related("recipient", "issued_by", "template")
-            .annotate(_u_hash=Upper("verification_hash"))
-            .filter(_u_hash=clean_id.upper())
-            .first()
-        )
+    cert = get_certificate_by_serial_uuid_or_hash(clean_id)
 
     if not cert:
         return None, "not_found"

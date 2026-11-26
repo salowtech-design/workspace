@@ -8,23 +8,44 @@ from apps.accounts.models import CustomUser
 from apps.certificates.models import Certificate, CertificateTemplate
 
 
+def _case_folded_unique(field: str, value: str) -> Optional[Certificate]:
+    """An exact match wins. Otherwise a case-blind match is used only when it is the single candidate.
+
+    The unique indexes on TiDB's binary collation do not stop two values that differ only by letter case
+    (the app never creates them: serials are upper case, hashes lower-case hex). If rows written around the
+    app ever collide that way, no certificate is picked arbitrarily: the lookup finds nothing.
+    """
+    base = Certificate.objects.select_related("recipient", "issued_by", "template")
+    exact = base.filter(**{field: value}).first()
+    if exact:
+        return exact
+    folded = list(base.annotate(_fold=Upper(field)).filter(_fold=value.upper())[:2])
+    return folded[0] if len(folded) == 1 else None
+
+
+def get_certificate_by_serial_uuid_or_hash(identifier: str) -> Optional[Certificate]:
+    """Serial, then UUID (any letter case), then verification hash. Shared by the lookup and public verify."""
+    clean_id = identifier.strip()
+    cert = _case_folded_unique("serial_number", clean_id)
+    if cert:
+        return cert
+    try:
+        cert = (
+            Certificate.objects.select_related("recipient", "issued_by", "template")
+            .filter(uuid=uuid.UUID(clean_id))
+            .first()
+        )
+    except ValueError:
+        cert = None
+    return cert or _case_folded_unique("verification_hash", clean_id)
+
+
 def get_certificate_by_identifier(identifier: str) -> Optional[Certificate]:
     """
     Find certificate by serial number, UUID string, or SHA-256 verification hash.
     Used for public verification and internal lookups.
     """
-    clean_id = identifier.strip()
-    match = Q(_u_serial=clean_id.upper()) | Q(_u_hash=clean_id.upper())
-    try:
-        match |= Q(uuid=uuid.UUID(clean_id))  # parsed, so any letter case of the UUID text finds it
-    except ValueError:
-        pass
-    return (
-        Certificate.objects.select_related("recipient", "issued_by", "template")
-        .annotate(_u_serial=Upper("serial_number"), _u_hash=Upper("verification_hash"))
-        .filter(match)
-        .first()
-    )
+    return get_certificate_by_serial_uuid_or_hash(identifier)
 
 
 def list_certificates_for_recipient(user: CustomUser) -> QuerySet[Certificate]:
