@@ -504,6 +504,14 @@ def _check_destination(user, item, destination):
         raise ValidationError("That would nest folders too deeply.")
 
 
+def _validate_move(user, item, destination, kind):
+    """The one set of move rules. move() runs it under its locks; check_move() runs it for the page."""
+    require(user, "move", kind, item)
+    _check_destination(user, item, destination)
+    if _name_taken(destination, item.name, item.owner_id, exclude=item):
+        raise ValidationError("That name is already used in the destination.")
+
+
 @_relock
 def move(user, item, destination):
     """Move to another folder (None = the owner's top level). Folders cannot enter themselves."""
@@ -512,10 +520,7 @@ def move(user, item, destination):
     people = _people(item)
     nested = _nested(item)
     kind = _kind(item)
-    require(user, "move", kind, item)
-    _check_destination(user, item, destination)
-    if _name_taken(destination, item.name, item.owner_id, exclude=item):
-        raise ValidationError("That name is already used in the destination.")
+    _validate_move(user, item, destination, kind)
     if isinstance(item, Folder):
         item.parent = destination
         item.save(update_fields=["parent"])
@@ -533,10 +538,7 @@ def check_move(user, item, destination):
     """The move rules without changing anything: raises exactly what move() would raise for permission,
     destination, nesting and name problems. move() still re-checks everything under its locks."""
     kind = _kind(item)
-    require(user, "move", kind, item)
-    _check_destination(user, item, destination)
-    if _name_taken(destination, item.name, item.owner_id, exclude=item):
-        raise ValidationError("That name is already used in the destination.")
+    _validate_move(user, item, destination, kind)
 
 
 def audience_digest(item, destination, gain):
