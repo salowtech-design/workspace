@@ -772,3 +772,4 @@
 @media (max-width: 480px) { .login-v2 { margin: 1.5rem 0.75rem !important; padding: 1.75rem 1.25rem 1.5rem !important; } }
 .login-v2 .btn-back-landing { white-space: nowrap; flex-shrink: 0; margin-left: 0.75rem; }
 .login-v2 .login-panel h3 { font-size: 1rem !important; }
+@media (max-width: 700px) { .s-4369740e { grid-template-columns: minmax(0, 1fr) !important; } .s-4369740e > * { min-width: 0; } .s-81163735 { flex-wrap: wrap; } .s-81163735 .form-control { flex: 1 1 100%; min-width: 0; } .s-81163735 .btn { flex: 1 1 100%; } }
