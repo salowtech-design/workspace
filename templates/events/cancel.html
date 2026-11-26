@@ -2,10 +2,11 @@
 {% block extra_head %}<link rel="stylesheet" href="/static/css/events.css">{% endblock %}
 {% block title %}Cancel event: Salow Calendar{% endblock %}
 {% block content %}
-<div class="card cal"><div class="cal-head"><h2>Cancel this event?</h2></div>
+<div class="card cal"><div class="cal-head"><h2>{% if e.freq %}Cancel the whole series?{% else %}Cancel this event?{% endif %}</h2></div>
 <p><strong>{{ e.title }}</strong></p>
+{% if e.freq %}<p class="cal-meta"><strong>This cancels every occurrence, past and future.</strong> To cancel only one day, go back and use "Cancel this one" next to that day.</p>{% endif %}
 <p class="cal-meta">It stays visible to you and its guests, marked cancelled, and drops off everyone's agenda and busy times. Guests are not notified. Un-cancelling is not built.</p>
-<form method="post" class="cal-actions">{% csrf_token %}<input type="hidden" name="confirm" value="yes"><button class="btn btn-small" type="submit">Cancel event</button>
-<a class="btn btn-outline btn-small" href="{% url 'events:detail' e.public_id %}">Keep it</a></form>
+<form method="post" class="cal-actions">{% csrf_token %}<input type="hidden" name="confirm" value="yes"><button class="btn btn-small" type="submit">{% if e.freq %}Cancel whole series{% else %}Cancel event{% endif %}</button>
+<a class="btn btn-outline btn-small" href="{% url 'events:detail' e.public_id %}">{% if e.freq %}Keep the series{% else %}Keep it{% endif %}</a></form>
 </div>
 {% endblock %}

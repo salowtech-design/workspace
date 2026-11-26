@@ -6,6 +6,8 @@ titles) is readable for any active person. Nothing notifies anyone and no email 
 invitation only appears on the guest's own calendar. Locking: the event row first, then re-read."""
 
 import datetime
+import itertools
+import types
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from django.contrib.auth import get_user_model
@@ -135,13 +137,21 @@ def _rule(start, end, tz_name, rule):
         count = None
         if until < local_day or (until - local_day).days > rec.MAX_SPAN_DAYS:
             raise ValidationError("The end date must be within two years after the first day.")
-    return {
+    fields = {
         "freq": freq,
         "interval": interval,
         "weekdays": ",".join(str(w) for w in wds),
         "count": count,
         "until": until,
     }
+    probe = types.SimpleNamespace(start_utc=start, tz=tz_name.strip(), **fields)
+    n = sum(1 for _ in itertools.islice(rec.local_dates(probe), rec.MAX_COUNT + 1))
+    if n > rec.MAX_COUNT:  # an until date can ask for more than a count may: refuse, never cut
+        raise ValidationError(
+            f"That repeats more than {rec.MAX_COUNT} times. Choose an earlier end date, "
+            "a larger interval or fewer weekdays."
+        )
+    return fields
 
 
 def create_event(actor, title, local_start, local_end, tz_name, guest_ids=(), rule=None):
@@ -360,6 +370,7 @@ def skip_occurrence(actor, public_id, local_date):
             raise ValidationError("That is not an occurrence of this event.")
         if ev.exceptions.filter(local_date=local_date).exists():
             return ev
+        _pause()  # test hook: lets a race reach the insert together
         try:
             with transaction.atomic():
                 EventException.objects.create(event=ev, local_date=local_date)

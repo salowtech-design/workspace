@@ -212,3 +212,98 @@ def test_views_create_series_show_it_everywhere_and_skip_by_organiser_only():
         r = co.post(reverse("events:new"), {"title": "X", "start": "2026-12-01T10:00", "end": "2026-12-01T11:00", "tz": "Asia/Kolkata", **bad})  # fmt: skip
         assert r.status_code == 400
     assert Event.objects.count() == 1
+
+
+@pytest.mark.django_db
+def test_until_only_series_over_200_occurrences_is_refused_not_cut():
+    org = _u("R12")
+    base = ("2026-12-01T10:00", "2026-12-01T11:00")
+    with pytest.raises(ValidationError) as exc:
+        mk(org, *base, freq="daily", until=dt.date(2027, 8, 1))  # about 244 days
+    assert "more than 200" in " ".join(exc.value.messages)
+    assert Event.objects.count() == 0
+    ok = mk(org, *base, freq="daily", until=dt.date(2027, 6, 18))  # exactly 200 dates
+    assert sum(1 for _ in rec.local_dates(ok)) == 200
+    mk(org, *base, freq="weekly", until=dt.date(2028, 11, 1))  # about 100 Tuesdays: fine
+
+
+@pytest.mark.django_db
+def test_detail_and_cancel_page_name_the_whole_series_scope():
+    org = _u("R13")
+    c = Client(HTTP_HOST="app.salowtech.com")
+    c.force_login(org)
+    one = mk(org, "2026-12-01T10:00", "2026-12-01T11:00")
+    ser = mk(org, "2026-12-01T12:00", "2026-12-01T13:00", freq="daily", count=3)
+    d1 = c.get(reverse("events:detail", args=[one.public_id])).content.decode()
+    d2 = c.get(reverse("events:detail", args=[ser.public_id])).content.decode()
+    assert "Cancel event" in d1 and "Cancel whole series" not in d1
+    assert "Cancel whole series" in d2 and ">Cancel event<" not in d2 and "Cancel this one" in d2
+    p1 = c.get(reverse("events:cancel", args=[one.public_id])).content.decode()
+    p2 = c.get(reverse("events:cancel", args=[ser.public_id])).content.decode()
+    assert "Cancel this event?" in p1 and "whole series" not in p1
+    assert "Cancel the whole series?" in p2 and "every occurrence, past and future" in p2
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.parametrize("locked", [True, False])
+def test_race_two_cancels_of_the_same_occurrence_leave_one_clean_row(monkeypatch, locked):
+    import threading
+
+    from django.db import connection
+
+    from tests.unit.test_drive_services import _threads
+    from tests.unit.test_events import _plain_lock
+
+    if connection.vendor == "sqlite":
+        pytest.skip("row locks are only meaningful on the TiDB/MySQL backend")
+    d = dt.date(2026, 12, 3)
+    outcomes = []
+    for i in range(3):
+        org = _u(f"RC{i}{locked}")
+        ev = mk(org, "2026-12-01T10:00", "2026-12-01T11:00", freq="daily", count=5)
+        if not locked:
+            monkeypatch.setattr(es, "_lock_event", _plain_lock)
+            # control: no row lock and the unique-violation handler removed
+            monkeypatch.setattr(es, "IntegrityError", type("Never", (Exception,), {}))
+        barrier = threading.Barrier(2)
+
+        def pause(barrier=barrier):
+            try:
+                barrier.wait(timeout=1.5 if locked else 10)
+            except threading.BrokenBarrierError:
+                pass
+
+        monkeypatch.setattr(es, "_pause", pause)
+        outcomes.append(
+            _threads([lambda ev=ev, org=org: es.skip_occurrence(org, ev.public_id, d)] * 2)
+        )
+        if locked:
+            assert EventException.objects.filter(event=ev).count() == 1
+            assert Event.objects.get(pk=ev.pk).version == 2  # one bump, not two
+    if locked:
+        assert all(o == ["ok", "ok"] for o in outcomes), outcomes
+    else:
+        assert any(x.startswith("error") for o in outcomes for x in o), outcomes  # the constraint is real
+
+
+@pytest.mark.django_db(transaction=True)
+def test_migration_0002_keeps_existing_single_events_working():
+    from django.db import connection
+    from django.db.migrations.executor import MigrationExecutor
+
+    ex = MigrationExecutor(connection)
+    ex.migrate([("events", "0001_initial")])
+    old = ex.loader.project_state([("events", "0001_initial")]).apps
+    org = _u("R14")  # a real user row (accounts is fully migrated)
+    OldEvent = old.get_model("events", "Event")
+    row = OldEvent.objects.create(
+        organizer_id=org.pk, title="Before", tz="Asia/Kolkata",
+        start_utc=dt.datetime(2026, 12, 1, 4, 30, tzinfo=UTC), end_utc=dt.datetime(2026, 12, 1, 5, 30, tzinfo=UTC),
+    )  # fmt: skip
+    ex = MigrationExecutor(connection)
+    ex.migrate([("events", "0002_recurrence")])
+    ev = Event.objects.get(pk=row.pk)
+    assert (ev.freq, ev.interval, ev.weekdays, ev.count, ev.until, ev.last_end_utc) == ("", 1, "", None, None, None)
+    got = es.events_for(org, *W("2026-12-01T00:00", "2026-12-02T00:00"))
+    assert [o.title for o in got] == ["Before"] and got[0].occ_date is None
+    assert es.free_busy(org, [org.pk], *W("2026-12-01T00:00", "2026-12-02T00:00"))[org.pk]
