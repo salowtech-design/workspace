@@ -226,3 +226,28 @@ def _hit_url(body):
     import re
 
     return re.search(r'href="(/posts/\d+/)"', body).group(1)
+
+
+@pytest.mark.django_db
+def test_post_search_hits_match_post_page_access_for_every_recognized_role():
+    from apps.directory.models import Department, Team, TeamMembership
+    from apps.posts import services as ps
+
+    dept = Department.objects.create(code="pp", name="Parity Dept")
+    lead = _u("PP-LEAD", role="manager")
+    team = Team.objects.create(code="pp-t", name="Parity Team", department=dept, lead=lead)
+    author = _u("PP-AUTH")
+    TeamMembership.objects.create(team=team, user=author)
+    outsider = _u("PP-OUT")
+    posts = {
+        "Kiwi in team": ps.create_post(author=author, title="Kiwi in team", content="b1"),
+        "Kiwi no team": ps.create_post(author=outsider, title="Kiwi no team", content="b2"),
+    }
+    viewers = {r: _u("PP-R%d" % i, role=r) for i, r in enumerate(CustomUser.Role.values)}
+    viewers["lead"], viewers["author"], viewers["outsider"] = lead, author, outsider
+    for name, u in viewers.items():
+        c = _c(u)
+        body = c.get(reverse("finder:search"), {"q": "kiwi", "in": "posts"}).content.decode()
+        for title, p in posts.items():
+            allowed = c.get(reverse("posts:detail", args=[p.pk])).status_code == 200
+            assert (title in body) == allowed, (name, title, allowed)
