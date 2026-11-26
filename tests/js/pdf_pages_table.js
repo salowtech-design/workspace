@@ -40,6 +40,12 @@ const done = (async () => {
   ok("web links are kept, links to pages and page actions are dropped", lt.includes("example.com") && !/\/GoTo/.test(lt));
   const lk2 = await (async () => { const d = await P.PDFDocument.load(lk); const p = d.getPages(); p[0].node.set(P.PDFName.of("Odd"), d.context.obj([p[1].ref])); return d.save({ useObjectStreams: false }); })();
   ok("a reference the page cleaner does not know about is caught by the page-count check and the copy is refused", (await code([{ bytes: lk2, pages: [1], name: "lk2" }])) === "leak");
+  // The backstop alone: the same real Dest-leak source with the reference cut switched off (test-only copy of the module text) must be refused.
+  const noCut = (() => { const src = require("fs").readFileSync(require("path").join(__dirname, "../../static/pdf/pages.js"), "utf8"), m = { exports: {} }, mod = src.replace("cutReferences(L, src, idx);", ""); if (mod === src) throw new Error("cut call not found"); new Function("module", "exports", mod)(m, m.exports); return m.exports; })();
+  let nc = ""; try { await noCut.build(P, [{ bytes: lk, pages: [1], name: "lk" }]); nc = "built"; } catch (e) { nc = e.code; }
+  ok("with the reference cut switched off, the real Dest-leak source is refused by the page-count check", nc === "leak");
+  const rp = await G.build(P, [{ bytes: lk, pages: [1, 2, 1], name: "rep" }]);
+  ok("a page repeated (1,2,1) builds 3 pages and the guard does not refuse it", rp.pageCount === 3 && (Buffer.from(rp.bytes).toString("latin1").match(/\/Type\s*\/Page[^s]/g) || []).length === 3);
   // Populated actions: scripts, chains and page-level actions must be gone from the copy, a plain web link must stay.
   const act = await (async () => { const d = await P.PDFDocument.create(), pg = d.addPage([300, 300]), x = d.context, R = (o) => x.register(x.obj(o));
     const js = { S: "JavaScript", JS: P.PDFString.of("app.alert(JSMARK1)") };
