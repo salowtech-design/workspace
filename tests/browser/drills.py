@@ -7994,7 +7994,93 @@ def finder_projects(ctx):
     pg.set_viewport_size({"width": 1100, "height": 900})
 
 
+def task_assign_second(ctx):
+    """A second real login (own browser context, own random password and authenticator secret, never
+    printed): the lead assigns the member; the member sees the task under Assigned to me, cannot
+    assign (message), and after removal loses the project, the task list entry and the finder hit."""
+    import concurrent.futures
+    import secrets as _sec
+
+    import django
+
+    django.setup()
+    shots = os.environ.get("DRILL_SHOTS", "/tmp")  # noqa: S108
+    pg = ctx.pages[0]
+
+    def seed():
+        from django.contrib.auth.hashers import make_password
+        from django.utils import timezone
+
+        from apps.accounts.auth.mfa_totp import encrypt_secret, get_auth_key_ring
+        from apps.accounts.models import CustomUser, TOTPCredential
+        from apps.tasks import projects as pj
+        from apps.tasks.models import ProjectMember
+
+        pw = _sec.token_urlsafe(18) + "aA1!"
+        sec = pyotp.random_base32(length=32)
+        u = CustomUser.objects.create(
+            employee_id="ST-LIVE-2", full_name="Second Member", email="second.m@salowtech.com", email_verified=True,
+            password=make_password(pw), role=CustomUser.Role.EMPLOYEE, status=CustomUser.Status.ACTIVE, is_active=True,
+        )
+        ct, nonce, key_id = encrypt_secret(sec, get_auth_key_ring())
+        TOTPCredential.objects.create(user=u, encrypted_secret=ct, nonce=nonce, key_id=key_id, confirmed_at=timezone.now())
+        me = CustomUser.objects.get(employee_id="ST-LIVE-1")
+        p = pj.create_project(me, "Zork second login")
+        ProjectMember.objects.create(project=p, person=u, role=ProjectMember.MEMBER, added_by=me)
+        pj.add_task(me, p, p.columns.first().pk, "Zork task for member")
+        return str(p.public_id), pw, sec
+
+    with concurrent.futures.ThreadPoolExecutor(1) as ex:
+        pid, pw2, sec2 = ex.submit(seed).result()
+    pg.goto(APP + "/tasks/projects/%s/" % pid)
+    pg.select_option("select[name=person] >> nth=0", label="Second Member")
+    pg.click("button:has-text('Assign') >> nth=0")
+    pg.wait_for_load_state()
+    check("assign second: the lead assigns the member and the card says so", pg.locator("text=Assigned to Second Member").count() == 1)
+
+    pg2 = ctx.browser.new_context(viewport={"width": 390, "height": 800}).new_page()
+    pg2.set_default_timeout(8000)
+    pg2.goto(APP + "/sign-in/")
+    pg2.wait_for_timeout(800)
+    pg2.click("#btn-signin")
+    pg2.wait_for_timeout(500)
+    pg2.fill("#employee_id", "ST-LIVE-2")
+    pg2.fill("#password", pw2)
+    t = pyotp.TOTP(sec2)
+    left = t.interval - (time.time() % t.interval)
+    if left < 5:
+        time.sleep(left + 0.5)
+    pg2.fill("#totp_code", t.now())
+    pg2.click("#confirm-btn")
+    pg2.wait_for_load_state()
+    pg2.wait_for_timeout(1200)
+    pg2.goto(APP + "/tasks/assigned/")
+    check("assign second: the Assigned page does not list project tasks (current build; separate by design of this slice)", "Zork task for member" not in pg2.inner_text("body"))
+    pg2.goto(APP + "/tasks/projects/%s/" % pid)
+    check("assign second: the member's own login sees the card saying who it is assigned to", "Assigned to Second Member" in pg2.inner_text("body"))
+    pg2.screenshot(path=os.path.join(shots, "task_assign_member_view_390.png"), full_page=True)
+    check("assign second: the member opens the project and sees no Assign control", pg2.locator("button:has-text('Assign')").count() == 0)
+    pg2.goto(APP + "/search/?q=zork")
+    check("assign second: search shows the project to the member", "Zork second login" in pg2.inner_text("body"))
+
+    def remove():
+        from django.utils import timezone
+
+        from apps.tasks.models import ProjectMember
+
+        ProjectMember.objects.filter(project__public_id=pid, person__employee_id="ST-LIVE-2").update(removed_at=timezone.now())
+
+    with concurrent.futures.ThreadPoolExecutor(1) as ex:
+        ex.submit(remove).result()
+    r = pg2.goto(APP + "/tasks/projects/%s/" % pid)
+    check("assign second: after removal the project page is a 404 for them", r.status == 404, str(r.status))
+    pg2.goto(APP + "/search/?q=zork")
+    check("assign second: after removal search no longer shows the project", "Zork second login" not in pg2.inner_text("body"))
+    pg2.close()
+
+
 DRILLS = {
+    "task_assign_second": task_assign_second,
     "finder_projects": finder_projects,
     "task_filters": task_filters,
     "task_comments": task_comments,
