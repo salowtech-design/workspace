@@ -260,6 +260,7 @@ def register(g):
     register_certs_more(g)
     register_worklog_date(g)
     register_search_tour(g, users)
+    register_att_checkout(g, users)
     register_posts_more(g, users)
 
 
@@ -2388,3 +2389,45 @@ def register_search_tour(g, users):
         run_tour(ctx, "37_search", body, notes="Real Django on TiDB, headless Chromium 390x844 emulated. Fixtures by script: two tasks and two events, one pair owned by another person who did not invite the signed-in account.", unshown=["Drive results", "result links", "throttle", "length limit", "unknown scope", "department filter (not on this page)"])
 
     g["DRILLS"]["tour_search"] = tour
+
+
+def register_att_checkout(g, users):
+    APP = g["APP"]
+
+    def tour(ctx):
+        import concurrent.futures
+        import datetime as dt
+
+        users(ctx)
+
+        def fixture():
+            from django.utils import timezone
+
+            from apps.accounts.models import CustomUser
+            from apps.attendance import services as at
+            from apps.attendance.models import WorkSession
+
+            me = CustomUser.objects.get(employee_id="ST-LIVE-1")
+            me.role = CustomUser.Role.HR
+            me.save(update_fields=["role"])
+            two = CustomUser.objects.get(employee_id="ST-LIVE-2")
+            now = timezone.now().replace(microsecond=0)
+            WorkSession.objects.create(user=two, work_date=at.get_current_kolkata_date(now), check_in_at=now - dt.timedelta(minutes=20), verification_method=WorkSession.VerificationMethod.MANUAL_APPROVED, state=WorkSession.State.OPEN, notes="Fixture open session")
+            at.create_fallback_request(two, "check_out", at.get_current_kolkata_date(now), now, "Second: forgot to check out")
+
+        with concurrent.futures.ThreadPoolExecutor(1) as ex:
+            ex.submit(fixture).result()
+
+        def body(t, pg):
+            txt = lambda: pg.inner_text("body")
+            sess = lambda: pg.evaluate("(()=>{const e=[...document.querySelectorAll('h2,h3')].find(h=>/session/i.test(h.textContent)); if(e) e.scrollIntoView({block:'start'}); return 0})()")
+            pg.goto(APP + "/attendance/admin/")
+            t.step("HR admin panel: Second's session is open (Active, In Progress)", lambda: sess(), expect=lambda: "Active (In Progress)" in txt(), wait=3500)
+            t.step("Approve Second's check-out request", lambda: (pg.evaluate("window.scrollTo(0,0)"), pg.evaluate("w=>{const r=[...document.querySelectorAll('tbody tr')].find(x=>x.textContent.indexOf(w)>=0); r.scrollIntoView({block:'center'}); r.querySelector('button[value=approve]').click()}", "forgot to check out")), expect=lambda: "successfully approved" in txt(), wait=1800)
+            t.step("Banner says approved", lambda: pg.evaluate("window.scrollTo(0,0)"), expect=lambda: True, wait=3000)
+            t.step("Sessions table: Second now has a check-out time and the status Completed", lambda: sess(), expect=lambda: "Active (In Progress)" not in txt() and "Completed" in txt(), wait=4500)
+            t.note("Not shown: Admin role view, the worker's own page, a Manager approving a non-report.", 3)
+
+        run_tour(ctx, "38_attendance_checkout", body, notes="Real Django on TiDB, headless Chromium 390x844 emulated. Fixture by script: the signed-in account is HR; Second Synthetic has an open session and a pending check-out request.", unshown=["Admin view", "worker's own page", "non-report approval"])
+
+    g["DRILLS"]["tour_att_checkout"] = tour
