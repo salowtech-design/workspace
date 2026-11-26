@@ -428,7 +428,7 @@
   function thOpen(d) {
     thClose(); var n = Math.min(d.numPages, TH.MAX);
     for (var i = 1; i <= n; i++) {
-      var b = document.createElement("button"); b.type = "button"; b.className = "pdf-thumb"; b.setAttribute("role", "listitem"); b.setAttribute("aria-label", "Go to page " + i); b.dataset.n = String(i);
+      var b = document.createElement("button"); b.type = "button"; b.className = "pdf-thumb"; b.setAttribute("aria-label", "Go to page " + i); b.dataset.n = String(i);
       var lab = document.createElement("span"); lab.textContent = String(i); b.appendChild(lab); thStrip.appendChild(b); thItems.push({ el: b, state: "empty" });
     }
     thStrip.hidden = false;
@@ -445,15 +445,15 @@
     thItems.forEach(function (t, i) { if (t.state === "done" && TH.drop(i, r)) { var c = t.el.querySelector("canvas"); if (c) { c.width = 0; c.height = 0; c.remove(); } t.state = "empty"; } });
     var next = -1; for (var i = r[0]; i <= r[1]; i++) { if (thItems[i].state === "empty") { next = i; break; } }
     if (next < 0) return;
-    thBusy = true; var it = thItems[next], d = doc;
+    thBusy = true; var it = thItems[next], d = doc, mine = null;
     d.getPage(next + 1).then(function (pg) {
       if (my !== thToken) return;
       var v1 = pg.getViewport({ scale: 1 }), dpr = Math.min(window.devicePixelRatio || 1, 2), vp = pg.getViewport({ scale: 76 * dpr / v1.width });
       var c = document.createElement("canvas"); c.width = Math.max(1, Math.floor(vp.width)); c.height = Math.max(1, Math.floor(vp.height));
       if (c.width * c.height > 400000) { it.state = "failed"; pg.cleanup(); return; } // a very tall page would make a big canvas: skip, the number stays
-      thTask = pg.render({ canvasContext: c.getContext("2d"), viewport: vp });
-      return thTask.promise.then(function () { if (my !== thToken) return; it.el.insertBefore(c, it.el.firstChild); it.state = "done"; pg.cleanup(); });
-    }).catch(function (e) { if (my === thToken && !(e && e.name === "RenderingCancelledException")) it.state = "failed"; }).then(function () { thTask = null; if (my !== thToken) return; thBusy = false; thSchedule(0); });
+      mine = thTask = pg.render({ canvasContext: c.getContext("2d"), viewport: vp });
+      return mine.promise.then(function () { if (my !== thToken) return; it.el.insertBefore(c, it.el.firstChild); it.state = "done"; pg.cleanup(); });
+    }).catch(function (e) { if (my === thToken && !(e && e.name === "RenderingCancelledException")) it.state = "failed"; }).then(function () { if (mine === thTask) thTask = null; if (my !== thToken) return; thBusy = false; thSchedule(0); });
   }
   thStrip.addEventListener("click", function (e) { var b = e.target.closest && e.target.closest(".pdf-thumb"); if (b && doc) go(parseInt(b.dataset.n, 10)); });
   thStrip.addEventListener("scroll", function () { if (doc) thSchedule(100); });

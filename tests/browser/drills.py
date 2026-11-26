@@ -5385,6 +5385,149 @@ def pdf_thumbs(ctx):  # noqa: C901
     pg.screenshot(path=os.environ.get("DRILL_SHOTS", "/tmp") + "/pdf-thumbs-desktop.png")  # noqa: S108
 
 
+def pdf_thumbs_layout(ctx):  # noqa: C901
+    """The strip must not widen the document or scroll the whole page sideways."""
+    pg = fresh(ctx, "/pdf/")
+    pdf = _n_page_pdf(300)
+
+    def open_pdf():
+        pg.set_input_files(
+            "#pdf-open", files=[{"name": "many.pdf", "mimeType": "application/pdf", "buffer": pdf}]
+        )
+        for _ in range(60):
+            if pg.inner_text("#pdf-where").startswith("Page 1 of"):
+                break
+            pg.wait_for_timeout(250)
+
+    def geo():
+        return pg.evaluate(
+            "({sw:document.documentElement.scrollWidth,iw:window.innerWidth,sx:window.scrollX,sy:window.scrollY,strip:document.getElementById('pdf-thumbs').getBoundingClientRect().width,stripSw:document.getElementById('pdf-thumbs').scrollWidth,card:document.querySelector('.pdf-card').getBoundingClientRect().width})"
+        )
+
+    for w in (1280, 390):
+        pg.set_viewport_size({"width": w, "height": 800})
+        pg.reload()
+        pg.wait_for_timeout(500)
+        before = geo()
+        open_pdf()
+        pg.wait_for_timeout(800)
+        a = geo()
+        pg.evaluate("document.getElementById('pdf-thumbs').style.display='none'")
+        pg.wait_for_timeout(600)
+        nos = geo()
+        pg.evaluate("document.getElementById('pdf-thumbs').style.display=''")
+        pg.wait_for_timeout(600)
+        check(
+            "layout %d: the page area is as wide with the strip as without it" % w,
+            nos["card"] == a["card"] and nos["sw"] == a["sw"],
+            (a, nos),
+        )
+        check(
+            "layout %d: the document is no wider than the window with the strip" % w,
+            a["sw"] <= a["iw"] and a["strip"] <= a["card"] + 1,
+            (before, a),
+        )
+        pg.fill("#pdf-page", "200")
+        pg.press("#pdf-page", "Enter")
+        pg.wait_for_timeout(1500)
+        b = geo()
+        check(
+            "layout %d: going far does not scroll the whole page sideways" % w,
+            b["sx"] == 0 and b["sw"] <= b["iw"],
+            b,
+        )
+        pg.focus('#pdf-thumbs .pdf-thumb[data-n="205"]')
+        pg.keyboard.press("Enter")
+        pg.wait_for_timeout(1200)
+        c = geo()
+        check(
+            "layout %d: keyboard focus and Enter on a thumbnail does not scroll the page sideways"
+            % w,
+            c["sx"] == 0
+            and c["sw"] <= c["iw"]
+            and pg.inner_text("#pdf-where").startswith("Page 205"),
+            (c, pg.inner_text("#pdf-where")),
+        )
+    pg.set_viewport_size({"width": 1280, "height": 800})
+    pg.wait_for_timeout(300)
+    pg.locator("#pdf-thumbs").scroll_into_view_if_needed()
+    d = geo()
+    check("layout: scrolling the strip into view leaves scrollX at 0", d["sx"] == 0, d)
+
+
+def pdf_thumbs_cancel(ctx):  # noqa: C901
+    """Thumbnail renders are cancelled when the file is closed or replaced, and an old file's chain does not drop a newer file's render handle.
+    Test-only gate: thumbnail renders (small canvases) are held until released, so the order of events is fixed, not timed."""
+    pg = fresh(ctx, "/pdf/")
+    pg.set_viewport_size({"width": 1280, "height": 800})
+    pg.evaluate_handle("0")
+    pg.evaluate(
+        """async (b64) => {
+      const m = await import('/static/pdf/vendor/pdf.min.mjs');
+      m.GlobalWorkerOptions.workerSrc = '/static/pdf/vendor/pdf.worker.min.mjs';
+      const bin = Uint8Array.from(atob(b64), c => c.charCodeAt(0));
+      const doc = await m.getDocument({ data: bin }).promise, page = await doc.getPage(1), proto = Object.getPrototypeOf(page), orig = proto.render;
+      window.__r = { gates: [], started: 0 };
+      proto.render = function (params) {
+        if (params.canvasContext.canvas.width >= 200) return orig.call(this, params);
+        let res, rej; const promise = new Promise((a, b) => { res = a; rej = b; }), g = { cancelled: false };
+        const self = this;
+        g.release = () => { if (g.cancelled) { rej(Object.assign(new Error('cancelled'), { name: 'RenderingCancelledException' })); return; } window.__r.started++; try { const real = orig.call(self, params); real.promise.then(res, rej); } catch (e) { rej(e); } };
+        g.task = { promise, cancel() { g.cancelled = true; } };
+        window.__r.gates.push(g); return g.task;
+      };
+      return 1;
+    }""",
+        __import__("base64").b64encode(_two_page_pdf()).decode(),
+    )
+
+    def gates():
+        return pg.evaluate("window.__r.gates.length")
+
+    def wait_gates(n):
+        for _ in range(40):
+            if gates() >= n:
+                return True
+            pg.wait_for_timeout(200)
+        return False
+
+    def open_pdf(name, data):
+        pg.set_input_files(
+            "#pdf-open", files=[{"name": name, "mimeType": "application/pdf", "buffer": data}]
+        )
+
+    open_pdf("a.pdf", _n_page_pdf(300))
+    check(
+        "thumbs cancel: the first file's thumbnail render is held at the gate",
+        wait_gates(1),
+        gates(),
+    )
+    open_pdf("b.pdf", _two_page_pdf())
+    check("thumbs cancel: the second file's thumbnail render is held too", wait_gates(2), gates())
+    pg.evaluate("window.__r.gates[0].release()")  # the old file's held render ends now
+    pg.wait_for_timeout(600)
+    a_cancelled = pg.evaluate("window.__r.gates[0].cancelled")
+    check(
+        "thumbs cancel: the old file's held render was cancelled when the file was replaced, and did not start",
+        a_cancelled and pg.evaluate("window.__r.started") == 0,
+        pg.evaluate("[window.__r.gates[0].cancelled, window.__r.started]"),
+    )
+    pg.evaluate("document.getElementById('pdf-close').click()")
+    pg.wait_for_timeout(300)
+    b_cancelled = pg.evaluate("window.__r.gates[1].cancelled")
+    pg.evaluate("window.__r.gates[1].release()")
+    pg.wait_for_timeout(800)
+    check(
+        "thumbs cancel: closing the file cancelled the newer file's held render even after the old chain ended",
+        b_cancelled and pg.evaluate("window.__r.started") == 0,
+        pg.evaluate("[window.__r.gates[1].cancelled, window.__r.started]"),
+    )
+    check(
+        "thumbs cancel: nothing was drawn into the page afterwards",
+        pg.locator("#pdf-thumbs canvas").count() == 0,
+    )
+
+
 def _poll_logger(codes, k):
     def log(resp):
         if "/poll/" in resp.url:
@@ -5635,6 +5778,8 @@ DRILLS = {
     "pdf_thumb_measure": pdf_thumb_measure,
     "pdf_forms": pdf_forms,
     "pdf_thumbs": pdf_thumbs,
+    "pdf_thumbs_layout": pdf_thumbs_layout,
+    "pdf_thumbs_cancel": pdf_thumbs_cancel,
     "slides_style": slides_style,
     "sheets_tabs": sheets_tabs,
     "sheets_chart": sheets_chart,

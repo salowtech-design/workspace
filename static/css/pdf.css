@@ -1,7 +1,7 @@
 .pdf-tools { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .pdf-tools input[type="number"] { width: 5em; }
 .pdf-tools input[type="search"] { width: 14em; }
-.pdf-stage { overflow: auto; max-width: 100%; border: 1px solid #d9cfc2; border-radius: 6px; background: #eee9e0; padding: 8px; min-height: 120px; }
+.pdf-stage { overflow: auto; max-width: 100%; contain: inline-size; border: 1px solid #d9cfc2; border-radius: 6px; background: #eee9e0; padding: 8px; min-height: 120px; }
 .pdf-stage canvas { display: block; margin: 0 auto; background: #fff; max-width: none; }
 #pdf-status { min-height: 1.5em; }
 .pdf-text { white-space: pre-wrap; max-height: 16em; overflow: auto; background: #fff; border: 1px solid #d9cfc2; border-radius: 6px; padding: 8px; font: inherit; }
@@ -26,7 +26,7 @@
 .pdf-formlist { display: grid; gap: 8px; max-width: 640px; }
 .pdf-formlist label, .pdf-formlist fieldset { display: block; overflow-wrap: anywhere; }
 .pdf-formlist input[type=text], .pdf-formlist select, .pdf-formlist textarea { display: block; width: 100%; box-sizing: border-box; }
-.pdf-thumbs { display: flex; gap: 6px; overflow-x: auto; padding: 4px 2px; margin: 4px 0; border: 1px solid #d9cfc2; border-radius: 6px; background: #eee9e0; }
+.pdf-thumbs { contain: inline-size; display: flex; gap: 6px; overflow-x: auto; padding: 4px 2px; margin: 4px 0; border: 1px solid #d9cfc2; border-radius: 6px; background: #eee9e0; }
 .pdf-thumbs[hidden] { display: none; }
 .pdf-thumb { flex: 0 0 84px; width: 84px; height: 112px; padding: 2px; border: 2px solid transparent; border-radius: 4px; background: #fff; cursor: pointer; position: relative; display: block; line-height: 1; overflow: hidden; }
 .pdf-thumb[aria-current=true] { border-color: #7a2a2a; }
