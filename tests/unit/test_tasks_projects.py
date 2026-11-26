@@ -880,7 +880,8 @@ def test_assign_view_lead_only_member_only_stale_checked_and_guarded():
     r = ca.post(url, {"person": a.pk, "version": 1}, follow=True)
     assert "changed while you were looking" in r.content.decode() and state() == (b.pk, 2)
     # a plain member cannot assign
-    cb.post(url, {"person": "", "version": 2})
+    r = cb.post(url, {"person": "", "version": 2}, follow=True)
+    assert "Only a project lead can change project tasks." in r.content.decode()
     assert state() == (b.pk, 2)
     # clear
     assert ca.post(url, {"person": "", "version": 2}).status_code == 302
@@ -925,6 +926,9 @@ def test_assign_route_resolves_in_both_urlconfs_and_removed_or_deactivated_peopl
 
     # target: a removed member and a deactivated member cannot be assigned
     ProjectMember.objects.filter(pk=mb.pk).update(removed_at=timezone.now())
+    board = ca.get(reverse("tasks:project", args=[p.public_id])).content.decode()
+    picker = board.split('name="person"')[1].split("</select>")[0]
+    assert "P AS-E" not in picker and "P AS-F" in picker and "P AS-D" in picker  # removed member not offered
     ca.post(url, {"person": b.pk, "version": 1})
     assert state() == (None, 1)
     CustomUser.objects.filter(pk=c.pk).update(is_active=False)
