@@ -247,6 +247,7 @@ def register(g):
     register_iam_forms(g)
     register_iam_stepup(g)
     register_iam_stepup2(g)
+    register_bg_probe(g)
 
 
 def register_tasks(g, users):
@@ -1495,3 +1496,61 @@ def register_iam_stepup2(g):
                  unshown=["MFA reset", "recovery approve/reject", "outbox retry", "Super Admin changes"])
 
     g["DRILLS"]["tour_iam_stepup2"] = tour
+
+
+def register_bg_probe(g):
+    APP = g["APP"]
+    check = g["check"]
+
+    def probe(ctx):
+        import concurrent.futures
+
+        import django
+
+        django.setup()
+        box = {}
+
+        def mk():
+            from django.conf import settings
+
+            from apps.accounts.auth.iam_auth import create_iam_session
+            from apps.accounts.models import CustomUser as CU
+            from apps.accounts.models import IAMAdminIdentity
+
+            CU.objects.filter(employee_id="ST-LIVE-1").update(role=CU.Role.ADMIN)
+            u = CU.objects.get(employee_id="ST-LIVE-1")
+            adm = IAMAdminIdentity.objects.create(admin_id="IAM-FIXTURE-1", user=u, password_hash="!", role="admin", status="active")
+
+            class R:
+                META = {"REMOTE_ADDR": "127.0.0.1", "HTTP_USER_AGENT": "drill"}
+                client_ip = "127.0.0.1"
+
+            r = R()
+            create_iam_session(adm, r, assurance_level=1)
+            box["raw"], box["cookie"] = r.session_key_iam, getattr(settings, "IAM_SESSION_COOKIE_NAME", "salow_iam_session")
+
+        with concurrent.futures.ThreadPoolExecutor(1) as ex:
+            ex.submit(mk).result()
+        IAM = "http://iam.salowtech.com:" + APP.rsplit(":", 1)[1]
+        pg = ctx.pages[0]
+        pg.goto(APP + "/auth/recovery/console/")
+        check("probe control: before break-glass, the workspace-host recovery console asks for sudo re-authentication", "/security/sudo" in pg.url, pg.url.split("/", 3)[-1][:60])
+        c2 = ctx.browser.new_context()
+        try:
+            c2.add_cookies([{"name": box["cookie"], "value": box["raw"], "domain": "iam.salowtech.com", "path": "/", "httpOnly": True, "sameSite": "Lax"}])
+            q = c2.new_page()
+            q.goto(IAM + "/dashboard/?tab=privileged")
+            f = q.locator("form", has=q.locator("input[name=action][value=activate_break_glass]")).first
+            f.locator("textarea[name=reason]").fill("Probe: ten or more characters")
+            f.locator("button[type=submit]").click()
+            q.wait_for_load_state()
+            activated = "BREAK-GLASS ACTIVATED" in q.inner_text("body")
+            check("probe: break-glass activated at the basic assurance level (no step-up page)", activated and "/iam/stepup" not in q.url)
+        finally:
+            c2.close()
+        pg.goto(APP + "/auth/recovery/console/")
+        check("probe RESULT: after IAM-host break-glass, the admin's separate workspace-host session reaches the recovery console without sudo re-authentication", "/security/sudo" not in pg.url, pg.url.split("/", 3)[-1][:60])
+        body = pg.inner_text("body")
+        check("probe RESULT: that page is the real recovery console, not an error page", "Recovery" in body and "Forbidden" not in body and "denied" not in body.lower(), " ".join(body.split())[:120])
+
+    g["DRILLS"]["probe_bg_sudo"] = probe
