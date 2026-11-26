@@ -3954,12 +3954,14 @@ def slides_images_race(ctx):  # noqa: C901
     put("s.png", _png(30, 30, (9, 9, 9)))
     pg.wait_for_timeout(1200)
     st = status()
+    onscreen = pg.evaluate("!!document.querySelector('#sl-canvas-wrap svg image')")
     pg.evaluate("(()=>{Storage.prototype.setItem=window.__si;return 1})()")
     check(
-        "race: when the deck cannot be saved the stored deck is unchanged, the picture file is kept with nothing referring to it, and the status says the deck was not saved",
+        "race: when the deck cannot be saved the stored deck is unchanged, the picture stays on screen as unsaved, the file is kept in the store, and the status says the changes are on screen only",
         pg.evaluate("localStorage.getItem(%s)" % KEY) == saved
         and idb_count() == base + 1
-        and "would not store the deck" in st,
+        and "on screen only" in st
+        and onscreen,
         st,
     )
     # a late picture load during a drag does not remove the dragged item
@@ -3989,6 +3991,31 @@ def slides_images_race(ctx):  # noqa: C901
         "race: a picture finishing its load during a drag leaves the drag preview in place, the drop moves the item, and the picture draws afterwards",
         kept and pics()[0]["x"] > x0 and img,
         str((kept, x0, pics()[0]["x"], img)),
+    )
+    pg.evaluate("localStorage.setItem('__delay','0')")
+    # half-typed text in the Description box and in the notes survives a late picture load
+    pg.evaluate("localStorage.setItem('__delay','2500')")
+    pg.reload()
+    pg.wait_for_timeout(300)
+    pg.click("#sl-items button")
+    pg.click("#sl-text")
+    pg.keyboard.type("half typed")
+    pg.wait_for_timeout(3200)
+    kept_text = pg.evaluate("[document.getElementById('sl-text').value, document.activeElement.id]")
+    pg.click("#sl-notes")
+    pg.keyboard.type("note in progress")
+    pg.reload()
+    pg.wait_for_timeout(300)
+    pg.click("#sl-notes")
+    pg.keyboard.type("note two")
+    pg.wait_for_timeout(3200)
+    kept_notes = pg.evaluate(
+        "[document.getElementById('sl-notes').value, document.activeElement.id]"
+    )
+    check(
+        "race: text typed in the Description box or the notes, not yet committed, is still there and still focused after a late picture load",
+        kept_text == ["half typed", "sl-text"] and kept_notes == ["note two", "sl-notes"],
+        str((kept_text, kept_notes)),
     )
     pg.evaluate("localStorage.setItem('__delay','0')")
     # import: only referenced pictures are stored, and a failure midway leaves the deck alone
