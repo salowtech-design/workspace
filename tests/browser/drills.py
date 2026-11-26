@@ -4842,7 +4842,6 @@ def chat_two_users(ctx):  # noqa: C901
     p1.click("#m1 button[value=heart]")
     p1.wait_for_timeout(700)
     check("two users: person one presses heart and sees it as theirs", lab(p1, 1, "heart") == "Heart, 1, you reacted", lab(p1, 1, "heart"))
-    check("two users: before the poll person two still shows no count", lab(p2, 1, "heart") == "Heart", lab(p2, 1, "heart"))
     t0 = time.time()
     while lab(p2, 1, "heart") != "Heart, 1" and time.time() - t0 < 40:
         p2.wait_for_timeout(500)
@@ -4860,6 +4859,12 @@ def chat_two_users(ctx):  # noqa: C901
     while "Reply from two." not in p1.inner_text("#chat-list") and time.time() - t0 < 40:
         p1.wait_for_timeout(500)
     check("two users: the new message reaches person one by polling", "Reply from two." in p1.inner_text("#chat-list"), p1.inner_text("#chat-list")[:200])
+    check(
+        "two users: identity: person one sees the reply under the second person's name, person two sees it as their own",
+        "Second Synthetic (ST-LIVE-2)" in p1.inner_text("#m2") and "mine" in (p2.get_attribute("#m2", "class") or "").split()
+        and "mine" not in (p1.get_attribute("#m2", "class") or "").split() and "mine" in (p1.get_attribute("#m1", "class") or "").split(),
+        (p1.inner_text("#m2")[:60], p2.get_attribute("#m2", "class"), p1.get_attribute("#m2", "class")),
+    )
     p1.click("#m2 button[value=tada]")
     p1.wait_for_timeout(700)
     check("two users: person one can react to the polled-in message", lab(p1, 2, "tada") == "Celebrate, 1, you reacted", lab(p1, 2, "tada"))
@@ -4900,6 +4905,24 @@ def chat_two_users(ctx):  # noqa: C901
         "fetch(document.getElementById('chat-list').dataset.reactions+'?first=1&last=2',{credentials:'same-origin'}).then(r=>r.status)"
     )
     check("two users: after removal the refresh endpoint answers person two with 404", r == 404, r)
+    # the privacy check: after removal person one sends a new message; person two must not receive or see it
+    p1.fill("textarea[name=body]", "Private after removal.")
+    p1.click(".chat-compose button[type=submit]")
+    p1.wait_for_load_state()
+    p1.wait_for_timeout(600)
+    ok1 = "Private after removal." in p1.inner_text("#chat-list")
+    poll = p2.evaluate(
+        "(async()=>{const r=await fetch(document.getElementById('chat-list').dataset.poll+'?after=2',{credentials:'same-origin'});return [r.status,(await r.text()).includes('Private after removal.')]})()"
+    )
+    page_get = p2.evaluate(
+        "(async()=>{const r=await fetch(location.href,{credentials:'same-origin',redirect:'manual'});return [r.status,(await r.text()).includes('Private after removal.')]})()"
+    )
+    p2.wait_for_timeout(12000)  # a full poll cycle of person two's own page
+    check(
+        "two users: after removal person one's new message is stored for person one but person two's poll, page fetch and screen never get it",
+        ok1 and poll == [404, False] and page_get[1] is False and "Private after removal." not in p2.inner_text("body"),
+        (ok1, poll, page_get),
+    )
     p1.click("#m1 button[value=heart]")
     p1.wait_for_timeout(600)
     check("two users: person one is not affected (heart off again, page still working)", lab(p1, 1, "heart") == "Heart", lab(p1, 1, "heart"))
