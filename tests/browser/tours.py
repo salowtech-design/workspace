@@ -291,6 +291,7 @@ def register(g):
     register_sheets_io_keys(g)
     register_slides_keys(g)
     register_slides_pointer_anim(g)
+    register_worklog_team_refusal(g, users)
     register_posts_more(g, users)
 
 
@@ -3721,6 +3722,75 @@ def register_pdf_view_buttons(g):
     g["DRILLS"]["tour_pdf_view_buttons"] = tour
 
 
+def register_worklog_team_refusal(g, users):
+    APP = g["APP"]
+
+    def tour(ctx):
+        import concurrent.futures
+
+        users(ctx)
+        ids = {}
+
+        def run(fn):
+            with concurrent.futures.ThreadPoolExecutor(1) as ex:
+                return ex.submit(fn).result()
+
+        def fixture():
+            from apps.accounts.models import CustomUser
+            from apps.directory.models import Department, Team, TeamMembership
+            from apps.posts import services as ps
+
+            me = CustomUser.objects.get(employee_id="ST-LIVE-1")
+            two = CustomUser.objects.get(employee_id="ST-LIVE-2")
+            me.role = CustomUser.Role.MANAGER
+            me.save(update_fields=["role"])
+            dep = Department.objects.create(name="Fixture Dept")
+            ta = Team.objects.create(code="FIX-A", name="Alpha Team", department=dep, lead=me)
+            tb = Team.objects.create(code="FIX-B", name="Beta Team", department=dep, lead=me)
+            TeamMembership.objects.create(team=ta, user=two)
+            TeamMembership.objects.create(team=tb, user=two)
+            a = ps.create_post(author=two, title="Alpha team standup", content="Alpha body.", team=ta)
+            b = ps.create_post(author=two, title="Beta team standup", content="Beta body.", team=tb)
+            ids.update(a=a.pk, b=b.pk, ta=ta.pk, tb=tb.pk)
+
+        run(fixture)
+
+        def demote():
+            from apps.accounts.models import CustomUser
+
+            me = CustomUser.objects.get(employee_id="ST-LIVE-1")
+            me.role = CustomUser.Role.EMPLOYEE
+            me.save(update_fields=["role"])
+
+        def body(t, pg):
+            txt = lambda: pg.inner_text("body")
+            show = lambda: pg.evaluate("document.querySelector('a[href*=\"/posts/\"]:not([href$=\"/posts/\"]):not([href*=\"create\"])').scrollIntoView({block:'start'})")
+            pg.goto(APP + "/posts/")
+            t.step("Work Logs & Feed as a Manager: both team posts are listed", lambda: show(), expect=lambda: "Alpha team standup" in txt() and "Beta team standup" in txt(), wait=3000)
+            t.cap("Next: choose the team Alpha Team in the Team filter and press Filter")
+            pg.select_option("select[name=team]", str(ids["ta"]))
+            with pg.expect_navigation():
+                pg.click("button:text-is('Filter')")
+            show()
+            t.step("Team filter Alpha Team: only the Alpha team post remains", expect=lambda: "Alpha team standup" in txt() and "Beta team standup" not in txt(), wait=3400)
+            t.cap("Next: switch the Team filter to Beta Team and press Filter")
+            pg.select_option("select[name=team]", str(ids["tb"]))
+            with pg.expect_navigation():
+                pg.click("button:text-is('Filter')")
+            show()
+            t.step("Team filter Beta Team: only the Beta team post remains", expect=lambda: "Beta team standup" in txt() and "Alpha team standup" not in txt(), wait=3400)
+            run(demote)
+            t.cap("Next (test fixture: this account is now an ordinary Employee): open the edit page of a post written by Second Synthetic")
+            resp = pg.goto(APP + "/posts/%d/edit/" % ids["a"])
+            pg.evaluate("window.scrollTo(0,0)")
+            t.step("The app refuses: status %s, the page says you do not have permission to edit this post" % (resp.status if resp else "?"), expect=lambda: bool(resp) and resp.status == 403, wait=3400)
+            t.note("Not shown: other roles' edit rules and moderator edit.", 3)
+
+        run_tour(ctx, "69_worklog_team_refusal", body, notes="Real Django on TiDB, headless Chromium 390x844 emulated. Fixture by script: this account is a Manager and lead of two teams, Second Synthetic wrote one post in each; then the account is set back to Employee for the refusal.", unshown=["moderator edit"])
+
+    g["DRILLS"]["tour_worklog_team_refusal"] = tour
+
+
 def register_slides_pointer_anim(g):
     APP = g["APP"]
 
@@ -3841,12 +3911,12 @@ def register_sheets_io_keys(g):
             t.step("The block filled C1:D2 (a, 1, b, 2)", expect=lambda: val(pg, "C1") == "a" and val(pg, "D1") == "1" and val(pg, "C2") == "b" and val(pg, "D2") == "2", wait=3400)
             sc(pg, "#sheet-status")
             t.step("The status line describes the paste", expect=lambda: "Pasted 2 rows by 2 columns at C1" in st(), wait=3400)
-            t.cap("Next: Import a small .json file with 3 cells (the picker is filled by the test, then the replace question is accepted)")
-            pg.evaluate("document.activeElement && document.activeElement.blur()")  # choosing a file in a real picker moves focus off the cell
+            t.cap("Next: with C1 still focused and holding a, Import a small .json file with 3 cells (the picker is filled by the test, then the replace question is accepted)")
+            focused_before = pg.evaluate("document.activeElement.dataset.addr")
             pg.set_input_files("#sheet-import", imp)
             pg.wait_for_timeout(900)
             sc(pg, "#sheet-status")
-            t.step("Import: the status line says 3 cells were imported", expect=lambda: "Imported 3 cells" in st() and pg.input_value("#sheet-bar") == "" and val(pg, "C1") == "", wait=3400)
+            t.step("Import: the status line says 3 cells were imported", expect=lambda: focused_before == "C1" and "Imported 3 cells" in st() and pg.input_value("#sheet-bar") == "" and val(pg, "C1") == "", wait=3400)
             sc(pg, 'input[data-addr="B2"]')
             t.step("The grid now shows Imported, 7 and the formula result 14, and the old cells are gone", expect=lambda: val(pg, "A1") == "Imported" and val(pg, "B1") == "7" and val(pg, "B2") == "14" and val(pg, "C1") == "" and val(pg, "A2") == "", wait=3400)
             sc(pg, "#sheet-bar")
@@ -3861,6 +3931,18 @@ def register_sheets_io_keys(g):
             pg.wait_for_timeout(500)
             sc(pg, "#sheet-bar")
             t.step("After reselecting and leaving C1 the cell is still empty and the bar shows B1: 7", expect=lambda: val(pg, "C1") == "" and pg.input_value("#sheet-bar") == "7" and val(pg, "A1") == "Imported", wait=3600)
+            t.cap("Next: type 9 in the Formula bar for B1 and press Tab")
+            pg.click("#sheet-bar")
+            pg.fill("#sheet-bar", "9")
+            pg.keyboard.press("Tab")
+            pg.wait_for_timeout(500)
+            sc(pg, 'input[data-addr="B2"]')
+            t.step("Formula bar edit still works after the import: B1 is 9 and the formula in B2 now shows 18", expect=lambda: val(pg, "B1") == "9" and val(pg, "B2") == "18", wait=3400)
+            t.cap("Next: reload the page")
+            pg.reload()
+            pg.wait_for_timeout(700)
+            sc(pg, 'input[data-addr="B2"]')
+            t.step("After reload (read back from storage): A1 Imported, B1 9, B2 18, and C1 and A2 are empty (no old data came back)", expect=lambda: val(pg, "A1") == "Imported" and val(pg, "B1") == "9" and val(pg, "B2") == "18" and val(pg, "C1") == "" and val(pg, "A2") == "" and val(pg, "D1") == "", wait=3800)
             t.cap("Next: Add a format rule, then press Remove on it")
             pg.fill("#fmt-range", "B1:B2")
             pg.select_option("#fmt-bold", "on")
