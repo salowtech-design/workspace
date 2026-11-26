@@ -279,6 +279,7 @@ def register(g):
     register_certs_filter(g)
     register_empty_states(g, users)
     register_project_filters(g, users)
+    register_directory_dept(g, users)
     register_posts_more(g, users)
 
 
@@ -3247,3 +3248,53 @@ def register_project_filters(g, users):
         run_tour(ctx, "56_project_filters_comments", body, notes="Real Django on TiDB, headless Chromium 390x844 emulated. Project, milestone, tasks and 103 comments were created by script as the signed-in lead.", unshown=["second member commenting", "comment rate limit", "filter combined with search"])
 
     g["DRILLS"]["tour_project_filters"] = tour
+
+
+def register_directory_dept(g, users):
+    APP = g["APP"]
+
+    def tour(ctx):
+        users(ctx)
+        import concurrent.futures
+
+        import django
+
+        django.setup()
+
+        def make():
+            from apps.accounts.models import CustomUser
+            from apps.directory.models import Department, Team, TeamMembership
+
+            me = CustomUser.objects.get(employee_id="ST-LIVE-1")
+            two = CustomUser.objects.get(employee_id="ST-LIVE-2")
+            da = Department.objects.create(code="ALPHA", name="Alpha Department")
+            db = Department.objects.create(code="BETA", name="Beta Department")
+            ta = Team.objects.create(code="ALPHA-T", name="Alpha Team", department=da)
+            tb = Team.objects.create(code="BETA-T", name="Beta Team", department=db)
+            TeamMembership.objects.create(team=ta, user=me)
+            TeamMembership.objects.create(team=tb, user=two)
+
+        with concurrent.futures.ThreadPoolExecutor(1) as ex:
+            ex.submit(make).result()
+
+        def body(t, pg):
+            ids = lambda: [x.strip() for x in pg.locator("tbody tr td:first-child").all_inner_texts()]
+            pg.goto(APP + "/directory/")
+            pg.wait_for_timeout(1500)
+            t.step("Directory with All Departments: the table lists ST-LIVE-1 and ST-LIVE-2", expect=lambda: "ST-LIVE-1" in ids() and "ST-LIVE-2" in ids(), wait=3000)
+            pg.select_option("select[name=dept]", label="Alpha Department")
+            pg.click("button:has-text('Filter')")
+            pg.wait_for_timeout(1500)
+            t.step("Alpha Department selected: only ST-LIVE-1 is listed", expect=lambda: ids() == ["ST-LIVE-1"] and pg.locator("select[name=dept]").input_value() == "ALPHA", wait=3500)
+            pg.select_option("select[name=dept]", label="Beta Department")
+            pg.click("button:has-text('Filter')")
+            pg.wait_for_timeout(1500)
+            t.step("Beta Department selected: only ST-LIVE-2 is listed", expect=lambda: ids() == ["ST-LIVE-2"], wait=3500)
+            pg.fill("input[name=q]", "zzzz")
+            pg.click("button:has-text('Filter')")
+            pg.wait_for_timeout(1500)
+            t.step("Beta plus a search with no match: the empty message shows", expect=lambda: "No employees match the search filter." in pg.inner_text("body"), wait=3500)
+
+        run_tour(ctx, "57_directory_department", body, notes="Real Django on TiDB, headless Chromium 390x844 emulated. Two departments, two teams and the memberships were created by script.", unshown=["team detail page", "org chart", "a person in several departments"])
+
+    g["DRILLS"]["tour_directory_dept"] = tour
