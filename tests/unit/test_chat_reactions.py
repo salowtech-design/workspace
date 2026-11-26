@@ -131,7 +131,7 @@ def test_reaction_rate_limit(monkeypatch):
     assert Reaction.objects.filter(person=a).count() == 2  # the third press was refused
 
 
-@pytest.mark.django_db
+@pytest.mark.django_db(transaction=True)
 @pytest.mark.parametrize("locked", [True, False])
 def test_race_one_person_pressing_twice_at_once(monkeypatch, locked):
     from django.db import connection
