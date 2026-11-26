@@ -251,6 +251,7 @@ def register(g):
     register_bg_probe(g)
     register_chat_react(g)
     register_drive_editor(g)
+    register_tasks_more(g)
 
 
 def register_tasks(g, users):
@@ -1786,3 +1787,76 @@ def register_drive_editor(g):
                  unshown=["what the second person sees after my Editor share (one signed-in user in this clip)", "folder move (no UI)", "files (not built)"])
 
     g["DRILLS"]["tour_drive_editor"] = tour
+
+
+def register_tasks_more(g):
+    APP = g["APP"]
+
+    def prep():
+        import concurrent.futures
+
+        import django
+
+        django.setup()
+
+        def fx():
+            import datetime
+
+            from apps.accounts.models import CustomUser
+            from apps.tasks import projects as pj
+            from apps.tasks.models import ProjectMember
+
+            two = CustomUser.objects.get_or_create(employee_id="ST-LIVE-2", defaults={"full_name": "Second Synthetic", "email": "st-live-2@salowtech.com", "email_verified": True,
+                                                   "role": CustomUser.Role.EMPLOYEE, "status": CustomUser.Status.ACTIVE, "is_active": True})[0]
+            me = CustomUser.objects.get(employee_id="ST-LIVE-1")
+            p = pj.create_project(me, "Fixture board")
+            ProjectMember.objects.create(project=p, person=two, role=ProjectMember.MEMBER, added_by=me)
+            col = p.columns.first().pk
+            pj.add_task(me, p, col, "Overdue fixture task", due=datetime.date(2026, 1, 5))
+            pj.add_task(me, p, col, "Plain fixture task")
+            pj.add_task(me, p, col, "Delete me task")
+            return str(p.public_id)
+
+        with concurrent.futures.ThreadPoolExecutor(1) as ex:
+            return ex.submit(fx).result()
+
+    def lists_more(ctx):
+        def body(t, pg):
+            pg.goto(APP + "/tasks/")
+            t.step("Create a list called Spare", lambda: (pg.fill("input[aria-label='New list name']", "Spare"), pg.click("button:has-text('Add list')")), expect=lambda: pg.locator(".tasks-lists a", has_text="Spare").count() >= 1, wait=2000)
+            t.step("Open it", lambda: pg.click(".tasks-lists a:has-text('Spare')"), expect=lambda: pg.locator("input[aria-label='Task title']").count() == 1, wait=1800)
+            t.step("Add a task", lambda: (pg.fill("input[aria-label='Task title']", "Parent task"), pg.click(".tasks-add button")), expect=lambda: "Parent task" in pg.inner_text("body"), wait=2200)
+            t.step("Add a subtask", lambda: (pg.fill("input[aria-label='Subtask title']", "Child step"), pg.click(".task-sub-add button")), expect=lambda: pg.locator(".task-row.sub", has_text="Child step").count() == 1, wait=2200)
+            t.step("Delete the subtask: a confirmation page first", lambda: pg.locator(".task-row.sub a:has-text('Delete')").first.click(), expect=lambda: "Delete this" in pg.inner_text("h2"), wait=2200)
+            t.step("Confirm: the subtask is gone, the parent stays", lambda: pg.click("button:has-text('Delete')"), expect=lambda: "Child step" not in pg.inner_text("body") and "Parent task" in pg.inner_text("body"), wait=3000)
+            t.step("Delete this list: a confirmation page first", lambda: pg.click("a:has-text('Delete this list')"), expect=lambda: "Delete this list" in pg.inner_text("h2"), wait=2200)
+            t.step("Confirm: the list is gone from My lists", lambda: pg.click("button:has-text('Delete')"), expect=lambda: pg.locator(".tasks-lists a", has_text="Spare").count() == 0, wait=3200)
+            t.note("Not built: restoring deleted tasks or lists. Edit conflict message needs two people editing at once, not shown.", 3)
+        run_tour(ctx, "27_tasks_lists_more", body, notes="Real Django on TiDB under uvicorn, headless Chromium 390x844 emulated.", unshown=["edit conflict (needs concurrent edit)", "restore (not built)"])
+
+    def proj_more(ctx):
+        pid = prep()
+
+        def body(t, pg):
+            pg.goto(APP + "/tasks/projects/%s/" % pid)
+            t.step("Project board with a second member and three fixture tasks", expect=lambda: "Overdue fixture task" in pg.inner_text("body"), wait=2200)
+            card = lambda nm: pg.locator(".task-card", has_text=nm).first
+            t.step("Assign Plain fixture task to Second Synthetic", lambda: (card("Plain fixture task").locator("select[name=person]").select_option(label="Second Synthetic"), card("Plain fixture task").locator("button:has-text('Assign')").click()), expect=lambda: "Assigned to Second Synthetic" in card("Plain fixture task").inner_text(), wait=3000)
+            t.step("Add a milestone", lambda: (pg.fill("input[placeholder='New milestone']", "Beta"), pg.click("button:has-text('Add milestone')")), expect=lambda: "Beta" in pg.inner_text("body"), wait=2500)
+            t.step("Set the milestone Beta on Plain fixture task", lambda: (card("Plain fixture task").locator("select[name=milestone]").select_option(label="Beta"), card("Plain fixture task").locator("button:has-text('Set')").click()), expect=lambda: "Milestone: Beta" in card("Plain fixture task").inner_text(), wait=3000)
+            t.step("Filter by the milestone Beta: only that task remains", lambda: (pg.select_option("select[name=milestone][aria-label='Milestone filter']", label="Beta"), pg.click("button:has-text('Filter')")), expect=lambda: "Showing 1 of 3" in pg.inner_text("body") and pg.locator(".task-card").count() == 1, wait=3200)
+            t.step("Clear the filter: all three tasks are back", lambda: pg.click("a:has-text('Clear')"), expect=lambda: pg.locator(".task-card").count() == 3, wait=2800)
+            t.step("Overdue filter: only the overdue task remains", lambda: (pg.check("input[name=overdue]"), pg.click("button:has-text('Filter')")), expect=lambda: pg.locator(".task-card").count() == 1 and "Overdue fixture task" in pg.inner_text(".tasks-board"), wait=3200)
+            t.step("Clear again", lambda: pg.click("a:has-text('Clear')"), expect=lambda: pg.locator(".task-card").count() == 3, wait=2200)
+            t.step("Edit Plain fixture task: open the edit page", lambda: card("Plain fixture task").locator("a:has-text('Edit')").click(), expect=lambda: "Edit" in pg.inner_text("h2"), wait=2200)
+            t.step("Change the title and Save", lambda: (pg.fill("input[name=title]", "Plain fixture task, edited"), pg.click("button:has-text('Save')")), expect=lambda: "edited" in pg.inner_text("body"), wait=3000)
+            t.step("Open Comments on that task", lambda: card("edited").locator("a:has-text('Comment')").click(), expect=lambda: "Comments" in pg.inner_text("h2"), wait=2200)
+            t.step("Post a comment", lambda: (pg.fill("textarea[name=body]", "First fixture comment."), pg.click("button:has-text('Post')")), expect=lambda: "First fixture comment." in pg.inner_text("body"), wait=3200)
+            pg.goto(APP + "/tasks/projects/%s/" % pid)
+            t.step("Delete Delete me task: a confirmation page first", lambda: card("Delete me task").locator("a:has-text('Delete')").click(), expect=lambda: "Delete this" in pg.inner_text("h2"), wait=2200)
+            t.step("Confirm: that task is gone from the board", lambda: pg.click("button:has-text('Delete')"), expect=lambda: "Delete me task" not in pg.inner_text(".tasks-board"), wait=3200)
+            t.note("Not shown: what Second Synthetic sees (one signed-in user), edit conflict. Not built: adding members, restoring tasks.", 3)
+        run_tour(ctx, "28_tasks_projects_more", body, notes="Real Django on TiDB under uvicorn, headless Chromium 390x844 emulated. The second member and the three tasks were created by a script as fixtures.", unshown=["second person's view", "edit conflict", "add members (not built)"])
+
+    g["DRILLS"]["tour_tasks_lists_more"] = lists_more
+    g["DRILLS"]["tour_tasks_proj_more"] = proj_more
