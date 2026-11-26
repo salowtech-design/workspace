@@ -5209,6 +5209,50 @@ def pdf_forms(ctx):  # noqa: C901
         pg.evaluate(field("full_name") + ".querySelector('input').value") == "",
         status(),
     )
+    # Controlled gate (test only, nothing in the page changes): the fill of an old file resolves after a newer file is loaded and its own fill is running.
+    other = (fx / "form_other.pdf").read_bytes()
+    open_pdf("form.pdf", basic)
+    find()
+    pg.evaluate(
+        "(()=>{window.__gates=[];const o=window.PdfForms.fill;window.__origFill=o;"
+        "window.PdfForms.fill=function(L,b,v){return new Promise(res=>{window.__gates.push(()=>res(o.call(window.PdfForms,L,b,v)))})}})()"
+    )
+    got.clear()
+    pg.evaluate(field("full_name") + ".querySelector('input').value='Old file'")
+    pg.click("#pdf-formsave")
+    pg.wait_for_timeout(500)
+    pg.set_input_files(
+        "#pdf-open", files=[{"name": "other.pdf", "mimeType": "application/pdf", "buffer": other}]
+    )
+    for _ in range(40):
+        if pg.inner_text("#pdf-name") == "other.pdf" and not pg.is_disabled("#pdf-formfind"):
+            break
+        pg.wait_for_timeout(250)
+    pg.wait_for_timeout(500)
+    find()
+    pg.evaluate("document.querySelector('#pdf-formlist input').value='New file'")
+    pg.click("#pdf-formsave")
+    pg.wait_for_timeout(500)
+    gates = pg.evaluate("window.__gates.length")
+    pg.evaluate("window.__gates[0]()")  # the old file's fill finishes now
+    pg.wait_for_timeout(1500)
+    check(
+        "forms: an old file's export finishing late downloads nothing, shows no old status, and does not unlock the newer export",
+        gates == 2
+        and not got
+        and pg.is_disabled("#pdf-formsave")
+        and "Building a filled copy" in status(),
+        (gates, [d.suggested_filename for d in got], pg.is_disabled("#pdf-formsave"), status()),
+    )
+    with pg.expect_download() as dl3:
+        pg.evaluate("window.__gates[1]()")
+    check(
+        "forms: the newer file's export then downloads under its own name with its own value",
+        dl3.value.suggested_filename == "other-filled.pdf"
+        and b"004E00650077002000660069006C0065" in open(dl3.value.path(), "rb").read().upper(),
+        dl3.value.suggested_filename,
+    )
+    pg.evaluate("window.PdfForms.fill=window.__origFill;0")
     # A file with no form.
     open_pdf("none.pdf", _two_page_pdf())
     find()
