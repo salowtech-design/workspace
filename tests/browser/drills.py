@@ -1669,6 +1669,8 @@ def sheets_format(ctx):  # noqa: C901
     with pg.expect_download() as dj:
         pg.click("#sheet-export")
     exp = open(dj.value.path()).read()
+    if SHOTS:
+        open(os.path.join(SHOTS, "sheets-export.json"), "w").write(exp)
     check(
         "format: the JSON export holds the typed values and no format",
         '"1234.5"' in exp
@@ -1681,6 +1683,8 @@ def sheets_format(ctx):  # noqa: C901
     with pg.expect_download() as dc:
         pg.click("#sheet-csv")
     csv = open(dc.value.path()).read()
+    if SHOTS:
+        open(os.path.join(SHOTS, "sheets-values.csv"), "w").write(csv)
     check(
         "format: the CSV holds the unformatted values",
         "1234.5" in csv and "2469" in csv and "1,234" not in csv and "%" not in csv,
