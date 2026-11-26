@@ -244,6 +244,7 @@ def register(g):
     register_iam(g)
     register_iam_live(g)
     register_admin_scroll(g)
+    register_iam_forms(g)
 
 
 def register_tasks(g, users):
@@ -1098,3 +1099,79 @@ def register_admin_scroll(g):
                  unshown=["check-out approval", "Manager view", "HR view", "own-request refusal", "Sessions table scroll proof"])
 
     g["DRILLS"]["tour_admin_scroll"] = scroll_tour
+
+
+def register_iam_forms(g):
+    APP = g["APP"]
+
+    def forms_tour(ctx):
+        import concurrent.futures
+
+        import django
+
+        django.setup()
+        box = {}
+
+        def mk():
+            from django.conf import settings
+
+            from apps.accounts.auth.iam_auth import create_iam_session
+            from apps.accounts.models import CustomUser, IAMAdminIdentity
+            from apps.accounts.models import CustomUser as CU
+
+            CU.objects.filter(employee_id="ST-LIVE-1").update(role=CU.Role.ADMIN)
+            u = CU.objects.get(employee_id="ST-LIVE-1")
+            adm = IAMAdminIdentity.objects.create(admin_id="IAM-FIXTURE-1", user=u, password_hash="!", role="admin", status="active")
+            CU.objects.get_or_create(employee_id="ST-LIVE-9", defaults={"full_name": "Target Synthetic", "email": "st-live-9@salowtech.com", "email_verified": True,
+                                     "role": CU.Role.EMPLOYEE, "status": CU.Status.ACTIVE, "is_active": True})
+
+            class R:
+                META = {"REMOTE_ADDR": "127.0.0.1", "HTTP_USER_AGENT": "drill"}
+                client_ip = "127.0.0.1"
+
+            r = R()
+            create_iam_session(adm, r, assurance_level=1)
+            box["raw"], box["cookie"] = r.session_key_iam, getattr(settings, "IAM_SESSION_COOKIE_NAME", "salow_iam_session")
+
+        with concurrent.futures.ThreadPoolExecutor(1) as ex:
+            ex.submit(mk).result()
+        IAM = "http://iam.salowtech.com:" + APP.rsplit(":", 1)[1]
+        cookie = {"name": box["cookie"], "value": box["raw"], "domain": "iam.salowtech.com", "path": "/", "httpOnly": True, "sameSite": "Lax"}
+
+        def body(t, pg):
+            pg.context.add_init_script("document.addEventListener('DOMContentLoaded',()=>{const s=document.createElement('style');s.textContent='#issued-act-code{visibility:hidden}';document.head.appendChild(s);});")
+            txt = lambda: pg.inner_text("body")
+            form = lambda a: pg.locator("form", has=pg.locator("input[name=action][value=%s]" % a)).first
+
+            def fill_create(eid, nm, em):
+                f = form("create_employee")
+                f.scroll_into_view_if_needed()
+                f.locator("input[name=employee_id]").fill(eid)
+                f.locator("input[name=full_name]").fill(nm)
+                f.locator("input[name=email]").fill(em)
+                f.locator("select[name=role]").select_option("employee")
+                pg.wait_for_timeout(900)
+                f.locator("button[type=submit]").click()
+
+            pg.goto(IAM + "/dashboard/?tab=identity")
+            t.step("Setup (fixture): IAM host, administrator session made off camera at the basic assurance level. Identity tab, Create Employee form", lambda: form("create_employee").scroll_into_view_if_needed(), expect=lambda: form("create_employee").count() == 1, wait=2200)
+            t.step("Create an employee with an outside email domain: it is refused with a message", lambda: fill_create("ST-NEW-1", "New Synthetic", "new1@example.com"), expect=lambda: "@salowtech.com" in txt(), wait=3000)
+            t.step("Create an employee with a company email: the page says the account was created", lambda: (pg.goto(IAM + "/dashboard/?tab=identity"), fill_create("ST-NEW-1", "New Synthetic", "new1@salowtech.com")), expect=lambda: "Account created for New Synthetic" in txt(), wait=3500)
+            t.note("The one-time activation code box is hidden in this recording by a style added by the recording script. The code is not on screen.", 3)
+            t.step("Create the same Employee ID again: refused as already in use", lambda: (pg.goto(IAM + "/dashboard/?tab=identity"), fill_create("ST-NEW-1", "New Synthetic", "new2@salowtech.com")), expect=lambda: "already in use" in txt(), wait=3000)
+            def suspend():
+                pg.goto(IAM + "/dashboard/?tab=lifecycle")
+                f = form("suspend_account")
+                f.scroll_into_view_if_needed()
+                f.locator("input[name=target_employee_id]").fill("ST-LIVE-9")
+                pg.wait_for_timeout(900)
+                f.locator("button[type=submit]").click()
+            t.step("Suspend an account at the basic assurance level (Lifecycle tab). Observe what the console does", suspend, wait=3500, expect=lambda: True)
+            t.note("Observed after pressing Suspend: URL %s | page says: %s" % (pg.url.split("/", 3)[-1][:60], " ".join(txt().split())[:110]), 4)
+            t.note("Not shown: step-up code entry, role change, MFA reset, session revoke, recovery approval, break-glass, service identities, outbox retry, team add.", 3)
+
+        run_tour(ctx, "21_iam_forms_basic", body, extra_cookies=[cookie],
+                 notes="Real Django on TiDB under uvicorn, headless Chromium 390x844 emulated, IAM host name mapped locally. IAM session is a fixture at the basic assurance level (not via login). Activation code hidden in the recording by a script-injected style.",
+                 unshown=["step-up entry", "role change", "MFA reset", "session revoke", "recovery approve/reject", "break-glass", "service identities", "outbox retry", "team add", "Super Admin creation"])
+
+    g["DRILLS"]["tour_iam_forms"] = forms_tour
