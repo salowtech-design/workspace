@@ -2563,6 +2563,47 @@ def slides_snap(ctx):
     drag_left_to(300)
     n_alt = drag_left_to(104, alt=True)
     check("snap: with Alt held it does not snap and draws no guide", abs(item(1)[0] - 104) <= 1 and n_alt == 0, (item(1), n_alt))
+    # Alt released just before the button: the drop is what the last preview showed (unsnapped), not a fresh snap
+    drag_left_to(300)
+    cur = item(1)
+    g = geom()
+    cx, cy = g["x"] + (cur[0] + cur[2] / 2) * g["k"], g["y"] + (cur[1] + cur[3] / 2) * g["k"]
+    pg.mouse.move(cx, cy)
+    pg.mouse.down()
+    pg.keyboard.down("Alt")
+    pg.mouse.move(cx + (104 - cur[0]) * g["k"], cy, steps=8)
+    pg.keyboard.up("Alt")
+    pg.mouse.up()
+    pg.wait_for_timeout(150)
+    check("snap: Alt released just before the button still drops where the preview showed", abs(item(1)[0] - 104) <= 1, item(1))
+    # Esc during a drag clears the guides and changes nothing
+    drag_left_to(300)
+    before = item(1)
+    cur = before
+    cx, cy = g["x"] + (cur[0] + cur[2] / 2) * g["k"], g["y"] + (cur[1] + cur[3] / 2) * g["k"]
+    pg.mouse.move(cx, cy)
+    pg.mouse.down()
+    pg.mouse.move(cx + (104 - cur[0]) * g["k"], cy, steps=8)
+    shown = pg.evaluate("document.querySelectorAll('svg line.sl-guide').length")
+    pg.keyboard.press("Escape")
+    pg.mouse.up()
+    pg.wait_for_timeout(150)
+    check("snap: Esc during a drag clears the guide lines and drops the move", shown >= 1 and pg.evaluate("document.querySelectorAll('svg line.sl-guide').length") == 0 and item(1) == before, (shown, item(1), before))
+    # resize: the right edge of the second item snaps to the slide's right edge (960)
+    cur = item(1)
+    pg.click("#sl-items li:nth-child(2) button")
+    pg.wait_for_timeout(100)
+    g = geom()
+    hx = pg.evaluate("(()=>{const r=document.querySelector('#sl-canvas-wrap svg rect[data-handle], #sl-canvas-wrap svg .sl-handle');return r?[r.getBoundingClientRect().left+r.getBoundingClientRect().width/2, r.getBoundingClientRect().top+r.getBoundingClientRect().height/2]:null;})()")
+    check("snap: the resize handle is found", hx is not None, hx)
+    if hx:
+        pg.mouse.move(hx[0], hx[1])
+        pg.mouse.down()
+        pg.mouse.move(hx[0] + (957 - (cur[0] + cur[2])) * g["k"], hx[1], steps=8)
+        pg.mouse.up()
+        pg.wait_for_timeout(150)
+        now = item(1)
+        check("snap: a resize 3 units short of the slide's right edge snaps its right edge to it", now[0] == cur[0] and now[0] + now[2] == 960, (cur, now))
     pg.click("#sl-undo")
     check("snap: one Undo puts the last drag back to where it started", abs(item(1)[0] - 300) <= 1, item(1))
     pg.set_viewport_size({"width": 390, "height": 800})
@@ -2788,6 +2829,7 @@ def slides_drag(ctx):  # noqa: C901
         "(function(k){var o=Storage.prototype.setItem;Storage.prototype.setItem=function(a,b){if(a===k)throw new Error('full');return o.call(this,a,b);};})(document.getElementById('slide-root').dataset.storeKey)"
     )
     pg.click("#sl-items button")
+    g = geom()  # the page can shift when an item is selected, so measure after the click
     pos = item()
     cx, cy = g["x"] + (pos[0] + pos[2] / 2) * g["k"], g["y"] + (pos[1] + pos[3] / 2) * g["k"]
     drag((cx, cy), (cx - 40 * g["k"], cy))

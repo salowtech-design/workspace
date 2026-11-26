@@ -249,4 +249,5 @@ const OLD2 = require("./fixtures/slides_model_v2_master_validator.js");
   ok("snap: the nearest of several lines wins", (() => { const r = S.snapBox(D2, 0, Q, { x: 298, y: 300, w: 100, h: 100 }, "move"); return r.dx === 2 && r.vx.indexOf(300) >= 0; })());
   ok("snap: a bad slide or box gives no shift", (() => { const r = S.snapBox(D2, 9, Q, { x: 1, y: 1, w: 1, h: 1 }, "move"), q = S.snapBox(D2, 0, Q, null, "move"); return r.dx === 0 && q.dx === 0; })());
 }
+ok("snap: after a snapped resize or move the existing clamps still apply (minimum size 10, inside the slide)", (() => { let d = S.newDeck(); const r = S.ops.addElement(d, 0, "rect"); d = r.deck || r; const id = d.slides[0].elements[0].id, a = S.ops.updateElement(d, 0, id, { w: 3 }).slides[0].elements[0], b = S.ops.updateElement(d, 0, id, { x: 955, w: 100 }).slides[0].elements[0]; return a.w === 10 && b.x + b.w <= 960 && b.w === 100; })());
 console.log(`${n - bad}/${n} slides model rows passed`); process.exit(bad ? 1 : 0);

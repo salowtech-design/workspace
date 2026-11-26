@@ -79,12 +79,13 @@
   function onDragMove(ev) {
     if (!drag || ev.pointerId !== drag.id) return; var d = dragSnap(ev); drag.moved = drag.moved || Math.abs(ev.clientX - drag.sx) + Math.abs(ev.clientY - drag.sy) > 4;
     if (!drag.moved) return;
+    drag.last = d; // what is shown is what is dropped, whatever the Alt key does after this frame
     drawGuides(d);
     if (drag.mode === "move") { drag.g.setAttribute("transform", "translate(" + d.dx + "," + d.dy + ")"); drag.hit.setAttribute("stroke", "#2e6f95"); }
     else { drag.hit.setAttribute("width", Math.max(10, drag.e.w + d.dx)); drag.hit.setAttribute("height", Math.max(10, drag.e.h + d.dy)); drag.hit.setAttribute("stroke", "#2e6f95"); }
   }
   function onDragUp(ev) {
-    if (!drag || ev.pointerId !== drag.id) return; var d = dragSnap(ev), dr = drag; endDrag();
+    if (!drag || ev.pointerId !== drag.id) return; var dr = drag, d = dr.moved && dr.last ? dr.last : dragSnap(ev); endDrag();
     if (!dr.moved) { render(); wrap().querySelector("svg").focus(); return; }
     if (unreadable) { render(); return; }
     var e = dr.e, p = dr.mode === "move" ? { x: Math.round(e.x + d.dx), y: Math.round(e.y + d.dy) } : { w: Math.round(e.w + d.dx), h: Math.round(e.h + d.dy) };
