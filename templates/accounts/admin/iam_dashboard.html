@@ -1207,6 +1207,17 @@
         <h3 class="s-4e027c21">
             Immutable Business & Administration Audit Log (<code>core_auditlog</code>)
         </h3>
+        <form method="get" class="audit-filter" aria-label="Filter the business audit log">
+            <input type="hidden" name="tab" value="audit">
+            <label>Actor (employee ID) <input type="text" name="b_actor" class="form-input" maxlength="64" value="{{ audit_filter.actor }}"></label>
+            <label>Action code <input type="text" name="b_action" class="form-input" maxlength="64" value="{{ audit_filter.action }}"></label>
+            <label>From <input type="date" name="b_from" class="form-input" value="{{ audit_filter.from }}"></label>
+            <label>To <input type="date" name="b_to" class="form-input" value="{{ audit_filter.to }}"></label>
+            <button type="submit" class="btn btn-outline">Filter</button>
+            <a href="?tab=audit" class="btn btn-outline">Clear</a>
+            <span class="s-4b74cfde">Newest 30 matching entries. Read only.</span>
+        </form>
+        {% for n in audit_filter_notes %}<p class="s-4b74cfde" role="status">{{ n }}</p>{% endfor %}
         <div class="table-container s-42d4450c">
             <table class="table s-f5d23cb6">
                 <thead>
@@ -1229,7 +1240,7 @@
                     </tr>
                     {% empty %}
                     <tr>
-                        <td colspan="5" class="s-8321ebd2">No business audit logs recorded yet.</td>
+                        <td colspan="5" class="s-8321ebd2">No business audit logs match{% if not audit_filter.actor and not audit_filter.action and not audit_filter.from and not audit_filter.to %} (none recorded yet){% endif %}.</td>
                     </tr>
                     {% endfor %}
                 </tbody>

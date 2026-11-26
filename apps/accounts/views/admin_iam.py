@@ -1269,7 +1269,39 @@ def admin_iam_dashboard_view(request):  # noqa: C901
     recent_emails = EmailOutbox.objects.order_by("-created_at")[:25]
     recent_outbox_events = OutboxEvent.objects.order_by("-created_at")[:25]
     rate_limit_records = RateLimitRecord.objects.order_by("-timestamp")[:25]
-    business_audits = AuditLog.objects.order_by("-created_at")[:30]
+    # Read-only filters on the business audit list (same rows and columns as before, still the newest 30). Text matches
+    # are case-blind through Upper() on both sides, so they behave the same on TiDB's case-sensitive collation.
+    from datetime import datetime, time as _time
+
+    from django.db.models.functions import Upper as _Upper
+    from django.utils import timezone as _tz
+
+    b_actor = request.GET.get("b_actor", "").strip()[:64]
+    b_action = request.GET.get("b_action", "").strip()[:64]
+    b_from_raw = request.GET.get("b_from", "").strip()[:10]
+    b_to_raw = request.GET.get("b_to", "").strip()[:10]
+    audit_filter_notes = []
+
+    def _day(raw, label):
+        if not raw:
+            return None
+        try:
+            return datetime.strptime(raw, "%Y-%m-%d").date()
+        except ValueError:
+            audit_filter_notes.append(f"The {label} date was not a date (use YYYY-MM-DD), so it was ignored.")
+            return None
+
+    b_from, b_to = _day(b_from_raw, "From"), _day(b_to_raw, "To")
+    biz_qs = AuditLog.objects.select_related("actor").order_by("-created_at")
+    if b_actor:
+        biz_qs = biz_qs.annotate(_actor_u=_Upper("actor__employee_id")).filter(_actor_u__contains=b_actor.upper())
+    if b_action:
+        biz_qs = biz_qs.annotate(_action_u=_Upper("action")).filter(_action_u__contains=b_action.upper())
+    if b_from:
+        biz_qs = biz_qs.filter(created_at__gte=_tz.make_aware(datetime.combine(b_from, _time.min)))
+    if b_to:
+        biz_qs = biz_qs.filter(created_at__lte=_tz.make_aware(datetime.combine(b_to, _time.max)))
+    business_audits = biz_qs[:30]
 
     # Section 13 & 14 Device Approvals & Security Operations
     pending_device_requests = DeviceApprovalRequest.objects.filter(
@@ -1316,6 +1348,8 @@ def admin_iam_dashboard_view(request):  # noqa: C901
         "super_admins": super_admins,
         "audit_events": audit_events,
         "business_audits": business_audits,
+        "audit_filter": {"actor": b_actor, "action": b_action, "from": b_from_raw if b_from else "", "to": b_to_raw if b_to else ""},
+        "audit_filter_notes": audit_filter_notes,
         "departments": departments,
         "teams": teams,
         "memberships": memberships,
