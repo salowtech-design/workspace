@@ -6979,6 +6979,64 @@ def pdf_marks_flat_geo(ctx):  # noqa: C901
         pg.wait_for_timeout(500)
 
 
+def pdf_text_stale(ctx):  # noqa: C901
+    """A text pick that finishes after the file was closed must not add a mark or write its message over the new state."""
+    pg = fresh(ctx, "/pdf/")
+    pg.set_viewport_size({"width": 1280, "height": 900})
+    pg.reload()
+    pg.set_input_files(
+        "#pdf-open",
+        files=[
+            {"name": "a.pdf", "mimeType": "application/pdf", "buffer": _n_page_pdf(2, "Report")}
+        ],
+    )
+    for _ in range(50):
+        if pg.inner_text("#pdf-where").startswith("Page 1 of 2") and pg.evaluate(
+            "document.getElementById('pdf-canvas').width > 1"
+        ):
+            break
+        pg.wait_for_timeout(250)
+    pg.wait_for_timeout(900)
+    pg.click("#pdf-tool-tx")
+    res = pg.evaluate(
+        """(() => {
+      const s = document.getElementById('pdf-marks'), r = s.getBoundingClientRect();
+      const ev = (t, fx, fy) => s.dispatchEvent(new PointerEvent(t, { pointerId: 7, button: 0, bubbles: true, clientX: r.left + fx * r.width, clientY: r.top + fy * r.height }));
+      ev('pointerdown', 0.05, 0.05); ev('pointerup', 0.95, 0.2);
+      const busyAfterUp = document.getElementById('pdf-markstatus').textContent;
+      document.getElementById('pdf-close').click();
+      return busyAfterUp;
+    })()"""
+    )
+    pg.wait_for_timeout(1200)
+    st = pg.inner_text("#pdf-markstatus")
+    check(
+        "stale text pick: the pick was under way when the file was closed",
+        "Finding text" in res,
+        res,
+    )
+    check(
+        "stale text pick: after the file is closed the late result adds nothing and does not write its own message",
+        "page changed" not in st
+        and "Text-line highlight added" not in st
+        and pg.locator("#pdf-marklist li").count() == 0,
+        st,
+    )
+    pg.set_input_files(
+        "#pdf-open",
+        files=[{"name": "b.pdf", "mimeType": "application/pdf", "buffer": _n_page_pdf(2, "Other")}],
+    )
+    for _ in range(50):
+        if pg.inner_text("#pdf-where").startswith("Page 1 of 2"):
+            break
+        pg.wait_for_timeout(250)
+    pg.wait_for_timeout(800)
+    check(
+        "stale text pick: the next file's tools are usable and marks empty",
+        not pg.is_disabled("#pdf-tool-tx") and pg.locator("#pdf-marklist li").count() == 0,
+    )
+
+
 def pdf_order(ctx):  # noqa: C901
     """Reorder and remove pages from a list, then download that order."""
     shots = os.environ.get("DRILL_SHOTS", "/tmp")  # noqa: S108
@@ -7611,6 +7669,7 @@ DRILLS = {
     "pdf_marks_keep": pdf_marks_keep,
     "pdf_marks_shot": pdf_marks_shot,
     "pdf_text_hl": pdf_text_hl,
+    "pdf_text_stale": pdf_text_stale,
     "pdf_marks_flat": pdf_marks_flat,
     "pdf_marks_flat_geo": pdf_marks_flat_geo,
     "pdf_text_hl_rot": pdf_text_hl_rot,
