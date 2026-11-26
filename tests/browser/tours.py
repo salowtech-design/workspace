@@ -262,6 +262,7 @@ def register(g):
     register_search_tour(g, users)
     register_att_checkout(g, users)
     register_chat_gaps(g)
+    register_task_conflict(g)
     register_posts_more(g, users)
 
 
@@ -2478,3 +2479,53 @@ def register_chat_gaps(g):
         run_tour(ctx, "39_chat_gaps", body, notes="Real Django on TiDB under uvicorn, headless Chromium 390x844 emulated. Fixture by script: 106 messages from a second person, one from me, and the second person's two reactions on mine.", unshown=["Newer link", "live polling", "edit/delete/files/search (not built)"])
 
     g["DRILLS"]["tour_chat_gaps"] = tour
+
+
+def register_task_conflict(g):
+    APP = g["APP"]
+
+    def tour(ctx):
+        import concurrent.futures
+
+        import django
+
+        django.setup()
+        ids = {}
+
+        def run(fn):
+            with concurrent.futures.ThreadPoolExecutor(1) as ex:
+                return ex.submit(fn).result()
+
+        def make():
+            from apps.accounts.models import CustomUser
+            from apps.tasks.models import Task, TaskList
+
+            me = CustomUser.objects.get(employee_id="ST-LIVE-1")
+            lst = TaskList.objects.create(owner=me, name="Conflict list")
+            t = Task.objects.create(task_list=lst, title="Original title", created_by=me)
+            ids["t"] = str(t.public_id)
+
+        def other_edit():
+            from apps.accounts.models import CustomUser
+            from apps.tasks import services as svc
+            from apps.tasks.models import Task
+
+            me = CustomUser.objects.get(employee_id="ST-LIVE-1")
+            t = Task.objects.get(public_id=ids["t"])
+            svc.update_task(me, t, t.version, title="Title saved by another tab")
+
+        run(make)
+
+        def body(t, pg):
+            txt = lambda: pg.inner_text("body")
+            pg.goto(APP + "/tasks/task/%s/edit/" % ids["t"])
+            t.step("Open the edit page (version 1 is loaded in this tab)", expect=lambda: "Edit task" in txt(), wait=2200)
+            t.step("Type my own new title", lambda: pg.fill("input[name=title]", "My new title from this tab"), expect=lambda: pg.input_value("input[name=title]").startswith("My new"), wait=2400)
+            t.step("Meanwhile the task is saved by another tab (done by script, not on screen)", lambda: run(other_edit), expect=lambda: True, wait=1500)
+            t.step("Press Save: refused, conflict box shows the saved title; my text stays in the form", lambda: (pg.click("form.tasks-form button[type=submit]"), pg.evaluate("window.scrollTo(0,0)")), expect=lambda: "were not saved" in txt() and "Title saved by another tab" in txt() and pg.input_value("input[name=title]").startswith("My new"), wait=5000)
+            t.step("Press Save again: now it replaces the saved version", lambda: pg.click("form.tasks-form button[type=submit]"), expect=lambda: "My new title from this tab" in txt() and "were not saved" not in txt(), wait=3500)
+            t.note("Not shown: a conflict from a second signed-in person, the same conflict on project tasks.", 3)
+
+        run_tour(ctx, "40_task_conflict", body, notes="Real Django on TiDB under uvicorn, headless Chromium 390x844 emulated. The competing edit is a script call to the task service while the form is open; it is not a second user.", unshown=["second signed-in person", "project task conflict"])
+
+    g["DRILLS"]["tour_task_conflict"] = tour
