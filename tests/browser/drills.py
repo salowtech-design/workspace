@@ -8041,7 +8041,7 @@ def task_assign_second(ctx):
     check("assign second: the lead assigns the member and the card says so", pg.locator("text=Assigned to Second Member").count() == 1)
 
     ctx2 = ctx.browser.new_context(viewport={"width": 390, "height": 800})
-    errs, only_loopback = ctx.salow_hooks
+    errs, _remote, only_loopback = ctx.salow_hooks
     ctx2.route("**/*", only_loopback)  # same request-leak check as the first context
     pg2 = ctx2.new_page()
     pg2.on("pageerror", lambda e: errs.append(scrub(e)))  # same page-error check
@@ -8089,7 +8089,35 @@ def task_assign_second(ctx):
     pg2.close()
 
 
+def second_context_selftest(ctx):
+    """Proves the second context is covered by the shared checks: a page error and an off-machine
+    request made in a second context land in the shared lists (then the lists are cleared so the
+    run's own end checks are not tripped by this deliberate injection)."""
+    errs, remote, only_loopback = ctx.salow_hooks
+    c2 = ctx.browser.new_context()
+    c2.route("**/*", only_loopback)
+    p2 = c2.new_page()
+    p2.on("pageerror", lambda e: errs.append(scrub(e)))
+    p2.goto(APP + "/health")
+    n_err, n_rem = len(errs), len(remote)
+    p2.evaluate("setTimeout(function(){ throw new Error('selftest page error'); }, 0)")
+    p2.wait_for_timeout(300)
+    try:
+        p2.goto("http://203.0.113.1:9/x", timeout=3000)  # blocked by the route, so nothing leaves the machine
+    except Exception:  # noqa: BLE001, S110 - the abort is the expected outcome
+        pass
+    check("second context selftest: its page error reaches the shared list", len(errs) == n_err + 1, str(len(errs) - n_err))
+    check("second context selftest: its off-machine request is blocked and recorded", len(remote) == n_rem + 1 and remote[-1].startswith("http://203.0.113.1"), str(remote[-1:]))
+    p2.close()
+    c2.close()
+    pg0 = ctx.pages[0]
+    pg0.wait_for_timeout(500)  # a late repeat of the injected error would arrive by now
+    errs[:] = [e for e in errs if "selftest page error" not in str(e)]  # only the deliberate one
+    del remote[n_rem:]
+
+
 DRILLS = {
+    "second_context_selftest": second_context_selftest,
     "task_assign_second": task_assign_second,
     "finder_projects": finder_projects,
     "task_filters": task_filters,
@@ -8185,7 +8213,7 @@ def run_group(p, names, secure, state=None, keep=None):  # noqa: C901
             route.abort()
 
     ctx.route("**/*", only_loopback)
-    ctx.salow_hooks = (errs, only_loopback)  # a drill that opens a second context attaches the same checks
+    ctx.salow_hooks = (errs, remote, only_loopback)  # a drill that opens a second context attaches the same checks
     pg = ctx.new_page()
     pg.on("pageerror", lambda e: errs.append(scrub(e)))
     try:

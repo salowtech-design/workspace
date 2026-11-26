@@ -1067,8 +1067,52 @@ def test_assigned_page_hides_deleted_tasks_and_a_task_whose_assignee_is_not_a_me
     t2 = pj.add_task(a, p, p.columns.first().pk, "Stale assignee")
     pj.assign_task(a, t1, m)
     pj.assign_task(a, t2, m)
+
+    def page():
+        return _c(m).get(reverse("tasks:assigned")).content.decode()
+
+    assert "Deleted one" in page() and "Stale assignee" in page()  # both listed first
     pj.delete_task(a, t1)
-    # a removal that leaves the old assignee on the task (the stale-assignee case the card keeps showing)
+    html = page()
+    assert "Deleted one" not in html  # the deleted task is the only change
+    assert "Stale assignee" in html  # the other is still listed before the removal
     ProjectMember.objects.filter(pk=mem.pk).update(removed_at=timezone.now())
-    html = _c(m).get(reverse("tasks:assigned")).content.decode()
-    assert "Deleted one" not in html and "Stale assignee" not in html
+    assert "Stale assignee" not in page()  # a removed member's old assignment is hidden
+
+
+@pytest.mark.django_db
+def test_assigned_page_deleted_filter_and_membership_filter_each_discriminate(monkeypatch):
+    """Controls: with only the deleted-task filter dropped a deleted task shows; with only the
+    membership filter dropped a removed member's task shows."""
+    from django.utils import timezone
+
+    a, m = _u("AC-A"), _u("AC-M")
+    p = pj.create_project(a, "Ctl proj")
+    mem = _member(p, m)
+    t1 = pj.add_task(a, p, p.columns.first().pk, "Ctl deleted")
+    pj.assign_task(a, t1, m)
+    pj.delete_task(a, t1)
+    real = pj.assigned_in_projects
+
+    def no_deleted_filter(user):
+        from apps.tasks.models import ProjectTask
+
+        return ProjectTask.objects.filter(assignee=user, project__members__person=user, project__members__removed_at__isnull=True).select_related("project", "column")
+
+    monkeypatch.setattr(pj, "assigned_in_projects", no_deleted_filter)
+    assert "Ctl deleted" in _c(m).get(reverse("tasks:assigned")).content.decode()  # control shows it
+    monkeypatch.setattr(pj, "assigned_in_projects", real)
+    assert "Ctl deleted" not in _c(m).get(reverse("tasks:assigned")).content.decode()
+    t2 = pj.add_task(a, p, p.columns.first().pk, "Ctl removed")
+    pj.assign_task(a, t2, m)
+    ProjectMember.objects.filter(pk=mem.pk).update(removed_at=timezone.now())
+
+    def no_member_filter(user):
+        from apps.tasks.models import ProjectTask
+
+        return ProjectTask.objects.filter(assignee=user, deleted_at__isnull=True).select_related("project", "column")
+
+    monkeypatch.setattr(pj, "assigned_in_projects", no_member_filter)
+    assert "Ctl removed" in _c(m).get(reverse("tasks:assigned")).content.decode()  # control shows it
+    monkeypatch.setattr(pj, "assigned_in_projects", real)
+    assert "Ctl removed" not in _c(m).get(reverse("tasks:assigned")).content.decode()
