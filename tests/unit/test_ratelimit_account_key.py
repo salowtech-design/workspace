@@ -120,3 +120,28 @@ def test_per_ip_limit_still_applies_to_a_valid_forwarded_address_and_a_fallback_
     for ip in ("203.0.113.50", "garbage"):
         codes = [_fwd_login(ip, path="/auth/activate/")[1].status_code for _ in range(limit + 1)]
         assert codes[-1] == 429, (ip, codes)
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "typed,stored",
+    [
+        ("0000:0000:0000:0000:0000:ffff:255.255.255.255", "::ffff:ffff:ffff"),  # 45 characters, over the 39-character column
+        ("2001:0db8:0000:0000:0000:0000:0000:0001", "2001:db8::1"),  # 39 characters, kept as typed below
+        ("fe80::1%eth0", "fe80::1"),  # a zone id is dropped
+        ("fe80::1%1", "fe80::1"),
+    ],
+)
+def test_long_or_zoned_valid_forwarded_address_is_written_in_a_form_the_column_holds(typed, stored):
+    from apps.accounts.models import AuthEvent
+    from apps.core.middleware import RateLimitMiddleware
+
+    got = RateLimitMiddleware._valid_ip_or_none(typed)
+    if len(typed) <= 39 and "%" not in typed:
+        assert got == typed  # short spellings keep their text, so existing keys do not change
+    else:
+        assert got == stored and len(got) <= 39
+    CustomUser.objects.create_user(employee_id="ZZ-IP-1", full_name="Z", password="Right-Pass-9")
+    _, r = _fwd_login(typed)
+    assert r.status_code == 200
+    assert all((v is None) or len(v) <= 39 for v in AuthEvent.objects.values_list("network_address", flat=True))

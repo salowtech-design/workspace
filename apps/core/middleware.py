@@ -114,13 +114,20 @@ class RateLimitMiddleware:
         import ipaddress
 
         value = (value or "").strip()
-        if not value or len(value) > 45:
+        if not value or len(value) > 64:
             return None
         try:
-            ipaddress.ip_address(value)
-            return value
+            ip = ipaddress.ip_address(value)
         except ValueError:
             return None
+        # The address columns hold at most 39 characters and take no zone id. A short plain spelling
+        # keeps its text (so existing keys do not change); a longer spelling (zero-padded IPv6) or a
+        # zone id is rewritten to the address's canonical text without the zone.
+        if len(value) <= 39 and "%" not in value:
+            return value
+        if ip.version == 6 and getattr(ip, "scope_id", None):
+            ip = ipaddress.ip_address(str(ip).split("%", 1)[0])
+        return str(ip)
 
     def _get_client_ip(self, request) -> str:
         remote_addr = request.META.get("REMOTE_ADDR", "127.0.0.1")
