@@ -40,6 +40,18 @@ const done = (async () => {
   ok("web links are kept, links to pages and page actions are dropped", lt.includes("example.com") && !/\/GoTo/.test(lt));
   const lk2 = await (async () => { const d = await P.PDFDocument.load(lk); const p = d.getPages(); p[0].node.set(P.PDFName.of("Odd"), d.context.obj([p[1].ref])); return d.save({ useObjectStreams: false }); })();
   ok("a reference the page cleaner does not know about is caught by the page-count check and the copy is refused", (await code([{ bytes: lk2, pages: [1], name: "lk2" }])) === "leak");
+  // Populated actions: scripts, chains and page-level actions must be gone from the copy, a plain web link must stay.
+  const act = await (async () => { const d = await P.PDFDocument.create(), pg = d.addPage([300, 300]), x = d.context, R = (o) => x.register(x.obj(o));
+    const js = { S: "JavaScript", JS: P.PDFString.of("app.alert(JSMARK1)") };
+    const w = R({ Type: "Annot", Subtype: "Widget", FT: "Btn", Rect: [10, 10, 60, 30], A: js, AA: { E: js } });
+    const chain = R({ Type: "Annot", Subtype: "Link", Rect: [10, 40, 60, 60], A: { S: "URI", URI: P.PDFString.of("https://example.com/a"), Next: { S: "JavaScript", JS: P.PDFString.of("app.alert(JSMARK2)") } } });
+    const lnk = R({ Type: "Annot", Subtype: "Link", Rect: [10, 70, 60, 90], A: { S: "URI", URI: P.PDFString.of("https://example.com/b") } });
+    const launch = R({ Type: "Annot", Subtype: "Link", Rect: [10, 100, 60, 120], A: { S: "Launch", F: P.PDFString.of("LAUNCHMARK") } });
+    pg.node.set(P.PDFName.of("Annots"), x.obj([w, chain, lnk, launch])); pg.node.set(P.PDFName.of("AA"), x.obj({ O: js })); return d.save({ useObjectStreams: false }); })();
+  const at = Buffer.from((await G.build(P, [{ bytes: act, pages: [1], name: "act" }])).bytes).toString("latin1");
+  ok("the source holds the script and launch markers (so the next row can fail)", Buffer.from(act).toString("latin1").includes("JSMARK1") && Buffer.from(act).toString("latin1").includes("LAUNCHMARK"));
+  ok("scripts, chained actions, launch actions and page actions are gone from the copy", !/JSMARK|LAUNCHMARK|\/JavaScript|\/Launch|\/AA/.test(at));
+  ok("a plain web link stays, the web link carrying a chain is dropped", at.includes("example.com/b") && !at.includes("example.com/a"));
   // form pages: the definition is not carried, and that is the stated limit
   const fm = await (async () => { const d = await P.PDFDocument.create(), pg = d.addPage([300, 300]); const t = d.getForm().createTextField("x"); t.setText("val"); t.addToPage(pg, { x: 10, y: 10, width: 100, height: 20 }); return d.save({ useObjectStreams: false }); })();
   const r5 = await G.build(P, [{ bytes: fm, pages: null, name: "fm" }]);
