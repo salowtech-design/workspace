@@ -17,7 +17,7 @@
     <button type="submit" class="btn btn-primary btn-small">Create folder</button>
   </form>
   {% endif %}
-  {% if move_targets and folders or move_targets and files %}<p class="drive-meta">Moving a folder changes who can open it: it takes on the sharing of the folder you move it into and stops using the sharing of the one it leaves. Folders marked (shared) are shared with someone, or sit inside a shared folder. Sharing set directly on the folder stays.{% if move_more %} The Move lists show only the first 50 folders by name.{% endif %}</p>{% endif %}
+  {% if move_targets and folders or move_targets and files %}<p class="drive-meta">Moving an item changes who can open it: it takes on the sharing of the folder you move it into and stops using the sharing of the one it leaves. Folders marked (shared) are shared with someone, or sit inside a shared folder. Sharing set directly on the item stays. If a move would give more people access, you are asked to confirm it first.{% if move_more %} The Move lists show only the first 50 folders by name.{% endif %}</p>{% endif %}
   {% for f in folders %}
   <div class="drive-row">
     <a class="drive-name" href="{% url 'drive:folder' f.public_id %}">{{ f.name }}</a>

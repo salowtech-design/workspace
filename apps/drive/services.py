@@ -529,6 +529,54 @@ def move(user, item, destination):
     return item
 
 
+_ROLE_RANK = {"viewer": 1, "commenter": 2, "editor": 3}
+
+
+def _chain_ids(folder):
+    ids, n = [], 0
+    while folder is not None and n <= policy.MAX_DEPTH + 1:
+        ids.append(folder.pk)
+        folder = folder.parent
+        n += 1
+    return ids
+
+
+def _best_roles(item, parent_folder):
+    """{person id: strongest role} from shares on the item itself and on the folders above it
+    when it sits in `parent_folder`. Read-only; the same inheritance rule as policy.role_for."""
+    q = Share.objects.filter(folder_id__in=_chain_ids(parent_folder))
+    if isinstance(item, DriveFile):
+        q = Share.objects.filter(file=item) | q
+    else:
+        q = Share.objects.filter(folder=item) | q
+    out = {}
+    for uid, role in q.values_list("user_id", "role"):
+        if _ROLE_RANK.get(role, 0) > _ROLE_RANK.get(out.get(uid), 0):
+            out[uid] = role
+    return out
+
+
+def move_audience(item, destination):
+    """Who would gain or lose access to `item` if it moved into `destination` (None = top level).
+    Returns (gain, lose): gain is [(user, new role, old role or None)] for people who get access or a
+    stronger role; lose is [(user, old role, new role or None)] for people who lose it or get a weaker
+    role. Shares set directly on the item stay. Nothing is changed."""
+    current = item.folder if isinstance(item, DriveFile) else item.parent
+    before, after = _best_roles(item, current), _best_roles(item, destination)
+    ids = (set(before) | set(after)) - {item.owner_id}
+    users = {u.pk: u for u in get_user_model().objects.filter(pk__in=ids)}
+    gain, lose = [], []
+    for uid in sorted(ids, key=lambda i: (users[i].employee_id if i in users else "")):
+        if uid not in users:
+            continue
+        b, a = before.get(uid), after.get(uid)
+        if a and _ROLE_RANK[a] > _ROLE_RANK.get(b, 0):
+            gain.append((users[uid], a, b))
+        elif b and _ROLE_RANK[b] > _ROLE_RANK.get(a, 0):
+            lose.append((users[uid], b, a))
+    return gain, lose
+
+
 def _descendants(folder):
     folders, frontier = [folder], [folder.pk]
     while frontier:

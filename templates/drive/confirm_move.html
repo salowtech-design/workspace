@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block title %}Confirm move: Salow Drive{% endblock %}
+{% block extra_head %}<link rel="stylesheet" href="/static/css/drive.css">{% endblock %}
+{% block content %}
+<div class="card drive">
+  <div class="drive-head"><h2>Confirm move</h2></div>
+  <p>Move <strong>{{ item.name }}</strong> into <strong>{% if destination %}{{ destination.name }}{% else %}the top level of My Drive{% endif %}</strong>?</p>
+  <p class="drive-meta">This gives more people access to {{ item.name }}, because it takes on the sharing of the place you move it into.</p>
+  {% if owner %}
+  <ul>{% for u, new, old in gain %}<li>{{ u.full_name }} ({{ u.employee_id }}) {% if old %}goes from {{ old }} to {{ new }}{% else %}gets access as {{ new }}{% endif %}</li>{% endfor %}</ul>
+  {% else %}
+  <p>{{ gain|length }} {% if gain|length == 1 %}person gets{% else %}people get{% endif %} new or stronger access.</p>
+  {% endif %}
+  {% if lose %}
+  <p class="drive-meta">{% if owner %}These people lose access or get a weaker role, because they had it through the place it is leaving:{% else %}{{ lose|length }} {% if lose|length == 1 %}person loses{% else %}people lose{% endif %} access or get a weaker role.{% endif %}</p>
+  {% if owner %}<ul>{% for u, old, new in lose %}<li>{{ u.full_name }} ({{ u.employee_id }}) {% if new %}goes from {{ old }} to {{ new }}{% else %}loses {{ old }} access{% endif %}</li>{% endfor %}</ul>{% endif %}
+  {% endif %}
+  <p class="drive-meta">Sharing set directly on {{ item.name }} stays as it is.</p>
+  <form method="post" action="{% url 'drive:move' kind item.public_id %}" class="drive-inline">{% csrf_token %}<input type="hidden" name="destination" value="{% if destination %}{{ destination.public_id }}{% endif %}"><input type="hidden" name="confirm" value="1"><button class="btn btn-primary btn-small" type="submit">Move and share</button> <a class="btn btn-secondary btn-small" href="{{ back }}">Cancel</a></form>
+</div>
+{% endblock %}

@@ -265,6 +265,7 @@ def register(g):
     register_task_conflict(g)
     register_sessions_scroll(g, users)
     register_drive_move(g)
+    register_drive_confirm(g, users)
     register_posts_more(g, users)
 
 
@@ -2612,3 +2613,42 @@ def register_drive_move(g):
         run_tour(ctx, "42_drive_move", body, notes="Real Django on TiDB, headless Chromium 390x844 emulated. Two folders created by script.", unshown=["move to top level", "refused moves", "files", "viewer refusal"])
 
     g["DRILLS"]["tour_drive_move"] = tour
+
+
+def register_drive_confirm(g, users):
+    APP = g["APP"]
+
+    def tour(ctx):
+        import concurrent.futures
+
+        users(ctx)
+
+        def make():
+            from apps.accounts.models import CustomUser
+            from apps.drive import services as svc
+
+            me = CustomUser.objects.get(employee_id="ST-LIVE-1")
+            two = CustomUser.objects.get(employee_id="ST-LIVE-2")
+            box = svc.create_folder(me, "Team box")
+            svc.share(me, box, two, "viewer")
+            svc.create_folder(me, "Reports")
+
+        with concurrent.futures.ThreadPoolExecutor(1) as ex:
+            ex.submit(make).result()
+
+        def body(t, pg):
+            txt = lambda: pg.inner_text("body")
+            rowp = ".drive-row:has(a.drive-name:text-is('%s'))"
+            show = lambda name: pg.evaluate("n=>{const r=[...document.querySelectorAll('.drive-row')].find(x=>x.querySelector('.drive-name').textContent.trim()===n); r.scrollIntoView({block:'center'})}", name)
+            pg.goto(APP + "/drive/")
+            t.step("My Drive: Team box is marked (shared); Reports is private", lambda: show("Reports"), expect=lambda: "Team box (shared)" in pg.locator(rowp % "Reports").inner_html(), wait=3500)
+            t.step("On the Reports row choose Team box (shared)", lambda: pg.locator(rowp % "Reports" + " select[name=destination]").select_option(label="Team box (shared)"), expect=lambda: True, wait=3000)
+            t.step("Press Move: a confirmation page opens first, nothing has moved yet", lambda: pg.locator(rowp % "Reports" + " button:text-is('Move')").click(), expect=lambda: "Confirm move" in txt(), wait=3000)
+            t.step("It names who gets access: Second Synthetic as viewer", lambda: pg.evaluate("document.querySelector('ul li').scrollIntoView({block:'center'})"), expect=lambda: "Second Synthetic (ST-LIVE-2) gets access as viewer" in txt(), wait=4500)
+            t.step("Press Move and share: Reports moves into Team box", lambda: pg.click("button:text-is('Move and share')"), expect=lambda: "Moved." in txt(), wait=2000)
+            t.step("Team box page lists Reports inside it", lambda: show("Reports"), expect=lambda: "Reports" in txt(), wait=4000)
+            t.note("Not shown: Cancel, the list of people who lose access, a non-owner's count-only view.", 3)
+
+        run_tour(ctx, "43_drive_move_confirm", body, notes="Real Django on TiDB, headless Chromium 390x844 emulated. Fixture by script: folder Team box shared with Second Synthetic (viewer) and a private folder Reports.", unshown=["Cancel", "people who lose access", "non-owner count view"])
+
+    g["DRILLS"]["tour_drive_confirm"] = tour

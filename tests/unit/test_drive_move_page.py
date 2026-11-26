@@ -1,4 +1,4 @@
-"""Moving a folder through the page: the service rules (owner, destination access, no cycles) hold through the view."""
+"""Moving an item through the page: the service rules (owner, destination access, no cycles) hold through the view."""
 import uuid
 
 import pytest
@@ -118,7 +118,7 @@ def test_move_to_the_place_it_already_is_changes_nothing():
 
 
 @pytest.mark.django_db
-def test_move_changes_what_the_viewer_can_open_and_the_page_marks_shared_folders():
+def test_move_into_a_shared_folder_asks_first_names_who_gains_and_moves_only_on_confirm():
     from apps.core.foundation.permissions import can
 
     a, v = _u("MV-N"), _u("MV-O")
@@ -127,10 +127,76 @@ def test_move_changes_what_the_viewer_can_open_and_the_page_marks_shared_folders
     one = svc.create_folder(a, "One", parent=private)
     assert not can(v, "view", "drive.folder", one)
     html = _c(a).get(reverse("drive:folder", args=[private.public_id])).content.decode()
-    assert "Shared box (shared)" in html and "Private box (shared)" not in html and "takes on the sharing of the folder you move it into" in html
-    _move(_c(a), one, str(shared.public_id))
+    assert "Shared box (shared)" in html and "Private box (shared)" not in html and "Moving an item changes who can open it" in html
+    url = reverse("drive:move", args=["folder", one.public_id])
+    r = _c(a).post(url, {"destination": str(shared.public_id)})  # first press: only the question
     one.refresh_from_db()
-    assert can(v, "view", "drive.folder", one)  # moving into a shared folder widened the audience
+    body = r.content.decode()
+    assert one.parent_id == private.pk and not can(v, "view", "drive.folder", one)
+    assert "Confirm move" in body and "Person MV-O (MV-O) gets access as viewer" in body and "Shared box" in body
+    r = _c(a).post(url, {"destination": str(shared.public_id), "confirm": "1"}, follow=True)
+    one.refresh_from_db()
+    assert one.parent_id == shared.pk and b"Moved." in r.content
+    assert can(v, "view", "drive.folder", one)
+
+
+@pytest.mark.django_db
+def test_a_move_that_only_narrows_access_does_not_ask():
+    a, v = _u("MV-R"), _u("MV-S")
+    shared, private = svc.create_folder(a, "Shared box"), svc.create_folder(a, "Private box")
+    svc.share(a, shared, v, "viewer")
+    one = svc.create_folder(a, "One", parent=shared)
+    gain, lose = svc.move_audience(one, private)
+    assert gain == [] and [(u.employee_id, old, new) for u, old, new in lose] == [("MV-S", "viewer", None)]
+    r = _move(_c(a), one, str(private.public_id))
+    one.refresh_from_db()
+    assert one.parent_id == private.pk and b"Moved." in r.content
+
+
+@pytest.mark.django_db
+def test_a_stronger_role_at_the_destination_counts_as_gain_and_direct_shares_stay():
+    a, v = _u("MV-T"), _u("MV-U")
+    src, dst = svc.create_folder(a, "Src"), svc.create_folder(a, "Dst")
+    svc.share(a, src, v, "viewer")
+    svc.share(a, dst, v, "editor")
+    one = svc.create_folder(a, "One", parent=src)
+    gain, lose = svc.move_audience(one, dst)
+    assert [(u.employee_id, new, old) for u, new, old in gain] == [("MV-U", "editor", "viewer")] and lose == []
+    svc.share(a, one, v, "editor")  # a direct share on the item itself stays whatever the destination
+    assert svc.move_audience(one, svc.create_folder(a, "Plain")) == ([], [])
+
+
+@pytest.mark.django_db
+def test_file_move_audience_counts_the_destination_shares_and_keeps_the_files_own_share():
+    a, v, w = _u("MV-V"), _u("MV-W"), _u("MV-X")
+    dest = svc.create_folder(a, "Dest")
+    svc.share(a, dest, w, "editor")
+    f = DriveFile.objects.create(owner=a, name="plan.txt", created_by=a)
+    svc.share(a, f, v, "viewer")  # shared directly with v
+    gain, lose = svc.move_audience(f, dest)
+    assert [(u.employee_id, new) for u, new, _ in gain] == [("MV-X", "editor")] and lose == []
+    url = reverse("drive:move", args=["file", f.public_id])
+    r = _c(a).post(url, {"destination": str(dest.public_id)})
+    f.refresh_from_db()
+    assert f.folder_id is None and b"Person MV-X (MV-X) gets access as editor" in r.content
+    _c(a).post(url, {"destination": str(dest.public_id), "confirm": "1"})
+    f.refresh_from_db()
+    assert f.folder_id == dest.pk and v.drive_shares.filter(file=f).exists()
+
+
+@pytest.mark.django_db
+def test_a_non_owner_who_may_move_sees_only_how_many_people_gain_access():
+    a, e, v = _u("MV-Y"), _u("MV-Z"), _u("MV-AA")
+    src, dst = svc.create_folder(a, "Src"), svc.create_folder(a, "Dst")
+    svc.share(a, src, e, "editor")
+    svc.share(a, dst, e, "editor")
+    svc.share(a, dst, v, "viewer")
+    one = svc.create_folder(a, "One", parent=src)
+    r = _c(e).post(reverse("drive:move", args=["folder", one.public_id]), {"destination": str(dst.public_id)})
+    body = r.content.decode()
+    one.refresh_from_db()
+    assert one.parent_id == src.pk and "Confirm move" in body
+    assert "1 person gets new or stronger access." in body and "MV-AA" not in body
 
 
 @pytest.mark.django_db

@@ -194,6 +194,23 @@ def move_item(request, kind, item_id):
         if destination is None or not can(request.user, "view", "drive.folder", destination):
             messages.error(request, "That destination folder was not found.")
             return _back(item)
+    if request.POST.get("confirm") != "1":
+        gain, lose = svc.move_audience(item, destination)
+        if gain:  # widening: show who gets access and wait for a second press
+            owner = item.owner_id == request.user.pk
+            return render(
+                request,
+                "drive/confirm_move.html",
+                {
+                    "item": item,
+                    "kind": kind,
+                    "destination": destination,
+                    "owner": owner,  # names only for the owner; others see counts
+                    "gain": gain,
+                    "lose": lose,
+                    "back": _back(item).url,
+                },
+            )
     _run(request, svc.move, request.user, item, destination, ok="Moved.")
     return _back(item)
 
