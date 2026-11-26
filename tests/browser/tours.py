@@ -257,6 +257,7 @@ def register(g):
     register_pdf_more(g)
     register_slides_more(g)
     register_att_more(g, users)
+    register_certs_more(g)
     register_posts_more(g, users)
 
 
@@ -2233,3 +2234,75 @@ def register_att_more(g, users):
         run_tour(ctx, "34_attendance_review", body, notes="Real Django on TiDB, headless Chromium 390x844 emulated. Fixture: the signed-in account was made HR, then Manager of Second Synthetic, by script; pending requests created by script. Check-in still uses the dev stub elsewhere.", unshown=["Admin view", "non-report approval attempt via crafted request", "worker's own page after approval"])
 
     g["DRILLS"]["tour_att_more"] = tour
+
+
+def register_certs_more(g):
+    APP = g["APP"]
+
+    def tour(ctx):
+        import concurrent.futures
+        import datetime as dt
+        import os
+
+        import django
+
+        django.setup()
+        os.makedirs("/tmp/vid/dl", exist_ok=True)
+        ids = {}
+
+        def run(fn):
+            with concurrent.futures.ThreadPoolExecutor(1) as ex:
+                return ex.submit(fn).result()
+
+        def fixture():
+            from apps.accounts.models import CustomUser
+            from apps.certificates import services as cs
+            from apps.certificates.models import CertificateTemplate
+
+            me = CustomUser.objects.get(employee_id="ST-LIVE-1")
+            me.role = CustomUser.Role.ADMIN
+            me.save(update_fields=["role"])
+            two = CustomUser.objects.get_or_create(employee_id="ST-LIVE-2", defaults={"full_name": "Second Synthetic", "email": "st-live-2@salowtech.com", "email_verified": True, "role": CustomUser.Role.EMPLOYEE, "status": CustomUser.Status.ACTIVE, "is_active": True})[0]
+            tpl = CertificateTemplate.objects.get_or_create(code="TOUR-EXC", defaults={"title": "Excellence", "description_template": "For excellent work."})[0]
+            a = cs.issue_certificate(recipient=two, title="Certificate of Teamwork", description="Great teamwork.", issued_by=me, template=tpl)
+            b = cs.issue_certificate(recipient=two, title="Certificate of Safety", description="Safety record.", issued_by=me, template=tpl)
+            cs.revoke_certificate(certificate=b, revoked_by=me, reason="Fixture: revoked to show Reissue")
+            ids.update(a=str(a.uuid), b=str(b.uuid))
+
+        run(fixture)
+
+        def body(t, pg):
+            txt = lambda: pg.inner_text("body")
+            top = lambda: pg.evaluate("window.scrollTo(0,0)")
+            pg.goto(APP + "/certificates/")
+            t.step("Certificate list as Admin: two certificates", expect=lambda: "Teamwork" in txt() and "Safety" in txt(), wait=2400)
+            pg.goto(APP + "/certificates/?status=revoked")
+            t.step("Filter Revoked: only the Safety certificate", lambda: top(), expect=lambda: "Safety" in txt() and "Teamwork" not in txt(), wait=3000)
+            pg.goto(APP + "/certificates/?status=active")
+            t.step("Filter Active: only the Teamwork certificate", lambda: top(), expect=lambda: "Teamwork" in txt() and "Safety" not in txt(), wait=3000)
+            pg.goto(APP + "/certificates/?q=Safety")
+            t.step("Search Safety: one result", lambda: top(), expect=lambda: "Safety" in txt() and "Teamwork" not in txt(), wait=3000)
+            pg.goto(APP + "/certificates/%s/" % ids["a"])
+            t.step("Open the Teamwork certificate", lambda: pg.evaluate("document.querySelector('.certificate-frame').scrollIntoView({block:'start'})"), expect=lambda: "Teamwork" in txt(), wait=3000)
+            with open("/tmp/vid/dl/cert.pdf", "wb") as f:
+                f.write(pg.pdf(prefer_css_page_size=True))
+            t.step("Raw SVG link opens the certificate as an SVG image", lambda: pg.goto(APP + "/certificates/%s/svg/" % ids["a"]), expect=lambda: "/svg/" in pg.url, wait=3500)
+            svg = pg.content()
+            open("/tmp/vid/dl/cert.svg.html", "w").write(svg)
+            pg.goto(APP + "/certificates/%s/" % ids["b"])
+            t.step("The revoked certificate offers Reissue", lambda: pg.evaluate("[...document.querySelectorAll('a')].find(a=>a.textContent.indexOf('Reissue')>=0).scrollIntoView({block:'center'})"), expect=lambda: "HAS BEEN REVOKED" in txt() and "Reissue this certificate" in txt(), wait=3200)
+            t.step("Reissue: the form says it replaces the revoked one", lambda: pg.click("a:has-text('Reissue this certificate')"), expect=lambda: "Reissuing" in txt(), wait=3000)
+            def fillre():
+                pg.evaluate("document.getElementById('id_recipient').scrollIntoView({block:'center'})")
+                pg.fill("#id_title", "Certificate of Safety (reissued)")
+                pg.fill("#id_expiry_date", (dt.date.today() + dt.timedelta(days=365)).isoformat())
+            t.step("Set a new title and an expiry date a year out", fillre, expect=lambda: pg.input_value("#id_expiry_date") != "", wait=2800)
+            t.step("Issue it: the new certificate page opens", lambda: pg.click("form:has(#id_title) button[type=submit]"), expect=lambda: "reissued" in txt().lower(), wait=2500)
+            t.step("The new certificate with its dates", lambda: pg.evaluate("document.querySelector('.certificate-frame').scrollIntoView({block:'start'})"), expect=lambda: True, wait=3200)
+            pg.goto(APP + "/certificates/%s/" % ids["b"])
+            t.step("The old certificate now says it was replaced", lambda: pg.evaluate("[...document.querySelectorAll('a')].find(a=>a.textContent.indexOf('ST-CERT')>=0).scrollIntoView({block:'center'})"), expect=lambda: "Replaced by" in txt(), wait=3200)
+            t.note("Not shown on video: Print / Save PDF dialog (output checked off video), revoke with step-up (clip 13 area), template-driven description text.", 3)
+
+        run_tour(ctx, "35_certificates_more", body, notes="Real Django on TiDB, headless Chromium 390x844 emulated. Fixture: ST-LIVE-1 made Admin; two certificates issued by script, one revoked by script. The browser's print dialog is not recorded.", unshown=["Print / Save PDF dialog", "template description text", "revoke step-up (earlier clip)"])
+
+    g["DRILLS"]["tour_certs_more"] = tour
