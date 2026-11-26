@@ -17,14 +17,14 @@
     <button type="submit" class="btn btn-primary btn-small">Create folder</button>
   </form>
   {% endif %}
-  {% if move_targets and folders or move_targets and files %}<p class="drive-meta">Moving an item changes who can open it: it takes on the sharing of the folder you move it into and stops using the sharing of the one it leaves. Folders marked (shared) are shared with someone, or sit inside a shared folder. Sharing set directly on the item stays. If a move would give more people access, you are asked to confirm it first.{% if move_more %} The Move lists show only the first 50 folders by name.{% endif %}</p>{% endif %}
+  {% if move_targets and folders or move_targets and files %}<p class="drive-meta">Moving an item changes who can open it: it takes on the sharing of the folder you move it into and stops using the sharing of the one it leaves. Folders marked (shared) are shared with someone, or sit inside a shared folder. Sharing set directly on the item stays. If a move would give more people access, you are asked to confirm it first.{% if move_more %} The Move lists show only the first 50 folders by name. Use Find folder beside Move to search by name.{% endif %}</p>{% endif %}
   {% for f in folders %}
   <div class="drive-row">
     <a class="drive-name" href="{% url 'drive:folder' f.public_id %}">{{ f.name }}</a>
     <span class="drive-meta">Folder</span>
     {% if can_edit %}
     <form method="post" action="{% url 'drive:rename' 'folder' f.public_id %}" class="drive-inline">{% csrf_token %}<input type="text" name="name" class="form-input" value="{{ f.name }}" maxlength="200" aria-label="New name"><button class="btn btn-secondary btn-small" type="submit">Rename</button></form>
-    {% if move_targets %}<form method="post" action="{% url 'drive:move' 'folder' f.public_id %}" class="drive-inline">{% csrf_token %}<select name="destination" class="form-input" aria-label="Move to"><option value="">Top level</option>{% for t in move_targets %}{% if t.pk != f.pk %}<option value="{{ t.public_id }}">{{ t.name }}{% if t.shared %} (shared){% endif %}</option>{% endif %}{% endfor %}</select><button class="btn btn-secondary btn-small" type="submit">Move</button></form>{% endif %}
+    {% if move_targets %}<form method="post" action="{% url 'drive:move' 'folder' f.public_id %}" class="drive-inline">{% csrf_token %}<select name="destination" class="form-input" aria-label="Move to"><option value="">Top level</option>{% for t in move_targets %}{% if t.pk != f.pk %}<option value="{{ t.public_id }}">{{ t.name }}{% if t.shared %} (shared){% endif %}</option>{% endif %}{% endfor %}</select><button class="btn btn-secondary btn-small" type="submit">Move</button> <a class="drive-meta" href="{% url 'drive:move_find' 'folder' f.public_id %}">Find folder</a></form>{% endif %}
     <form method="post" action="{% url 'drive:trash_item' 'folder' f.public_id %}" class="drive-inline">{% csrf_token %}<button class="btn btn-secondary btn-small" type="submit">Move to trash</button></form>
     {% endif %}
   </div>
@@ -35,7 +35,7 @@
     <span class="drive-meta">File</span>
     {% if can_edit %}
     <form method="post" action="{% url 'drive:rename' 'file' f.public_id %}" class="drive-inline">{% csrf_token %}<input type="text" name="name" class="form-input" value="{{ f.name }}" maxlength="200" aria-label="New name"><button class="btn btn-secondary btn-small" type="submit">Rename</button></form>
-    {% if move_targets %}<form method="post" action="{% url 'drive:move' 'file' f.public_id %}" class="drive-inline">{% csrf_token %}<select name="destination" class="form-input" aria-label="Move to"><option value="">Top level</option>{% for t in move_targets %}<option value="{{ t.public_id }}">{{ t.name }}{% if t.shared %} (shared){% endif %}</option>{% endfor %}</select><button class="btn btn-secondary btn-small" type="submit">Move</button></form>{% endif %}
+    {% if move_targets %}<form method="post" action="{% url 'drive:move' 'file' f.public_id %}" class="drive-inline">{% csrf_token %}<select name="destination" class="form-input" aria-label="Move to"><option value="">Top level</option>{% for t in move_targets %}<option value="{{ t.public_id }}">{{ t.name }}{% if t.shared %} (shared){% endif %}</option>{% endfor %}</select><button class="btn btn-secondary btn-small" type="submit">Move</button> <a class="drive-meta" href="{% url 'drive:move_find' 'file' f.public_id %}">Find folder</a></form>{% endif %}
     <form method="post" action="{% url 'drive:trash_item' 'file' f.public_id %}" class="drive-inline">{% csrf_token %}<button class="btn btn-secondary btn-small" type="submit">Move to trash</button></form>
     {% endif %}
   </div>

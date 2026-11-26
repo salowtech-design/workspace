@@ -148,7 +148,7 @@ def rename_item(request, kind, item_id):
 MOVE_TARGET_MAX = 50  # options per Move list; the list repeats on each row, so it is capped
 
 
-def _move_targets(user):
+def _move_targets(user, query=""):
     """The owner's own live folders, at most MOVE_TARGET_MAX by name, each marked `shared` when it or
     a folder above it is shared (moving there widens the audience). The service still checks every move."""
     rows = list(
@@ -168,16 +168,32 @@ def _move_targets(user):
         return False
 
     rows.sort(key=lambda r: (r[2].lower(), r[0]))
+    shown = [r for r in rows if query.lower() in r[2].lower()] if query else rows
     out = [
         SimpleNamespace(pk=pk, name=name, public_id=pid, shared=shared(pk))
-        for pk, _, name, pid in rows[:MOVE_TARGET_MAX]
+        for pk, _, name, pid in shown[:MOVE_TARGET_MAX]
     ]
-    return out, len(rows) > MOVE_TARGET_MAX
+    return out, len(shown) > MOVE_TARGET_MAX
 
 
 def _move_ctx(user):
     targets, more = _move_targets(user)
     return {"move_targets": targets, "move_more": more}
+
+
+@login_required
+def move_find(request, kind, item_id):
+    """Read-only: search the owner's folders by name, so a folder beyond the first 50 in the Move list can be
+    chosen. Choosing one posts to move_item, which runs the usual checks and the audience confirmation."""
+    item = _visible_or_404(request.user, _item(kind, item_id))
+    q = (request.GET.get("q") or "").strip()[:100]
+    targets, more = _move_targets(request.user, q) if q else ([], False)
+    targets = [t for t in targets if not (isinstance(item, Folder) and t.pk == item.pk)]
+    return render(
+        request,
+        "drive/move_find.html",
+        {"item": item, "kind": kind, "q": q, "targets": targets, "more": more, "back": _back(item).url},
+    )
 
 
 @login_required

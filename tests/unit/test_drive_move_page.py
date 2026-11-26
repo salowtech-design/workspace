@@ -280,3 +280,37 @@ def test_an_invalid_move_is_refused_before_any_confirmation_is_shown():
     svc.share(a, child, v, "viewer")
     r = _c(a).post(reverse("drive:move", args=["folder", one.public_id]), {"destination": str(child.public_id)}, follow=True)
     assert b"into itself" in r.content and b"Confirm move" not in r.content
+
+
+@pytest.mark.django_db
+def test_a_folder_past_the_first_fifty_is_found_by_name_and_still_goes_through_confirmation():
+    from apps.drive.views import MOVE_TARGET_MAX, _move_targets
+
+    a, v, o = _u("MV-FA"), _u("MV-FB"), _u("MV-FC")
+    for i in range(MOVE_TARGET_MAX + 5):
+        svc.create_folder(a, "Dest%03d" % i)
+    last = svc.create_folder(a, "Dest%03d" % (MOVE_TARGET_MAX + 5))
+    svc.share(a, last, v, "viewer")  # the last by name is shared, so moving there widens access
+    listed, more = _move_targets(a)
+    assert more and last.pk not in [t.pk for t in listed]  # the plain Move list cannot reach it
+    one = svc.create_folder(a, "One")
+    find = reverse("drive:move_find", args=["folder", one.public_id])
+    r = _c(a).get(find, {"q": "dest055"})
+    body = r.content.decode()
+    assert r.status_code == 200 and "Dest055 (shared)" in body and "Dest054" not in body
+    assert str(last.public_id) in body and "Move here" in body
+    r = _move(_c(a), one, str(last.public_id))  # what the Move here button posts
+    one.refresh_from_db()
+    assert one.parent_id is None and "Confirm move" in r.content.decode()  # the audience check still runs
+    assert b"No folder of yours" in _c(a).get(find, {"q": "zzz"}).content
+    assert b"Move here" not in _c(a).get(find).content  # no query, no list
+    # a search never shows someone else's folder, a trashed one, or the item itself
+    theirs = svc.create_folder(o, "Dest-theirs")
+    gone = svc.create_folder(a, "Dest-gone")
+    svc.trash(a, gone)
+    seen = _c(a).get(find, {"q": "Dest-"}).content.decode()
+    assert "Dest-theirs" not in seen and "Dest-gone" not in seen and str(theirs.public_id) not in seen
+    assert 'name="destination" value="%s"' % one.public_id not in _c(a).get(find, {"q": "One"}).content.decode()
+    # the page is read-only and refuses an item the person cannot see
+    assert _c(o).get(find, {"q": "Dest"}).status_code == 404
+    assert one.parent_id is None

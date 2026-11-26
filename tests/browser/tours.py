@@ -266,6 +266,7 @@ def register(g):
     register_sessions_scroll(g, users)
     register_drive_move(g)
     register_drive_confirm(g, users)
+    register_drive_find(g, users)
     register_posts_more(g, users)
 
 
@@ -2652,3 +2653,43 @@ def register_drive_confirm(g, users):
         run_tour(ctx, "43_drive_move_confirm", body, notes="Real Django on TiDB, headless Chromium 390x844 emulated. Fixture by script: folder Team box shared with Second Synthetic (viewer) and a private folder Reports.", unshown=["Cancel", "people who lose access", "non-owner count view"])
 
     g["DRILLS"]["tour_drive_confirm"] = tour
+
+
+def register_drive_find(g, users):
+    APP = g["APP"]
+
+    def tour(ctx):
+        import concurrent.futures
+
+        users(ctx)
+
+        def make():
+            from apps.accounts.models import CustomUser
+            from apps.drive import services as svc
+
+            me = CustomUser.objects.get(employee_id="ST-LIVE-1")
+            two = CustomUser.objects.get(employee_id="ST-LIVE-2")
+            for i in range(55):
+                f = svc.create_folder(me, "Archive %02d" % i)
+                if i == 54:
+                    svc.share(me, f, two, "viewer")
+            svc.create_folder(me, "Reports")
+
+        with concurrent.futures.ThreadPoolExecutor(1) as ex:
+            ex.submit(make).result()
+
+        def body(t, pg):
+            txt = lambda: pg.inner_text("body")
+            rowp = ".drive-row:has(a.drive-name:text-is('Reports'))"
+            pg.goto(APP + "/drive/")
+            t.step("My Drive: the Move list stops at the first 50 folders, and the note says so", lambda: pg.evaluate("document.querySelector('.drive-meta').scrollIntoView({block:'center'})"), expect=lambda: "first 50 folders" in txt(), wait=3500)
+            t.step("Reports row: the list has no Archive 54", lambda: pg.locator(rowp).scroll_into_view_if_needed(), expect=lambda: pg.locator(rowp + " option:text-is('Archive 54 (shared)')").count() == 0, wait=3000)
+            t.step("Press Find folder beside Move", lambda: pg.locator(rowp + " a:text-is('Find folder')").click(), expect=lambda: "find a folder" in txt(), wait=2500)
+            t.step("Search for archive 54", lambda: (pg.fill("input[name=q]", "archive 54"), pg.click("button:text-is('Search')")), expect=lambda: "Archive 54 (shared)" in txt(), wait=3000)
+            t.step("Press Move here: the confirmation opens first, nothing moved", lambda: pg.click("button:text-is('Move here')"), expect=lambda: "Confirm move" in txt(), wait=3000)
+            t.step("It names who gets access: Second Synthetic as viewer", lambda: pg.evaluate("document.querySelector('ul li').scrollIntoView({block:'center'})"), expect=lambda: "Second Synthetic (ST-LIVE-2) gets access as viewer" in txt(), wait=3500)
+            t.note("Not shown: a search with no match, or more than 50 matches.", 3)
+
+        run_tour(ctx, "44_drive_find_folder", body, notes="Real Django on TiDB, headless Chromium 390x844 emulated. Fixture by script: 55 folders Archive 00 to 54 (the last shared with Second Synthetic as viewer) and a private folder Reports.", unshown=["no-match search", "more than 50 matches"])
+
+    g["DRILLS"]["tour_drive_find"] = tour

@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block title %}Find a folder: Salow Drive{% endblock %}
+{% block extra_head %}<link rel="stylesheet" href="/static/css/drive.css">{% endblock %}
+{% block content %}
+<div class="card drive">
+  <div class="drive-head"><h2>Move {{ item.name }}: find a folder</h2></div>
+  <form method="get" class="drive-inline"><input type="search" name="q" value="{{ q }}" class="form-input" maxlength="100" placeholder="Part of a folder name" aria-label="Folder name" required><button class="btn btn-primary btn-small" type="submit">Search</button></form>
+  {% if q %}
+    {% for t in targets %}
+    <div class="drive-row"><span class="drive-name">{{ t.name }}{% if t.shared %} (shared){% endif %}</span>
+      <form method="post" action="{% url 'drive:move' kind item.public_id %}" class="drive-inline">{% csrf_token %}<input type="hidden" name="destination" value="{{ t.public_id }}"><button class="btn btn-secondary btn-small" type="submit">Move here</button></form></div>
+    {% empty %}<p class="drive-meta">No folder of yours has that in its name.</p>{% endfor %}
+    {% if more %}<p class="drive-meta">Only the first {{ targets|length }} matches are shown. Type more of the name to narrow it.</p>{% endif %}
+  {% endif %}
+  <p class="drive-meta">Folders marked (shared) are shared with someone, or sit inside a shared folder. If the move would give more people access, you are asked to confirm it first.</p>
+  <p><a href="{{ back }}">Back</a></p>
+</div>
+{% endblock %}
