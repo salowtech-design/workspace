@@ -281,6 +281,7 @@ def register(g):
     register_project_filters(g, users)
     register_directory_dept(g, users)
     register_subtask_delete(g, users)
+    register_parent_delete(g, users)
     register_posts_more(g, users)
 
 
@@ -3351,3 +3352,48 @@ def register_subtask_delete(g, users):
         run_tour(ctx, "58_subtask_delete", body, notes="Real Django on TiDB, headless Chromium 390x844 emulated. The list, parent and two sub-tasks were created by script as the signed-in account.", unshown=["deleting the parent with its sub-tasks", "restore (not built)", "another person deleting"])
 
     g["DRILLS"]["tour_subtask_delete"] = tour
+
+
+def register_parent_delete(g, users):
+    APP = g["APP"]
+
+    def tour(ctx):
+        users(ctx)
+        import concurrent.futures
+
+        import django
+
+        django.setup()
+        ids = {}
+
+        def make():
+            from apps.accounts.models import CustomUser
+            from apps.tasks import services as svc
+
+            me = CustomUser.objects.get(employee_id="ST-LIVE-1")
+            tl = svc.create_list(me, "Parent delete list")
+            parent = svc.create_task(me, tl, "Parent to remove")
+            svc.create_task(me, tl, "Child A", parent=parent)
+            svc.create_task(me, tl, "Child B", parent=parent)
+            svc.create_task(me, tl, "Unrelated task")
+            ids["l"] = str(tl.public_id)
+
+        with concurrent.futures.ThreadPoolExecutor(1) as ex:
+            ex.submit(make).result()
+
+        def body(t, pg):
+            txt = lambda: pg.inner_text("body")
+            tops = lambda: [x.strip() for x in pg.locator(".task-row:not(.sub) .task-title").all_inner_texts()]
+            pg.goto(APP + "/tasks/list/%s/" % ids["l"])
+            pg.wait_for_timeout(1500)
+            t.step("List: Parent to remove (with Child A and Child B) and Unrelated task", expect=lambda: tops() == ["Parent to remove", "Unrelated task"], wait=3000)
+            pg.locator(".task-row:not(.sub)", has_text="Parent to remove").locator("a:has-text('Delete')").click()
+            pg.wait_for_timeout(1200)
+            t.step("Delete on the parent: the confirmation names it and says its sub-tasks (about 2) go too", expect=lambda: "Parent to remove" in txt() and "and its subtasks (about 2 right now)" in txt(), wait=4000)
+            pg.click("button:has-text('Delete')")
+            pg.wait_for_timeout(1500)
+            t.step("Confirm: Task deleted. The parent and both children are gone, Unrelated task stays", expect=lambda: "Task deleted." in txt() and tops() == ["Unrelated task"] and "Child A" not in txt() and "Child B" not in txt(), wait=3500)
+
+        run_tour(ctx, "59_parent_delete", body, notes="Real Django on TiDB, headless Chromium 390x844 emulated. The list, parent, two children and another task were created by script.", unshown=["restore (not built)", "a sub-task added by someone else while the confirmation is open", "deleting a given-to task"])
+
+    g["DRILLS"]["tour_parent_delete"] = tour
