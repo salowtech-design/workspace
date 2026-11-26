@@ -243,6 +243,7 @@ def register(g):
     register_admin(g)
     register_iam(g)
     register_iam_live(g)
+    register_admin_scroll(g)
 
 
 def register_tasks(g, users):
@@ -1027,3 +1028,73 @@ def register_iam_live(g):
                  unshown=["IAM login with password and authenticator", "Super Admin step-up"])
 
     g["DRILLS"]["tour_iam_live"] = iam_live_tour
+
+
+def register_admin_scroll(g):
+    APP = g["APP"]
+
+    def scroll_tour(ctx):
+        import concurrent.futures
+
+        import django
+
+        django.setup()
+
+        def mk():
+            from django.utils import timezone
+
+            from apps.accounts.models import CustomUser
+            from apps.attendance.models import AttendanceFallbackRequest
+            from apps.attendance.services import get_current_kolkata_date
+
+            CustomUser.objects.filter(employee_id="ST-LIVE-1").update(role=CustomUser.Role.ADMIN)
+            now = timezone.now()
+            for eid, nm, why in (("ST-LIVE-2", "Second Synthetic", "Camera failed at the door"), ("ST-LIVE-3", "Third Synthetic", "Forgot to check in")):
+                u = CustomUser.objects.get_or_create(employee_id=eid, defaults={"full_name": nm, "email": eid.lower() + "@salowtech.com", "email_verified": True,
+                                                    "role": CustomUser.Role.EMPLOYEE, "status": CustomUser.Status.ACTIVE, "is_active": True})[0]
+                AttendanceFallbackRequest.objects.create(user=u, request_type="check_in", work_date=get_current_kolkata_date(now), requested_time=now, reason=why)
+
+        with concurrent.futures.ThreadPoolExecutor(1) as ex:
+            ex.submit(mk).result()
+
+        def body(t, pg):
+            txt = lambda: pg.inner_text("body")
+            vw = pg.viewport_size["width"]
+
+            def btn(name, who):
+                return pg.locator("tbody tr", has_text=who).locator("button:has-text('%s')" % name).first
+
+            def inview(name, who):
+                b = btn(name, who).bounding_box()
+                return bool(b) and b["x"] >= 0 and b["x"] + b["width"] <= vw
+
+            def table_js(expr):
+                return pg.evaluate("()=>{const tb=[...document.querySelectorAll('table')].find(x=>x.querySelector('button')&&/Synthetic/.test(x.innerText));" + expr + "}")
+
+            def slide(to_end):
+                for i in range(1, 7):
+                    table_js("tb.scrollLeft=%s;return 0" % ("tb.scrollWidth*%d/6" % i if to_end else "0"))
+                    pg.wait_for_timeout(250)
+
+            def click_centered(name, who):
+                b = btn(name, who).bounding_box()
+                pg.mouse.move(b["x"] + b["width"] / 2, b["y"] + b["height"] / 2, steps=8)
+                pg.wait_for_timeout(500)
+                pg.mouse.click(b["x"] + b["width"] / 2, b["y"] + b["height"] / 2)
+
+            pg.goto(APP + "/attendance/admin/")
+            t.step("Setup (test fixture): Admin account, two pending fallback requests. Open the Admin panel", lambda: pg.evaluate("[...document.querySelectorAll('table')].find(x=>x.querySelector('button')).scrollIntoView({block:'center'});0"), expect=lambda: "Pending Biometric Fallback Exceptions (2)" in txt(), wait=2200)
+            t.step("Before scrolling: the Approve button of the first row is NOT inside the screen (it is further right in the table)", expect=lambda: not inview("Approve", "Second Synthetic"), wait=2800)
+            t.step("Slide the table sideways with its own inner scroll", lambda: slide(True), expect=lambda: inview("Approve", "Second Synthetic") and inview("Reject", "Second Synthetic") or inview("Approve", "Second Synthetic"), wait=2500)
+            t.step("Approve is now inside the screen. Move the pointer to it and press it", lambda: click_centered("Approve", "Second Synthetic"), expect=lambda: "successfully approved" in txt() and "Pending Biometric Fallback Exceptions (1)" in txt(), wait=3500)
+            t.step("Result on the page: approved, one request left", lambda: pg.evaluate("window.scrollTo(0,0);0"), expect=lambda: "Pending Biometric Fallback Exceptions (1)" in txt(), wait=2500)
+            t.step("Scroll back to the table. The remaining row's Reject button starts off screen again", lambda: pg.evaluate("[...document.querySelectorAll('table')].find(x=>x.querySelector('button')&&x.innerText.includes('Third Synthetic')).scrollIntoView({block:'center'});0"), expect=lambda: not inview("Reject", "Third Synthetic"), wait=2800)
+            t.step("Slide the table sideways until Reject is inside the screen", lambda: slide(True), expect=lambda: inview("Reject", "Third Synthetic"), wait=2500)
+            t.step("Move the pointer to Reject and press it", lambda: click_centered("Reject", "Third Synthetic"), expect=lambda: "successfully rejected" in txt() and "Pending Biometric Fallback Exceptions (0)" in txt(), wait=3500)
+            t.step("Result on the page: rejected, no requests left", lambda: pg.evaluate("window.scrollTo(0,0);0"), expect=lambda: "No pending fallback requests" in txt() or "(0)" in txt(), wait=2500)
+            t.note("Not shown: check-out approval, Manager and HR views, refusing your own request, the same scroll proof for the Directory and Sessions tables (see clip 16 for Directory).", 3)
+
+        run_tour(ctx, "20_admin_button_reach", body, notes="Real Django on TiDB, headless Chromium 390x844 emulated. Fixtures (ORM): ST-LIVE-1 given the Admin role, two people with pending requests. Clicks are real mouse presses at the button position after the table is scrolled by its own inner scroll.",
+                 unshown=["check-out approval", "Manager view", "HR view", "own-request refusal", "Sessions table scroll proof"])
+
+    g["DRILLS"]["tour_admin_scroll"] = scroll_tour
