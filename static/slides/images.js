@@ -8,7 +8,7 @@
  * by the browser whose size must match the header. */
 (function (root) {
   "use strict";
-  var LIMITS = { MAX_BYTES: 2000000, MAX_DIM: 4096, MAX_PIXELS: 12000000, MAX_DECK_BYTES: 10000000, MAX_IMPORT_DECK: 7000000, MAX_IMPORT_FILE: 20500000 };  // import caps are sized from the worst-case deck JSON and export (tests/js/slides_images.js computes them)
+  var LIMITS = { MAX_BYTES: 2000000, MAX_DIM: 4096, MAX_PIXELS: 12000000, MAX_DECK_BYTES: 10000000, MAX_DECK_PIXELS: 48000000, MAX_IMPORT_DECK: 7000000, MAX_IMPORT_FILE: 20500000 };  // import caps are sized from the worst-case deck JSON and export (tests/js/slides_images.js computes them)
   function u32(b, i) { return ((b[i] << 24) | (b[i + 1] << 16) | (b[i + 2] << 8) | b[i + 3]) >>> 0; }
   function fail(reason) { return { ok: false, reason: reason }; }
   function dims(type, w, h) {
@@ -144,7 +144,7 @@
   Store.prototype.sizes = function (hashes) {
     var s = this, uniq = hashes.filter(function (h, k) { return hashes.indexOf(h) === k; });
     return Promise.all(uniq.map(function (h) { return s.get(h).then(function (r) { return { h: h, r: r }; }); })).then(function (all) {
-      var total = 0, missing = []; all.forEach(function (x) { if (x.r) total += x.r.size; else missing.push(x.h); }); return { total: total, missing: missing };
+      var total = 0, pixels = 0, missing = []; all.forEach(function (x) { if (x.r) { total += x.r.size; pixels += x.r.w * x.r.h; } else missing.push(x.h); }); return { total: total, pixels: pixels, missing: missing };
     });
   };
   var api = { LIMITS: LIMITS, sniff: sniff, sha256: sha256, qualify: qualify, Store: Store };

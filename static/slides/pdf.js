@@ -30,6 +30,7 @@
   }
   // L is the pdf-lib global, S the SalowSlides model. Returns Promise<Uint8Array>, or rejects with an Error whose code is "chars".
   function build(L, S, deck, pics, info) {
+    // Decoding a picture to embed it costs memory in proportion to its pixels (measured: about 25 MB held per 12 million pixel PNG), so the pictures are embedded one at a time and a deck over info.maxPixels is refused with a message, never partly exported.
     pics = pics || {}; info = info || {}; info.missing = []; info.failed = [];
     var embedded = Object.create(null);
     return L.PDFDocument.create().then(function (doc) {
@@ -38,11 +39,15 @@
       return Promise.all([doc.embedFont(SF.Helvetica), doc.embedFont(SF.HelveticaBold), doc.embedFont(SF.HelveticaOblique), doc.embedFont(SF.HelveticaBoldOblique)]).then(function (fs) {
         var font = fs[0], fontFor = function (e) { return e.b && e.i ? fs[3] : e.b ? fs[1] : e.i ? fs[2] : fs[0]; };
         var hashes = []; deck.slides.forEach(function (s) { s.elements.forEach(function (e) { if (e.type === "image" && hashes.indexOf(e.img) < 0) hashes.push(e.img); }); });
-        return Promise.all(hashes.map(function (h) {
-          var rec = pics[h]; if (!rec || !rec.bytes) return null;
-          var f = rec.type === "image/png" ? doc.embedPng(rec.bytes) : rec.type === "image/jpeg" ? doc.embedJpg(rec.bytes) : Promise.reject(new Error("type"));
-          return f.then(function (img) { rec.pending = img; }, function () { rec.pending = null; });
-        })).then(function () {
+        var px = 0; hashes.forEach(function (h) { var r = pics[h]; if (r && r.bytes && r.w && r.h) px += r.w * r.h; });
+        if (info.maxPixels && px > info.maxPixels) { var perr = new Error("The pictures in this deck add up to " + Math.round(px / 1e6) + " million pixels, over the " + Math.round(info.maxPixels / 1e6) + " million the PDF maker can handle at once, so no PDF was made. Remove or replace a large picture and try again."); perr.code = "pixels"; throw perr; }
+        return hashes.reduce(function (chain, h) {
+          return chain.then(function () {
+            var rec = pics[h]; if (!rec || !rec.bytes) return;
+            var f = rec.type === "image/png" ? doc.embedPng(rec.bytes) : rec.type === "image/jpeg" ? doc.embedJpg(rec.bytes) : Promise.reject(new Error("type"));
+            return f.then(function (img) { rec.pending = img; }, function () { rec.pending = null; });
+          });
+        }, Promise.resolve()).then(function () {
         var bad = unsupported(font, deck);
         if (bad.length) { var err = new Error(refusal(bad)); err.code = "chars"; err.items = bad; throw err; }
         var th = S.THEMES[deck.theme], W = S.W, H = S.H;

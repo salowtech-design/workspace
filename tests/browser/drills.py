@@ -3885,6 +3885,7 @@ def slides_images_edge(ctx):  # noqa: C901
 
 
 TMP_TWO = "/tmp/deck-two-pics.json"  # noqa: S108
+TMP_REF5 = "/tmp/deck-ref5.json"  # noqa: S108
 TMP_EXTRA = "/tmp/deck-extra-pic.json"  # noqa: S108
 
 
@@ -4073,6 +4074,94 @@ def slides_images_race(ctx):  # noqa: C901
     )
 
 
+def slides_images_pdfmem(ctx):  # noqa: C901
+    """Pictures: the deck pixel cap at add time, and a deck over it is refused for the PDF with a message while a deck at the cap still exports."""
+    import json as _json
+
+    pg = fresh(ctx, "/slides/")
+    KEY = "document.getElementById('slide-root').dataset.storeKey"
+    pg.evaluate(
+        "new Promise(r=>{const q=indexedDB.deleteDatabase('salow.slides.pictures.'+%s);q.onsuccess=q.onerror=q.onblocked=()=>r()})"
+        % KEY
+    )
+    pg.reload()
+    pg.wait_for_timeout(400)
+
+    def deck():
+        return pg.evaluate("JSON.parse(localStorage.getItem(%s))" % KEY)
+
+    def pics():
+        d = deck()
+        return (
+            [e for sl in d["slides"] for e in sl["elements"] if e["type"] == "image"] if d else []
+        )
+
+    def put(name, data):
+        pg.set_input_files(
+            "#sl-img-file", files=[{"name": name, "mimeType": "image/png", "buffer": data}]
+        )
+        pg.wait_for_timeout(3500)
+
+    for k in range(4):
+        put("big%d.png" % k, _png(3000, 4000, (10 + k, 40, 90)))
+    four = len(pics())
+    put("big4.png", _png(3000, 4000, (99, 40, 90)))
+    check(
+        "mem: four 12 million pixel pictures (48 million) fit and a fifth is refused for the pixel cap",
+        four == 4 and len(pics()) == 4 and "million pixels" in pg.inner_text("#sl-status"),
+        str((four, len(pics()), pg.inner_text("#sl-status"))),
+    )
+    t0 = time.time()
+    with pg.expect_download(timeout=60000) as dl:
+        pg.click("#sl-pdf")
+    raw = open(dl.value.path(), "rb").read()
+    secs = time.time() - t0
+    print("mem: PDF with four 12 MP pictures took %.1f s, %d bytes" % (secs, len(raw)))
+    check(
+        "mem: a deck at the cap still exports a PDF with four image objects",
+        raw[:5] == b"%PDF-" and raw.count(b"/Subtype /Image") == 4,
+        str(raw.count(b"/Subtype /Image")),
+    )
+    # a fifth distinct stored picture, then a reference deck that names all five
+    pg.click("#sl-items button")
+    pg.click("#sl-del-el")
+    put("big4.png", _png(3000, 4000, (99, 40, 90)))
+    d = deck()
+    hs = [e["img"] for e in pics()]
+    allh = []
+    for e in pics():
+        allh.append(e["img"])
+    # the first picture was deleted, so the store holds five and the deck four: name five in a reference-only deck
+    stored = pg.evaluate(
+        "new Promise(res=>{const r=indexedDB.open('salow.slides.pictures.'+%s,1);r.onsuccess=()=>{const q=r.result.transaction('img').objectStore('img').getAllKeys();q.onsuccess=()=>{r.result.close();res(q.result)}}})"
+        % KEY
+    )
+    d5 = _json.loads(_json.dumps(d))
+    els = d5["slides"][0]["elements"]
+    extra = [h for h in stored if h not in hs][0]
+    e0 = _json.loads(_json.dumps(els[0]))
+    e0["id"] = "zz1"
+    e0["img"] = extra
+    els.append(e0)
+    open(TMP_REF5, "w").write(_json.dumps(d5))
+    pg.on("dialog", lambda dd: dd.accept())
+    pg.set_input_files("#sl-import", TMP_REF5)
+    pg.wait_for_timeout(1500)
+    check(
+        "mem: a reference-only deck naming five stored 12 MP pictures imports",
+        len(pics()) == 5,
+        str(len(pics())),
+    )
+    pg.click("#sl-pdf")
+    pg.wait_for_timeout(2500)
+    st = pg.inner_text("#sl-status")
+    check(
+        "mem: that 60 million pixel deck is refused for the PDF with a message and no file",
+        "million pixels" in st and "no PDF was made" in st,
+        st,
+    )
+
+
 DRILLS = {
     "slides_show": slides_show,
     "slides_edit": slides_edit,
@@ -4086,6 +4175,7 @@ DRILLS = {
     "slides_images": slides_images,
     "slides_images_edge": slides_images_edge,
     "slides_images_race": slides_images_race,
+    "slides_images_pdfmem": slides_images_pdfmem,
     "slides_style": slides_style,
     "sheets_tabs": sheets_tabs,
     "sheets_chart": sheets_chart,
