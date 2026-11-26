@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% block title %}Thread: {{ label }}: Salow Chat{% endblock %}
+{% block extra_head %}<link rel="stylesheet" href="/static/css/events.css"><link rel="stylesheet" href="/static/css/chat.css"><script src="/static/chat.js" defer></script>{% endblock %}
+{% block content %}
+<div class="card cal"><div class="cal-head"><h2>Thread in {{ label }}</h2></div>
+<div class="cal-tabs"><a href="{% url 'chat:space' space.public_id %}">Back to the conversation</a></div>
+<div class="chat-list" id="chat-list" data-reactions="">{% include "chat/_messages.html" %}</div>
+<form method="post" action="{% url 'chat:send' space.public_id %}" class="cal-form chat-compose">{% csrf_token %}
+<input type="hidden" name="client_msg_id" value="{{ client_msg_id }}"><input type="hidden" name="thread_root_seq" value="{{ root.seq }}">
+<label>Reply<textarea name="body" rows="2" maxlength="8000" required></textarea></label>
+<button class="btn" type="submit">Send reply</button></form>
+<p class="cal-meta">The reply is also shown in the conversation, in order. The same people can see it. This page shows up to 200 replies.</p>
+</div>
+{% endblock %}

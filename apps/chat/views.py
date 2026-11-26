@@ -102,7 +102,7 @@ def _int(raw):
         return None
 
 
-def _page(request, space_id, *, status=200, draft="", client_msg_id=None):
+def _page(request, space_id, *, status=200, draft="", client_msg_id=None, thread_root=None):
     """The conversation page. Reading marks messages read only when they were all displayed."""
     sp, rows = cs.window(
         request.user,
@@ -112,6 +112,11 @@ def _page(request, space_id, *, status=200, draft="", client_msg_id=None):
     )
     viewing_history = request.GET.get("before") not in (None, "")
     cs.attach_reactions(rows, request.user)
+    cs.attach_threads(sp, rows)
+    reply_to = None
+    rt = _int(request.GET.get("reply")) if thread_root is None else thread_root
+    if rt:
+        reply_to = next(iter(cs.attach_threads(sp, [m for m in cs.Message.objects.filter(space=sp, seq=rt, thread_root_seq__isnull=True)])), None)
     first = rows[0].seq if rows else 0
     last = rows[-1].seq if rows else 0
     if rows and not viewing_history:
@@ -129,6 +134,7 @@ def _page(request, space_id, *, status=200, draft="", client_msg_id=None):
             "newer": last if last < sp.last_seq else None,
             "client_msg_id": client_msg_id or uuid.uuid4().hex,
             "draft": draft,
+            "reply_to": reply_to,
             "me": request.user,
             "live": not viewing_history and last >= sp.last_seq,
         },
@@ -155,16 +161,37 @@ def send(request, space_id):
         )
         return _page(request, space_id, status=429, draft=body, client_msg_id=cid or None)
     try:
-        cs.post_message(request.user, space_id, body, cid)
+        cs.post_message(request.user, space_id, body, cid, request.POST.get("thread_root_seq"))
     except cs.ReplayConflict as exc:
         messages.error(request, " ".join(exc.messages))
-        return _page(request, space_id, status=409, draft=body)  # a fresh client id
+        return _page(request, space_id, status=409, draft=body, thread_root=_int(request.POST.get("thread_root_seq")))  # a fresh client id
     except ValidationError as exc:
         messages.error(request, " ".join(exc.messages))
-        return _page(request, space_id, status=400, draft=body, client_msg_id=cid or None)
+        return _page(request, space_id, status=400, draft=body, client_msg_id=cid or None, thread_root=_int(request.POST.get("thread_root_seq")))
     except PermissionDenied:
         return redirect("chat:home")
     return redirect("chat:space", space_id=space_id)
+
+
+THREAD_LIMIT = 60  # thread page views per person per minute
+
+
+@login_required
+@active_only
+def thread_view(request, space_id, root_seq):
+    """One first-level message with its replies and a reply form (same members as the conversation)."""
+    if throttled(request.user, "chat-thread", THREAD_LIMIT):
+        return HttpResponse(status=429)
+    sp, root, replies = cs.thread(request.user, space_id, root_seq)
+    rows = [root] + replies
+    cs.attach_reactions(rows, request.user)
+    cs.attach_threads(sp, rows)
+    return render(
+        request,
+        "chat/thread.html",
+        {"space": sp, "label": _label(sp, request.user), "root": root, "replies": rows[1:], "rows": rows,
+         "me": request.user, "client_msg_id": uuid.uuid4().hex},
+    )
 
 
 REACT_LIMIT = 60  # reaction changes per person per minute
@@ -234,6 +261,7 @@ def poll(request, space_id):
     if rows:
         cs.mark_read(request.user, space_id, rows[-1].seq, after + 1)
     cs.attach_reactions(rows, request.user)
+    cs.attach_threads(sp, rows)
     resp = render(request, "chat/_messages.html", {"rows": rows, "me": request.user, "space": sp})
     resp["X-Chat-Last"] = str(rows[-1].seq if rows else after)
     resp["X-Chat-More"] = "1" if more else "0"

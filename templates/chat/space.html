@@ -10,9 +10,9 @@
 {% if newer %}<p><a href="{% url 'chat:space' space.public_id %}?after={{ newer }}">Newer messages</a></p>{% endif %}
 <p class="cal-meta" id="chat-status" role="status"></p>
 <form method="post" action="{% url 'chat:send' space.public_id %}" class="cal-form chat-compose">{% csrf_token %}
-<input type="hidden" name="client_msg_id" value="{{ client_msg_id }}">
+<input type="hidden" name="client_msg_id" value="{{ client_msg_id }}">{% if reply_to %}<input type="hidden" name="thread_root_seq" value="{{ reply_to.seq }}"><p class="cal-meta" id="chat-reply">Replying in the thread of {{ reply_to.author.full_name }}'s message {{ reply_to.seq }}. <a href="{% url 'chat:space' space.public_id %}">Cancel</a></p>{% endif %}
 <label>Message<textarea name="body" rows="2" maxlength="8000" required autofocus>{{ draft }}</textarea></label>
 <button class="btn" type="submit">Send</button></form>
-<p class="cal-meta">Messages are plain text. While this tab is open and visible, new messages usually appear within about 10 seconds, and slower while Chat is being rate limited. In this build only the people in this conversation can open it in the app; this does not describe database or backup access. Edit, delete and files are not built. Reactions are six fixed choices; counts refresh with the same polling as messages.</p>
+<p class="cal-meta">Messages are plain text. While this tab is open and visible, new messages usually appear within about 10 seconds, and slower while Chat is being rate limited. In this build only the people in this conversation can open it in the app; this does not describe database or backup access. A reply goes in the conversation like any message, in order, marked as a reply, and is seen by the same people; replies are one level deep. Edit, delete and files are not built. Reactions are six fixed choices; counts refresh with the same polling as messages.</p>
 </div>
 {% endblock %}

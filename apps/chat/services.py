@@ -138,7 +138,7 @@ def _member(space, user_pk):
     return Member.objects.filter(space=space, person_id=user_pk, left_at__isnull=True).first()
 
 
-def post_message(actor, public_id, body, client_msg_id):
+def post_message(actor, public_id, body, client_msg_id, thread_root_seq=None):
     body = (body or "").strip()
     cid = (client_msg_id or "").strip()
     if not body:
@@ -147,6 +147,16 @@ def post_message(actor, public_id, body, client_msg_id):
         raise ValidationError(f"A message can be at most {BODY_MAX} characters.")
     if not 1 <= len(cid) <= 64:
         raise ValidationError("The form is out of date. Reload the conversation.")
+    root = None
+    if thread_root_seq not in (None, ""):
+        if isinstance(thread_root_seq, bool) or not (
+            isinstance(thread_root_seq, int)
+            or (isinstance(thread_root_seq, str) and thread_root_seq.isascii() and thread_root_seq.isdigit() and len(thread_root_seq) <= 19)
+        ):
+            raise ValidationError(THREAD_ERROR)  # no floats, no signs, no text
+        root = int(thread_root_seq)
+        if not 1 <= root <= 2**62:
+            raise ValidationError(THREAD_ERROR)
     with transaction.atomic():
         sp = _lock_space(public_id)  # space row first, then everything is re-read
         me = _live(actor.pk)
@@ -155,17 +165,68 @@ def post_message(actor, public_id, body, client_msg_id):
             raise Http404  # a non-member gets the same answer as an unknown space
         dup = Message.objects.filter(space=sp, author=me, client_msg_id=cid).first()
         if dup is not None:
-            if dup.body != body:
+            if dup.body != body or dup.thread_root_seq != root:
                 raise ReplayConflict(REPLAY_MESSAGE)  # never drop new text silently
             return dup  # a retry of the same send: the original, no second message
+        if root is not None:
+            # the root must be an existing first-level message of this same space (one level only)
+            if not Message.objects.filter(space=sp, seq=root, thread_root_seq__isnull=True).exists():
+                raise ValidationError(THREAD_ERROR)
         _pause()
         seq = sp.last_seq + 1
-        msg = Message.objects.create(space=sp, seq=seq, author=me, body=body, client_msg_id=cid)
+        msg = Message.objects.create(
+            space=sp, seq=seq, author=me, body=body, client_msg_id=cid, thread_root_seq=root
+        )
         Space.objects.filter(pk=sp.pk).update(last_seq=seq, last_message_at=msg.created_at)
         if mem.last_read_seq >= seq - 1:  # only a caught-up sender has "read" up to here
             Member.objects.filter(pk=mem.pk).update(last_read_seq=seq)
         audit(me, "chat.message.post", "space", sp.pk, seq=seq)  # ids only, never the text
     return msg
+
+
+THREAD_ERROR = "That message cannot be replied to in a thread. Reload the conversation."
+THREAD_MAX = 200  # most replies one thread page shows
+
+
+def attach_threads(sp, rows):
+    """Set m.reply_count on first-level messages and m.root on replies (the root's author and a short
+    start of its text), for the rows on screen. Only reads this space."""
+    rows = list(rows)
+    roots = {m.seq for m in rows if m.thread_root_seq is None}
+    counts = {}
+    if roots:
+        from django.db.models import Count
+
+        counts = dict(
+            Message.objects.filter(space=sp, thread_root_seq__in=roots)
+            .values_list("thread_root_seq")
+            .annotate(n=Count("id"))
+        )
+    need = {m.thread_root_seq for m in rows if m.thread_root_seq is not None}
+    heads = {
+        m.seq: m for m in Message.objects.filter(space=sp, seq__in=need).select_related("author")
+    } if need else {}
+    for m in rows:
+        m.reply_count = counts.get(m.seq, 0) if m.thread_root_seq is None else 0
+        m.root = heads.get(m.thread_root_seq) if m.thread_root_seq is not None else None
+    return rows
+
+
+def thread(actor, public_id, root_seq):
+    """A first-level message and its replies, oldest first (member only; 404 for a non-member or a
+    message that is not a first-level message of this space)."""
+    sp, _ = _visible_space(actor, public_id)
+    root = Message.objects.filter(
+        space=sp, seq=max(0, int(root_seq)), thread_root_seq__isnull=True
+    ).select_related("author").first()
+    if root is None:
+        raise Http404
+    replies = list(
+        Message.objects.filter(space=sp, thread_root_seq=root.seq)
+        .select_related("author")
+        .order_by("seq")[:THREAD_MAX]
+    )
+    return sp, root, replies
 
 
 def _visible_space(actor, public_id):

@@ -50,9 +50,11 @@ class Message(models.Model):
     )
     body = models.TextField()
     client_msg_id = models.CharField(max_length=64)
+    thread_root_seq = models.BigIntegerField(null=True, blank=True)  # the root's seq in this space; a root has none
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
+        indexes = [models.Index(fields=["space", "thread_root_seq"], name="chat_msg_thread_idx")]
         constraints = [
             models.UniqueConstraint(fields=["space", "seq"], name="chat_msg_seq_uniq"),
             models.UniqueConstraint(
