@@ -255,6 +255,7 @@ def register(g):
     register_cal_repeats(g)
     register_sheets_more(g)
     register_pdf_more(g)
+    register_slides_more(g)
     register_posts_more(g, users)
 
 
@@ -2112,3 +2113,50 @@ def register_posts_more(g, users):
         run_tour(ctx, "32_worklogs_review", body, notes="Real Django on TiDB, headless Chromium 390x844 emulated. Fixture: the signed-in account (ST-LIVE-1) was made a Manager and the direct manager of Second Synthetic by a script; the posts and the template were created by script.", unshown=["Team filter", "non-lead manager refused", "Admin review", "drafts"])
 
     g["DRILLS"]["tour_posts_more"] = tour
+
+
+def register_slides_more(g):
+    APP = g["APP"]
+
+    def tour(ctx):
+        import os
+
+        os.makedirs("/tmp/vid/dl", exist_ok=True)
+
+        def body(t, pg):
+            pg.goto(APP + "/slides/")
+            pg.evaluate("localStorage.clear()")
+            pg.goto(APP + "/slides/")
+            pg.wait_for_timeout(500)
+            seen = []
+            pg.on("dialog", lambda d: (seen.append(d.message), d.accept()))
+            see = lambda: pg.locator("#sl-canvas-wrap").scroll_into_view_if_needed()
+            items = lambda: pg.locator("#sl-items li").count()
+            cnt = lambda: (pg.locator("#sl-show-count").text_content() or "")
+
+            def grab(sel, name):
+                with pg.expect_download(timeout=15000) as d:
+                    pg.click(sel)
+                d.value.save_as("/tmp/vid/dl/" + name)
+
+            t.step("Slides: add a text item and a rectangle", lambda: (pg.click("#sl-add-text"), pg.fill("#sl-text", "Roadmap"), pg.press("#sl-text", "Tab"), pg.click("#sl-add-rect"), see()), expect=lambda: items() == 2, wait=2200)
+            t.step("Move and resize the rectangle with the number boxes", lambda: (pg.fill("#sl-x", "10"), pg.press("#sl-x", "Tab"), pg.fill("#sl-y", "50"), pg.press("#sl-y", "Tab"), pg.fill("#sl-w", "40"), pg.press("#sl-w", "Tab"), pg.fill("#sl-h", "30"), pg.press("#sl-h", "Tab"), see()), expect=lambda: pg.input_value("#sl-w") == "40", wait=2800)
+            t.step("Pick a colour for the rectangle", lambda: (pg.select_option("#sl-fill", index=2), see()), expect=lambda: True, wait=2400)
+            t.step("Select the text item, italic and centred", lambda: (pg.locator("#sl-items li").first.click(), pg.check("#sl-italic"), pg.select_option("#sl-align", "center"), see()), expect=lambda: pg.is_checked("#sl-italic"), wait=2600)
+            t.step("Add a picture (a small red PNG)", lambda: (pg.set_input_files("#sl-img-file", "/tmp/vid/pic.png"), pg.wait_for_timeout(800), see()), expect=lambda: items() == 3, wait=2600)
+            t.step("Send the picture backward", lambda: (pg.click("#sl-back"), see()), expect=lambda: True, wait=2200)
+            t.step("Delete the picture", lambda: (pg.click("#sl-del-el"), see()), expect=lambda: items() == 2, wait=2400)
+            t.step("Animate the rectangle: Fade in on click", lambda: (pg.locator("#sl-items li").nth(1).click(), pg.select_option("#sl-anim", "fade"), pg.locator("#sl-anim-list").scroll_into_view_if_needed()), expect=lambda: pg.locator("#sl-anim-list li").count() == 1, wait=3000)
+            t.step("Master: turn editing on, add a text item to the master", lambda: (pg.click("#sl-master"), pg.click("#sl-add-text"), pg.fill("#sl-text", "Footer on every slide"), pg.press("#sl-text", "Tab"), see()), expect=lambda: "Footer on every slide" in (pg.locator("#sl-canvas-wrap").text_content() or ""), wait=2600)
+            t.step("Leave master editing; add a second slide: the footer shows there too", lambda: (pg.click("#sl-master"), pg.click("#sl-new"), see()), expect=lambda: "Footer on every slide" in (pg.locator("#sl-canvas-wrap").text_content() or ""), wait=3000)
+            t.step("Turn the master off for this slide", lambda: (pg.uncheck("#sl-master-on"), see()), expect=lambda: "Footer on every slide" not in (pg.locator("#sl-canvas-wrap").text_content() or ""), wait=2800)
+            t.step("Export (.json) to a file", lambda: (pg.locator("#sl-export").scroll_into_view_if_needed(), grab("#sl-export", "deck.json")), expect=lambda: True, wait=1800)
+            t.step("Export PDF to a file", lambda: (pg.locator("#sl-pdf").scroll_into_view_if_needed(), grab("#sl-pdf", "deck.pdf")), expect=lambda: True, wait=1800)
+            t.step("Clear the deck", lambda: (pg.click("#sl-clear"), pg.locator("#sl-status").scroll_into_view_if_needed()), expect=lambda: True, wait=2800)
+            t.step("Import the exported .json back", lambda: (pg.set_input_files("#sl-import", "/tmp/vid/dl/deck.json"), pg.wait_for_timeout(900), see()), expect=lambda: "Roadmap" in (pg.locator("#sl-canvas-wrap").text_content() or "") or pg.locator("#sl-list > *").count() >= 1, wait=3000)
+            t.step("The deck is back: two slides in the list", lambda: pg.locator("#sl-list").scroll_into_view_if_needed(), expect=lambda: pg.locator("#sl-list > *").count() == 2, wait=3000)
+            t.note("Not shown: drag with the finger, arrow-key move, Export with pictures, unreadable-deck recovery, Move down.", 3)
+
+        run_tour(ctx, "33_slides_more", body, notes="Device-local deck, secure-context test flag, headless Chromium 390x844 emulated. Exported files are checked off video.", unshown=["finger drag", "arrow-key move", "Export with pictures", "unreadable-deck recovery", "Move down"])
+
+    g["DRILLS"]["tour_slides_more"] = tour
