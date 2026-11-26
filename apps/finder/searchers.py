@@ -46,6 +46,17 @@ def search_tasks(user, query, limit):
     )
     for t in proj:
         yield ("project_task", t, t.title, f"/tasks/projects/{t.project.public_id}/")
+    from apps.tasks.models import Project
+
+    named = (
+        Project.objects.annotate(_n=Upper("name"))
+        .filter(_n__contains=needle, deleted_at__isnull=True)
+        .filter(members__person=user, members__removed_at__isnull=True)
+        .distinct()
+        .order_by("-id")[:limit]
+    )
+    for p in named:
+        yield ("project", p, p.name, f"/tasks/projects/{p.public_id}/")
 
 
 def search_events(user, query, limit):
@@ -88,6 +99,12 @@ def _project_task_policy(user, action, t):
     return action == "view" and t.deleted_at is None and can_view(user, t.project)
 
 
+def _project_policy(user, action, p):
+    from apps.tasks.projects import can_view
+
+    return action == "view" and can_view(user, p)
+
+
 def _event_policy(user, action, e):
     from apps.events.models import Event, Guest
 
@@ -108,6 +125,7 @@ def register_all():
     from apps.core.foundation.search import register_searcher
 
     register_policy("project_task", _project_task_policy)
+    register_policy("project", _project_policy)
     register_policy("event", _event_policy)
     register_policy(PERSON, _person_policy)
     register_searcher("tasks", search_tasks)

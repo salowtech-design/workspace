@@ -161,3 +161,30 @@ def test_person_link_is_rebuilt_from_a_checked_id():
     assert _link(good) == "/directory/profile/ST-1/"
     bad = SearchHit("person", "1", "x", "/directory/profile/a?b=1#c/")
     assert _link(bad) == "/directory/"
+
+
+@pytest.mark.django_db
+def test_project_names_are_found_by_members_only_and_not_after_removal_or_delete():
+    from django.utils import timezone
+
+    a, b = _u("PN-A"), _u("PN-B")
+    p = pj.create_project(a, "Quokka launch")
+    hidden = pj.create_project(b, "Quokka private of b")
+
+    def body(u, q="quokka"):
+        return _c(u).get(reverse("finder:search"), {"q": q}).content.decode()
+
+    html = body(a)  # lower case query, member (lead)
+    assert "Quokka launch" in html and f"/tasks/projects/{p.public_id}/" in html
+    assert "private of b" not in html
+    assert "Quokka launch" not in body(b)  # a non-member gets nothing
+    from apps.tasks.models import ProjectMember
+
+    m = ProjectMember.objects.create(project=p, person=b, role=ProjectMember.MEMBER, added_by=a)
+    assert "Quokka launch" in body(b)  # a member finds it
+    ProjectMember.objects.filter(pk=m.pk).update(removed_at=timezone.now())
+    assert "Quokka launch" not in body(b)  # a removed member does not
+    type(p).objects.filter(pk=p.pk).update(deleted_at=timezone.now())
+    assert "Quokka launch" not in body(a)
+    assert "Quokka private of b" in body(b) and hidden.pk
+    assert "project names" in body(a, "zz")

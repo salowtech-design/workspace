@@ -6,7 +6,7 @@
 <form method="get" class="cal-form" role="search"><label>Search your workspace<input type="text" name="q" maxlength="100" value="{{ q }}" autofocus></label>
 <label>Where<select name="in"><option value="">Everywhere</option><option value="drive"{% if scope == "drive" %} selected{% endif %}>Drive</option><option value="tasks"{% if scope == "tasks" %} selected{% endif %}>Tasks</option><option value="calendar"{% if scope == "calendar" %} selected{% endif %}>Calendar</option><option value="people"{% if scope == "people" %} selected{% endif %}>People</option></select></label>
 <button class="btn" type="submit">Search</button></form>
-<p class="cal-meta">Searches only: file and folder names in Drive; task titles; calendar event titles; people by name and employee ID. It does not search file contents, descriptions, notes, comments, guest lists or other fields, and only finds what you can already open. Chat, Sheets, Slides and PDF are not part of search yet.</p>
+<p class="cal-meta">Searches only: file and folder names in Drive; task titles and project names; calendar event titles; people by name and employee ID. It does not search file contents, descriptions, notes, comments, guest lists or other fields, and only finds what you can already open. Chat, Sheets, Slides and PDF are not part of search yet.</p>
 {% if ran %}{% for g in groups %}<h3>{{ g.name }}</h3>
 {% for h in g.items %}<div class="cal-row"><a class="cal-title" href="{{ h.url }}">{{ h.title }}</a></div>{% endfor %}
 {% if g.truncated %}<p class="cal-meta">Showing the first {{ g.per }} matches here. Narrow your search to see others.</p>{% endif %}
