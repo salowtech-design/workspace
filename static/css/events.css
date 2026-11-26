@@ -13,3 +13,12 @@
 .cal .cal-actions{display:flex;flex-wrap:wrap;gap:8px;margin:12px 0}
 .cal .cal-actions form{margin:0}
 @media (max-width:600px){.cal .cal-when{flex-basis:100%}}
+.cal .cal-nav{display:flex;justify-content:space-between;align-items:center;margin:0 0 8px}
+.cal .cal-month{width:100%;table-layout:fixed;border-collapse:collapse}
+.cal .cal-month th{font-size:12px;color:#8a7a72;padding:4px}
+.cal .cal-month td{vertical-align:top;border:1px solid #efe6df;height:92px;padding:3px;overflow:hidden}
+.cal .cal-other{background:#faf6f2;color:#b5a69d}
+.cal .cal-today{outline:2px solid #5c2018;outline-offset:-2px}
+.cal .cal-dn{font-size:12px;font-weight:600}
+.cal .cal-chip{display:block;font-size:11px;line-height:1.3;background:#f4ece6;color:#3a1d17;border-radius:4px;margin:2px 0;padding:1px 4px;text-decoration:none;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+@media (max-width:600px){.cal .cal-month td{height:64px}.cal .cal-chip .cal-t{display:none}}

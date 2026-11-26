@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block extra_head %}<link rel="stylesheet" href="/static/css/events.css">{% endblock %}
+{% block title %}Calendar month: Salow{% endblock %}
+{% block content %}
+<div class="card cal"><div class="cal-head"><h2>Calendar</h2></div>
+<div class="cal-tabs"><a href="{% url 'events:home' %}">Agenda</a><a href="{% url 'events:month' %}">Month</a><a href="{% url 'events:new' %}">New event</a><a href="{% url 'events:busy' %}">Free or busy</a></div>
+{% if error %}<p class="cal-meta" role="alert">{{ error }}</p>{% else %}
+<div class="cal-nav"><a href="{% url 'events:month' %}?m={{ prev }}" aria-label="Previous month">&larr; Previous</a><strong>{{ first|date:"F Y" }}</strong><a href="{% url 'events:month' %}?m={{ next }}" aria-label="Next month">Next &rarr;</a></div>
+<p class="cal-meta">Your own events and invitations, days in {{ tz }}. Declined and cancelled events are not shown. Times are the start in {{ tz }}.</p>
+<table class="cal-month"><thead><tr><th>Mon</th><th>Tue</th><th>Wed</th><th>Thu</th><th>Fri</th><th>Sat</th><th>Sun</th></tr></thead><tbody>
+{% for w in weeks %}<tr>{% for d in w %}<td class="{% if d.other %}cal-other{% endif %}{% if d.today %} cal-today{% endif %}"><div class="cal-dn">{{ d.date|date:"j" }}{% if d.date.day == 1 %} {{ d.date|date:"M" }}{% endif %}</div>
+{% for x in d.shown %}<a class="cal-chip" href="{% url 'events:detail' x.e.public_id %}"><span class="cal-t">{{ x.time }}</span> {{ x.e.title }}</a>{% endfor %}
+{% if d.more %}<span class="cal-meta">+{{ d.more }} more</span>{% endif %}</td>{% endfor %}</tr>{% endfor %}
+</tbody></table>{% endif %}
+</div>
+{% endblock %}

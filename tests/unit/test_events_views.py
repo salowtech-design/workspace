@@ -216,3 +216,61 @@ def test_bad_version_is_a_400_and_guest_errors_do_not_reveal_existence_and_throt
         assert b"Too many changes" in r.content
     ev.refresh_from_db()
     assert ev.status == "confirmed"
+
+
+def _mk(org, title, start, end, guests=()):
+    import datetime as dt
+
+    ev = Event.objects.create(
+        organizer=org, title=title, tz="Asia/Kolkata",
+        start_utc=dt.datetime.fromisoformat(start), end_utc=dt.datetime.fromisoformat(end),
+    )  # fmt: skip
+    for g in guests:
+        Guest.objects.create(event=ev, person=g)
+    return ev
+
+
+@pytest.mark.django_db
+def test_month_grid_placement_zone_boundaries_privacy_and_errors():
+    org, g, out = _u("M-ORG"), _u("M-G"), _u("M-OUT")
+    url = reverse("events:month")
+    # 2026-11-30 20:00 UTC is 01:30 IST on 1 Dec: it belongs to December, not November
+    _mk(org, "Late-night", "2026-11-30T20:00:00+00:00", "2026-11-30T20:30:00+00:00", [g])
+    # spans 30 Nov 10:00 IST to 2 Dec 10:00 IST: on 30 Nov, 1 Dec, 2 Dec
+    _mk(org, "Offsite", "2026-11-30T04:30:00+00:00", "2026-12-02T04:30:00+00:00")
+    # ends exactly at local midnight: not on the next day
+    _mk(org, "Ends-midnight", "2026-12-04T17:30:00+00:00", "2026-12-04T18:30:00+00:00")
+    _mk(org, "Secret", "2026-12-10T05:00:00+00:00", "2026-12-10T06:00:00+00:00")
+    cancelled = _mk(org, "Gone", "2026-12-11T05:00:00+00:00", "2026-12-11T06:00:00+00:00")
+    cancelled.status = "cancelled"
+    cancelled.save()
+    r = _c(g).get(url, {"m": "2026-12"})
+    assert r.status_code == 200
+    body = r.content.decode()
+    assert "Late-night" in body and "Secret" not in body and "Gone" not in body
+    assert "Offsite" not in body  # g is not a guest of it
+    ro = _c(org).get(url, {"m": "2026-12"})
+    days = {d["date"].isoformat(): d for w in ro.context["weeks"] for d in w}
+    names = lambda k: [x["e"].title for x in days[k]["shown"]]  # noqa: E731
+    assert "Late-night" in names("2026-12-01") and "Late-night" not in names("2026-11-30")
+    assert all("Offsite" in names(k) for k in ("2026-11-30", "2026-12-01", "2026-12-02"))
+    assert "Offsite" not in names("2026-12-03")
+    assert "Ends-midnight" in names("2026-12-04") and "Ends-midnight" not in names("2026-12-05")
+    assert "Gone" not in str(days["2026-12-11"])
+    # grid is Monday first and whole weeks
+    assert ro.context["weeks"][0][0]["date"].weekday() == 0
+    assert all(len(w) == 7 for w in ro.context["weeks"])
+    assert "Secret" not in _c(out).get(url, {"m": "2026-12"}).content.decode()
+    for bad in ("2026-13", "x", "1999-12", "2026-12-01"):
+        assert _c(org).get(url, {"m": bad}).status_code == 400
+    assert Client(HTTP_HOST=HOST).get(url).status_code == 302
+    assert _c(org).get(url).status_code == 200  # default month
+
+
+@pytest.mark.django_db
+def test_month_cell_cap_counts_the_rest_and_escapes_titles():
+    org = _u("C-ORG")
+    for i in range(5):
+        _mk(org, f"<b>E{i}</b>", f"2026-12-15T0{i}:00:00+00:00", f"2026-12-15T0{i}:30:00+00:00")
+    body = _c(org).get(reverse("events:month"), {"m": "2026-12"}).content.decode()
+    assert "+2 more" in body and "<b>E0</b>" not in body and "&lt;b&gt;E0" in body

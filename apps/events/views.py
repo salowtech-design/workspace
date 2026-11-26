@@ -71,6 +71,73 @@ def home(request):
     )
 
 
+MONTH_CAP = 3  # events named per day cell, the rest are counted
+
+
+def _month_arg(raw):
+    """YYYY-MM or None (this month). Anything else is a 400, not a silent fallback."""
+    if raw in (None, ""):
+        return None
+    try:
+        d = dt.datetime.strptime(raw, "%Y-%m")
+    except ValueError:
+        raise ValidationError("Month must look like 2026-12.") from None
+    if not 2000 <= d.year <= 2100:
+        raise ValidationError("Month must be between 2000 and 2100.")
+    return d.date()
+
+
+@login_required
+def month_view(request):
+    """Month grid of the person's own calendar (same events as the agenda), Monday first, days
+    in the site zone. An event is placed on every local day it touches."""
+    tz = ZoneInfo(DEFAULT_TZ)
+    try:
+        first = _month_arg(request.GET.get("m"))
+    except ValidationError as exc:
+        return render(request, "events/month.html", {"error": " ".join(exc.messages)}, status=400)
+    if first is None:
+        first = timezone.now().astimezone(tz).date().replace(day=1)
+    grid_start = first - dt.timedelta(days=first.weekday())
+    nxt = (first.replace(day=28) + dt.timedelta(days=4)).replace(day=1)
+    weeks = ((nxt - grid_start).days + 6) // 7
+    grid_end = grid_start + dt.timedelta(days=7 * weeks)
+    lo = dt.datetime.combine(grid_start, dt.time.min, tzinfo=tz)
+    hi = dt.datetime.combine(grid_end, dt.time.min, tzinfo=tz)
+    cells = {grid_start + dt.timedelta(days=i): [] for i in range(7 * weeks)}
+    for e in es.events_for(request.user, lo, hi):
+        s, f = e.start_utc.astimezone(tz), e.end_utc.astimezone(tz)
+        d = s.date()
+        last = (f - dt.timedelta(microseconds=1)).date()
+        while d <= last:
+            if d in cells:
+                cells[d].append({"e": e, "time": s.strftime("%H:%M") if d == s.date() else "cont."})
+            d += dt.timedelta(days=1)
+    today = timezone.now().astimezone(tz).date()
+    days = [
+        {
+            "date": d,
+            "other": d.month != first.month,
+            "today": d == today,
+            "shown": v[:MONTH_CAP],
+            "more": max(0, len(v) - MONTH_CAP),
+        }
+        for d, v in cells.items()
+    ]
+    prev = (first - dt.timedelta(days=1)).replace(day=1)
+    return render(
+        request,
+        "events/month.html",
+        {
+            "weeks": [days[i : i + 7] for i in range(0, len(days), 7)],
+            "first": first,
+            "prev": prev.strftime("%Y-%m"),
+            "next": nxt.strftime("%Y-%m"),
+            "tz": DEFAULT_TZ,
+        },
+    )
+
+
 @login_required
 @require_http_methods(["GET", "POST"])
 def new_event(request):
