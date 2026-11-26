@@ -929,7 +929,7 @@ def register_iam(g):
             seen = {}
             pg.goto(APP + "/auth/admin/iam/")
             t.step("Setup (test fixture): this account is Admin. The IAM console opens on the Overview tab", expect=lambda: "/admin/iam/" in pg.url and "Overview" in txt(), wait=2400)
-            t.step("The live-actions strip at the top, after 9 seconds: it still says Reconnecting and shows no rows (its data and stream addresses return 404 on this host)", lambda: pg.wait_for_timeout(9000), expect=lambda: "Reconnecting" in pg.inner_text("#iam-live-events") and pg.evaluate("(async()=>{const e=document.getElementById('iam-live-events');const o=[];for(const k of ['url','streamUrl']){const r=await fetch(e.dataset[k],{credentials:'same-origin'});o.push(r.status)}return o.join()})()") == "404,404", wait=2500)
+            t.step("The page no longer shows a dead live strip here: a note says the live feed is only on the IAM console host", lambda: pg.evaluate("document.getElementById('iam-live-events-unavailable').scrollIntoView({block:'center'});0"), expect=lambda: pg.locator("#iam-live-events").count() == 0 and "only served on the separate IAM console host" in txt(), wait=2600)
             for tab in TABS[1:]:
                 def go(tab=tab):
                     pg.goto(APP + "/auth/admin/iam/?tab=" + tab)
