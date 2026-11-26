@@ -77,6 +77,7 @@ class RateLimitMiddleware:
         settings, "RATE_LIMIT_DEFAULT_LIMIT", 300
     )  # general requests per window
     WINDOW_SECONDS = 60
+    MAX_ACCOUNT_KEY_LEN = 32  # longest real employee id; longer typed ids are hashed in the key
 
     _storage: Dict[str, List[float]] = {}
     _cleanup_counter: int = 0
@@ -220,6 +221,14 @@ class RateLimitMiddleware:
             account_id = request.POST.get("employee_id", "").strip().upper() or None
 
         keys_to_check = [f"{client_ip}:{'sensitive' if is_sensitive else 'general'}"]
+        if account_id and len(account_id) > self.MAX_ACCOUNT_KEY_LEN:
+            # Typed ids longer than any real employee id (CustomUser.employee_id is 32) used to
+            # overflow the key column on a strict database and raise. A digest of the whole id
+            # keeps the key short and distinct per id (no truncation collisions), so the
+            # per-IP and per-id limits count exactly as before.
+            import hashlib
+
+            account_id = "h-" + hashlib.sha256(account_id.encode("utf-8", "replace")).hexdigest()[:40]
         if account_id and is_sensitive:
             # Account + IP together: one attacker's requests for a victim's ID cannot burn the victim's
             # own quota from another address. Per-IP is limited separately above; account lockout is
