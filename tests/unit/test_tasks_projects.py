@@ -644,7 +644,7 @@ def test_comments_are_oldest_first_and_cap_shows_newest():
 
 
 @pytest.mark.django_db
-def test_comment_thread_page_query_count_does_not_grow_with_comments(django_assert_max_num_queries):
+def test_comment_thread_page_query_count_does_not_grow_with_comments():
     a = _u("CM-E")
     p, t = _ptask(a)
     url = reverse("tasks:project_comments", args=[t.public_id])
@@ -654,6 +654,7 @@ def test_comment_thread_page_query_count_does_not_grow_with_comments(django_asse
     from django.db import connection
     from django.test.utils import CaptureQueriesContext
 
+    ca.get(url)  # warm-up: the first request pays one-off session and cache queries
     with CaptureQueriesContext(connection) as small:
         ca.get(url)
     for i in range(40):
