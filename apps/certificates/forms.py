@@ -1,4 +1,5 @@
 from django import forms
+from django.utils import timezone
 
 from apps.accounts.models import CustomUser
 from apps.certificates.models import Certificate, CertificateTemplate
@@ -50,6 +51,9 @@ class CertificateIssueForm(forms.ModelForm):
             "employee_id"
         )
         self.fields["template"].queryset = CertificateTemplate.objects.filter(is_active=True)
+        # The model default is timezone.now (a UTC datetime), which this date box would print as the UTC
+        # date: a day behind India after 00:00 until 05:30. Use the local calendar date, as the service does.
+        self.fields["issue_date"].initial = timezone.localdate
 
 
 class CertificateRevokeForm(forms.Form):
