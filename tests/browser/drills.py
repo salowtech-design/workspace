@@ -6019,6 +6019,7 @@ def pdf_marks_keep(ctx):  # noqa: C901
         n_list(pg) == 2 and "2 saved mark(s)" in status(pg),
         status(pg),
     )
+    hidden_when_readable = not pg.is_visible("#pdf-markdiscard")
     check(
         "marks keep: the saved marks are drawn on the page",
         pg.evaluate("document.querySelectorAll('#pdf-marks rect, #pdf-marks polyline').length")
@@ -6257,6 +6258,73 @@ def pdf_marks_keep(ctx):  # noqa: C901
         and "still on this device" in status(pg)
         and kept2 == "not json",
         "%s | %s" % (status(pg), kept2),
+    )
+
+    # Discard unreadable saved marks: only on a person's two presses, only if the stored text is still what could not be read.
+    check(
+        "marks keep: the discard control is hidden while saved marks are readable and shows only in the unreadable state",
+        hidden_when_readable and pg.is_visible("#pdf-markdiscard"),
+    )
+    pg.click("#pdf-markdiscard")
+    pg.locator("#pdf-marksbox").screenshot(
+        path=os.path.join(shots, "pdf-marks-keep-discard-1280.png")
+    )
+    check(
+        "marks keep: one press only asks, says it cannot be undone, and deletes nothing",
+        "cannot be undone" in status(pg) and pg.evaluate(raw_of) == "not json",
+        status(pg),
+    )
+    pg.evaluate(
+        "(()=>{const k=Object.keys(localStorage).filter(k=>k.indexOf('%s')>=0)[0];localStorage.setItem(k,'other junk');return 0})()"
+        % KEY
+    )
+    pg.click("#pdf-markdiscard")
+    pg.wait_for_timeout(400)
+    check(
+        "marks keep: if the stored text changed since it was read, the second press deletes nothing",
+        "nothing was deleted" in status(pg) and pg.evaluate(raw_of) == "other junk",
+        "%s | %s" % (status(pg), pg.evaluate(raw_of)),
+    )
+    if pg.evaluate("document.getElementById('pdf-tool-hl').getAttribute('aria-pressed')") != "true":
+        pg.click("#pdf-tool-hl")
+    drag(pg, (0.2, 0.2), (0.4, 0.4))
+    pg.click("#pdf-markdiscard")
+    pg.click("#pdf-markclear")
+    pg.wait_for_timeout(300)
+    pg.click("#pdf-markdiscard")
+    pg.wait_for_timeout(400)
+    check(
+        "marks keep: a change to the marks between the presses cancels the first press (the next press only asks again)",
+        "cannot be undone" in status(pg) and pg.evaluate(raw_of) == "other junk",
+        status(pg),
+    )
+    if pg.evaluate("document.getElementById('pdf-tool-hl').getAttribute('aria-pressed')") != "true":
+        pg.click("#pdf-tool-hl")
+    drag(pg, (0.2, 0.2), (0.4, 0.4))
+    pg.click("#pdf-markdiscard")
+    pg.click("#pdf-markdiscard")
+    pg.wait_for_timeout(500)
+    stored_ok = pg.evaluate(
+        "(()=>{const k=Object.keys(localStorage).filter(k=>k.indexOf('%s')>=0)[0];try{return JSON.parse(localStorage.getItem(k)).marks.length}catch(e){return -1}})()"
+        % KEY
+    )
+    check(
+        "marks keep: two presses delete the unreadable value, keep the marks drawn in the tab, and hide the control",
+        "deleted from this device" in status(pg)
+        and "now kept" in status(pg)
+        and stored_ok == 1
+        and n_list(pg) == 1
+        and not pg.is_visible("#pdf-markdiscard"),
+        "%s | %s | n=%s vis=%s"
+        % (status(pg), stored_ok, n_list(pg), pg.is_visible("#pdf-markdiscard")),
+    )
+    pg.reload()
+    pg.wait_for_timeout(500)
+    open_pdf(pg, A)
+    check(
+        "marks keep: after that, a reload shows the kept mark",
+        n_list(pg) == 1 and "1 saved mark(s)" in status(pg),
+        status(pg),
     )
 
     # Remove all clears the key.

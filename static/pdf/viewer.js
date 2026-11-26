@@ -594,6 +594,7 @@
     $("pdf-tool-hl").disabled = !on; $("pdf-tool-pen").disabled = !on; $("pdf-markcopy").disabled = !on || !mMarks.length; $("pdf-markclear").disabled = !on || !mMarks.length;
     $("pdf-tool-hl").setAttribute("aria-pressed", mTool === "hl" ? "true" : "false"); $("pdf-tool-pen").setAttribute("aria-pressed", mTool === "pen" ? "true" : "false");
     var svg = $("pdf-marks"); svg.classList.toggle("pdf-marks-on", mTool !== "off" && on);
+    var showD = mBad && !!doc; $("pdf-markdiscard").hidden = !showD; $("pdf-markdiscard").style.display = showD ? "" : "none"; $("pdf-markdiscard").disabled = mBusy || mSaving;
   }
   function mEl(name, attrs) { var e = document.createElementNS(SVGNS, name); Object.keys(attrs).forEach(function (k) { e.setAttribute(k, attrs[k]); }); return e; }
   function mDraw(m, temp) {
@@ -650,13 +651,13 @@
   });
   mSvg.addEventListener("pointercancel", function () { mDrag = null; renderMarks(); });
   // Keeping marks on this device: the same guarded pattern as notes (one Web Lock, re-read before write, stale refused, unreadable left alone).
-  var mPrefix = $("pdf-marksbox").getAttribute("data-prefix") || "", mKey = "", mState = "tab", mLast = null, mSaving = false, mBad = false;
+  var mPrefix = $("pdf-marksbox").getAttribute("data-prefix") || "", mKey = "", mState = "tab", mLast = null, mSaving = false, mBad = false, mBadKey = "", mBadRaw = null, mDisc = null;
   function mFileCount() {
     var c = 0; try { for (var i = 0; i < localStorage.length; i++) if ((localStorage.key(i) || "").indexOf(mPrefix) === 0) c++; } catch (e) { return 0; }
     return c;
   }
   function mOpen(hash) {
-    mKey = ""; mState = "tab"; mLast = null; mBad = false;
+    mKey = ""; mState = "tab"; mLast = null; mBad = false; mDiscDisarm();
     var M = window.PdfMarks, tab = " Marks stay in this tab only for this file.";
     if (!/^salow\.pdfmarks\.[A-Za-z0-9_-]+\.$/.test(mPrefix)) { mmsg("This page could not tell whose marks these are, so it cannot keep them." + tab); return; }
     if (!(navigator.locks && navigator.locks.request)) { mmsg("This browser or connection cannot keep marks safely when the same file is open in two tabs." + tab); return; }
@@ -664,18 +665,19 @@
     var key = mPrefix + hash, raw; try { raw = localStorage.getItem(key); } catch (e) { mmsg("This browser will not keep marks." + tab); return; }
     if (raw === null && mFileCount() >= M.MAX_FILES) { mmsg("Marks are kept for up to " + M.MAX_FILES + " files on this device. Remove all marks of a file you no longer need first." + tab); return; }
     var l = M.load(raw);
-    if (l.unreadable) { mBad = true; mmsg("The saved marks for this file could not be read. They were left as they are on this device, and nothing will be written for this file. Remove all marks only clears the marks in this tab." + tab); return; }
+    if (l.unreadable) { mBad = true; mBadKey = key; mBadRaw = raw; mControls(); mmsg("The saved marks for this file could not be read. They were left as they are on this device, and nothing will be written for this file. Remove all marks only clears the marks in this tab." + tab); return; }
     mKey = key; mLast = raw; mState = "ok"; mMarks = l.marks;
     mmsg(l.marks.length ? l.marks.length + " saved mark(s) for this file on this device." : ""); renderMarks();
   }
   function mAdopt(raw, why) {
     var l = window.PdfMarks.load(raw); mDrag = null; mHold = mClearHold();
-    if (l.unreadable) { mMarks = []; mState = "tab"; mBad = true; mmsg(why + " The saved marks could not be read. They were left as they are on this device, marks stay in this tab only, and nothing more is written. Remove all marks only clears the marks in this tab."); }
+    if (l.unreadable) { mMarks = []; mState = "tab"; mBad = true; mBadKey = mKey || mBadKey; mBadRaw = raw; mmsg(why + " The saved marks could not be read. They were left as they are on this device, marks stay in this tab only, and nothing more is written. Remove all marks only clears the marks in this tab."); }
     else { mMarks = l.marks; mLast = raw; mmsg(why); }
     renderMarks();
   }
   // One change to the marks list: saved first (when this file's marks are kept), shown only after the save worked.
   function mApply(next, okMsg, after) {
+    mDiscDisarm();
     if (mSaving) { mmsg("Still saving the last change. Try again."); return; }
     var myDoc = doc, myKey = mKey, myLast = mLast, M = window.PdfMarks;
     var fin = function (r) {
@@ -692,11 +694,40 @@
     var run = function () { return M.applySave(localStorage, myKey, myLast, next, mFileCount); };
     navigator.locks.request("salow-pdfmarks", function () { return run(); }).then(function (r) { if (myDoc !== doc) return; fin(r); }, function () { if (myDoc === doc) { mSaving = false; mmsg("The change could not be saved."); renderMarks(); } });
   }
+  function mDiscDisarm() { if (mDisc) { clearTimeout(mDisc); mDisc = null; } }
+  // A person-triggered, confirmed delete of saved marks this page could not read. It runs under the same lock, deletes only if the stored text is still exactly what could not be read, and never runs on its own.
+  $("pdf-markdiscard").addEventListener("click", function () {
+    if (!mBad || !doc || mSaving || mBusy) return;
+    if (!mDisc) {
+      mDisc = setTimeout(function () { mDisc = null; if (mBad) mmsg("Nothing was deleted."); }, 15000);
+      mmsg("This deletes the saved marks stored for this file on this device. It cannot be undone. Press Discard unreadable saved marks again within 15 seconds to delete them. Waiting does nothing.");
+      return;
+    }
+    mDiscDisarm();
+    var myDoc = doc, key = mBadKey, was = mBadRaw, M = window.PdfMarks, mine = mMarks.slice();
+    mSaving = true;
+    var fin = function (r) {
+      mSaving = false;
+      if (r.changed) { mAdopt(r.raw, "The saved marks changed in another tab, so nothing was deleted."); return; }
+      if (r.err) { mmsg("This browser would not delete them, so nothing was changed."); return; }
+      mBad = false; mBadKey = ""; mBadRaw = null; mKey = key; mState = "ok"; mLast = r.raw === undefined ? null : r.raw;
+      mmsg("The unreadable saved marks for this file were deleted from this device." + (mine.length ? (r.kept ? " The marks in this tab are now kept." : " The marks in this tab could not be kept: " + r.why) : ""));
+      renderMarks(); mControls();
+    };
+    navigator.locks.request("salow-pdfmarks", function () {
+      var cur; try { cur = localStorage.getItem(key); } catch (e) { return { err: true }; }
+      if (cur !== was) return { changed: true, raw: cur };
+      try { localStorage.removeItem(key); } catch (e) { return { err: true }; }
+      if (!mine.length) return { raw: null };
+      var s = M.applySave(localStorage, key, null, mine, mFileCount);
+      return s.ok ? { raw: s.raw, kept: true } : { raw: null, why: s.limit ? "the file limit is reached." : s.size ? "they are too large to keep." : "this browser would not save them." };
+    }).then(function (r) { if (myDoc !== doc) return; fin(r); }, function () { if (myDoc === doc) { mSaving = false; mmsg("The change could not be saved."); } });
+  });
   window.addEventListener("storage", function (e) {
     if (!doc || !mKey || mState !== "ok" || e.key !== mKey || e.storageArea !== localStorage) return;
     mAdopt(e.newValue, "Marks for this file were changed in another tab. Showing the saved marks.");
   });
-  function mReset() { mToken++; mKey = ""; mBad = false; mState = "tab"; mLast = null; mSaving = false; mMarks = []; mTool = "off"; mDrag = null; mHold = mClearHold(); mBusy = false; renderMarks(); mmsg(""); }
+  function mReset() { mToken++; mKey = ""; mBad = false; mDiscDisarm(); mState = "tab"; mLast = null; mSaving = false; mMarks = []; mTool = "off"; mDrag = null; mHold = mClearHold(); mBusy = false; renderMarks(); mmsg(""); }
   $("pdf-tool-hl").addEventListener("click", function () { mSetTool("hl"); });
   $("pdf-tool-pen").addEventListener("click", function () { mSetTool("pen"); });
   $("pdf-markclear").addEventListener("click", function () { if (mBusy) return; mApply([], mState === "ok" ? "All marks for this file were removed from this device." : mBad ? "All marks removed from this tab. The saved marks that could not be read are still on this device." : "All marks removed from this tab.", function () { $("pdf-tool-hl").focus(); }); });
