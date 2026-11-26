@@ -358,3 +358,23 @@ def test_owner_nested_count_ignores_shares_on_things_in_the_trash():
     svc.trash(a, gone)
     assert svc.nested_share_count(box) == 1
     assert "1 item inside Box is shared directly" in _move(_c(a), box, str(dst.public_id)).content.decode()
+
+
+@pytest.mark.django_db
+def test_nested_count_is_distinct_items_and_skips_an_item_under_a_trashed_folder():
+    a, v, w, x = _u("MV-DA"), _u("MV-DB"), _u("MV-DC"), _u("MV-DD")
+    dst = svc.create_folder(a, "Dst")
+    svc.share(a, dst, v, "viewer")
+    box = svc.create_folder(a, "Box")
+    one = svc.create_folder(a, "One", parent=box)
+    svc.share(a, one, w, "viewer")
+    svc.share(a, one, x, "editor")  # one item, two people
+    assert svc.nested_share_count(box) == 1
+    old = svc.create_folder(a, "Old", parent=box)
+    deep = svc.create_folder(a, "Deep", parent=old)
+    svc.share(a, deep, w, "viewer")  # shared item whose ancestor will be trashed
+    assert svc.nested_share_count(box) == 2
+    svc.trash(a, old)
+    assert svc.nested_share_count(box) == 1
+    body = _move(_c(a), box, str(dst.public_id)).content.decode()
+    assert "1 item inside Box is shared directly with people" in body
