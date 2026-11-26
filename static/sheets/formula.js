@@ -349,7 +349,53 @@
     var j = s.indexOf(f, st - 1);
     return j < 0 ? new Err("#VALUE!") : j + 1;
   };
-  var ARITY = { LEFT: [1, 2], RIGHT: [1, 2], MID: [3, 3], TRIM: [1, 1], SUBSTITUTE: [3, 4], FIND: [2, 3], INDEX: [2, 3], MATCH: [2, 3], VLOOKUP: [3, 4], SUMIF: [2, 3], COUNTIF: [2, 2], AVERAGEIF: [2, 3], SUM: [1, 99], AVERAGE: [1, 99], MIN: [1, 99], MAX: [1, 99], COUNT: [1, 99], ABS: [1, 1], ROUND: [1, 2], LEN: [1, 1], UPPER: [1, 1], LOWER: [1, 1], CONCAT: [1, 99], NOT: [1, 1], AND: [1, 99], OR: [1, 99], IF: [2, 3] };
+
+  /* ---- date functions on serial numbers (deterministic: no TODAY, NOW or clock) ----
+   * The Google Docs Editors help pages for DATE, YEAR, MONTH, DAY and WEEKDAY were read. Serial 0 is 1899-12-30 and
+   * serial 1 is 1899-12-31, so DATE(1900,1,1) is 2 and DATE(1970,1,1) is 25569. A fraction (a time of day) is dropped
+   * by rounding the serial down. All arithmetic is UTC, so the browser's time zone and daylight saving never matter.
+   * DATE: year, month and day must be numbers (text is #VALUE!, unlike the numeric-text coercion elsewhere in this engine);
+   * decimals are cut toward 0; month and day outside their range roll over (DATE(1969,13,1) is 1970-01-01); a year
+   * 0 to 1899 has 1900 added; a year below 0, or a result outside the years 0 to 9999, is #NUM!. YEAR, MONTH and DAY
+   * take a serial number (the engine has no date type, and a typed date string is just text, as in Google's help);
+   * a serial outside the years 0 to 9999 is #NUM!. WEEKDAY types 1, 2, 3 and 11 to 17 as in Google's help; any other
+   * type is #NUM!. #NUM! is a new error code here. Not built: DATEVALUE, EDATE, EOMONTH, DATEDIF, TEXT and date formats. */
+  var DAY_MS = 86400000, BASE_MS = Date.UTC(1899, 11, 30);
+  function serialDate(n) {
+    var d = Math.floor(n), t = BASE_MS + d * DAY_MS, dt = new Date(t);
+    if (!isFinite(t) || isNaN(dt.getTime())) return null;
+    var y = dt.getUTCFullYear();
+    return y < 0 || y > 9999 ? null : dt;
+  }
+  function dnum(v) { v = sc2(v); if (isErr(v)) return v; if (typeof v === "string" && v !== "") return new Err("#VALUE!"); var n = num(v); return n; }
+  function dpart(a, pick) { var n = dnum(a[0]); if (isErr(n)) return n; var dt = serialDate(n); return dt ? pick(dt) : new Err("#NUM!"); }
+  FNX.DATE = function (a) {
+    var y = dnum(a[0]), m = dnum(a[1]), d = dnum(a[2]);
+    if (isErr(y)) return y; if (isErr(m)) return m; if (isErr(d)) return d;
+    y = Math.trunc(y); m = Math.trunc(m); d = Math.trunc(d);
+    if (y < 0 || y > 9999) return new Err("#NUM!");
+    if (y < 1900) y += 1900;
+    if (Math.abs(m) > 120000 || Math.abs(d) > 4000000) return new Err("#NUM!");
+    var dt = new Date(0); dt.setUTCFullYear(y, m - 1, d); dt.setUTCHours(0, 0, 0, 0);
+    var yy = dt.getUTCFullYear();
+    if (isNaN(dt.getTime()) || yy < 0 || yy > 9999) return new Err("#NUM!");
+    return Math.round((dt.getTime() - BASE_MS) / DAY_MS);
+  };
+  FNX.YEAR = function (a) { return dpart(a, function (dt) { return dt.getUTCFullYear(); }); };
+  FNX.MONTH = function (a) { return dpart(a, function (dt) { return dt.getUTCMonth() + 1; }); };
+  FNX.DAY = function (a) { return dpart(a, function (dt) { return dt.getUTCDate(); }); };
+  FNX.WEEKDAY = function (a) {
+    var ty = a.length > 1 ? dnum(a[1]) : 1;
+    if (isErr(ty)) return ty;
+    ty = Math.trunc(ty);
+    var first = { 1: 0, 2: 1, 3: 1, 11: 1, 12: 2, 13: 3, 14: 4, 15: 5, 16: 6, 17: 0 };  // JS day number (Sunday 0) that starts the week
+    var n = dnum(a[0]); if (isErr(n)) return n;
+    if (!OWN.call(first, ty)) return new Err("#NUM!");
+    var dt = serialDate(n); if (!dt) return new Err("#NUM!");
+    var k = (dt.getUTCDay() - first[ty] + 7) % 7;
+    return ty === 3 ? k : k + 1;
+  };
+  var ARITY = { DATE: [3, 3], YEAR: [1, 1], MONTH: [1, 1], DAY: [1, 1], WEEKDAY: [1, 2], LEFT: [1, 2], RIGHT: [1, 2], MID: [3, 3], TRIM: [1, 1], SUBSTITUTE: [3, 4], FIND: [2, 3], INDEX: [2, 3], MATCH: [2, 3], VLOOKUP: [3, 4], SUMIF: [2, 3], COUNTIF: [2, 2], AVERAGEIF: [2, 3], SUM: [1, 99], AVERAGE: [1, 99], MIN: [1, 99], MAX: [1, 99], COUNT: [1, 99], ABS: [1, 1], ROUND: [1, 2], LEN: [1, 1], UPPER: [1, 1], LOWER: [1, 1], CONCAT: [1, 99], NOT: [1, 1], AND: [1, 99], OR: [1, 99], IF: [2, 3] };
   function truth(v) {
     if (isErr(v)) return v;
     if (typeof v === "boolean") return v;
