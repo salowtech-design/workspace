@@ -287,6 +287,7 @@ def register(g):
     register_pdf_forms(g)
     register_pdf_view_buttons(g)
     register_sheets_tabs_rules(g)
+    register_slides_keys(g)
     register_posts_more(g, users)
 
 
@@ -3749,3 +3750,66 @@ def register_sheets_tabs_rules(g):
         run_tour(ctx, "64_sheets_tabs_rules", body, notes="Device-local sheet; nothing stored on the server. Headless Chromium 390x844 emulated.", unshown=["Import (file picker)", "paste from another spreadsheet", "keyboard navigation", "remove of format and validation rules"])
 
     g["DRILLS"]["tour_sheets_tabs_rules"] = tour
+
+
+def register_slides_keys(g):
+    APP = g["APP"]
+
+    def tour(ctx):
+        def body(t, pg):
+            pg.goto(APP + "/slides/")
+            pg.evaluate("localStorage.clear()")
+            pg.goto(APP + "/slides/")
+            pg.wait_for_timeout(500)
+            pg.on("dialog", lambda d: d.accept())
+            see = lambda: pg.locator("#sl-canvas-wrap").scroll_into_view_if_needed()
+            items = lambda: pg.locator("#sl-items li").count()
+            num = lambda sel: int(pg.input_value(sel) or 0)
+            t.cap("Next: add a rectangle")
+            pg.click("#sl-add-rect")
+            pg.wait_for_timeout(500)
+            see()
+            t.step("A rectangle is on the slide and selected: its X box shows its position", expect=lambda: items() == 1, wait=2500)
+            x0, w0 = num("#sl-x"), num("#sl-w")
+            t.cap("Next: focus the slide and press the Right arrow key")
+            pg.locator("#sl-canvas-wrap svg").focus()
+            pg.keyboard.press("ArrowRight")
+            pg.wait_for_timeout(600)
+            see()
+            t.step("Right arrow: the X box went from %d to %d" % (x0, x0 + 10), expect=lambda: num("#sl-x") == x0 + 10, wait=3000)
+            t.cap("Next: Shift plus Right arrow")
+            pg.locator("#sl-canvas-wrap svg").focus()
+            pg.keyboard.press("Shift+ArrowRight")
+            pg.wait_for_timeout(600)
+            see()
+            t.step("Shift plus Right arrow: the W box went from %d to %d" % (w0, w0 + 10), expect=lambda: num("#sl-w") == w0 + 10, wait=3000)
+            t.cap("Next: add a second slide and move it up")
+            pg.click("#sl-new")
+            pg.wait_for_timeout(500)
+            pg.click("#sl-add-text")
+            pg.fill("#sl-text", "Second slide text")
+            pg.press("#sl-text", "Tab")
+            pg.wait_for_timeout(300)
+            pg.click("#sl-up")
+            pg.wait_for_timeout(600)
+            pg.locator("#sl-list").scroll_into_view_if_needed()
+            first = lambda: (pg.locator("#sl-list > *").first.inner_text() or "").strip()
+            t.step("Move up: the list is now showing the moved slide first (list shows %s)" % pg.evaluate("document.querySelectorAll('#sl-list > *').length"), expect=lambda: pg.locator("#sl-list > *").count() == 2, wait=3000)
+            pg.screenshot(path="/tmp/vid/65_still_move_up.png")
+            t.cap("Next: Move down")
+            pg.click("#sl-down")
+            pg.wait_for_timeout(600)
+            pg.locator("#sl-list").scroll_into_view_if_needed()
+            t.step("Move down: the slide moved back, the list still has 2 slides", expect=lambda: pg.locator("#sl-list > *").count() == 2, wait=3000)
+            pg.screenshot(path="/tmp/vid/65_still_move_down.png")
+            t.cap("Next: press Delete with the text item selected")
+            pg.locator("#sl-items li").first.click()
+            pg.locator("#sl-canvas-wrap svg").focus()
+            pg.keyboard.press("Delete")
+            pg.wait_for_timeout(600)
+            see()
+            t.step("Delete key: the item list on this slide is now empty", expect=lambda: items() == 0, wait=3000)
+
+        run_tour(ctx, "65_slides_keys_order", body, notes="Device-local deck; secure-context test flag. Headless Chromium 390x844 emulated. Which slide is first is read from the list, which the clip shows only as a count of 2; the order itself is shown in the stills.", unshown=["finger drag", "unreadable-deck recovery", "animation click earlier/later"])
+
+    g["DRILLS"]["tour_slides_keys"] = tour
