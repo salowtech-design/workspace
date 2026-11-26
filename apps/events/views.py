@@ -87,6 +87,87 @@ def _month_arg(raw):
     return d.date()
 
 
+def _date_arg(raw):
+    """YYYY-MM-DD or None (today). Anything else is a 400, not a silent fallback."""
+    if raw in (None, ""):
+        return None
+    try:
+        d = dt.datetime.strptime(raw, "%Y-%m-%d").date()
+    except ValueError:
+        raise ValidationError("Date must look like 2026-12-15.") from None
+    if not 2000 <= d.year <= 2100:
+        raise ValidationError("Date must be between 2000 and 2100.")
+    return d
+
+
+def _by_day(user, first, ndays):
+    """{local date: [{e, start, end, time, ...}]} for ndays from first, own calendar, full list."""
+    tz = ZoneInfo(DEFAULT_TZ)
+    lo = dt.datetime.combine(first, dt.time.min, tzinfo=tz)
+    hi = dt.datetime.combine(first + dt.timedelta(days=ndays), dt.time.min, tzinfo=tz)
+    cells = {first + dt.timedelta(days=i): [] for i in range(ndays)}
+    for e in es.events_for(user, lo, hi):
+        s, f = e.start_utc.astimezone(tz), e.end_utc.astimezone(tz)
+        d, last = s.date(), max(s, f - dt.timedelta(microseconds=1)).date()  # a zero-length row (the service refuses it) stays on its own day
+        while d <= last:
+            if d in cells:
+                first_day = d == s.date()
+                cells[d].append(
+                    {
+                        "e": e,
+                        "time": s.strftime("%H:%M") if first_day else "cont.",
+                        "when": f"{s:%a %-d %b %H:%M} to {f:%a %-d %b %H:%M}",
+                        "label": (
+                            f"{e.title}, continues from an earlier day, until {f:%a %-d %b %H:%M}"
+                            if not first_day
+                            else f"{e.title}, {s:%a %-d %b %H:%M} to {f:%a %-d %b %H:%M}"
+                        ),
+                    }
+                )
+            d += dt.timedelta(days=1)
+    return cells
+
+
+def _range_view(request, ndays, template):
+    tz = ZoneInfo(DEFAULT_TZ)
+    try:
+        d = _date_arg(request.GET.get("d"))
+    except ValidationError as exc:
+        return render(request, template, {"error": " ".join(exc.messages)}, status=400)
+    if d is None:
+        d = timezone.now().astimezone(tz).date()
+    if ndays == 7:
+        d = d - dt.timedelta(days=d.weekday())
+    cells = _by_day(request.user, d, ndays)
+    today = timezone.now().astimezone(tz).date()
+    days = [{"date": k, "items": v, "today": k == today} for k, v in cells.items()]
+    return render(
+        request,
+        template,
+        {
+            "days": days,
+            "start": d,
+            "end": d + dt.timedelta(days=ndays - 1),
+            "prev": (d - dt.timedelta(days=ndays)).isoformat(),
+            "next": (d + dt.timedelta(days=ndays)).isoformat(),
+            "month": d.strftime("%Y-%m"),
+            "tz": DEFAULT_TZ,
+        },
+    )
+
+
+@login_required
+def week_view(request):
+    """Monday to Sunday, every event of every day listed in full (no cap)."""
+    return _range_view(request, 7, "events/week.html")
+
+
+@login_required
+def day_view(request):
+    """One day, every event listed in full with its full time range."""
+    return _range_view(request, 1, "events/day.html")
+
+
 @login_required
 def month_view(request):
     """Month grid of the person's own calendar (same events as the agenda), Monday first, days
@@ -101,18 +182,7 @@ def month_view(request):
     grid_start = first - dt.timedelta(days=first.weekday())
     nxt = (first.replace(day=28) + dt.timedelta(days=4)).replace(day=1)
     weeks = ((nxt - grid_start).days + 6) // 7
-    grid_end = grid_start + dt.timedelta(days=7 * weeks)
-    lo = dt.datetime.combine(grid_start, dt.time.min, tzinfo=tz)
-    hi = dt.datetime.combine(grid_end, dt.time.min, tzinfo=tz)
-    cells = {grid_start + dt.timedelta(days=i): [] for i in range(7 * weeks)}
-    for e in es.events_for(request.user, lo, hi):
-        s, f = e.start_utc.astimezone(tz), e.end_utc.astimezone(tz)
-        d = s.date()
-        last = (f - dt.timedelta(microseconds=1)).date()
-        while d <= last:
-            if d in cells:
-                cells[d].append({"e": e, "time": s.strftime("%H:%M") if d == s.date() else "cont."})
-            d += dt.timedelta(days=1)
+    cells = _by_day(request.user, grid_start, 7 * weeks)
     today = timezone.now().astimezone(tz).date()
     days = [
         {

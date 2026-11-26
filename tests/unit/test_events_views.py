@@ -274,3 +274,45 @@ def test_month_cell_cap_counts_the_rest_and_escapes_titles():
         _mk(org, f"<b>E{i}</b>", f"2026-12-15T0{i}:00:00+00:00", f"2026-12-15T0{i}:30:00+00:00")
     body = _c(org).get(reverse("events:month"), {"m": "2026-12"}).content.decode()
     assert "+2 more" in body and "<b>E0</b>" not in body and "&lt;b&gt;E0" in body
+
+
+@pytest.mark.django_db
+def test_day_and_week_list_everything_and_month_more_links_to_the_day():
+    org, out = _u("D-ORG"), _u("D-OUT")
+    for i in range(5):
+        _mk(org, f"E{i}", f"2026-12-15T0{i}:00:00+00:00", f"2026-12-15T0{i}:30:00+00:00")
+    _mk(org, "Span", "2026-12-14T18:00:00+00:00", "2026-12-16T18:00:00+00:00")   # 14 23:30 to 16 23:30 IST
+    c = _c(org)
+    m = c.get(reverse("events:month"), {"m": "2026-12"}).content.decode()
+    assert "+3 more" in m and "?d=2026-12-15" in m  # 6 events on the 15th, 3 shown
+    day = c.get(reverse("events:day"), {"d": "2026-12-15"})
+    body = day.content.decode()
+    assert day.status_code == 200 and all(f"E{i}" in body for i in range(5)) and "Span" in body
+    assert "Tue 15 Dec 05:30 to Tue 15 Dec 06:00" in body  # full range shown
+    wk = c.get(reverse("events:week"), {"d": "2026-12-17"})  # a Thursday: week starts Mon 14
+    days = [d["date"].isoformat() for d in wk.context["days"]]
+    assert days[0] == "2026-12-14" and days[-1] == "2026-12-20" and len(days) == 7
+    per = {d["date"].isoformat(): [x["e"].title for x in d["items"]] for d in wk.context["days"]}
+    assert len(per["2026-12-15"]) == 6 and "Span" in per["2026-12-14"] and "Span" in per["2026-12-16"]
+    assert "Span" not in per["2026-12-17"]
+    assert "E0" not in _c(out).get(reverse("events:day"), {"d": "2026-12-15"}).content.decode()
+    for name in ("day", "week"):
+        for bad in ("2026-12", "x", "1999-12-01", "2026-02-30"):
+            assert c.get(reverse(f"events:{name}"), {"d": bad}).status_code == 400
+        assert Client(HTTP_HOST=HOST).get(reverse(f"events:{name}")).status_code == 302
+        assert c.get(reverse(f"events:{name}")).status_code == 200
+
+
+@pytest.mark.django_db
+def test_chip_labels_both_urlconfs():
+    from django.urls import resolve
+
+    org = _u("L-ORG")
+    _mk(org, "Offsite", "2026-12-01T04:30:00+00:00", "2026-12-02T04:30:00+00:00")
+    c = _c(org)
+    body = c.get(reverse("events:month"), {"m": "2026-12"}).content.decode()
+    assert 'aria-label="Offsite, Tue 1 Dec 10:00 to Wed 2 Dec 10:00"' in body
+    assert 'aria-label="Offsite, continues from an earlier day, until Wed 2 Dec 10:00"' in body
+    for conf in ("config.urls", "config.urls_workspace"):
+        for p in ("month/", "week/", "day/"):
+            assert resolve("/calendar/" + p, urlconf=conf).view_name.startswith("events:")
