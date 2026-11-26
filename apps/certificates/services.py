@@ -7,6 +7,7 @@ from typing import Optional, Tuple
 
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import transaction
+from django.db.models.functions import Upper
 from django.utils import timezone
 from django.utils.html import escape
 
@@ -224,7 +225,8 @@ def verify_certificate(
     clean_id = identifier.strip()
     cert = (
         Certificate.objects.select_related("recipient", "issued_by", "template")
-        .filter(serial_number__iexact=clean_id)
+        .annotate(_u_serial=Upper("serial_number"))  # Upper() on both sides: iexact is case-sensitive on TiDB's binary collation
+        .filter(_u_serial=clean_id.upper())
         .first()
     )
     if not cert:
@@ -243,7 +245,8 @@ def verify_certificate(
         # Check by hash
         cert = (
             Certificate.objects.select_related("recipient", "issued_by", "template")
-            .filter(verification_hash__iexact=clean_id)
+            .annotate(_u_hash=Upper("verification_hash"))
+            .filter(_u_hash=clean_id.upper())
             .first()
         )
 

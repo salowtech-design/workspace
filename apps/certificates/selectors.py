@@ -1,3 +1,4 @@
+import uuid
 from typing import Optional
 
 from django.db.models import Q, QuerySet
@@ -13,13 +14,15 @@ def get_certificate_by_identifier(identifier: str) -> Optional[Certificate]:
     Used for public verification and internal lookups.
     """
     clean_id = identifier.strip()
+    match = Q(_u_serial=clean_id.upper()) | Q(_u_hash=clean_id.upper())
+    try:
+        match |= Q(uuid=uuid.UUID(clean_id))  # parsed, so any letter case of the UUID text finds it
+    except ValueError:
+        pass
     return (
         Certificate.objects.select_related("recipient", "issued_by", "template")
-        .filter(
-            Q(serial_number__iexact=clean_id)
-            | Q(uuid__iexact=clean_id)
-            | Q(verification_hash__iexact=clean_id)
-        )
+        .annotate(_u_serial=Upper("serial_number"), _u_hash=Upper("verification_hash"))
+        .filter(match)
         .first()
     )
 

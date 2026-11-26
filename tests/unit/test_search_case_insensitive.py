@@ -72,3 +72,25 @@ def test_work_log_and_certificate_filters_treat_percent_and_underscore_literally
     assert titles("%") == ["100% done"]
     assert titles("_") == []
     assert [c.pk for c in list_all_certificates(search="%")] == []
+
+
+@pytest.mark.django_db
+def test_certificate_lookup_by_serial_uuid_or_hash_ignores_case():
+    from apps.certificates.selectors import get_certificate_by_identifier
+    from apps.certificates.services import verify_certificate
+
+    admin = CustomUser.objects.create_superuser(employee_id="CI-ADM2", full_name="Ada Admin", password="SuperMasterAdminPassword2026!")
+    rec = _u("CI-V1", "Vera Verify", role="intern")
+    tpl = CertificateTemplate.objects.create(code="CI_V", title="Template", description_template="Done.")
+    cert = issue_certificate(
+        recipient=rec, title="Verified", description="d", issued_by=admin, template=tpl,
+        recipient_role="Intern", issue_date=date(2026, 11, 16),
+    )  # fmt: skip
+    for ident in (cert.serial_number.lower(), cert.serial_number.upper(), str(cert.uuid).upper(),
+                  cert.verification_hash.upper(), cert.verification_hash.lower()):
+        found = get_certificate_by_identifier(ident)
+        assert found is not None and found.pk == cert.pk, ident
+        got, status = verify_certificate(ident)
+        assert got is not None and got.pk == cert.pk and status != "not_found", ident
+    assert get_certificate_by_identifier("no-such-serial") is None
+    assert verify_certificate("no-such-serial")[1] == "not_found"
