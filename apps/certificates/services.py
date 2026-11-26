@@ -357,7 +357,7 @@ def generate_certificate_svg(cert: Certificate, base_url: str = "") -> str:  # n
         if emblem
         else ""
     )
-    return f"""<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 842 595" width="842" height="595" font-family="Segoe UI, Roboto, Helvetica, Arial, sans-serif">
+    return f"""<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 842 595" width="842" height="595" style="max-width:100%;height:auto" font-family="Segoe UI, Roboto, Helvetica, Arial, sans-serif">
   <rect width="842" height="595" fill="#FFFBE9"/>
   <rect x="20" y="20" width="802" height="555" rx="8" fill="#FFFBE9" stroke="#AD8B73" stroke-width="4"/>
   <rect x="28" y="28" width="786" height="539" rx="4" fill="none" stroke="#C9A584" stroke-width="1.5" stroke-dasharray="8,4"/>

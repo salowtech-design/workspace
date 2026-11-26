@@ -278,6 +278,16 @@ class TestCertificateVerification:
 
 @pytest.mark.django_db
 class TestCertificateSVG:
+    def test_svg_keeps_print_size_but_shrinks_on_a_narrow_screen(self, recipient_user, admin_user):
+        """Raw SVG opened on a 390 px phone must not overflow: the root keeps its A4 size attributes
+        (print-ready) and carries max-width:100% with auto height (measured in headless Chromium: 842 px wide
+        without it, 390 px with it)."""
+        cert = issue_certificate(recipient=recipient_user, title="Narrow", description="Fits.", issued_by=admin_user)
+        root = ET.fromstring(generate_certificate_svg(cert))
+        assert root.get("width") == "842" and root.get("height") == "595" and root.get("viewBox") == "0 0 842 595"
+        style = (root.get("style") or "").replace(" ", "")
+        assert "max-width:100%" in style and "height:auto" in style
+
     def test_generate_svg_structure_and_valid_xml(self, recipient_user, admin_user):
         """Generated SVG contains proper XML, brand tokens, and parses cleanly as XML."""
         cert = issue_certificate(
