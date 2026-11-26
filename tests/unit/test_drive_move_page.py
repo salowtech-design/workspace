@@ -198,11 +198,17 @@ def test_a_non_owner_who_may_move_sees_only_how_many_people_gain_access():
     svc.share(a, dst, e, "editor")
     svc.share(a, dst, v, "viewer")
     one = svc.create_folder(a, "One", parent=src)
+    svc.share(a, svc.create_folder(a, "Deep", parent=one), v, "viewer")  # a share the owner set inside it
     r = _c(e).post(reverse("drive:move", args=["folder", one.public_id]), {"destination": str(dst.public_id)})
     body = r.content.decode()
     one.refresh_from_db()
     assert one.parent_id == src.pk and "Confirm move" in body
     assert "1 person gets new or stronger access." in body and "MV-AA" not in body
+    assert "shared directly with people" not in body  # the owner's nested-share count is not shown to a non-owner
+    assert "Sharing set directly on anything inside One does not change and is not in the counts above." in body
+    one_plain = svc.create_folder(a, "OnePlain", parent=src)  # no nested share: the same sentence, so presence is not revealed
+    r2 = _c(e).post(reverse("drive:move", args=["folder", one_plain.public_id]), {"destination": str(dst.public_id)})
+    assert "anything inside OnePlain does not change" in r2.content.decode()
 
 
 @pytest.mark.django_db
@@ -336,3 +342,19 @@ def test_confirmation_counts_shares_set_inside_the_moved_folder_and_leaves_them_
     _c(a).post(reverse("drive:move", args=["folder", box.public_id]), {"destination": str(dst.public_id), "confirm": "1", "digest": _digest(_move(_c(a), box, str(dst.public_id)))})
     box.refresh_from_db()
     assert box.parent_id == dst.pk and svc.nested_share_count(box) == 1  # the nested share is untouched
+
+
+@pytest.mark.django_db
+def test_owner_nested_count_ignores_shares_on_things_in_the_trash():
+    a, v, w = _u("MV-TA"), _u("MV-TB"), _u("MV-TC")
+    dst = svc.create_folder(a, "Dst")
+    svc.share(a, dst, v, "viewer")
+    box = svc.create_folder(a, "Box")
+    live = svc.create_folder(a, "Live", parent=box)
+    gone = svc.create_folder(a, "Gone", parent=box)
+    svc.share(a, live, w, "viewer")
+    svc.share(a, gone, w, "viewer")
+    assert svc.nested_share_count(box) == 2
+    svc.trash(a, gone)
+    assert svc.nested_share_count(box) == 1
+    assert "1 item inside Box is shared directly" in _move(_c(a), box, str(dst.public_id)).content.decode()

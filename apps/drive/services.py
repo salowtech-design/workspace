@@ -578,9 +578,14 @@ def _best_roles(item, parent_folder):
 
 
 def nested_share_count(item):
-    """How many shares are set directly on things inside a folder (0 for a file). Read-only. A move does
-    not change them; the confirmation only says they exist, because its lists do not cover them."""
-    return len(_nested(item))
+    """How many shares are set directly on LIVE things inside a folder (0 for a file); things in the trash
+    are left out, because they are not part of the folder people see. Read-only. A move does not change
+    them. Only the owner is shown this number; anyone else gets a generic sentence."""
+    if not isinstance(item, Folder):
+        return 0
+    live = [f.pk for f in _descendants(item) if f.trashed_at is None]
+    n = Share.objects.filter(folder_id__in=live).exclude(folder_id=item.pk).count()
+    return n + Share.objects.filter(file__folder_id__in=live, file__trashed_at__isnull=True).count()
 
 
 def move_audience(item, destination):

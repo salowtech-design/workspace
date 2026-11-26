@@ -2762,9 +2762,12 @@ def register_drive_nested(g, users):
             txt = lambda: pg.inner_text("body")
             rowp = ".drive-row:has(a.drive-name:text-is('Project box'))"
             pg.goto(APP + "/drive/")
+            t.step("The long sharing note is one collapsed line; the rows start straight below it", lambda: pg.evaluate("document.querySelector('details.drive-meta').scrollIntoView({block:'start'})"), expect=lambda: pg.evaluate("!document.querySelector('details.drive-meta').open"), wait=3500)
+            t.step("Open it: the full note is there", lambda: pg.click("details.drive-meta summary"), expect=lambda: pg.evaluate("document.querySelector('details.drive-meta').open") and "Sharing set directly on the item stays" in txt(), wait=3500)
+            t.step("Close it again", lambda: pg.click("details.drive-meta summary"), expect=lambda: True, wait=1500)
             t.step("Choose Team box (shared) on the Project box row", lambda: (pg.locator(rowp).scroll_into_view_if_needed(), pg.locator(rowp + " select[name=destination]").select_option(label="Team box (shared)")), expect=lambda: True, wait=3000)
             t.step("Press Move: the confirmation opens", lambda: pg.locator(rowp + " button:text-is('Move')").click(), expect=lambda: "Confirm move" in txt(), wait=3000)
-            t.step("The note says 1 item inside Project box is shared directly and that does not change", lambda: pg.evaluate("[...document.querySelectorAll('p.drive-meta')].find(x=>x.textContent.includes('shared directly with people')).scrollIntoView({block:'center'})"), expect=lambda: "1 item inside Project box is shared directly with people" in txt(), wait=4500)
+            t.step("As owner: the note says 1 item inside Project box is shared directly and that does not change", lambda: pg.evaluate("[...document.querySelectorAll('p.drive-meta')].find(x=>x.textContent.includes('shared directly with people')).scrollIntoView({block:'center'})"), expect=lambda: "1 item inside Project box is shared directly with people" in txt(), wait=4500)
             t.note("Not shown: Move and share, or a folder with several nested shares.", 3)
 
         run_tour(ctx, "46_drive_nested_note", body, notes="Real Django on TiDB, headless Chromium 390x844 emulated. Fixture by script: Team box shared with ST-LIVE-2; Project box holds Contracts, shared with ST-LIVE-3.", unshown=["Move and share", "several nested shares"])

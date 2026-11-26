@@ -234,7 +234,7 @@ def move_item(request, kind, item_id):
                     "gain": gain,
                     "lose": lose,
                     "digest": digest,
-                    "nested": svc.nested_share_count(item),
+                    "nested": svc.nested_share_count(item) if owner else 0,  # a count of other people's shares is the owner's to see
                     "changed": request.POST.get("confirm") == "1",  # a stale or missing digest
                     "back": _back(item).url,
                 },
