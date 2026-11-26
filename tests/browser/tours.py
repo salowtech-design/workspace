@@ -255,6 +255,7 @@ def register(g):
     register_cal_repeats(g)
     register_sheets_more(g)
     register_pdf_more(g)
+    register_posts_more(g, users)
 
 
 def register_tasks(g, users):
@@ -2033,3 +2034,81 @@ def register_pdf_more(g):
         run_tour(ctx, "31_pdf_more", body, notes="Device-local viewer on a generated 4-page PDF; secure-context test flag. Headless Chromium 390x844 emulated. Downloaded files are not opened in this clip.", unshown=["Text mark", "Signature", "flatten and copy with marks", "reorder", "merge", "forms", "password PDF", "thumbnails", "contents of exported files"])
 
     g["DRILLS"]["tour_pdf_more"] = tour
+
+
+def register_posts_more(g, users):
+    APP = g["APP"]
+
+    def tour(ctx):
+        import concurrent.futures
+
+        users(ctx)
+        ids = {}
+
+        def fixture():
+            from apps.accounts.models import CustomUser
+            from apps.directory.models import ReportingRelationship
+            from apps.posts import services as ps
+            from apps.posts.models import Post, PostTemplate
+            from apps.directory.models import Department, Team, TeamMembership
+
+            me = CustomUser.objects.get(employee_id="ST-LIVE-1")
+            two = CustomUser.objects.get(employee_id="ST-LIVE-2")
+            me.role = CustomUser.Role.MANAGER
+            me.save(update_fields=["role"])
+            ReportingRelationship.objects.get_or_create(manager=me, subordinate=two)
+            dep = Department.objects.create(name="Fixture Dept")
+            team = Team.objects.create(code="FIX-T1", name="Fixture Team", department=dep, lead=me)
+            TeamMembership.objects.create(team=team, user=two)
+            a = ps.create_post(author=two, title="Blocked on the vendor API", content="Waiting for keys.", category=Post.Category.BLOCKER, team=team)
+            b = ps.create_post(author=two, title="Standup: finished the import", content="Import done.", category=Post.Category.DAILY_STANDUP, team=team)
+            d = ps.create_post(author=two, title="Unteamed note by Second", content="No team on this one.", category=Post.Category.GENERAL)
+            ids["d"] = d.pk
+            c = ps.create_post(author=me, title="My own weekly summary", content="Summary.", category=Post.Category.WEEKLY_SUMMARY)
+            PostTemplate.objects.get_or_create(name="Daily standup", defaults={"category": "daily_standup", "template_text": "Done:\nNext:\nBlockers:"})
+            ids.update(a=a.pk, b=b.pk, c=c.pk)
+
+        with concurrent.futures.ThreadPoolExecutor(1) as ex:
+            ex.submit(fixture).result()
+
+        def body(t, pg):
+            txt = lambda: pg.inner_text("body")
+            top = lambda: pg.evaluate("window.scrollTo(0,0)")
+            pg.goto(APP + "/posts/")
+            t.step("Feed as a team lead: Second's two team posts and my own", expect=lambda: "Blocked on the vendor API" in txt() and "My own weekly summary" in txt(), wait=2200)
+            pg.goto(APP + "/posts/?category=blocker")
+            t.step("Category filter: only the Blocker post", lambda: top(), expect=lambda: "Blocked on the vendor API" in txt() and "Standup: finished" not in txt(), wait=2600)
+            pg.goto(APP + "/posts/?category=weekly_summary")
+            t.step("Category filter: Weekly Summary shows only my own post", lambda: top(), expect=lambda: "My own weekly summary" in txt() and "Blocked on" not in txt(), wait=2600)
+            pg.goto(APP + "/posts/?status=approved")
+            t.step("Status filter: Approved shows nothing yet", lambda: top(), expect=lambda: "Blocked on" not in txt() and "Standup: finished" not in txt(), wait=2600)
+            pg.goto(APP + "/posts/%d/" % ids["a"])
+            t.step("Open the Blocker post: it is pending review, with a Sign-Off form", lambda: pg.evaluate("[...document.querySelectorAll('h4')].find(h=>h.textContent.indexOf('Sign-Off')>=0).scrollIntoView({block:'center'})"), expect=lambda: "Pending review" in txt() and "Sign-Off Action" in txt(), wait=2600)
+            def flag():
+                pg.select_option("#id_status", "flagged")
+                pg.fill("#id_review_notes", "Add the vendor contact and a date.")
+                pg.click("form[action$='/review/'] button[type=submit]")
+            t.step("Flag it for revision with a note", flag, expect=lambda: "Flagged for Revision" in txt(), wait=2600)
+            t.step("The result: reviewed by me, with the note", lambda: pg.evaluate("[...document.querySelectorAll('h3')].find(h=>h.textContent.indexOf('Manager Review')>=0).scrollIntoView({block:'center'})"), expect=lambda: "Reviewed by" in txt() and "vendor contact" in txt(), wait=3200)
+            pg.goto(APP + "/posts/%d/" % ids["b"])
+            def appr():
+                pg.select_option("#id_status", "approved")
+                pg.click("form[action$='/review/'] button[type=submit]")
+            t.step("Approve the standup post", appr, expect=lambda: "Approved" in txt(), wait=2600)
+            t.step("Result on the post page", lambda: pg.evaluate("[...document.querySelectorAll('h3')].find(h=>h.textContent.indexOf('Manager Review')>=0).scrollIntoView({block:'center'})"), expect=lambda: "Reviewed by" in txt(), wait=3000)
+            pg.goto(APP + "/posts/?status=approved")
+            t.step("Status filter Approved: only the standup post", lambda: top(), expect=lambda: "Standup: finished" in txt() and "Blocked on" not in txt(), wait=2800)
+            pg.goto(APP + "/posts/?status=flagged")
+            t.step("Status filter Flagged: only the Blocker post", lambda: top(), expect=lambda: "Blocked on" in txt() and "Standup: finished" not in txt(), wait=2800)
+            pg.goto(APP + "/posts/%d/" % ids["d"])
+            t.step("A post by my direct report with no team: open, with the Sign-Off form", lambda: pg.evaluate("[...document.querySelectorAll('h4')].find(h=>h.textContent.indexOf('Sign-Off')>=0).scrollIntoView({block:'center'})"), expect=lambda: "Unteamed note by Second" in txt() and "Sign-Off Action" in txt(), wait=3000)
+            pg.goto(APP + "/posts/%d/" % ids["c"])
+            t.step("My own post: no Sign-Off form (no self-review)", lambda: pg.evaluate("[...document.querySelectorAll('h3')].find(h=>h.textContent.indexOf('Manager Review')>=0).scrollIntoView({block:'center'})"), expect=lambda: "Sign-Off Action" not in txt(), wait=3200)
+            pg.goto(APP + "/posts/create/")
+            t.step("New work log: a Quick Template button is offered", expect=lambda: "quick templates" in txt().lower() and "daily standup" in txt().lower(), wait=2400)
+            t.step("Choose the template: the details box is filled", lambda: (pg.click("a:has-text('Daily standup')"), pg.wait_for_load_state(), pg.wait_for_timeout(600), pg.evaluate("document.getElementById('id_content').scrollIntoView({block:'center'})")), expect=lambda: "Blockers" in pg.input_value("#id_content"), wait=3000)
+            t.note("Not shown: a Team filter, a manager who is neither lead nor direct manager being refused, Admin review, post drafts.", 3)
+
+        run_tour(ctx, "32_worklogs_review", body, notes="Real Django on TiDB, headless Chromium 390x844 emulated. Fixture: the signed-in account (ST-LIVE-1) was made a Manager and the direct manager of Second Synthetic by a script; the posts and the template were created by script.", unshown=["Team filter", "non-lead manager refused", "Admin review", "drafts"])
+
+    g["DRILLS"]["tour_posts_more"] = tour
