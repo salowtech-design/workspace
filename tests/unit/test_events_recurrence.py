@@ -307,3 +307,34 @@ def test_migration_0002_keeps_existing_single_events_working():
     got = es.events_for(org, *W("2026-12-01T00:00", "2026-12-02T00:00"))
     assert [o.title for o in got] == ["Before"] and got[0].occ_date is None
     assert es.free_busy(org, [org.pk], *W("2026-12-01T00:00", "2026-12-02T00:00"))[org.pk]
+
+
+@pytest.mark.django_db
+def test_series_detail_pages_reach_every_one_of_200_occurrences_and_skip_the_last():
+    import re
+
+    org = _u("R15")
+    ev = mk(org, "2027-03-01T10:00", "2027-03-01T11:00", freq="daily", count=200)
+    c = Client(HTTP_HOST="app.salowtech.com")
+    c.force_login(org)
+    url = reverse("events:detail", args=[ev.public_id])
+    seen, nxt, pages = set(), None, 0
+    while True:
+        r = c.get(url + (f"?from={nxt}" if nxt else ""))
+        body = r.content.decode()
+        got = re.findall(r'name="date" value="(\d{4}-\d\d-\d\d)"', body)
+        assert 1 <= len(got) <= 20
+        seen.update(got)
+        pages += 1
+        m = re.search(r'href="\?from=([\d-]+)">Later occurrences', body)
+        if not m:
+            break
+        nxt = m.group(1)
+        assert pages < 20
+    assert len(seen) == 200 and pages == 10
+    last = max(seen)
+    assert c.post(reverse("events:skip", args=[ev.public_id]), {"date": last}).status_code == 302
+    assert EventException.objects.filter(event=ev, local_date=dt.date.fromisoformat(last)).exists()
+    early = c.get(url + "?from=2027-03-20").content.decode()
+    assert "Earlier occurrences" in early and 'value="2027-03-20"' in early
+    assert "was not understood" in c.get(url + "?from=junk").content.decode()

@@ -18,6 +18,7 @@ from apps.events.models import Guest
 DEFAULT_TZ = "Asia/Kolkata"  # build default, the site's configured zone
 WRITE_LIMIT = 30  # changes per person per minute
 AGENDA_DAYS = 30
+PAGE_OCC = 20  # occurrences listed per page on a series detail
 
 
 def _dt(raw):
@@ -89,10 +90,14 @@ def home(request):
             request.user, now - dt.timedelta(hours=12), now + dt.timedelta(days=AGENDA_DAYS)
         )
     )
+    mine_by_event = {
+        g.event_id: g
+        for g in Guest.objects.filter(person=request.user, event_id__in={e.pk for e in evs})
+    }
     rows = []
     for e in evs:
         s, f = e.start_utc.astimezone(ZoneInfo(e.tz)), e.end_utc.astimezone(ZoneInfo(e.tz))
-        mine = Guest.objects.filter(event=e.event, person=request.user).first()
+        mine = mine_by_event.get(e.pk)
         rows.append(
             {"e": e, "start": s, "end": f, "response": mine.response if mine else None,
              "repeats": bool(e.freq)}
@@ -279,10 +284,20 @@ def detail(request, event_id):
     guests = list(ev.guests.select_related("person").order_by("person__employee_id"))
     mine = next((g for g in guests if g.person_id == request.user.pk), None)
     upcoming, skipped = [], []
+    nav = {}
     if ev.freq:
         tz = ZoneInfo(ev.tz)
         gone = set(ev.exceptions.values_list("local_date", flat=True))
         today = timezone.now().astimezone(tz).date()
+        start_d, note = today, ""
+        raw = request.GET.get("from", "")
+        if raw:
+            try:
+                start_d = dt.datetime.strptime(raw, "%Y-%m-%d").date()
+            except ValueError:
+                note = "That date was not understood, so the list starts today."
+        more = False
+        before = None
         for d in rec.local_dates(ev):
             o = rec.occurrence(ev, d)
             if o is None:
@@ -290,13 +305,29 @@ def detail(request, event_id):
             row = {"date": d, "start": o[0].astimezone(tz), "end": o[1].astimezone(tz)}
             if d in gone:
                 skipped.append(row)
-            elif d >= today and len(upcoming) < 20:
+            if d < start_d:
+                before = d
+                continue
+            if d in gone:
+                continue
+            if len(upcoming) < PAGE_OCC:
                 upcoming.append(row)
+            else:
+                more = True
+                break
+        nav = {
+            "from": start_d.isoformat(),
+            "note": note,
+            "next": (upcoming[-1]["date"] + dt.timedelta(days=1)).isoformat() if more else "",
+            "has_earlier": before is not None,
+            "earlier": (start_d - dt.timedelta(days=1)).isoformat(),
+        }
     return render(
         request,
         "events/detail.html",
         {
             "rule_text": rec.describe(ev),
+            "occ_nav": nav,
             "upcoming": upcoming,
             "skipped": skipped,
             "e": ev,

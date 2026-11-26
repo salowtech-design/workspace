@@ -20,8 +20,12 @@
 <p class="cal-meta">Your answer: {{ mine.response }}</p>{% endif %}
 {% if is_organizer %}<div class="cal-actions"><a class="btn btn-outline btn-small" href="{% url 'events:edit' e.public_id %}">Edit</a><a class="btn btn-outline btn-small" href="{% url 'events:cancel' e.public_id %}">{% if e.freq %}Cancel whole series{% else %}Cancel event{% endif %}</a></div>{% endif %}
 {% endif %}
-{% if rule_text and e.status != 'cancelled' %}<h3>Next occurrences</h3>
-{% for o in upcoming %}<div class="cal-row"><span class="cal-when">{{ o.start|date:"D j M Y, H:i" }} to {{ o.end|date:"H:i" }}</span>{% if is_organizer %}<form method="post" action="{% url 'events:skip' e.public_id %}">{% csrf_token %}<input type="hidden" name="date" value="{{ o.date|date:'Y-m-d' }}"><button class="btn btn-outline btn-small" type="submit" aria-label="Cancel only the occurrence on {{ o.date|date:'l j F Y' }}">Cancel this one</button></form>{% endif %}</div>{% empty %}<p class="cal-meta">No more occurrences.</p>{% endfor %}
+{% if rule_text and e.status != 'cancelled' %}<h3>Occurrences</h3>
+{% if occ_nav.note %}<p class="cal-meta" role="alert">{{ occ_nav.note }}</p>{% endif %}
+<form method="get" class="cal-actions"><label class="cal-meta" for="occ-from">Show occurrences from</label><input id="occ-from" type="date" name="from" value="{{ occ_nav.from }}"><button class="btn btn-outline btn-small" type="submit">Show</button></form>
+{% if occ_nav.has_earlier %}<p><a href="?from={{ occ_nav.earlier }}">Earlier occurrences</a></p>{% endif %}
+{% for o in upcoming %}<div class="cal-row"><span class="cal-when">{{ o.start|date:"D j M Y, H:i" }} to {{ o.end|date:"H:i" }}</span>{% if is_organizer %}<form method="post" action="{% url 'events:skip' e.public_id %}">{% csrf_token %}<input type="hidden" name="date" value="{{ o.date|date:'Y-m-d' }}"><button class="btn btn-outline btn-small" type="submit" aria-label="Cancel only the occurrence on {{ o.date|date:'l j F Y' }}">Cancel this one</button></form>{% endif %}</div>{% empty %}<p class="cal-meta">No occurrences from this date.</p>{% endfor %}
+{% if occ_nav.next %}<p><a href="?from={{ occ_nav.next }}">Later occurrences</a></p>{% endif %}
 {% if skipped %}<p class="cal-meta">Cancelled occurrences: {% for o in skipped %}{{ o.date|date:"j M Y" }}{% if not forloop.last %}, {% endif %}{% endfor %}.</p>{% endif %}{% endif %}
 </div>
 {% endlocaltime %}

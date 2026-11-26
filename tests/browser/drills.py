@@ -7742,6 +7742,18 @@ def cal_series(ctx):
     pg.goto(detail)
     check("cal series: detail has no sideways scroll at 390 px", not pg.evaluate("document.documentElement.scrollWidth > document.documentElement.clientWidth"))
     shot(pg, "cal_series_detail_390")
+    check("cal series: the whole-series button says so", pg.locator("a:has-text('Cancel whole series')").count() == 1 and pg.locator("a:text-is('Cancel event')").count() == 0)
+    check("cal series: the date picker for occurrences is on the page", pg.locator("#occ-from").count() == 1)
+    pg.click("a:has-text('Cancel whole series')")
+    pg.wait_for_load_state()
+    cp = pg.inner_text("body")
+    check("cal series: the confirm page names the whole series and every occurrence", "Cancel the whole series?" in cp and "every occurrence, past and future" in cp, cp[:300])
+    check("cal series: the confirm page has no sideways scroll at 390 px", not pg.evaluate("document.documentElement.scrollWidth > document.documentElement.clientWidth"))
+    shot(pg, "cal_series_cancel_390")
+    pg.click("a:has-text('Keep the series')")
+    pg.wait_for_load_state()
+    pg.goto(detail + "?from=2026-12-10")
+    check("cal series: from 10 Dec the list starts at 10 Dec", "Thu 10 Dec 2026" in pg.inner_text("body"))
     pg.set_viewport_size({"width": 1100, "height": 900})
 
 
