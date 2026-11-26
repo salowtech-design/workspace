@@ -85,6 +85,20 @@ const done = (async () => {
   const flatXo = flatPg.node.Resources().lookup(P.PDFName.of("XObject"));
   const flatContent = Buffer.from(flat.bytes).toString("latin1");
   ok("a flat copy adds no annotation and draws each mark into the page as a form object", flat.added === 3 && (() => { const an = flatPg.node.lookup(P.PDFName.of("Annots")); return an === undefined || an.size() === 0; })() && !/\/Subtype\s*\/(Highlight|Ink)/.test(flatContent) && flatXo.keys().filter((k) => /^\/SalowFlat/.test(String(k))).length === 3);
+  // Retention in the flat copy, on a file with a text field (with a value), an existing annotation and drawn text. Same field names and value, same annotation count, same pdftotext output.
+  {
+    const cp = require("child_process"), src = await P.PDFDocument.create(), pgS = src.addPage([400, 600]), font = await src.embedFont(P.StandardFonts.Helvetica);
+    pgS.drawText("Selectable sample line", { x: 40, y: 500, size: 18, font });
+    const tf = src.getForm().createTextField("name"); tf.setText("Ada"); tf.addToPage(pgS, { x: 40, y: 400, width: 150, height: 24 });
+    const ex = src.context.obj({ Type: "Annot", Subtype: "Text", Rect: [300, 500, 320, 520], Contents: P.PDFHexString.fromText("keep me"), F: 4 });
+    pgS.node.set(P.PDFName.of("Annots"), src.context.obj([...pgS.node.lookup(P.PDFName.of("Annots")).asArray(), src.context.register(ex)]));
+    const srcBytes = await src.save({ useObjectStreams: false });
+    const fl = await M.build(P, E, srcBytes, M.addHighlight([], 1, 0.1, 0.1, 0.4, 0.2, rnd).marks, { flat: true });
+    const o = await P.PDFDocument.load(srcBytes), f = await P.PDFDocument.load(fl.bytes);
+    const info = (dd) => ({ fields: dd.getForm().getFields().map((x) => x.getName() + "=" + x.getText()).join("|"), annots: dd.getPage(0).node.lookup(P.PDFName.of("Annots")).size(), types: dd.getPage(0).node.lookup(P.PDFName.of("Annots")).asArray().map((r) => String(dd.context.lookup(r).get(P.PDFName.of("Subtype")))).join(",") });
+    const tx = (b) => cp.execFileSync("pdftotext", ["-", "-"], { input: Buffer.from(b) }).toString();
+    ok("a flat copy keeps the field names and value, the existing annotations (same count and kinds) and the page text (pdftotext equal); not byte-identical", JSON.stringify(info(o)) === JSON.stringify(info(f)) && info(o).fields === "name=Ada" && tx(srcBytes).includes("Selectable sample line") && tx(srcBytes) === tx(fl.bytes) && fl.added === 1);
+  }
   ok("a flat copy of a signed input is refused with the signed code", await M.build(P, E, sg, flatMarks, { flat: true }).then(() => false, (e) => e.code === "signed"));
   ok("the same marks on a signed input without the flat option still build (held by the viewer)", (await M.build(P, E, sg, flatMarks)).signed === true);
   ok("a signed input is reported as signed", (await M.build(P, E, sg, [])).signed === true && r.signed === false);

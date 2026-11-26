@@ -6604,13 +6604,17 @@ def pdf_text_hl(ctx):  # noqa: C901
     one(390, 800)
 
 
-def _rot_crop_pdf():
+def _rot_crop_pdf(
+    stream=b"BT /F1 40 Tf 120 400 Td (Rotated line) Tj ET",
+    box=b"/CropBox [50 100 562 700] /Rotate 90",
+):
     """One page: MediaBox 612x792, CropBox [50 100 562 700] (not at 0,0), /Rotate 90, one line of text inside the crop."""
-    stream = b"BT /F1 40 Tf 120 400 Td (Rotated line) Tj ET"
     objs = [
         b"<< /Type /Catalog /Pages 2 0 R >>",
         b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
-        b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /CropBox [50 100 562 700] /Rotate 90 /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>",
+        b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] "
+        + box
+        + b" /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>",
         b"<< /Length %d >>\nstream\n" % len(stream) + stream + b"\nendstream",
         b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
     ]
@@ -6723,7 +6727,7 @@ def pdf_text_hl_rot(ctx):  # noqa: C901
     )
 
 
-def _yellow_red_boxes(pdf_bytes, shots, tag):
+def _yellow_red_boxes(pdf_bytes, shots, tag, crop=False):
     """Render page 1 with Poppler; return the yellow box as fractions and the count of red pen pixels."""
     import subprocess
     import tempfile
@@ -6731,13 +6735,25 @@ def _yellow_red_boxes(pdf_bytes, shots, tag):
     with tempfile.TemporaryDirectory() as td:
         open(td + "/c.pdf", "wb").write(pdf_bytes)
         subprocess.run(
-            ["pdftoppm", "-r", "50", "-f", "1", "-l", "1", td + "/c.pdf", td + "/pg"],
+            [
+                "pdftoppm",
+                *(["-cropbox"] if crop else []),
+                "-r",
+                "50",
+                "-f",
+                "1",
+                "-l",
+                "1",
+                td + "/c.pdf",
+                td + "/pg",
+            ],
             check=True,
             capture_output=True,
         )  # noqa: S603, S607
         subprocess.run(
             [
                 "pdftoppm",
+                *(["-cropbox"] if crop else []),
                 "-r",
                 "50",
                 "-png",
@@ -6830,8 +6846,8 @@ def pdf_marks_flat(ctx):  # noqa: C901
             break
         pg.wait_for_timeout(300)
     check(
-        "flat: both copies download, the flat one named -flat",
-        len(got) == 2 and got[1].suggested_filename == "flat-flat.pdf",
+        "flat: both copies download, the fixed one named -marks-fixed",
+        len(got) == 2 and got[1].suggested_filename == "flat-marks-fixed.pdf",
         [g.suggested_filename for g in got],
     )
     if len(got) < 2:
@@ -6881,9 +6897,86 @@ def pdf_marks_flat(ctx):  # noqa: C901
         "flat: a signed file is refused with a plain message and nothing downloads",
         len(got) == n0
         and "digital signature" in pg.inner_text("#pdf-markstatus")
-        and "no flattened copy" in pg.inner_text("#pdf-markstatus"),
+        and "no copy with the marks fixed in" in pg.inner_text("#pdf-markstatus"),
         pg.inner_text("#pdf-markstatus"),
     )
+
+
+def pdf_marks_flat_geo(ctx):  # noqa: C901
+    """Marks-fixed copy vs the annotation copy, rendered from two separately downloaded files: a rotated and cropped page with a text-line highlight, and a page whose content ends inside an open q and cm."""
+    shots = os.environ.get("DRILL_SHOTS", "/tmp")  # noqa: S108
+    pg = fresh(ctx, "/pdf/")
+    pg.set_viewport_size({"width": 1280, "height": 900})
+    pg.reload()
+    cases = [
+        ("rotcrop", _rot_crop_pdf(), "tx", (0.02, 0.02), (0.98, 0.98), True),
+        (
+            "opencm",
+            _rot_crop_pdf(
+                b"BT /F1 40 Tf 60 700 Td (Open state) Tj ET q 0.5 0 0 0.5 100 100 cm 0 0 1 rg", b""
+            ),
+            "hl",
+            (0.2, 0.3),
+            (0.7, 0.4),
+            False,
+        ),
+    ]
+    for tag, data, tool, a, b, crop in cases:
+        pg.set_input_files(
+            "#pdf-open",
+            files=[{"name": tag + ".pdf", "mimeType": "application/pdf", "buffer": data}],
+        )
+        for _ in range(50):
+            if pg.inner_text("#pdf-where").startswith("Page 1 of 1") and pg.evaluate(
+                "document.getElementById('pdf-canvas').width > 1"
+            ):
+                break
+            pg.wait_for_timeout(250)
+        pg.wait_for_timeout(900)
+        pg.click("#pdf-tool-" + tool)
+        pg.evaluate("document.getElementById('pdf-marks').scrollIntoView({block: 'start'});0")
+        pg.wait_for_timeout(150)
+        x, y, w, h = pg.evaluate(
+            "(()=>{const r=document.getElementById('pdf-marks').getBoundingClientRect();return [r.left,r.top,r.width,r.height]})()"
+        )
+        pg.mouse.move(x + a[0] * w, y + a[1] * h)
+        pg.mouse.down()
+        pg.mouse.move(x + b[0] * w, y + b[1] * h, steps=5)
+        pg.mouse.up()
+        pg.wait_for_timeout(800)
+        got = []
+        pg.on("download", lambda d_, got=got: got.append(d_))
+        pg.click("#pdf-markcopy")
+        for _ in range(20):
+            if got:
+                break
+            pg.wait_for_timeout(300)
+        pg.click("#pdf-markflat")
+        for _ in range(20):
+            if len(got) > 1:
+                break
+            pg.wait_for_timeout(300)
+        check(
+            "flat geo %s: two separate files were downloaded" % tag,
+            len(got) == 2 and got[0].path() != got[1].path(),
+        )
+        if len(got) < 2:
+            return
+        mpdf, fpdf = open(got[0].path(), "rb").read(), open(got[1].path(), "rb").read()
+        fm, _r1 = _yellow_red_boxes(mpdf, shots, "pdf-geo-%s-annot-render" % tag, crop)
+        ff, _r2 = _yellow_red_boxes(fpdf, shots, "pdf-geo-%s-fixed-render" % tag, crop)
+        want = [0.2, 0.3, 0.7, 0.4] if tag == "opencm" else None
+        check(
+            "flat geo %s: the fixed copy's box equals the annotation copy's box (within 0.015)%s"
+            % (tag, " and the dragged box" if want else ""),
+            bool(fm)
+            and bool(ff)
+            and all(abs(a_ - b_) < 0.015 for a_, b_ in zip(fm, ff, strict=True))
+            and (not want or all(abs(a_ - b_) < 0.015 for a_, b_ in zip(ff, want, strict=True))),
+            (fm, ff),
+        )
+        pg.click("#pdf-markclear")
+        pg.wait_for_timeout(500)
 
 
 def pdf_order(ctx):  # noqa: C901
@@ -7519,6 +7612,7 @@ DRILLS = {
     "pdf_marks_shot": pdf_marks_shot,
     "pdf_text_hl": pdf_text_hl,
     "pdf_marks_flat": pdf_marks_flat,
+    "pdf_marks_flat_geo": pdf_marks_flat_geo,
     "pdf_text_hl_rot": pdf_text_hl_rot,
     "slides_style": slides_style,
     "sheets_tabs": sheets_tabs,

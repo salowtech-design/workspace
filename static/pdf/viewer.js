@@ -815,23 +815,23 @@
       mmsg(m);
     }).then(function () { if (tok === mToken) { mBusy = false; mControls(); } });
   });
-  // A flattened copy: the marks are drawn into the page content, so they cannot be removed or edited in the copy. It is a separate file; the opened file and the saved marks are not changed.
+  // A marks-fixed copy: the marks are drawn into the page content, so they cannot be removed or edited in the copy. It is a separate file; the opened file and the saved marks are not changed.
   // Notes are not included. Signed files are refused. Existing annotations and form fields stay as they are.
   $("pdf-markflat").addEventListener("click", function () {
     if (!doc || mBusy || !mMarks.length) return;
     var myDoc = doc, nameText = $("pdf-name").textContent || "PDF file", tok = ++mToken;
-    mHold = mClearHold(); mBusy = true; mControls(); mmsg("Building the flattened copy in this browser.");
+    mHold = mClearHold(); mBusy = true; mControls(); mmsg("Building the copy with the marks fixed in, in this browser.");
     var libs = window.PDFLib ? Promise.resolve() : loadScript(BASE + "pdf-lib.min.js").catch(function () { throw { stage: "load" }; });
     libs.then(function () { return myDoc.getData().catch(function () { throw { stage: "read" }; }); }).then(function (bytes) {
       return window.PdfMarks.build(window.PDFLib, window.PdfNotesExport, bytes, mMarks.slice(), { flat: true });
     }).then(function (r) {
       if (tok !== mToken || myDoc !== doc) return;
-      pSave(r, nameText, "-flat.pdf");
-      mmsg("Downloaded a flattened copy with " + r.added + " mark(s) fixed into the pages. They cannot be removed or edited in that copy. Your notes are not in it. The file you opened and your saved marks were not changed.");
+      pSave(r, nameText, "-marks-fixed.pdf");
+      mmsg("Downloaded a copy with " + r.added + " mark(s) fixed into the pages (not a full flatten: form fields and existing annotations are kept as they are in the file, not merged into the page). They cannot be removed or edited in that copy. Your notes are not in it. The file you opened and your saved marks were not changed.");
     }).catch(function (e) {
       if (tok !== mToken || myDoc !== doc) return;
-      var c = e && (e.stage || e.code), m = "The flattened copy could not be made. Nothing was downloaded and the file you opened was not changed.";
-      if (c === "signed") m = "This file has a digital signature, so no flattened copy is made. Nothing was downloaded.";
+      var c = e && (e.stage || e.code), m = "The copy with the marks fixed in could not be made. Nothing was downloaded and the file you opened was not changed.";
+      if (c === "signed") m = "This file has a digital signature, so no copy with the marks fixed in is made. Nothing was downloaded.";
       else if (c === "xfa") m = "This file has an XFA form, which a copy made here would lose. Nothing was downloaded.";
       else if (c === "size") m = "The copy would be over 20 MB. Nothing was downloaded.";
       else if (c === "encrypted") m = "This file is encrypted, so it cannot be copied. Nothing was downloaded.";
