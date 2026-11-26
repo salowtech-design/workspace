@@ -43,7 +43,7 @@
 <button class="btn" type="button" id="pdf-mergeclear" disabled>Clear added files</button>
 <button class="btn" type="button" id="pdf-mergego" disabled>Download merged PDF</button></p>
 <ol class="pdf-notelist" id="pdf-mergelist"></ol>
-<p class="cal-meta" id="pdf-pageshint">Builds a new PDF in this browser from the pages you choose, or from this file followed by the files you add (up to 10 files, 1000 pages, 20 MB of input). The files you opened are not changed and nothing is stored. Only pages are copied: form fields, bookmarks and document settings are not carried over, so filled form values show as plain text. A digital signature in an input does not validate in the new file.</p>
+<p class="cal-meta" id="pdf-pageshint">Builds a new PDF in this browser from the pages you choose, or from this file followed by the files you add (up to 10 files, 1000 pages, 20 MB of input). The files you opened are not changed and nothing is stored. Only pages are copied: the fillable form definition, bookmarks, document settings, links to other pages and most actions (document scripts are not copied) are left out; web links are kept. A form field keeps the look it had on the page, and how another viewer treats it is not checked. A digital signature in an input does not validate in the new file.</p>
 <p class="cal-meta" id="pdf-pagesstatus" role="status"></p></div>
 <div class="pdf-forms" id="pdf-forms">
 <p class="pdf-tools"><button class="btn" type="button" id="pdf-formfind" disabled>Find form fields</button>

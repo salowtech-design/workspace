@@ -30,6 +30,16 @@ const done = (async () => {
   ok("no parts and too many parts are refused", (await code([])) === "files" && (await code(Array.from({ length: G.MAX_FILES + 1 }, () => ({ bytes: b, pages: null, name: "b" })))) === "files");
   const big = await (async () => { const d = await P.PDFDocument.create(); d.addPage([100, 100]); d.context.register(d.context.stream(crypto.randomBytes(G.MAX_BYTES + 100))); return d.save({ useObjectStreams: false }); })();
   ok("inputs over the size limit are refused", (await code([{ bytes: big, pages: null, name: "big" }])) === "size");
+  // Pages that are not kept must not travel inside the new file (links and actions can point at them).
+  const lk = await (async () => { const d = await P.PDFDocument.create(); const mkp = (t) => { const pg = d.addPage([300, 300]); pg.node.set(P.PDFName.of("Contents"), d.context.register(d.context.stream("BT 12 0 0 12 10 100 Tm (" + t + ") Tj ET"))); return pg; }; const p1 = mkp("KEEPME"), p2 = mkp("SECRETXYZ");
+    const l1 = d.context.obj({ Type: "Annot", Subtype: "Link", Rect: [10, 10, 100, 40], Dest: [p2.ref, "Fit"] }), l2 = d.context.obj({ Type: "Annot", Subtype: "Link", Rect: [10, 50, 100, 80], A: { S: "GoTo", D: [p2.ref, "Fit"] } }), l3 = d.context.obj({ Type: "Annot", Subtype: "Link", Rect: [10, 90, 100, 120], A: { S: "URI", URI: P.PDFString.of("https://example.com") } });
+    p1.node.set(P.PDFName.of("Annots"), d.context.obj([d.context.register(l1), d.context.register(l2), d.context.register(l3)])); return d.save({ useObjectStreams: false }); })();
+  ok("the source really holds the unkept page's text (so the next row can fail)", Buffer.from(lk).toString("latin1").includes("SECRETXYZ"));
+  const lr = await G.build(P, [{ bytes: lk, pages: [1], name: "lk" }]), lt = Buffer.from(lr.bytes).toString("latin1");
+  ok("a page kept alone does not drag in the page its links point at", !lt.includes("SECRETXYZ") && lt.includes("KEEPME") && (lt.match(/\/Type\s*\/Page[^s]/g) || []).length === 1);
+  ok("web links are kept, links to pages and page actions are dropped", lt.includes("example.com") && !/\/GoTo/.test(lt));
+  const lk2 = await (async () => { const d = await P.PDFDocument.load(lk); const p = d.getPages(); p[0].node.set(P.PDFName.of("Odd"), d.context.obj([p[1].ref])); return d.save({ useObjectStreams: false }); })();
+  ok("a reference the page cleaner does not know about is caught by the page-count check and the copy is refused", (await code([{ bytes: lk2, pages: [1], name: "lk2" }])) === "leak");
   // form pages: the definition is not carried, and that is the stated limit
   const fm = await (async () => { const d = await P.PDFDocument.create(), pg = d.addPage([300, 300]); const t = d.getForm().createTextField("x"); t.setText("val"); t.addToPage(pg, { x: 10, y: 10, width: 100, height: 20 }); return d.save({ useObjectStreams: false }); })();
   const r5 = await G.build(P, [{ bytes: fm, pages: null, name: "fm" }]);

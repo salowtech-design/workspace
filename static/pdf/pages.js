@@ -26,6 +26,28 @@
       throw fail(/encrypt/i.test(String(e && e.message)) ? "encrypted" : "damaged", "could not read", name);
     });
   }
+  // Links, actions and other things that point at other pages would pull those pages (and their content) into the new file. On the in-memory
+  // copy of an input, for the pages being kept: links with a destination are dropped, actions other than web links are dropped, and
+  // page level actions, article beads and the page thumbnail are dropped. The input file itself is never written.
+  function cutReferences(L, src, idx) {
+    var N = L.PDFName.of;
+    idx.forEach(function (i) {
+      var node = src.getPage(i).node;
+      ["AA", "B", "Thumb"].forEach(function (k) { node.delete(N(k)); });
+      var an = node.lookup(N("Annots"));
+      if (!(an instanceof L.PDFArray)) return;
+      for (var j = an.size() - 1; j >= 0; j--) {
+        var a = an.lookup(j);
+        if (!(a instanceof L.PDFDict)) { an.remove(j); continue; }
+        var isLink = a.lookup(N("Subtype")) === N("Link"), act = a.lookup(N("A")), uri = act instanceof L.PDFDict && act.lookup(N("S")) === N("URI") && act.get(N("Next")) === undefined;
+        if (a.has(N("Dest")) || (isLink && act !== undefined && !uri)) { an.remove(j); continue; }
+        ["AA", "Popup", "Parent", "IRT", "P"].forEach(function (k) { a.delete(N(k)); });
+        if (act !== undefined && !uri) a.delete(N("A"));
+      }
+    });
+  }
+  // The new file must hold exactly the pages asked for: any other page object means something dragged one in.
+  function pageObjects(L, doc) { var n = 0; doc.context.enumerateIndirectObjects().forEach(function (e) { var o = e[1]; if (o instanceof L.PDFDict && o.lookup(L.PDFName.of("Type")) === L.PDFName.of("Page")) n++; }); return n; }
   // parts: [{ bytes, pages (1-based list, or null for every page), name }]. Returns { bytes, pageCount }.
   function build(L, parts, looksSigned) {
     if (!parts.length || parts.length > MAX_FILES) return Promise.reject(fail("files", "too many or no files"));
@@ -39,10 +61,11 @@
           var idx = p.pages ? p.pages.map(function (x) { return x - 1; }) : src.getPageIndices();
           if (idx.some(function (i) { return i < 0 || i >= src.getPageCount(); })) throw fail("range", "page out of range", p.name);
           count += idx.length; if (count > MAX_PAGES) throw fail("pages", "too many pages");
+          cutReferences(L, src, idx);
           return out.copyPages(src, idx).then(function (pgs) { pgs.forEach(function (pg) { out.addPage(pg); }); });
         });
       });
-      return chain.then(function () { return out.save({ useObjectStreams: false }); }).then(function (bytes) {
+      return chain.then(function () { if (pageObjects(L, out) !== count) throw fail("leak", "extra page objects"); return out.save({ useObjectStreams: false }); }).then(function (bytes) {
         if (bytes.length > MAX_BYTES) throw fail("size", "copy too large");
         return { bytes: bytes, pageCount: count, signed: signed };
       });

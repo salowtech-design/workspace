@@ -403,7 +403,7 @@
   });
 
   // Pages: keep chosen pages as a new file, or merge this file with added files. Separate copies only.
-  var pExtras = [], pBusy = false, pHold = null, pToken = 0;
+  var pExtras = [], pBusy = false, pHold = null, pToken = 0, pSeq = 0;
   function pmsg(t) { $("pdf-pagesstatus").textContent = t; }
   function pControls() { var on = !!doc && !pBusy; $("pdf-range").disabled = !doc; $("pdf-splitgo").disabled = !on; $("pdf-mergeadd").disabled = !on || pExtras.length >= window.PdfPages.MAX_FILES - 1; $("pdf-mergeclear").disabled = !on || !pExtras.length; $("pdf-mergego").disabled = !on || !pExtras.length; }
   function pList() { var ol = $("pdf-mergelist"); ol.textContent = ""; pExtras.forEach(function (x) { var li = document.createElement("li"); li.textContent = x.name + " (" + Math.round(x.bytes.length / 1024) + " KB)"; ol.appendChild(li); }); }
@@ -417,7 +417,7 @@
     if (!doc || pBusy) return;
     var myDoc = doc, nameText = $("pdf-name").textContent || "PDF file", tok = ++pToken, sel = null;
     if (mode === "split") { sel = window.PdfPages.parseRanges($("pdf-range").value, myDoc.numPages); if (sel.error) { pmsg(sel.error); return; } }
-    var sig = mode + "|" + (sel ? sel.pages.join(",") : "") + "|" + pExtras.map(function (x) { return x.name + ":" + x.bytes.length; }).join(";");
+    var sig = mode + "|" + (sel ? sel.pages.join(",") : "") + "|" + pExtras.map(function (x) { return x.id + ":" + x.name + ":" + x.bytes.length; }).join(";");
     if (pHold && pHold.doc === myDoc && pHold.sig === sig) { var h = pHold; pHold = null; clearTimeout(h.timer); pSave(h.r, nameText, mode === "split" ? "-pages.pdf" : "-merged.pdf"); pmsg("Downloaded a new file with " + h.r.pageCount + " page(s). The files you opened were not changed."); return; }
     if (pHold) { clearTimeout(pHold.timer); pHold = null; }
     pBusy = true; pControls(); pmsg("Building the new file in this browser.");
@@ -445,6 +445,7 @@
       else if (c === "files") m = "A merge is limited to " + window.PdfPages.MAX_FILES + " files. Nothing was downloaded.";
       else if (c === "encrypted") m = "A file" + who + " is encrypted, so it cannot be copied. Nothing was downloaded.";
       else if (c === "damaged") m = "A file" + who + " could not be read (it may be damaged). Nothing was downloaded.";
+      else if (c === "leak") m = "Something in a file points at pages that are not being kept, so a clean copy could not be made. Nothing was downloaded.";
       pmsg(m);
     }).then(function () { if (tok === pToken) { pBusy = false; pControls(); } });
   }
@@ -463,7 +464,7 @@
       chain = chain.then(function () { return new Promise(function (ok, no) { var r = new FileReader(); r.onerror = function () { no({ bad: f.name }); }; r.onload = function () { ok(new Uint8Array(r.result)); }; r.readAsArrayBuffer(f); }); }).then(function (b) {
         var head = ""; for (var i = 0; i < Math.min(b.length, 1024); i++) head += String.fromCharCode(b[i]);
         var chk = C.check(f.name, f.size, head); if (!chk.ok) throw { bad: f.name, why: chk.why };
-        added.push({ name: f.name.slice(0, 120), bytes: b });
+        added.push({ id: ++pSeq, name: f.name.slice(0, 120), bytes: b });
       });
     });
     chain.then(function () {

@@ -4840,7 +4840,7 @@ def pdf_notes_turn(ctx):  # noqa: C901
     pg.set_viewport_size({"width": 1280, "height": 720})
 
 
-def _n_page_pdf(n):
+def _n_page_pdf(n, label="Page"):
     """A valid PDF of n portrait pages, each with a frame and its number (for measuring, not for the app)."""
     objs = [b"<< /Type /Catalog /Pages 2 0 R >>"]
     kids = " ".join("%d 0 R" % (3 + 2 * i) for i in range(n))
@@ -4853,7 +4853,9 @@ def _n_page_pdf(n):
                 % (4 + 2 * i, font_ref)
             ).encode()
         )
-        t = ("2 w 20 20 572 752 re S BT /F1 48 Tf 60 700 Td (Page %d) Tj ET" % (i + 1)).encode()
+        t = (
+            "2 w 20 20 572 752 re S BT /F1 48 Tf 60 700 Td (%s %d) Tj ET" % (label, i + 1)
+        ).encode()
         objs.append(b"<< /Length %d >>\nstream\n" % len(t) + t + b"\nendstream")
     objs.append(b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>")
     out = b"%PDF-1.4\n"
@@ -5535,6 +5537,7 @@ def pdf_pages(ctx):  # noqa: C901
 
     fx = pathlib.Path(__file__).resolve().parents[1] / "js" / "fixtures"
     signed = (fx / "form_signed.pdf").read_bytes()
+    shots = os.environ.get("DRILL_SHOTS", "/tmp")  # noqa: S108
     pg = fresh(ctx, "/pdf/")
     pg.set_viewport_size({"width": 1280, "height": 800})
 
@@ -5554,6 +5557,19 @@ def pdf_pages(ctx):  # noqa: C901
     def npages(b):
         return len(re.findall(rb"/Type\s*/Page[^s]", b))
 
+    def texts(n):
+        out = []
+        for i in range(1, n + 1):
+            pg.fill("#pdf-page", str(i))
+            pg.press("#pdf-page", "Enter")
+            for _ in range(25):
+                t = pg.inner_text("#pdf-text")
+                if t and not t.startswith("Reading") and t.strip().endswith(str(i)):
+                    break
+                pg.wait_for_timeout(100)
+            out.append(pg.inner_text("#pdf-text").strip())
+        return out
+
     check(
         "pages: controls are off with no file",
         pg.is_disabled("#pdf-range")
@@ -5561,7 +5577,8 @@ def pdf_pages(ctx):  # noqa: C901
         and pg.is_disabled("#pdf-mergeadd")
         and pg.is_disabled("#pdf-mergego"),
     )
-    open_pdf("six.pdf", _n_page_pdf(6))
+    six = _n_page_pdf(6)
+    open_pdf("six.pdf", six)
     check(
         "pages: split and add are on once a file is open, merge waits for added files",
         not pg.is_disabled("#pdf-splitgo")
@@ -5588,27 +5605,29 @@ def pdf_pages(ctx):  # noqa: C901
     with pg.expect_download() as dl:
         pg.click("#pdf-splitgo")
     out = open(dl.value.path(), "rb").read()
-    i4, i2 = out.find(b"(Page 4)"), out.find(b"(Page 2)")
+    open(shots + "/pdf-split.pdf", "wb").write(out)
     check(
-        "pages: split gives a separate -pages file with exactly the chosen pages in the order typed",
+        "pages: split gives a separate -pages file with 2 pages and a note that the originals were not changed",
         dl.value.suggested_filename == "six-pages.pdf"
         and npages(out) == 2
-        and 0 <= i4 < i2
-        and b"(Page 1)" not in out
-        and b"(Page 6)" not in out,
-        (dl.value.suggested_filename, npages(out), i4, i2),
+        and "not changed" in status()
+        and "2 page" in status(),
+        (dl.value.suggested_filename, npages(out), status()),
     )
+    open_pdf("split.pdf", out)
+    tx = texts(2)
     check(
-        "pages: the status says the originals were not changed",
-        "not changed" in status() and "2 page" in status(),
-        status(),
+        "pages: the split file's pages, read by pdf.js, are Page 4 then Page 2",
+        tx == ["Page 4", "Page 2"],
+        tx,
     )
-    two = _two_page_pdf()
+    open_pdf("six.pdf", six)
+    bee, cat = _n_page_pdf(2, "Bee"), _n_page_pdf(2, "Cat")
     pg.set_input_files(
         "#pdf-mergeadd",
         files=[
-            {"name": "two.pdf", "mimeType": "application/pdf", "buffer": two},
-            {"name": "<b>two-b</b>.pdf", "mimeType": "application/pdf", "buffer": two},
+            {"name": "bee.pdf", "mimeType": "application/pdf", "buffer": bee},
+            {"name": "<b>cat</b>.pdf", "mimeType": "application/pdf", "buffer": cat},
         ],
     )
     pg.wait_for_timeout(800)
@@ -5616,7 +5635,7 @@ def pdf_pages(ctx):  # noqa: C901
     check(
         "pages: added files are listed as text and merge turns on",
         len(names) == 2
-        and "<b>two-b</b>.pdf" in names[1]
+        and "<b>cat</b>.pdf" in names[1]
         and pg.evaluate("document.querySelectorAll('#pdf-mergelist b').length") == 0
         and not pg.is_disabled("#pdf-mergego"),
         names,
@@ -5624,21 +5643,33 @@ def pdf_pages(ctx):  # noqa: C901
     with pg.expect_download() as dl2:
         pg.click("#pdf-mergego")
     out2 = open(dl2.value.path(), "rb").read()
+    open(shots + "/pdf-merged.pdf", "wb").write(out2)
     check(
-        "pages: merge gives the open file's 6 pages then both added files (10 pages)",
-        dl2.value.suggested_filename == "six-merged.pdf"
-        and npages(out2) == 10
-        and out2.find(b"(Page 1)") < out2.find(b"(Page 6)"),
+        "pages: merge gives a -merged file of 10 pages",
+        dl2.value.suggested_filename == "six-merged.pdf" and npages(out2) == 10,
         (dl2.value.suggested_filename, npages(out2)),
     )
     open_pdf("merged.pdf", out2)
+    tx = texts(10)
     check(
-        "pages: the merged file opens in the viewer with 10 pages",
-        pg.inner_text("#pdf-where").startswith("Page 1 of 10"),
-        pg.inner_text("#pdf-where"),
+        "pages: the merged file's pages, read by pdf.js, are the open file then bee then cat, in order",
+        tx
+        == [
+            "Page 1",
+            "Page 2",
+            "Page 3",
+            "Page 4",
+            "Page 5",
+            "Page 6",
+            "Bee 1",
+            "Bee 2",
+            "Cat 1",
+            "Cat 2",
+        ],
+        tx,
     )
     check(
-        "pages: opening another file clears the added files",
+        "pages: opening another file cleared the added files",
         pg.locator("#pdf-mergelist li").count() == 0
         and pg.is_disabled("#pdf-mergego")
         and status() == "",
@@ -5654,6 +5685,11 @@ def pdf_pages(ctx):  # noqa: C901
         status(),
     )
     open_pdf("signed.pdf", signed)
+    two = _two_page_pdf()
+    pg.set_input_files(
+        "#pdf-mergeadd", files=[{"name": "two.pdf", "mimeType": "application/pdf", "buffer": two}]
+    )
+    pg.wait_for_timeout(800)
     pg.fill("#pdf-range", "1")
     got.clear()
     pg.click("#pdf-splitgo")
@@ -5663,6 +5699,9 @@ def pdf_pages(ctx):  # noqa: C901
         not got and "will not validate" in status() and "again within 15 seconds" in status(),
         status(),
     )
+    # Replace the added file by another file with the very same name and size: the held copy must not carry over.
+    pg.click("#pdf-mergeclear")
+    pg.wait_for_timeout(300)
     pg.set_input_files(
         "#pdf-mergeadd", files=[{"name": "two.pdf", "mimeType": "application/pdf", "buffer": two}]
     )
@@ -5670,7 +5709,7 @@ def pdf_pages(ctx):  # noqa: C901
     pg.click("#pdf-splitgo")
     pg.wait_for_timeout(1200)
     check(
-        "pages: adding a file after the warning drops the held copy and warns again",
+        "pages: re-adding a file with the same name and size does not release the held copy",
         not got and "again within 15 seconds" in status(),
         status(),
     )
@@ -5683,7 +5722,7 @@ def pdf_pages(ctx):  # noqa: C901
     pg.set_viewport_size({"width": 390, "height": 800})
     pg.wait_for_timeout(400)
     pg.locator("#pdf-pages").scroll_into_view_if_needed()
-    pg.screenshot(path=os.environ.get("DRILL_SHOTS", "/tmp") + "/pdf-pages-phone.png")  # noqa: S108
+    pg.screenshot(path=shots + "/pdf-pages-phone.png")
     sw = pg.evaluate("[document.documentElement.scrollWidth, window.innerWidth]")
     check("pages: the panel does not widen the page at 390", sw[0] <= sw[1], sw)
 

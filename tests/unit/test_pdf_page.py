@@ -149,4 +149,4 @@ def test_pdf_pages_table_passes_under_node():
         timeout=60,
     )
     assert r.returncode == 0, r.stdout + r.stderr
-    assert "15/15 pdf pages rows passed" in r.stdout
+    assert "19/19 pdf pages rows passed" in r.stdout
