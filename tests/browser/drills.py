@@ -4074,6 +4074,84 @@ def slides_images_race(ctx):  # noqa: C901
     )
 
 
+def _poll_logger(codes, k):
+    def log(resp):
+        if "/poll/" in resp.url:
+            codes.setdefault(k, []).append(resp.status)
+
+    return log
+
+
+def chat_poll_tabs(ctx):  # noqa: C901
+    """Chat: one person with many visible tabs against the real poll limit (30 a minute): observed responses and the status line each tab shows."""
+    import django
+
+    django.setup()
+
+    def make_space():
+        from apps.accounts.models import CustomUser
+        from apps.chat import services as cs
+
+        me = CustomUser.objects.get(employee_id="ST-LIVE-1")
+        other, _ = CustomUser.objects.get_or_create(
+            employee_id="ST-LIVE-2",
+            defaults={
+                "full_name": "Second Synthetic",
+                "email": "live.two@salowtech.com",
+                "email_verified": True,
+                "role": CustomUser.Role.EMPLOYEE,
+                "status": CustomUser.Status.ACTIVE,
+                "is_active": True,
+            },
+        )
+        return cs.open_dm(me, other.pk).public_id
+
+    import concurrent.futures
+
+    with concurrent.futures.ThreadPoolExecutor(1) as ex:
+        space_id = ex.submit(make_space).result()
+    url = APP + "/chat/space/%s/" % space_id
+    n = int(os.environ.get("DRILL_TABS", "12"))
+    secs = int(os.environ.get("DRILL_SECS", "75"))
+    codes = {}
+    pages = []
+    for k in range(n):
+        pgk = ctx.pages[0] if k == 0 else ctx.new_page()
+        pgk.on("response", _poll_logger(codes, k))
+        pgk.goto(url)
+        pages.append(pgk)
+    vis = [p.evaluate("document.visibilityState") for p in pages]
+    t0 = time.time()
+    while time.time() - t0 < secs:
+        pages[0].wait_for_timeout(5000)
+    allc = [c for v in codes.values() for c in v]
+    n429 = allc.count(429)
+    stat = [p.inner_text("#chat-status") for p in pages]
+    paused = [x for x in stat if "paused" in x]
+    print(
+        "chat_poll_tabs: tabs",
+        n,
+        "visibility",
+        sorted(set(vis)),
+        "polls",
+        len(allc),
+        "ok",
+        allc.count(200),
+        "429",
+        n429,
+        "other",
+        len(allc) - allc.count(200) - n429,
+    )
+    print("chat_poll_tabs: status lines", sorted(set(stat)))
+    check(
+        "chat: %d visible tabs for %d s produced polls" % (n, secs), len(allc) > 0, str(len(allc))
+    )
+    check("chat: observed whether the poll limit answered 429 (count printed)", True, str(n429))
+    check(
+        "chat: observed how many tabs paused live updates (count printed)", True, str(len(paused))
+    )
+
+
 def _js_route(body):
     return lambda route: route.fulfill(status=200, content_type="application/javascript", body=body)
 
@@ -4232,6 +4310,7 @@ DRILLS = {
     "slides_images_race": slides_images_race,
     "slides_images_pdfmem": slides_images_pdfmem,
     "slides_oldpage_v5": slides_oldpage_v5,
+    "chat_poll_tabs": chat_poll_tabs,
     "slides_style": slides_style,
     "sheets_tabs": sheets_tabs,
     "sheets_chart": sheets_chart,
