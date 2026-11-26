@@ -7,6 +7,7 @@ import datetime
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import transaction
 from django.db.models import F, Max
+from django.db.models.functions import Lower
 from django.http import Http404
 from django.utils import timezone
 
@@ -174,7 +175,9 @@ def tasks_by_column(project, q="", milestone=None, overdue_before=None):
     "none" (tasks with no milestone), overdue_before = a date: due before it and not in Done."""
     rows = ProjectTask.objects.filter(project=project, deleted_at__isnull=True)
     if q:
-        rows = rows.filter(title__icontains=q)
+        # Lower() on both sides: icontains relied on the column collation, which is
+        # case-sensitive on the real TiDB test store (found by the real-stack run).
+        rows = rows.annotate(_lt=Lower("title")).filter(_lt__contains=q.lower())
     if milestone == "none":
         rows = rows.filter(milestone__isnull=True)
     elif milestone is not None:
