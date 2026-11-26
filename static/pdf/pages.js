@@ -9,7 +9,7 @@
   function parseRanges(text, n) {
     var t = String(text || "").replace(/\s+/g, "");
     if (!t) return { error: "Type the pages to keep, for example 1-3,5." };
-    if (t.length > 200) return { error: "That list is too long." };
+    if (t.length > 400) return { error: "That list is too long." };
     var out = [], parts = t.split(","), i;
     for (i = 0; i < parts.length; i++) {
       var m = /^(\d{1,6})(?:(-)(\d{0,6}))?$/.exec(parts[i]);

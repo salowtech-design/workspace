@@ -49,6 +49,11 @@ const done = (async () => {
   const t3 = await (async () => { const d = await P.PDFDocument.create(); for (let i = 1; i <= 3; i++) { const pg = d.addPage([200, 200]); pg.node.set(P.PDFName.of("Contents"), d.context.register(d.context.stream("BT 12 0 0 12 10 100 Tm (PG" + i + ") Tj ET"))); } return d.save({ useObjectStreams: false }); })();
   const rr3 = await G.build(P, [{ bytes: t3, pages: [3, 1, 3], name: "t3" }]);
   ok("3,1,3 on a 3-page file builds 3 pages with 3 page objects and the guard does not refuse", rr3.pageCount === 3 && (Buffer.from(rr3.bytes).toString("latin1").match(/\/Type\s*\/Page[^s]/g) || []).length === 3);
+  // The worst order the list can make for 100 pages (swapped pairs, 291 characters, no runs) must parse.
+  const worst = []; for (let i = 1; i <= 100; i += 2) worst.push(i + 1, i); const wtxt = worst.join(",");
+  const wp = G.parseRanges(wtxt, 100);
+  ok("the longest list-made text (swapped pairs of 100 pages, over 200 characters) parses to all 100 pages", wtxt.length > 200 && wtxt.length <= 400 && !wp.error && wp.pages.length === 100);
+  ok("text beyond 400 characters is still refused", !!G.parseRanges("1,".repeat(201) + "1", 100).error);
   // Populated actions: scripts, chains and page-level actions must be gone from the copy, a plain web link must stay.
   const act = await (async () => { const d = await P.PDFDocument.create(), pg = d.addPage([300, 300]), x = d.context, R = (o) => x.register(x.obj(o));
     const js = { S: "JavaScript", JS: P.PDFString.of("app.alert(JSMARK1)") };

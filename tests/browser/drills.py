@@ -4920,7 +4920,7 @@ def pdf_forms(ctx):  # noqa: C901
 
     fx = pathlib.Path(__file__).resolve().parents[1] / "js" / "fixtures"
     basic = (fx / "form_basic.pdf").read_bytes()
-    signed = (fx / "form_signed.pdf").read_bytes()
+    signed = (fx / "form_signed3.pdf").read_bytes()
     pg = fresh(ctx, "/pdf/")
     pg.set_viewport_size({"width": 1280, "height": 800})
 
@@ -5556,8 +5556,7 @@ def pdf_order(ctx):  # noqa: C901
     pg.click("#pdf-orderstart")
     check(
         "order: the list starts in file order and fills the pages box",
-        order() == ["Page %d" % i for i in range(1, 6)]
-        and pg.input_value("#pdf-range") == "1,2,3,4,5",
+        order() == ["Page %d" % i for i in range(1, 6)] and pg.input_value("#pdf-range") == "1-5",
         (order(), pg.input_value("#pdf-range")),
     )
     first_up, last_down = (
@@ -5611,6 +5610,93 @@ def pdf_order(ctx):  # noqa: C901
         "order: opening another file clears the list and the pages box",
         pg.locator("#pdf-orderlist li").count() == 0 and pg.input_value("#pdf-range") == "",
     )
+
+    def active():
+        return pg.evaluate(
+            "document.activeElement && document.activeElement.getAttribute('aria-label') || ''"
+        )
+
+    open_pdf("five.pdf", _n_page_pdf(5))
+    pg.click("#pdf-orderstart")
+    pg.locator("#pdf-orderlist li").nth(3).locator("button").nth(0).click()
+    check(
+        "order: after Up the focus is on the same page's Up button and the move is announced",
+        active().startswith("Up: page 4, position 3 of 5")
+        and "moved to position 3" in pg.inner_text("#pdf-pagesstatus"),
+        (active(), pg.inner_text("#pdf-pagesstatus")),
+    )
+    pg.locator("#pdf-orderlist li").nth(4).locator("button").nth(2).click()
+    check(
+        "order: after removing the last row the focus lands on an enabled button of the new last row",
+        active().startswith("Remove: page 3, position 4 of 4") or "position 4 of 4" in active(),
+        active(),
+    )
+    pg.fill("#pdf-range", "5,5")
+    check(
+        "order: typing in the box ends the list and keeps what was typed",
+        pg.locator("#pdf-orderlist li").count() == 0 and pg.input_value("#pdf-range") == "5,5",
+    )
+    pg.click("#pdf-orderstart")
+    check(
+        "order: listing again replaces the box with the file order",
+        pg.input_value("#pdf-range") == "1-5",
+        pg.input_value("#pdf-range"),
+    )
+    hundred = _n_page_pdf(100)
+    open_pdf("hundred.pdf", hundred)
+    pg.click("#pdf-orderstart")
+    check(
+        "order: 100 pages list as one range and download unchanged as 100 pages",
+        pg.input_value("#pdf-range") == "1-100" and pg.locator("#pdf-orderlist li").count() == 100,
+    )
+    with pg.expect_download() as dl100:
+        pg.click("#pdf-splitgo")
+    b100 = open(dl100.value.path(), "rb").read()
+    check(
+        "order: the unchanged 100-page download has 100 pages",
+        len(re.findall(rb"/Type\s*\/Page[^s]", b100)) == 100,
+        len(b100),
+    )
+    for r in range(0, 100, 2):
+        pg.locator("#pdf-orderlist li").nth(r).locator("button").nth(1).click()
+    rng = pg.input_value("#pdf-range")
+    check(
+        "order: 50 swaps give a box text over 200 characters",
+        200 < len(rng) <= 400 and rng.startswith("2,1,4,3"),
+        len(rng),
+    )
+    with pg.expect_download() as dlw:
+        pg.click("#pdf-splitgo")
+    bw = open(dlw.value.path(), "rb").read()
+    check(
+        "order: that long order downloads 100 pages",
+        len(re.findall(rb"/Type\s*\/Page[^s]", bw)) == 100
+        and "Downloaded a new file with 100" in pg.inner_text("#pdf-pagesstatus"),
+        pg.inner_text("#pdf-pagesstatus"),
+    )
+    import pathlib
+
+    signed = (
+        pathlib.Path(__file__).resolve().parents[1] / "js" / "fixtures" / "form_signed3.pdf"
+    ).read_bytes()
+    open_pdf("signed.pdf", signed)
+    pg.click("#pdf-orderstart")
+    got = []
+    pg.on("download", lambda x: got.append(x))
+    pg.click("#pdf-splitgo")
+    pg.wait_for_timeout(1000)
+    warned = "will not validate" in pg.inner_text("#pdf-pagesstatus")
+    n_rows = pg.locator("#pdf-orderlist li").count()
+    if n_rows >= 2:
+        pg.locator("#pdf-orderlist li").nth(0).locator("button").nth(1).click()
+        pg.locator("#pdf-orderlist li").nth(1).locator("button").nth(0).click()
+    pg.click("#pdf-splitgo")
+    pg.wait_for_timeout(1000)
+    check(
+        "order: a held signed copy is dropped by a list change even when the order comes back the same",
+        warned and not got and "again within 15 seconds" in pg.inner_text("#pdf-pagesstatus"),
+        (warned, len(got), n_rows),
+    )
     sw = pg.evaluate("[document.documentElement.scrollWidth, window.innerWidth]")
     check("order: the list does not widen the page at 390", sw[0] <= sw[1], sw)
     pg.click("#pdf-orderstart")
@@ -5624,7 +5710,7 @@ def pdf_pages(ctx):  # noqa: C901
     import re
 
     fx = pathlib.Path(__file__).resolve().parents[1] / "js" / "fixtures"
-    signed = (fx / "form_signed.pdf").read_bytes()
+    signed = (fx / "form_signed3.pdf").read_bytes()
     shots = os.environ.get("DRILL_SHOTS", "/tmp")  # noqa: S108
     pg = fresh(ctx, "/pdf/")
     pg.set_viewport_size({"width": 1280, "height": 800})

@@ -408,35 +408,54 @@
   function pControls() { var on = !!doc && !pBusy; $("pdf-range").disabled = !doc; $("pdf-splitgo").disabled = !on; $("pdf-mergeadd").disabled = !on || pExtras.length >= window.PdfPages.MAX_FILES - 1; $("pdf-mergeclear").disabled = !on || !pExtras.length; $("pdf-mergego").disabled = !on || !pExtras.length; $("pdf-orderstart").disabled = !on; }
   function pList() { var ol = $("pdf-mergelist"); ol.textContent = ""; pExtras.forEach(function (x) { var li = document.createElement("li"); li.textContent = x.name + " (" + Math.round(x.bytes.length / 1024) + " KB)"; ol.appendChild(li); }); }
   // Order list: a helper that writes the page order into the same "pages to keep" box, so downloading goes through the one build path.
+  // Runs of consecutive ascending pages are written as ranges, so any order of up to 100 pages fits the box (worst case 291 characters).
   var pOrder = null, ORDER_MAX = 100;
+  function pSerialize(a) {
+    var out = [], i = 0;
+    while (i < a.length) { var j = i; while (j + 1 < a.length && a[j + 1] === a[j] + 1) j++; out.push(j - i >= 2 ? a[i] + "-" + a[j] : a.slice(i, j + 1).join(",")); i = j + 1; }
+    return out.join(",");
+  }
   function pOrderSync() {
     var ol = $("pdf-orderlist"); ol.textContent = "";
-    if (!pOrder) { $("pdf-orderstart").textContent = "List pages to reorder or remove"; return; }
-    $("pdf-orderstart").textContent = "Reset the list";
+    $("pdf-orderstart").textContent = pOrder ? "Reset the list to file order (replaces the pages box)" : "List pages from the file (replaces the pages box)";
+    if (!pOrder) return;
     pOrder.forEach(function (n, i) {
       var li = document.createElement("li"), t = document.createElement("span");
       t.textContent = "Page " + n + " ";
       li.appendChild(t);
-      [["Up", "earlier", -1], ["Down", "later", 1], ["Remove", "remove", 0]].forEach(function (b) {
+      [["Up", -1], ["Down", 1], ["Remove", 0]].forEach(function (b, bi) {
         var el = document.createElement("button"); el.type = "button"; el.className = "btn"; el.textContent = b[0];
+        el.dataset.row = String(i); el.dataset.act = String(bi);
         el.setAttribute("aria-label", b[0] + ": page " + n + ", position " + (i + 1) + " of " + pOrder.length);
-        el.disabled = pBusy || (b[2] === -1 && i === 0) || (b[2] === 1 && i === pOrder.length - 1) || (b[2] === 0 && pOrder.length === 1);
-        el.addEventListener("click", function () {
-          if (pBusy || !pOrder) return;
-          if (b[2] === 0) pOrder.splice(i, 1); else { var o = pOrder[i]; pOrder[i] = pOrder[i + b[2]]; pOrder[i + b[2]] = o; }
-          pOrderSync();
-        });
+        el.disabled = (b[1] === -1 && i === 0) || (b[1] === 1 && i === pOrder.length - 1) || (b[1] === 0 && pOrder.length === 1);
+        el.addEventListener("click", function () { pOrderAct(i, b[1], bi); });
         li.appendChild(el);
       });
       ol.appendChild(li);
     });
-    $("pdf-range").value = pOrder.join(",");
+    $("pdf-range").value = pSerialize(pOrder);
   }
+  function pOrderAct(i, d, bi) {
+    if (pBusy || !pOrder) return;
+    var n = pOrder[i], text;
+    if (pHold) { clearTimeout(pHold.timer); pHold = null; }
+    if (d === 0) { pOrder.splice(i, 1); text = "Page " + n + " removed. " + pOrder.length + " page(s) left."; }
+    else { var o = pOrder[i]; pOrder[i] = pOrder[i + d]; pOrder[i + d] = o; text = "Page " + n + " moved to position " + (i + d + 1) + " of " + pOrder.length + "."; }
+    pOrderSync();
+    // Put focus back where the person was: same page and action, or the nearest enabled button in that row, then the nearest row.
+    var row = d === 0 ? Math.min(i, pOrder.length - 1) : i + d, all = $("pdf-orderlist").querySelectorAll("button"), best = null, bestScore = 1e9;
+    all.forEach(function (el) { if (el.disabled) return; var sc = Math.abs(+el.dataset.row - row) * 10 + (d === 0 ? Math.abs(+el.dataset.act - bi) : Math.abs(+el.dataset.act - bi)); if (sc < bestScore) { best = el; bestScore = sc; } });
+    if (best) best.focus();
+    pmsg(text);
+  }
+  // A typed change to the box means the list no longer describes it: drop the list (the box keeps what was typed).
+  $("pdf-range").addEventListener("input", function () { if (pOrder) { pOrder = null; $("pdf-orderlist").textContent = ""; $("pdf-orderstart").textContent = "List pages from the file (replaces the pages box)"; } if (pHold) { clearTimeout(pHold.timer); pHold = null; } });
   $("pdf-orderstart").addEventListener("click", function () {
     if (!doc || pBusy) return;
     if (doc.numPages > ORDER_MAX) { pmsg("The list handles up to " + ORDER_MAX + " pages. Type the pages in the box for a longer file."); return; }
     pOrder = []; for (var i = 1; i <= doc.numPages; i++) pOrder.push(i);
-    pHold = null; pOrderSync(); pmsg("");
+    if (pHold) { clearTimeout(pHold.timer); pHold = null; }
+    pOrderSync(); pmsg("The pages box now follows the list. Typing in the box ends the list.");
   });
   function pagesReset() { pOrder = null; pOrderSync(); pToken++; pExtras = []; if (pHold) clearTimeout(pHold.timer); pHold = null; pBusy = false; $("pdf-range").value = ""; pList(); pmsg(""); pControls(); }
   function pSave(r, nameText, suffix) {
