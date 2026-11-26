@@ -5941,6 +5941,8 @@ def pdf_marks_secure(ctx):  # noqa: C901
 
 
 def pdf_marks_keep(ctx):  # noqa: C901
+    import re
+
     """Marks are kept on this device per file: come back after a reload, stay per file, two tabs cannot overwrite each other, failures stay visible. Needs a secure context, so the runner gives it the flagged test browser."""
     KEY = "salow.pdfmarks."
     pg = fresh(ctx, "/pdf/")
@@ -6022,9 +6024,43 @@ def pdf_marks_keep(ctx):  # noqa: C901
         pg.evaluate("document.querySelectorAll('#pdf-marks rect, #pdf-marks polyline').length")
         == 2,
     )
+    pg.set_viewport_size({"width": 390, "height": 800})
+    pg.evaluate("document.getElementById('pdf-marksbox').scrollIntoView({block:'start'});0")
+    pg.wait_for_timeout(300)
+    shots = os.environ.get("DRILL_SHOTS", "/tmp")  # noqa: S108
+    pg.screenshot(path=os.path.join(shots, "pdf-marks-keep-reload-390.png"))
+    pg.set_viewport_size({"width": 1280, "height": 900})
+    pg.evaluate("document.getElementById('pdf-marksbox').scrollIntoView({block:'center'});0")
+    pg.wait_for_timeout(400)
+    pg.locator("#pdf-marksbox").screenshot(
+        path=os.path.join(shots, "pdf-marks-keep-reload-1280.png")
+    )
+    prefix = pg.evaluate("document.getElementById('pdf-marksbox').getAttribute('data-prefix')")
+    stored_keys = pg.evaluate(
+        "Object.keys(localStorage).filter(k=>k.indexOf('salow.pdfmarks.')===0)"
+    )
+    check(
+        "marks keep: the key is this signed-in user's prefix plus a 64-hex file hash, and only that key exists",
+        bool(re.fullmatch(r"salow\.pdfmarks\.\d+\.", prefix or ""))
+        and len(stored_keys) == 1
+        and bool(re.fullmatch(re.escape(prefix) + r"[0-9a-f]{64}", stored_keys[0])),
+        "%s %s" % (prefix, stored_keys),
+    )
     open_pdf(pg, B)
     check("marks keep: a different file shows no marks", n_list(pg) == 0)
+    hash_a = stored_keys[0][len(prefix) :]
+    foreign_key = "salow.pdfmarks.999999." + hash_a
+    foreign_raw = '{"v":1,"marks":[{"id":"foreign001","page":3,"kind":"hl","r":[0.2,0.2,0.4,0.4]}]}'
+    pg.evaluate("([k,v])=>{localStorage.setItem(k,v);return 0}", [foreign_key, foreign_raw])
+    KEY = prefix  # from here the helpers look only at this user's keys
+    pg.reload()
+    pg.wait_for_timeout(500)
     open_pdf(pg, A)
+    check(
+        "marks keep: another user's marks for the same file are not shown here",
+        n_list(pg) == 2 and "foreign001" not in pg.inner_html("#pdf-marklist"),
+        str(n_list(pg)),
+    )
     pg.locator("#pdf-marklist button").first.click()
     pg.wait_for_timeout(300)
     pg.reload()
@@ -6033,6 +6069,45 @@ def pdf_marks_keep(ctx):  # noqa: C901
     check(
         "marks keep: a removed mark stays removed after a reload", n_list(pg) == 1, str(n_list(pg))
     )
+    check(
+        "marks keep: the other user's stored marks are untouched by this user's saves and removals",
+        pg.evaluate("(k)=>localStorage.getItem(k)", foreign_key) == foreign_raw,
+    )
+    # A page that cannot say whose marks these are keeps nothing: tab only, and stored data stays as it is.
+    all_before = pg.evaluate(
+        "Object.fromEntries(Object.keys(localStorage).map(k=>[k,localStorage.getItem(k)]))"
+    )
+    t3 = ctx.new_page()
+
+    # The page's marks prefix reads as empty (what a page without a signed-in user would give).
+    t3.add_init_script(
+        "(()=>{const g=Element.prototype.getAttribute;Element.prototype.getAttribute=function(n){return this.id==='pdf-marksbox'&&n==='data-prefix'?'':g.call(this,n)}})()"
+    )
+    t3.goto(APP + "/pdf/")
+    t3.wait_for_timeout(500)
+    open_pdf(t3, A)
+    st3 = status(t3)
+    n3 = n_list(t3)
+    t3.click("#pdf-tool-hl")
+    drag(t3, (0.2, 0.2), (0.4, 0.4))
+    check(
+        "marks keep: with no user prefix on the page, nothing saved is shown, a mark stays in the tab, and storage is untouched",
+        "whose marks" in st3
+        and n3 == 0
+        and n_list(t3) == 1
+        and t3.evaluate(
+            "Object.fromEntries(Object.keys(localStorage).map(k=>[k,localStorage.getItem(k)]))"
+        )
+        == all_before,
+        "%s | %s | attr=%r"
+        % (
+            st3,
+            n3,
+            t3.evaluate("document.getElementById('pdf-marksbox').getAttribute('data-prefix')"),
+        ),
+    )
+    t3.close()
+    pg.bring_to_front()
 
     # Two tabs.
     t2 = ctx.new_page()
@@ -6051,24 +6126,84 @@ def pdf_marks_keep(ctx):  # noqa: C901
     )
     # Make the second tab stale on purpose: change what is stored from inside it (no event reaches itself).
     t2.evaluate(
-        "(()=>{const k=Object.keys(localStorage).filter(k=>k.indexOf('%s')>=0)[0];const v=JSON.parse(localStorage.getItem(k));v.marks.push({id:'zzzzzzzz01',page:2,kind:'hl',r:[0.1,0.1,0.3,0.3]});localStorage.setItem(k,JSON.stringify(v));return 0})()"
+        "(()=>{const k=Object.keys(localStorage).filter(k=>k.indexOf('%s')>=0)[0];const v=JSON.parse(localStorage.getItem(k));v.marks[v.marks.length-1]={id:'zzzzzzzz01',page:2,kind:'hl',r:[0.11,0.11,0.31,0.31]};localStorage.setItem(k,JSON.stringify(v));return 0})()"
         % KEY
     )
     pg.bring_to_front()
     t2.bring_to_front()
-    t2.click("#pdf-tool-hl")
-    drag(t2, (0.5, 0.5), (0.7, 0.7))
-    stored = t2.evaluate(
-        "(()=>{const k=Object.keys(localStorage).filter(k=>k.indexOf('%s')>=0)[0];return JSON.parse(localStorage.getItem(k)).marks.length})()"
+    raw_of = (
+        "(()=>{const k=Object.keys(localStorage).filter(k=>k.indexOf('%s')>=0)[0];return localStorage.getItem(k)})()"
         % KEY
     )
+    raw0 = t2.evaluate(raw_of)
+    t2.click("#pdf-tool-hl")
+    drag(t2, (0.5, 0.5), (0.7, 0.7))
+    raw1 = t2.evaluate(raw_of)
+    # The injected edit replaced a mark with a different one (same count), so the count alone cannot tell an overwrite from a refusal: the stored text must be byte for byte what the other tab wrote.
     check(
-        "marks keep: a stale tab's change is refused, said so, and nothing is overwritten",
-        "was not applied" in status(t2) and stored == 3 and n_list(t2) == 3,
-        "%s | stored %s | list %s" % (status(t2), stored, n_list(t2)),
+        "marks keep: a stale tab's change is refused: the stored text is exactly what the other tab wrote, the page says so and shows it",
+        "was not applied" in status(t2)
+        and raw1 == raw0
+        and "zzzzzzzz01" in raw1
+        and "0.5,0.5" not in raw1.replace(" ", "")
+        and n_list(t2) == 2,
+        "%s | same %s | list %s" % (status(t2), raw1 == raw0, n_list(t2)),
     )
     t2.close()
     pg.bring_to_front()
+
+    # Switching files while the first is still being identified: the late one must not show its marks on the newer file or touch storage.
+    raw_a = pg.evaluate(raw_of)
+    pg.evaluate(
+        "(()=>{const s=crypto.subtle,o=s.digest.bind(s);let n=0;s.digest=function(){return (n++===0?new Promise(r=>setTimeout(r,1500)):Promise.resolve()).then(()=>o.apply(null,arguments))};window.__dig=[s,o];return 0})()"
+    )
+    pg.set_input_files(
+        "#pdf-open", files=[{"name": "a.pdf", "mimeType": "application/pdf", "buffer": A}]
+    )
+    pg.set_input_files(
+        "#pdf-open", files=[{"name": "b.pdf", "mimeType": "application/pdf", "buffer": B}]
+    )
+    pg.wait_for_timeout(3500)
+    check(
+        "marks keep: switching files during the load shows the newer file's marks (none), never the late file's, and storage is untouched",
+        n_list(pg) == 0
+        and "saved mark" not in status(pg)
+        and pg.evaluate(raw_of) == raw_a
+        and pg.inner_text("#pdf-name") == "b.pdf",
+        "%s | list %s | name %s" % (status(pg), n_list(pg), pg.inner_text("#pdf-name")),
+    )
+    pg.evaluate("(()=>{const [s,o]=window.__dig;s.digest=o;return 0})()")
+    open_pdf(pg, A)
+
+    # Switching files while a save waits for the lock: the late save lands on the first file's own key only, and the newer file shows nothing from it.
+    keys_before = pg.evaluate(
+        "Object.keys(localStorage).filter(k=>k.indexOf('salow.pdfmarks.')===0).sort()"
+    )
+    n_a = n_list(pg)
+    pg.evaluate(
+        "(()=>{const l=navigator.locks,o=l.request.bind(l);let n=0;l.request=function(){const a=arguments;return (n++===0?new Promise(r=>setTimeout(r,1500)):Promise.resolve()).then(()=>o.apply(null,a))};window.__lk=[l,o];return 0})()"
+    )
+    pg.click("#pdf-tool-hl")
+    drag(pg, (0.6, 0.1), (0.9, 0.3))
+    pg.set_input_files(
+        "#pdf-open", files=[{"name": "b.pdf", "mimeType": "application/pdf", "buffer": B}]
+    )
+    pg.wait_for_timeout(3500)
+    keys_mid = pg.evaluate(
+        "Object.keys(localStorage).filter(k=>k.indexOf('salow.pdfmarks.')===0).sort()"
+    )
+    check(
+        "marks keep: switching files while a save waits shows nothing of it on the new file and creates no key for it",
+        n_list(pg) == 0 and "added" not in status(pg) and keys_mid == keys_before,
+        "%s | %s | %s" % (status(pg), n_list(pg), keys_mid),
+    )
+    pg.evaluate("(()=>{const [l,o]=window.__lk;l.request=o;return 0})()")
+    open_pdf(pg, A)
+    check(
+        "marks keep: the late save was written to the first file's own key, so it shows when that file is opened again",
+        n_list(pg) == n_a + 1,
+        "%s vs %s" % (n_list(pg), n_a),
+    )
 
     # Quota or write failure.
     pg.evaluate(
@@ -6108,6 +6243,20 @@ def pdf_marks_keep(ctx):  # noqa: C901
         "marks keep: in that state a mark still works in the tab and the stored value is untouched",
         n_list(pg) == 1 and kept == "not json",
         str(kept),
+    )
+    pg.locator("#pdf-marksbox").screenshot(
+        path=os.path.join(shots, "pdf-marks-keep-unreadable-1280.png")
+    )
+    pg.click("#pdf-markclear")
+    pg.wait_for_timeout(300)
+    kept2 = pg.evaluate(raw_of)
+    check(
+        "marks keep: in that state Remove all marks says it only cleared this tab, and the unreadable saved value is still there",
+        n_list(pg) == 0
+        and "from this tab" in status(pg)
+        and "still on this device" in status(pg)
+        and kept2 == "not json",
+        "%s | %s" % (status(pg), kept2),
     )
 
     # Remove all clears the key.

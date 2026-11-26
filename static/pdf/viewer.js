@@ -650,26 +650,27 @@
   });
   mSvg.addEventListener("pointercancel", function () { mDrag = null; renderMarks(); });
   // Keeping marks on this device: the same guarded pattern as notes (one Web Lock, re-read before write, stale refused, unreadable left alone).
-  var mPrefix = $("pdf-marksbox").getAttribute("data-prefix") || "salow.pdfmarks.", mKey = "", mState = "tab", mLast = null, mSaving = false;
+  var mPrefix = $("pdf-marksbox").getAttribute("data-prefix") || "", mKey = "", mState = "tab", mLast = null, mSaving = false, mBad = false;
   function mFileCount() {
     var c = 0; try { for (var i = 0; i < localStorage.length; i++) if ((localStorage.key(i) || "").indexOf(mPrefix) === 0) c++; } catch (e) { return 0; }
     return c;
   }
   function mOpen(hash) {
-    mKey = ""; mState = "tab"; mLast = null;
+    mKey = ""; mState = "tab"; mLast = null; mBad = false;
     var M = window.PdfMarks, tab = " Marks stay in this tab only for this file.";
+    if (!/^salow\.pdfmarks\.[A-Za-z0-9_-]+\.$/.test(mPrefix)) { mmsg("This page could not tell whose marks these are, so it cannot keep them." + tab); return; }
     if (!(navigator.locks && navigator.locks.request)) { mmsg("This browser or connection cannot keep marks safely when the same file is open in two tabs." + tab); return; }
     if (typeof hash !== "string" || !/^[0-9a-f]{64}$/.test(hash)) { mmsg("The viewer could not identify this file, so it cannot keep marks for it." + tab); return; }
     var key = mPrefix + hash, raw; try { raw = localStorage.getItem(key); } catch (e) { mmsg("This browser will not keep marks." + tab); return; }
     if (raw === null && mFileCount() >= M.MAX_FILES) { mmsg("Marks are kept for up to " + M.MAX_FILES + " files on this device. Remove all marks of a file you no longer need first." + tab); return; }
     var l = M.load(raw);
-    if (l.unreadable) { mmsg("The saved marks for this file could not be read. They were left as they are, and nothing will be written for this file." + tab); return; }
+    if (l.unreadable) { mBad = true; mmsg("The saved marks for this file could not be read. They were left as they are on this device, and nothing will be written for this file. Remove all marks only clears the marks in this tab." + tab); return; }
     mKey = key; mLast = raw; mState = "ok"; mMarks = l.marks;
     mmsg(l.marks.length ? l.marks.length + " saved mark(s) for this file on this device." : ""); renderMarks();
   }
   function mAdopt(raw, why) {
     var l = window.PdfMarks.load(raw); mDrag = null; mHold = mClearHold();
-    if (l.unreadable) { mMarks = []; mState = "tab"; mmsg(why + " The saved marks could not be read, so they stay in this tab only and nothing more is written."); }
+    if (l.unreadable) { mMarks = []; mState = "tab"; mBad = true; mmsg(why + " The saved marks could not be read. They were left as they are on this device, marks stay in this tab only, and nothing more is written. Remove all marks only clears the marks in this tab."); }
     else { mMarks = l.marks; mLast = raw; mmsg(why); }
     renderMarks();
   }
@@ -695,10 +696,10 @@
     if (!doc || !mKey || mState !== "ok" || e.key !== mKey || e.storageArea !== localStorage) return;
     mAdopt(e.newValue, "Marks for this file were changed in another tab. Showing the saved marks.");
   });
-  function mReset() { mToken++; mKey = ""; mState = "tab"; mLast = null; mSaving = false; mMarks = []; mTool = "off"; mDrag = null; mHold = mClearHold(); mBusy = false; renderMarks(); mmsg(""); }
+  function mReset() { mToken++; mKey = ""; mBad = false; mState = "tab"; mLast = null; mSaving = false; mMarks = []; mTool = "off"; mDrag = null; mHold = mClearHold(); mBusy = false; renderMarks(); mmsg(""); }
   $("pdf-tool-hl").addEventListener("click", function () { mSetTool("hl"); });
   $("pdf-tool-pen").addEventListener("click", function () { mSetTool("pen"); });
-  $("pdf-markclear").addEventListener("click", function () { if (mBusy) return; mApply([], mState === "ok" ? "All marks for this file were removed from this device." : "All marks removed.", function () { $("pdf-tool-hl").focus(); }); });
+  $("pdf-markclear").addEventListener("click", function () { if (mBusy) return; mApply([], mState === "ok" ? "All marks for this file were removed from this device." : mBad ? "All marks removed from this tab. The saved marks that could not be read are still on this device." : "All marks removed from this tab.", function () { $("pdf-tool-hl").focus(); }); });
   $("pdf-markcopy").addEventListener("click", function () {
     if (!doc || mBusy || !mMarks.length) return;
     var myDoc = doc, nameText = $("pdf-name").textContent || "PDF file", tok = ++mToken, sig = JSON.stringify(mMarks);
