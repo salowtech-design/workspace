@@ -1139,7 +1139,7 @@ def register_iam_forms(g):
         cookie = {"name": box["cookie"], "value": box["raw"], "domain": "iam.salowtech.com", "path": "/", "httpOnly": True, "sameSite": "Lax"}
 
         def body(t, pg):
-            pg.context.add_init_script("document.addEventListener('DOMContentLoaded',()=>{const s=document.createElement('style');s.textContent='#issued-act-code{visibility:hidden}';document.head.appendChild(s);});")
+            pg.context.add_init_script("(()=>{const s=document.createElement('style');s.textContent='#issued-act-code,[data-copy]{visibility:hidden!important;color:transparent!important}';document.documentElement.appendChild(s);new MutationObserver(()=>{if(!s.isConnected)document.documentElement.appendChild(s);}).observe(document,{childList:true,subtree:true});})();")
             txt = lambda: pg.inner_text("body")
             form = lambda a: pg.locator("form", has=pg.locator("input[name=action][value=%s]" % a)).first
 
