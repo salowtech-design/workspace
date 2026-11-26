@@ -760,3 +760,88 @@ def test_comment_view_sends_anonymous_users_to_login_even_with_a_post_body():
         r = m(path, {"body": "anon"})
         assert r.status_code == 302 and "login" in r["Location"]
     assert TaskComment.objects.count() == 0
+
+
+def _board_titles(client, p, **params):
+    import re
+
+    page = client.get(reverse("tasks:project", args=[p.public_id]), params)
+    assert page.status_code == 200
+    html = page.content.decode()
+    return re.findall(r'<span class="task-title">([^<]*)</span><a class="btn btn-outline btn-small" href="/tasks/projects/task/[^"]*/edit/"', html), html
+
+
+@pytest.mark.django_db
+def test_board_filters_title_milestone_overdue_and_hide_only():
+    import datetime
+
+    from django.utils import timezone
+
+    a = _u("BF-A")
+    p = pj.create_project(a, "Filt")
+    todo, doing, done = list(p.columns.all())
+    today = timezone.localdate()
+    y = today - datetime.timedelta(days=1)
+    m1 = pj.create_milestone(a, p, "M1")
+    t_alpha = pj.add_task(a, p, todo.pk, "Alpha plan", due=y)
+    t_beta = pj.add_task(a, p, doing.pk, "Beta 100%_x", due=today)
+    t_old_done = pj.add_task(a, p, done.pk, "Gamma done", due=y)
+    t_none = pj.add_task(a, p, todo.pk, "Delta")
+    pj.set_milestone(a, t_alpha, m1.pk)
+    ca = _c(a)
+    allt, _ = _board_titles(ca, p)
+    assert sorted(allt) == ["Alpha plan", "Beta 100%_x", "Delta", "Gamma done"]
+    assert _board_titles(ca, p, q="ALPHA")[0] == ["Alpha plan"]
+    assert _board_titles(ca, p, q="100%_")[0] == ["Beta 100%_x"]  # % and _ are literal
+    assert _board_titles(ca, p, q="%")[0] == ["Beta 100%_x"]
+    assert _board_titles(ca, p, milestone=str(m1.pk))[0] == ["Alpha plan"]
+    assert sorted(_board_titles(ca, p, milestone="none")[0]) == ["Beta 100%_x", "Delta", "Gamma done"]
+    # overdue = due before today and not in Done: due today is not overdue, Done is excluded
+    assert _board_titles(ca, p, overdue="1")[0] == ["Alpha plan"]
+    titles, html = _board_titles(ca, p, q="alpha", overdue="1", milestone=str(m1.pk))
+    assert titles == ["Alpha plan"] and "Showing 1 of 4 tasks" in html
+    assert _board_titles(ca, p, q="nothing")[0] == [] and "No matching tasks." in _board_titles(ca, p, q="nothing")[1]
+    # junk values never error and never filter by an unknown milestone
+    for junk in ({"milestone": "\u00b2"}, {"milestone": "99999999999999999999"}, {"milestone": "abc"}, {"overdue": "yes"}, {"q": "x" * 500}):
+        assert ca.get(reverse("tasks:project", args=[p.public_id]), junk).status_code == 200
+    assert sorted(_board_titles(ca, p, overdue="yes")[0]) == sorted(allt)
+    # filtering never changes data
+    from apps.tasks.models import ProjectTask
+
+    assert ProjectTask.objects.filter(project=p, deleted_at__isnull=True).count() == 4
+    assert t_none.version == 1
+
+
+@pytest.mark.django_db
+def test_board_filter_cannot_use_another_projects_milestone_or_leak_to_a_stranger():
+    a, b = _u("BF-B"), _u("BF-C")
+    p1, p2 = pj.create_project(a, "One"), pj.create_project(b, "Two")
+    foreign = pj.create_milestone(b, p2, "Theirs")
+    t = pj.add_task(a, p1, p1.columns.first().pk, "Mine")
+    ca = _c(a)
+    titles, html = _board_titles(ca, p1, milestone=str(foreign.pk))
+    assert titles == ["Mine"] and "Showing" not in html and "Theirs" not in html
+    assert _c(b).get(reverse("tasks:project", args=[p1.public_id]), {"q": "Mine"}).status_code == 404
+    assert Client(HTTP_HOST="app.salowtech.com").get(reverse("tasks:project", args=[p1.public_id]), {"q": "Mine"}).status_code == 302
+
+
+@pytest.mark.django_db
+def test_board_query_count_does_not_grow_with_tasks_when_filtering():
+    from django.db import connection
+    from django.test.utils import CaptureQueriesContext
+
+    a = _u("BF-D")
+    p = pj.create_project(a, "Many")
+    col = p.columns.first().pk
+    ms = pj.create_milestone(a, p, "M")
+    pj.add_task(a, p, col, "t0")
+    ca = _c(a)
+    url = reverse("tasks:project", args=[p.public_id])
+    ca.get(url, {"q": "t", "milestone": "none"})
+    with CaptureQueriesContext(connection) as small:
+        ca.get(url, {"q": "t", "milestone": "none"})
+    for i in range(1, 40):
+        pj.add_task(a, p, col, f"t{i}")
+    with CaptureQueriesContext(connection) as big:
+        ca.get(url, {"q": "t", "milestone": "none"})
+    assert len(big) == len(small), (len(small), len(big))

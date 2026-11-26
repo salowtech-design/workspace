@@ -10,6 +10,7 @@ from django.views.decorators.http import require_http_methods, require_POST
 
 from apps.core.foundation.throttle import throttled
 from apps.tasks import projects as pj
+from apps.tasks.models import ProjectTask
 
 PROJECT_LIMIT = 10  # new projects per person per minute
 COMMENT_LIMIT = 30  # comments per person per minute
@@ -39,10 +40,29 @@ def new_project(request):
     return redirect("tasks:project", project_id=p.public_id)
 
 
+def _board_filters(request, p, milestones):
+    q = (request.GET.get("q") or "").strip()[:100]
+    ms = request.GET.get("milestone", "")
+    valid = {str(m.pk) for m in milestones}
+    milestone = "none" if ms == "none" else (int(ms) if ms in valid else None)
+    overdue = request.GET.get("overdue") == "1"
+    return q, milestone, overdue
+
+
 @login_required
 def project_view(request, project_id):
+    import datetime  # noqa: F401
+
+    from django.utils import timezone
+
     p = pj.get_project(request.user, project_id)
-    by = pj.tasks_by_column(p)
+    milestones = list(pj.milestones_of(p))
+    q, milestone, overdue = _board_filters(request, p, milestones)
+    filtered = bool(q or milestone is not None or overdue)
+    by = pj.tasks_by_column(
+        p, q, milestone, timezone.localdate() if overdue else None
+    )
+    shown = sum(len(v) for v in by.values())
     return render(
         request,
         "tasks/project.html",
@@ -51,7 +71,13 @@ def project_view(request, project_id):
             "columns": [(c, by.get(c.pk, [])) for c in p.columns.all()],
             "is_lead": _is_lead(request.user, p),
             "members": pj.members_of(p),
-            "milestones": pj.milestones_of(p),
+            "milestones": milestones,
+            "filtered": filtered,
+            "shown": shown,
+            "total": ProjectTask.objects.filter(project=p, deleted_at__isnull=True).count(),
+            "f_q": q,
+            "f_milestone": "none" if milestone == "none" else (milestone or ""),
+            "f_overdue": overdue,
             "tab": "projects",
         },
     )

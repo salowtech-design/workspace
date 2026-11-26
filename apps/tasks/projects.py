@@ -168,12 +168,20 @@ def assign_task(user, task, person, expected_version=None):
     return t
 
 
-def tasks_by_column(project):
-    rows = (
-        ProjectTask.objects.filter(project=project, deleted_at__isnull=True)
-        .select_related("milestone")
-        .order_by("position", "id")
-    )
+def tasks_by_column(project, q="", milestone=None, overdue_before=None):
+    """Board rows by column. Filters narrow what is shown and never change data:
+    q = title contains (case-insensitive), milestone = a Milestone pk of this project or
+    "none" (tasks with no milestone), overdue_before = a date: due before it and not in Done."""
+    rows = ProjectTask.objects.filter(project=project, deleted_at__isnull=True)
+    if q:
+        rows = rows.filter(title__icontains=q)
+    if milestone == "none":
+        rows = rows.filter(milestone__isnull=True)
+    elif milestone is not None:
+        rows = rows.filter(milestone_id=milestone, milestone__project=project)
+    if overdue_before is not None:
+        rows = rows.filter(due_date__lt=overdue_before).exclude(column__name="Done")
+    rows = rows.select_related("milestone").order_by("position", "id")
     out = {}
     for t in rows:
         out.setdefault(t.column_id, []).append(t)

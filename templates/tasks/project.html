@@ -5,6 +5,12 @@
 <div class="card tasks">
   <div class="tasks-head"><h2>{{ project.name }}</h2></div>
   {% include "tasks/_nav.html" %}
+  <form method="get" class="tasks-inline board-filter" role="search" aria-label="Filter this board">
+    <input type="search" name="q" value="{{ f_q }}" maxlength="100" placeholder="Search titles" aria-label="Search task titles">
+    <select name="milestone" aria-label="Milestone filter"><option value="">Any milestone</option><option value="none"{% if f_milestone == "none" %} selected{% endif %}>No milestone</option>{% for ms in milestones %}<option value="{{ ms.pk }}"{% if ms.pk == f_milestone %} selected{% endif %}>{{ ms.name }}</option>{% endfor %}</select>
+    <label class="task-meta"><input type="checkbox" name="overdue" value="1"{% if f_overdue %} checked{% endif %}> Overdue, not Done</label>
+    <button class="btn btn-outline btn-small" type="submit">Filter</button>{% if filtered %}<a class="btn btn-outline btn-small" href="{% url 'tasks:project' project.public_id %}">Clear</a>{% endif %}</form>
+  {% if filtered %}<p class="task-meta" role="status">Showing {{ shown }} of {{ total }} tasks. Filters only hide tasks on this page.</p>{% endif %}
   <div class="tasks-board">{% for c, items in columns %}<div class="tasks-col"><h3>{{ c.name }}</h3>
     {% for t in items %}<div class="task-card"><span class="task-title">{{ t.title }}</span>{% if is_lead %}<a class="btn btn-outline btn-small" href="{% url 'tasks:project_edit' t.public_id %}">Edit</a><a class="btn btn-outline btn-small" href="{% url 'tasks:project_delete' t.public_id %}">Delete</a>{% endif %}<a class="btn btn-outline btn-small" href="{% url 'tasks:project_comments' t.public_id %}" aria-label="Comments on {{ t.title }}">Comments</a>{% if t.due_date %}<span class="task-meta">Due {{ t.due_date|date:"j M Y" }}</span>{% endif %}
       {% if t.milestone %}<span class="task-meta">Milestone: {{ t.milestone.name }}</span>{% endif %}
@@ -14,7 +20,7 @@
       <form method="post" action="{% url 'tasks:project_move' t.public_id %}" class="tasks-inline">{% csrf_token %}<input type="hidden" name="version" value="{{ t.version }}">
         <select name="column" aria-label="Move to">{% for c2, _x in columns %}<option value="{{ c2.pk }}"{% if c2.pk == c.pk %} selected{% endif %}>{{ c2.name }}</option>{% endfor %}</select>
         <button class="btn btn-outline btn-small" type="submit">Move</button></form>{% endif %}</div>
-    {% empty %}<p class="task-meta">No tasks.</p>{% endfor %}
+    {% empty %}<p class="task-meta">{% if filtered %}No matching tasks.{% else %}No tasks.{% endif %}</p>{% endfor %}
     {% if is_lead %}<form method="post" action="{% url 'tasks:project_add' project.public_id %}" class="tasks-inline">{% csrf_token %}<input type="hidden" name="column" value="{{ c.pk }}">
       <input type="text" name="title" maxlength="1024" placeholder="Add a task" required><button class="btn btn-outline btn-small" type="submit">Add</button></form>{% endif %}
   </div>{% endfor %}</div>
