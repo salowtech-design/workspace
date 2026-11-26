@@ -670,10 +670,15 @@
     mmsg(l.marks.length ? l.marks.length + " saved mark(s) for this file on this device." : ""); renderMarks();
   }
   function mAdopt(raw, why) {
-    var l = window.PdfMarks.load(raw); mDrag = null; mHold = mClearHold();
+    var refocus = false, l = window.PdfMarks.load(raw); mDrag = null; mHold = mClearHold();
     if (l.unreadable) { mMarks = []; mState = "tab"; mBad = true; mBadKey = mKey || mBadKey; mBadRaw = raw; mmsg(why + " The saved marks could not be read. They were left as they are on this device, marks stay in this tab only, and nothing more is written. Remove all marks only clears the marks in this tab."); }
-    else { mMarks = l.marks; mLast = raw; mmsg(why); }
+    else {
+      // A readable (or absent) value means saving works again: leave the unreadable state so the next edit is kept, and the discard control goes away.
+      if (mBad) { mBad = false; if (!mKey) mKey = mBadKey; mBadKey = ""; mBadRaw = null; mState = "ok"; refocus = document.activeElement === $("pdf-markdiscard"); }
+      mMarks = l.marks; mLast = raw; mmsg(why);
+    }
     renderMarks();
+    if (refocus) $("pdf-tool-hl").focus();
   }
   // One change to the marks list: saved first (when this file's marks are kept), shown only after the save worked.
   function mApply(next, okMsg, after) {
@@ -711,6 +716,7 @@
       if (r.changed) { mAdopt(r.raw, "The saved marks changed in another tab, so nothing was deleted."); return; }
       if (r.err) { mmsg("This browser would not delete them, so nothing was changed."); return; }
       mBad = false; mBadKey = ""; mBadRaw = null; mKey = key; mState = "ok"; mLast = r.raw === undefined ? null : r.raw;
+      $("pdf-tool-hl").focus();
       mmsg("The unreadable saved marks for this file were deleted from this device." + (mine.length ? (r.kept ? " The marks in this tab are now kept." : " The marks in this tab could not be kept: " + r.why) : ""));
       renderMarks(); mControls();
     };

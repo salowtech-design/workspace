@@ -6269,6 +6269,13 @@ def pdf_marks_keep(ctx):  # noqa: C901
     pg.locator("#pdf-marksbox").screenshot(
         path=os.path.join(shots, "pdf-marks-keep-discard-1280.png")
     )
+    pg.set_viewport_size({"width": 390, "height": 800})
+    pg.wait_for_timeout(300)
+    pg.locator("#pdf-marksbox").screenshot(
+        path=os.path.join(shots, "pdf-marks-keep-discard-390.png")
+    )
+    pg.set_viewport_size({"width": 1280, "height": 900})
+    pg.wait_for_timeout(300)
     check(
         "marks keep: one press only asks, says it cannot be undone, and deletes nothing",
         "cannot be undone" in status(pg) and pg.evaluate(raw_of) == "not json",
@@ -6311,6 +6318,7 @@ def pdf_marks_keep(ctx):  # noqa: C901
     check(
         "marks keep: two presses delete the unreadable value, keep the marks drawn in the tab, and hide the control",
         "deleted from this device" in status(pg)
+        and pg.evaluate("document.activeElement && document.activeElement.id") == "pdf-tool-hl"
         and "now kept" in status(pg)
         and stored_ok == 1
         and n_list(pg) == 1
@@ -6324,6 +6332,64 @@ def pdf_marks_keep(ctx):  # noqa: C901
     check(
         "marks keep: after that, a reload shows the kept mark",
         n_list(pg) == 1 and "1 saved mark(s)" in status(pg),
+        status(pg),
+    )
+
+    # Another tab fixes the unreadable value between the two presses: the page leaves the unreadable state and the next edit is kept next to what the other tab wrote.
+    full_key = prefix + hash_a
+    pg.evaluate("([k,v])=>{localStorage.setItem(k,v);return 0}", [full_key, "junk three"])
+    pg.reload()
+    pg.wait_for_timeout(500)
+    open_pdf(pg, A)
+    pg.click("#pdf-markdiscard")
+    other = '{"v":1,"marks":[{"id":"compete001","page":2,"kind":"hl","r":[0.1,0.1,0.3,0.3]}]}'
+    pg.evaluate("([k,v])=>{localStorage.setItem(k,v);return 0}", [full_key, other])
+    pg.click("#pdf-markdiscard")
+    pg.wait_for_timeout(500)
+    check(
+        "marks keep: when the value became readable between the presses nothing is deleted, the control goes away, the other tab's mark shows and focus moves to a tool",
+        "nothing was deleted" in status(pg)
+        and not pg.is_visible("#pdf-markdiscard")
+        and n_list(pg) == 1
+        and pg.evaluate("document.activeElement && document.activeElement.id") == "pdf-tool-hl"
+        and pg.evaluate("(k)=>localStorage.getItem(k)", full_key) == other,
+        "%s | n=%s" % (status(pg), n_list(pg)),
+    )
+    if pg.evaluate("document.getElementById('pdf-tool-hl').getAttribute('aria-pressed')") != "true":
+        pg.click("#pdf-tool-hl")
+    drag(pg, (0.5, 0.5), (0.7, 0.7))
+    kept_two = pg.evaluate("(k)=>localStorage.getItem(k)", full_key) or ""
+    check(
+        "marks keep: after that, a new mark is saved next to the other tab's mark (nothing deleted or overwritten)",
+        "compete001" in kept_two
+        and kept_two.count('"kind":"hl"') == 2
+        and n_list(pg) == 2
+        and "kept on this device" in status(pg),
+        "%s | %s" % (status(pg), kept_two[:80]),
+    )
+    # The same, when the other tab removed the value (nothing stored any more).
+    pg.evaluate("([k,v])=>{localStorage.setItem(k,v);return 0}", [full_key, "junk four"])
+    pg.reload()
+    pg.wait_for_timeout(500)
+    open_pdf(pg, A)
+    pg.click("#pdf-markdiscard")
+    pg.evaluate("(k)=>{localStorage.removeItem(k);return 0}", full_key)
+    pg.click("#pdf-markdiscard")
+    pg.wait_for_timeout(500)
+    check(
+        "marks keep: when the value was removed between the presses the control goes away and nothing is deleted",
+        "nothing was deleted" in status(pg)
+        and not pg.is_visible("#pdf-markdiscard")
+        and n_list(pg) == 0,
+        status(pg),
+    )
+    if pg.evaluate("document.getElementById('pdf-tool-hl').getAttribute('aria-pressed')") != "true":
+        pg.click("#pdf-tool-hl")
+    drag(pg, (0.5, 0.5), (0.7, 0.7))
+    check(
+        "marks keep: after that, a new mark is saved under the file's key",
+        (pg.evaluate("(k)=>localStorage.getItem(k)", full_key) or "").count('"kind":"hl"') == 1
+        and n_list(pg) == 1,
         status(pg),
     )
 
