@@ -75,20 +75,24 @@ def test_every_save_path_stores_upper_case_ids():
 @pytest.mark.django_db
 @pytest.mark.xfail(
     strict=True,
+    raises=AssertionError,
     reason="RECORDED FINDING, behaviour not changed: the activation chain never looks at status. "
     "A suspended or locked person who has a usable password and no confirmed authenticator "
     "walks the steps, is set to active and gets a verified session. Which statuses may use "
     "activation is not decided, so this stays as a recorded expectation.",
 )
+@pytest.mark.parametrize("is_active", [True, False])
 @pytest.mark.parametrize("status", ["suspended", "locked", "disabled", "exited", "inactive"])
-def test_activation_chain_should_not_reactivate_a_blocked_person(status):
+def test_activation_chain_should_not_reactivate_a_blocked_person(status, is_active):
+    # "inactive" is a model status value; is_active is a separate boolean, so both are covered.
     import pyotp
 
     from apps.accounts.auth.mfa_totp import get_or_create_pending_totp
 
     u = _user("AC-BLOCK-1")
-    CustomUser.objects.filter(pk=u.pk).update(status=status)
+    CustomUser.objects.filter(pk=u.pk).update(status=status, is_active=is_active)
     u.refresh_from_db()
+    assert CustomUser.objects.get(pk=u.pk).status == status  # the status value is valid and stored
     c = Client(HTTP_HOST="app.salowtech.com")
     r = c.post(reverse("accounts:activate"), {"employee_id": "AC-BLOCK-1", "password": PW})
     if r.status_code == 302:
@@ -96,18 +100,17 @@ def test_activation_chain_should_not_reactivate_a_blocked_person(status):
         c.post(reverse("accounts:activate_mfa_setup"), {"code": pyotp.TOTP(secret).now()})
         c.post(reverse("accounts:activate_recovery_codes"), {"confirmed_saved": "1"})
     u.refresh_from_db()
-    assert u.status == status
+    assert u.status == status, "activation changed a blocked person's status"
+    assert c.get("/attendance/").status_code == 302, "a blocked person reached a protected page"
 
 
 @pytest.mark.django_db
 def test_activation_overlong_id_creates_no_session_and_fails_closed():
-    """RECORDED: an id longer than the rate-limit key column makes the rate-limit middleware
-    raise on the real TiDB store (strict mode), and it answers 503 (fails closed). SQLite
-    accepts the long key and the page answers 200. Either way no next step is granted. The
-    middleware is not changed here."""
+    """An id longer than any real one gets the normal page: the rate-limit key now uses a digest
+    (a5b14f5), so the strict-column 503 no longer occurs. Detailed rows: test_ratelimit_account_key."""
     _user()
     c = Client(HTTP_HOST="app.salowtech.com", raise_request_exception=False)
     r = c.post(reverse("accounts:activate"), {"employee_id": "x" * 20000, "password": PW})
     # no redirect means no next activation step was granted (the session is not read here: on
     # TiDB the failed insert leaves the test transaction unusable)
-    assert r.status_code in (200, 503) and not r.has_header("Location")
+    assert r.status_code == 200 and not r.has_header("Location")
