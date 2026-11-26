@@ -1533,7 +1533,7 @@ def register_iam_stepup3(g):
             t9, _c = CU.objects.get_or_create(employee_id="ST-LIVE-9", defaults={"full_name": "Target Synthetic", "email": "st-live-9@salowtech.com", "email_verified": True,
                                               "role": CU.Role.EMPLOYEE, "status": CU.Status.ACTIVE, "is_active": True})
             from apps.core.models import EmailOutbox
-            EmailOutbox.objects.create(recipient="st-live-9@salowtech.com", subject="Fixture failed notice", body_text="fixture", notification_type="fixture_notice",
+            EmailOutbox.objects.create(recipient="fixture-recipient@example.invalid", subject="Fixture failed notice", body_text="fixture", notification_type="fixture_notice",
                                        status=EmailOutbox.Status.FAILED, retry_count=5, last_error="fixture transport error")
 
             class R:
