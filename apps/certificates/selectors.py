@@ -1,6 +1,7 @@
 from typing import Optional
 
 from django.db.models import Q, QuerySet
+from django.db.models.functions import Upper
 
 from apps.accounts.models import CustomUser
 from apps.certificates.models import Certificate, CertificateTemplate
@@ -47,11 +48,18 @@ def list_all_certificates(
 
     if search:
         term = search.strip()
-        qs = qs.filter(
-            Q(serial_number__icontains=term)
-            | Q(title__icontains=term)
-            | Q(recipient_name__icontains=term)
-            | Q(recipient__employee_id__icontains=term)
+        # Upper() on both sides: icontains is case-sensitive on TiDB's binary collation
+        needle = term.upper()
+        qs = qs.annotate(
+            _u_serial=Upper("serial_number"),
+            _u_title=Upper("title"),
+            _u_name=Upper("recipient_name"),
+            _u_emp=Upper("recipient__employee_id"),
+        ).filter(
+            Q(_u_serial__contains=needle)
+            | Q(_u_title__contains=needle)
+            | Q(_u_name__contains=needle)
+            | Q(_u_emp__contains=needle)
         )
 
     return qs.order_by("-issue_date", "-created_at")

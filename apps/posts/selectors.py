@@ -1,6 +1,7 @@
 from typing import Optional
 
 from django.db.models import Q, QuerySet
+from django.db.models.functions import Upper
 
 from apps.accounts.models import CustomUser
 from apps.accounts.permissions import PERM_POST_VIEW_ALL, PERM_POST_VIEW_TEAM, has_permission
@@ -43,11 +44,18 @@ def _apply_post_filters(
         qs = qs.filter(work_date__lte=end_date)
     if search:
         search_term = search.strip()
-        qs = qs.filter(
-            Q(title__icontains=search_term)
-            | Q(content__icontains=search_term)
-            | Q(author__employee_id__icontains=search_term)
-            | Q(author__full_name__icontains=search_term)
+        # Upper() on both sides: icontains is case-sensitive on TiDB's binary collation
+        needle = search_term.upper()
+        qs = qs.annotate(
+            _u_title=Upper("title"),
+            _u_content=Upper("content"),
+            _u_emp=Upper("author__employee_id"),
+            _u_name=Upper("author__full_name"),
+        ).filter(
+            Q(_u_title__contains=needle)
+            | Q(_u_content__contains=needle)
+            | Q(_u_emp__contains=needle)
+            | Q(_u_name__contains=needle)
         )
     return qs
 

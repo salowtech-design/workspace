@@ -1,6 +1,7 @@
 from typing import Optional
 
 from django.db.models import Q, QuerySet
+from django.db.models.functions import Upper
 
 from apps.accounts.models import CustomUser
 from apps.directory.models import Department, ReportingRelationship, Team
@@ -47,10 +48,12 @@ def search_directory(
 
     if query:
         q_clean = query.strip()
-        qs = qs.filter(
-            Q(employee_id__icontains=q_clean)
-            | Q(full_name__icontains=q_clean)
-            | Q(email__icontains=q_clean)
+        # Upper() on both sides: icontains is case-sensitive on TiDB's binary collation
+        needle = q_clean.upper()
+        qs = qs.annotate(
+            _u_emp=Upper("employee_id"), _u_name=Upper("full_name"), _u_mail=Upper("email")
+        ).filter(
+            Q(_u_emp__contains=needle) | Q(_u_name__contains=needle) | Q(_u_mail__contains=needle)
         )
 
     if department_code:

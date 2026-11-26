@@ -270,6 +270,7 @@ def register(g):
     register_team_link(g, users)
     register_drive_nested(g, users)
     register_post_search(g, users)
+    register_worklog_filter(g, users)
     register_posts_more(g, users)
 
 
@@ -2808,3 +2809,43 @@ def register_post_search(g, users):
         run_tour(ctx, "47_post_search", body, notes="Real Django on TiDB, headless Chromium 390x844 emulated. Fixture by script: three posts, two by ST-LIVE-1 and one by ST-LIVE-2 (no team, so not visible to ST-LIVE-1).", unshown=["team lead results"])
 
     g["DRILLS"]["tour_post_search"] = tour
+
+
+def register_worklog_filter(g, users):
+    APP = g["APP"]
+
+    def tour(ctx):
+        import concurrent.futures
+
+        users(ctx)
+
+        def make():
+            from apps.accounts.models import CustomUser
+            from apps.posts import services as ps
+            from apps.posts.models import Post
+
+            one = CustomUser.objects.get(employee_id="ST-LIVE-1")
+            ps.create_post(author=one, title="Alpha release notes", content="First body")
+            ps.create_post(author=one, title="Beta planning", content="Second body")
+            ps.create_post(author=one, title="Alpha draft idea", content="Third body", status=Post.Status.DRAFT)
+
+        with concurrent.futures.ThreadPoolExecutor(1) as ex:
+            ex.submit(make).result()
+
+        def body(t, pg):
+            txt = lambda: pg.inner_text("body")
+            show = lambda: pg.evaluate("document.querySelector('a[href*=\"/posts/\"]:not([href$=\"/posts/\"]):not([href*=\"create\"])').scrollIntoView({block:'start'})")
+            def go(sel):
+                with pg.expect_navigation():
+                    pg.click(sel)
+
+            pg.goto(APP + "/posts/")
+            t.step("Work Logs & Feed with no filter: all three posts", lambda: show(), expect=lambda: all(x in txt() for x in ("Alpha release notes", "Beta planning", "Alpha draft idea")), wait=3500)
+            t.step("Keyword alpha: only the two Alpha posts remain", lambda: (pg.fill("input[name=q]", "alpha"), go("button:text-is('Filter')"), show()), expect=lambda: "Beta planning" not in txt() and "Alpha release notes" in txt() and "Alpha draft idea" in txt(), wait=4000)
+            t.step("Add status Draft: only Alpha draft idea remains", lambda: (pg.select_option("select[name=status]", "draft"), go("button:text-is('Filter')"), show()), expect=lambda: "Alpha release notes" not in txt() and "Alpha draft idea" in txt(), wait=4000)
+            t.step("Press Clear: all three are back", lambda: (go("a:text-is('Clear')"), show()), expect=lambda: all(x in txt() for x in ("Alpha release notes", "Beta planning", "Alpha draft idea")), wait=3500)
+            t.note("Not shown: category and team filters, and the Certificates filter.", 3)
+
+        run_tour(ctx, "48_worklog_filter", body, notes="Real Django on TiDB, headless Chromium 390x844 emulated. Fixture by script: three posts by ST-LIVE-1, one of them a draft.", unshown=["category filter", "team filter", "certificates filter"])
+
+    g["DRILLS"]["tour_worklog_filter"] = tour
