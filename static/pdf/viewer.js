@@ -405,9 +405,40 @@
   // Pages: keep chosen pages as a new file, or merge this file with added files. Separate copies only.
   var pExtras = [], pBusy = false, pHold = null, pToken = 0, pSeq = 0;
   function pmsg(t) { $("pdf-pagesstatus").textContent = t; }
-  function pControls() { var on = !!doc && !pBusy; $("pdf-range").disabled = !doc; $("pdf-splitgo").disabled = !on; $("pdf-mergeadd").disabled = !on || pExtras.length >= window.PdfPages.MAX_FILES - 1; $("pdf-mergeclear").disabled = !on || !pExtras.length; $("pdf-mergego").disabled = !on || !pExtras.length; }
+  function pControls() { var on = !!doc && !pBusy; $("pdf-range").disabled = !doc; $("pdf-splitgo").disabled = !on; $("pdf-mergeadd").disabled = !on || pExtras.length >= window.PdfPages.MAX_FILES - 1; $("pdf-mergeclear").disabled = !on || !pExtras.length; $("pdf-mergego").disabled = !on || !pExtras.length; $("pdf-orderstart").disabled = !on; }
   function pList() { var ol = $("pdf-mergelist"); ol.textContent = ""; pExtras.forEach(function (x) { var li = document.createElement("li"); li.textContent = x.name + " (" + Math.round(x.bytes.length / 1024) + " KB)"; ol.appendChild(li); }); }
-  function pagesReset() { pToken++; pExtras = []; if (pHold) clearTimeout(pHold.timer); pHold = null; pBusy = false; $("pdf-range").value = ""; pList(); pmsg(""); pControls(); }
+  // Order list: a helper that writes the page order into the same "pages to keep" box, so downloading goes through the one build path.
+  var pOrder = null, ORDER_MAX = 100;
+  function pOrderSync() {
+    var ol = $("pdf-orderlist"); ol.textContent = "";
+    if (!pOrder) { $("pdf-orderstart").textContent = "List pages to reorder or remove"; return; }
+    $("pdf-orderstart").textContent = "Reset the list";
+    pOrder.forEach(function (n, i) {
+      var li = document.createElement("li"), t = document.createElement("span");
+      t.textContent = "Page " + n + " ";
+      li.appendChild(t);
+      [["Up", "earlier", -1], ["Down", "later", 1], ["Remove", "remove", 0]].forEach(function (b) {
+        var el = document.createElement("button"); el.type = "button"; el.className = "btn"; el.textContent = b[0];
+        el.setAttribute("aria-label", b[0] + ": page " + n + ", position " + (i + 1) + " of " + pOrder.length);
+        el.disabled = pBusy || (b[2] === -1 && i === 0) || (b[2] === 1 && i === pOrder.length - 1) || (b[2] === 0 && pOrder.length === 1);
+        el.addEventListener("click", function () {
+          if (pBusy || !pOrder) return;
+          if (b[2] === 0) pOrder.splice(i, 1); else { var o = pOrder[i]; pOrder[i] = pOrder[i + b[2]]; pOrder[i + b[2]] = o; }
+          pOrderSync();
+        });
+        li.appendChild(el);
+      });
+      ol.appendChild(li);
+    });
+    $("pdf-range").value = pOrder.join(",");
+  }
+  $("pdf-orderstart").addEventListener("click", function () {
+    if (!doc || pBusy) return;
+    if (doc.numPages > ORDER_MAX) { pmsg("The list handles up to " + ORDER_MAX + " pages. Type the pages in the box for a longer file."); return; }
+    pOrder = []; for (var i = 1; i <= doc.numPages; i++) pOrder.push(i);
+    pHold = null; pOrderSync(); pmsg("");
+  });
+  function pagesReset() { pOrder = null; pOrderSync(); pToken++; pExtras = []; if (pHold) clearTimeout(pHold.timer); pHold = null; pBusy = false; $("pdf-range").value = ""; pList(); pmsg(""); pControls(); }
   function pSave(r, nameText, suffix) {
     var url = URL.createObjectURL(new Blob([r.bytes], { type: "application/pdf" })), a = document.createElement("a");
     a.href = url; a.download = nameText.replace(/\.pdf$/i, "").replace(/[^A-Za-z0-9._-]+/g, "_").slice(0, 80) + suffix;

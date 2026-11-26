@@ -5530,6 +5530,94 @@ def pdf_thumbs_cancel(ctx):  # noqa: C901
     )
 
 
+def pdf_order(ctx):  # noqa: C901
+    """Reorder and remove pages from a list, then download that order."""
+    shots = os.environ.get("DRILL_SHOTS", "/tmp")  # noqa: S108
+    pg = fresh(ctx, "/pdf/")
+    pg.set_viewport_size({"width": 390, "height": 800})
+
+    def open_pdf(name, data):
+        pg.set_input_files(
+            "#pdf-open", files=[{"name": name, "mimeType": "application/pdf", "buffer": data}]
+        )
+        for _ in range(50):
+            if pg.inner_text("#pdf-where").startswith("Page 1 of"):
+                break
+            pg.wait_for_timeout(250)
+        pg.wait_for_timeout(400)
+
+    def order():
+        return pg.evaluate(
+            "[...document.querySelectorAll('#pdf-orderlist li span')].map(s=>s.textContent.trim())"
+        )
+
+    check("order: the list button is off with no file", pg.is_disabled("#pdf-orderstart"))
+    open_pdf("five.pdf", _n_page_pdf(5))
+    pg.click("#pdf-orderstart")
+    check(
+        "order: the list starts in file order and fills the pages box",
+        order() == ["Page %d" % i for i in range(1, 6)]
+        and pg.input_value("#pdf-range") == "1,2,3,4,5",
+        (order(), pg.input_value("#pdf-range")),
+    )
+    first_up, last_down = (
+        pg.locator("#pdf-orderlist li").nth(0).locator("button").nth(0),
+        pg.locator("#pdf-orderlist li").nth(4).locator("button").nth(1),
+    )
+    check(
+        "order: Up on the first and Down on the last are off",
+        first_up.is_disabled() and last_down.is_disabled(),
+    )
+    check(
+        "order: buttons carry a label with the page and position",
+        "page 1, position 1 of 5" in (first_up.get_attribute("aria-label") or ""),
+        first_up.get_attribute("aria-label"),
+    )
+    pg.locator("#pdf-orderlist li").nth(4).locator("button").nth(0).click()
+    pg.locator("#pdf-orderlist li").nth(3).locator("button").nth(0).click()
+    pg.locator("#pdf-orderlist li").nth(0).locator("button").nth(2).click()
+    check(
+        "order: two Ups on page 5 and a Remove of page 1 give 2,5,3,4",
+        pg.input_value("#pdf-range") == "2,5,3,4"
+        and order() == ["Page 2", "Page 5", "Page 3", "Page 4"],
+        (order(), pg.input_value("#pdf-range")),
+    )
+    with pg.expect_download() as dl:
+        pg.click("#pdf-splitgo")
+    out = open(dl.value.path(), "rb").read()
+    open(shots + "/pdf-order.pdf", "wb").write(out)
+    open_pdf("order.pdf", out)
+    tx = []
+    for i in range(1, 5):
+        pg.fill("#pdf-page", str(i))
+        pg.press("#pdf-page", "Enter")
+        for _ in range(25):
+            t = pg.inner_text("#pdf-text").strip()
+            if (
+                t
+                and t.endswith(("2", "3", "4", "5"))
+                and t.startswith("Page")
+                and (len(tx) == 0 or t != tx[-1])
+            ):
+                break
+            pg.wait_for_timeout(100)
+        tx.append(pg.inner_text("#pdf-text").strip())
+    check(
+        "order: the downloaded file's pages, read by pdf.js, are 2,5,3,4",
+        tx == ["Page 2", "Page 5", "Page 3", "Page 4"],
+        tx,
+    )
+    check(
+        "order: opening another file clears the list and the pages box",
+        pg.locator("#pdf-orderlist li").count() == 0 and pg.input_value("#pdf-range") == "",
+    )
+    sw = pg.evaluate("[document.documentElement.scrollWidth, window.innerWidth]")
+    check("order: the list does not widen the page at 390", sw[0] <= sw[1], sw)
+    pg.click("#pdf-orderstart")
+    pg.locator("#pdf-pages").scroll_into_view_if_needed()
+    pg.screenshot(path=shots + "/pdf-order-phone.png")
+
+
 def pdf_pages(ctx):  # noqa: C901
     """Keep chosen pages as a new PDF, or merge the open file with added files."""
     import pathlib
@@ -5980,6 +6068,7 @@ DRILLS = {
     "pdf_thumbs_layout": pdf_thumbs_layout,
     "pdf_thumbs_cancel": pdf_thumbs_cancel,
     "pdf_pages": pdf_pages,
+    "pdf_order": pdf_order,
     "slides_style": slides_style,
     "sheets_tabs": sheets_tabs,
     "sheets_chart": sheets_chart,
