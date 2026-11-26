@@ -259,6 +259,7 @@ def register(g):
     register_att_more(g, users)
     register_certs_more(g)
     register_worklog_date(g)
+    register_search_tour(g, users)
     register_posts_more(g, users)
 
 
@@ -2329,3 +2330,61 @@ def register_worklog_date(g):
         run_tour(ctx, "36_worklog_date", body, notes="Real Django on TiDB, headless Chromium 390x844 emulated. Shows only the prefilled Work Date on the new log form.", unshown=["saving the log", "editing an existing log"])
 
     g["DRILLS"]["tour_worklog_date"] = tour
+
+
+def register_search_tour(g, users):
+    APP = g["APP"]
+
+    def tour(ctx):
+        import concurrent.futures
+        import datetime as dt
+
+        import django
+
+        django.setup()
+
+        def fixture():
+            from django.utils import timezone
+
+            from apps.accounts.models import CustomUser
+            from apps.events.models import Event
+            from apps.tasks.models import Task, TaskList
+
+            me = CustomUser.objects.get(employee_id="ST-LIVE-1")
+            two = CustomUser.objects.get_or_create(employee_id="ST-LIVE-2", defaults={"full_name": "Second Synthetic", "email": "st-live-2@salowtech.com", "email_verified": True})[0]
+            mine = TaskList.objects.create(owner=me, name="Search tour list")
+            theirs = TaskList.objects.create(owner=two, name="Their list")
+            Task.objects.create(task_list=mine, title="Quarterly budget review", created_by=me)
+            Task.objects.create(task_list=theirs, title="Budget of the other person", created_by=two)
+            now = timezone.now() + dt.timedelta(days=2)
+            Event.objects.create(organizer=me, title="Budget planning meeting", start_utc=now, end_utc=now + dt.timedelta(hours=1), tz="Asia/Kolkata")
+            Event.objects.create(organizer=two, title="Budget offsite (not invited)", start_utc=now, end_utc=now + dt.timedelta(hours=1), tz="Asia/Kolkata")
+
+        with concurrent.futures.ThreadPoolExecutor(1) as ex:
+            ex.submit(fixture).result()
+
+        def body(t, pg):
+            txt = lambda: pg.inner_text("body")
+            def go(url):
+                pg.goto(APP + url)
+            def show():
+                pg.evaluate("(document.querySelector('main h2, main h3, main ul')||document.body).scrollIntoView({block:'start'})")
+            go("/search/")
+            t.step("Search page: a box and a Where list (Everywhere, Drive, Tasks, Calendar, People)", expect=lambda: "Where" in txt(), wait=2600)
+            go("/search/?q=budget")
+            t.step("Search budget everywhere: my Task and my Calendar event, not the other person's", lambda: show(), expect=lambda: "Quarterly budget review" in txt() and "Budget planning meeting" in txt() and "Budget of the other person" not in txt() and "not invited" not in txt(), wait=4500)
+            go("/search/?q=budget&in=tasks")
+            t.step("Where = Tasks: only the Task result", lambda: show(), expect=lambda: "Quarterly budget review" in txt() and "Budget planning meeting" not in txt(), wait=4000)
+            go("/search/?q=budget&in=calendar")
+            t.step("Where = Calendar: only the event result", lambda: show(), expect=lambda: "Budget planning meeting" in txt() and "Quarterly" not in txt(), wait=4000)
+            go("/search/?q=b")
+            t.step("One letter is refused with a message", expect=lambda: "at least" in txt().lower(), wait=3000)
+            go("/search/?q=zzqqnothing")
+            t.step("A search with no matches", expect=lambda: "Quarterly" not in txt(), wait=3000)
+            go("/search/?q=Second&in=people")
+            t.step("Where = People: result shown or empty, whichever this role gets", lambda: show(), expect=lambda: True, wait=4000)
+            t.note("Not shown: Drive results, result links opened, the 30 per minute throttle, the 100 character limit, an unknown Where value. There is no Department filter on this page; Department filtering is a Directory feature, not shown here.", 3)
+
+        run_tour(ctx, "37_search", body, notes="Real Django on TiDB, headless Chromium 390x844 emulated. Fixtures by script: two tasks and two events, one pair owned by another person who did not invite the signed-in account.", unshown=["Drive results", "result links", "throttle", "length limit", "unknown scope", "department filter (not on this page)"])
+
+    g["DRILLS"]["tour_search"] = tour
