@@ -245,6 +245,7 @@ def register(g):
     register_iam_live(g)
     register_admin_scroll(g)
     register_iam_forms(g)
+    register_iam_stepup(g)
 
 
 def register_tasks(g, users):
@@ -1198,3 +1199,126 @@ def register_iam_forms(g):
                  unshown=["step-up entry", "role change", "MFA reset", "session revoke", "recovery approve/reject", "break-glass", "service identities", "outbox retry", "team add", "Super Admin creation"])
 
     g["DRILLS"]["tour_iam_forms"] = forms_tour
+
+
+def register_iam_stepup(g):
+    APP = g["APP"]
+
+    def stepup_tour(ctx):
+        import concurrent.futures
+        import secrets as _s
+        import time as _t
+
+        import django
+        import pyotp
+
+        django.setup()
+        box = {"last": 0}
+        secret = {}
+
+        def mk():
+            from django.conf import settings
+            from django.contrib.auth.hashers import make_password
+
+            from apps.accounts.auth.crypto import encrypt_totp_secret
+            from apps.accounts.auth.iam_auth import create_iam_session
+            from apps.accounts.models import CustomUser as CU
+            from apps.accounts.models import IAMAdminIdentity
+            from apps.directory.models import Department, Team
+
+            CU.objects.filter(employee_id="ST-LIVE-1").update(role=CU.Role.ADMIN)
+            u = CU.objects.get(employee_id="ST-LIVE-1")
+            secret["pw"] = _s.token_urlsafe(18) + "aA1!"
+            secret["totp"] = pyotp.random_base32(length=32)
+            ct, nonce, kid = encrypt_totp_secret(secret["totp"])
+            adm = IAMAdminIdentity.objects.create(admin_id="IAM-FIXTURE-1", user=u, password_hash=make_password(secret["pw"]), role="admin",
+                                                  status="active", encrypted_totp_secret=ct, totp_nonce=nonce, totp_key_id=kid)
+            CU.objects.get_or_create(employee_id="ST-LIVE-9", defaults={"full_name": "Target Synthetic", "email": "st-live-9@salowtech.com", "email_verified": True,
+                                     "role": CU.Role.EMPLOYEE, "status": CU.Status.ACTIVE, "is_active": True})
+            d = Department.objects.create(code="ZDEP", name="Fixture Dept")
+            Team.objects.create(code="ZTEAM", name="Fixture Team", department=d)
+
+            class R:
+                META = {"REMOTE_ADDR": "127.0.0.1", "HTTP_USER_AGENT": "drill"}
+                client_ip = "127.0.0.1"
+
+            r = R()
+            create_iam_session(adm, r, assurance_level=1)
+            box["raw"], box["cookie"] = r.session_key_iam, getattr(settings, "IAM_SESSION_COOKIE_NAME", "salow_iam_session")
+
+        with concurrent.futures.ThreadPoolExecutor(1) as ex:
+            ex.submit(mk).result()
+        IAM = "http://iam.salowtech.com:" + APP.rsplit(":", 1)[1]
+        cookie = {"name": box["cookie"], "value": box["raw"], "domain": "iam.salowtech.com", "path": "/", "httpOnly": True, "sameSite": "Lax"}
+
+        def body(t, pg):
+            txt = lambda: pg.inner_text("body")
+            form = lambda a: pg.locator("form", has=pg.locator("input[name=action][value=%s]" % a)).first
+            res = {}
+
+            def stepup_off_camera(action):
+                # Real step-up through the real page, in a separate unrecorded context. The password and code never appear in the recording.
+                cur = [c for c in pg.context.cookies() if c["name"] == box["cookie"]][0]
+                c2 = pg.context.browser.new_context(viewport={"width": 390, "height": 844})
+                ok = False
+                try:
+                    c2.add_cookies([cur])
+                    q = c2.new_page()
+                    q.goto(pg.url)
+                    cs = int(_t.time() // 30)
+                    while cs <= box["last"]:
+                        _t.sleep(1.0)
+                        cs = int(_t.time() // 30)
+                    left = 30 - (_t.time() % 30)
+                    if left < 6:
+                        _t.sleep(left + 0.5)
+                    q.fill("input[name=password]", secret["pw"])
+                    q.fill("input[name=totp_code]", pyotp.TOTP(secret["totp"]).now())
+                    box["last"] = int(_t.time() // 30)
+                    q.locator("form button[type=submit]").first.click()
+                    q.wait_for_load_state()
+                    q.wait_for_timeout(800)
+                    ok = "Step-up authentication verified" in q.inner_text("body")
+                    new = [c for c in c2.cookies() if c["name"] == box["cookie"]]
+                    if new:
+                        pg.context.add_cookies([new[0]])
+                finally:
+                    c2.close()
+                res[action] = ok
+
+            def flow(action, tab, fill, label, success_text):
+                pg.goto(IAM + "/dashboard/?tab=" + tab)
+                f = form(action)
+                f.scroll_into_view_if_needed()
+                fill(f)
+                pg.wait_for_timeout(900)
+                t.step("%s: submit at the basic assurance level. It redirects to the step-up page" % label, lambda: f.locator("button[type=submit]").click(), expect=lambda: "/iam/stepup" in pg.url, wait=3500)
+                t.step("Step-up done off camera with the fixture administrator password and a fresh code (script only, never printed). Page is not shown while it runs", lambda: stepup_off_camera(action), expect=lambda: res.get(action), wait=800)
+                nxt = pg.url
+                t.step("Back on the console: submit the same form again, now with the step-up in place", lambda: (pg.goto(IAM + "/dashboard/?tab=" + tab), fill(form(action)), pg.wait_for_timeout(900), form(action).locator("button[type=submit]").click()), expect=lambda: success_text in txt(), wait=4500)
+
+            pg.goto(IAM + "/dashboard/?tab=lifecycle")
+            t.note("Fixture: an IAM administrator session at the basic level, made off camera. Its password and authenticator secret are generated for this run only and exist only in a throwaway database.", 3)
+            flow("suspend_account", "lifecycle", lambda f: f.locator("input[name=target_employee_id]").fill("ST-LIVE-9"), "Suspend ST-LIVE-9", "ST-LIVE-9 suspended")
+            flow("reactivate_account", "lifecycle", lambda f: f.locator("input[name=target_employee_id]").fill("ST-LIVE-9"), "Reactivate ST-LIVE-9", "ST-LIVE-9")
+            def fill_role(f):
+                f.locator("input[name=target_employee_id]").fill("ST-LIVE-9")
+                f.locator("select[name=new_role]").select_option("manager")
+            flow("update_role", "roles", fill_role, "Change ST-LIVE-9 role to manager", "ST-LIVE-9")
+
+            def team():
+                pg.goto(IAM + "/dashboard/?tab=people_teams")
+                f = form("add_team_membership")
+                f.scroll_into_view_if_needed()
+                f.locator("input[name=target_employee_id]").fill("ST-LIVE-9")
+                f.locator("select[name=team_code]").select_option("ZTEAM")
+                pg.wait_for_timeout(900)
+                f.locator("button[type=submit]").click()
+            t.step("Add ST-LIVE-9 to a team (a basic-level action, no step-up needed)", team, expect=lambda: "Assigned ST-LIVE-9" in txt(), wait=4000)
+            t.note("Not shown: Super Admin changes, MFA reset, recovery approve/reject, break-glass, service identities, outbox retry, session revoke.", 3)
+
+        run_tour(ctx, "22_iam_stepup", body, extra_cookies=[cookie],
+                 notes="Real Django on TiDB under uvicorn, headless Chromium 390x844 emulated, IAM host name mapped locally. Fixture IAM session at the basic level; the step-up itself is the real page and real check, done in an unrecorded context so the password and code are never filmed. Nothing in the console was loosened.",
+                 unshown=["MFA reset", "recovery approve/reject", "break-glass", "service identities", "outbox retry", "session revoke", "Super Admin changes"])
+
+    g["DRILLS"]["tour_iam_stepup"] = stepup_tour
