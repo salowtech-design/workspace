@@ -224,7 +224,7 @@ def attendance_admin_panel_view(request):
                     review_notes=reason,
                 )
                 messages.success(
-                    request, f"Fallback request #{request_id} successfully {decision}d."
+                    request, f"Fallback request #{request_id} successfully {'approved' if decision == 'approve' else 'rejected'}."
                 )
             except (ValidationError, PermissionDenied, ValueError, TypeError) as exc:
                 messages.error(request, " ".join(getattr(exc, "messages", None) or [str(exc)]))

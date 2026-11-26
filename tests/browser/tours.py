@@ -236,6 +236,8 @@ def register(g):
     register_automation(g)
     register_find(g)
     register_security(g)
+    register_admin(g)
+    register_iam(g)
 
 
 def register_tasks(g, users):
@@ -847,3 +849,105 @@ def register_security(g):
                  unshown=["successful password change (needs the real password)", "successful idle unlock", "passkey enrolment and revoke", "Recovery Console link (admin only)", "Backups link (Super Admin only)", "a real second device session", "security events beyond the first rows", "alerts page and acknowledge"])
 
     g["DRILLS"]["tour_sec"] = sec_tour
+
+
+def register_admin(g):
+    APP = g["APP"]
+
+    def admin_tour(ctx):
+        import concurrent.futures
+
+        import django
+
+        django.setup()
+
+        def mk():
+            import datetime
+
+            from django.utils import timezone
+
+            from apps.accounts.models import CustomUser
+            from apps.attendance.models import AttendanceFallbackRequest
+            from apps.attendance.services import get_current_kolkata_date
+
+            CustomUser.objects.filter(employee_id="ST-LIVE-1").update(role=CustomUser.Role.ADMIN)
+            now = timezone.now()
+            for eid, nm, why in (("ST-LIVE-2", "Second Synthetic", "Camera failed at the door"), ("ST-LIVE-3", "Third Synthetic", "Forgot to check in")):
+                u = CustomUser.objects.get_or_create(employee_id=eid, defaults={"full_name": nm, "email": eid.lower() + "@salowtech.com", "email_verified": True,
+                                                    "role": CustomUser.Role.EMPLOYEE, "status": CustomUser.Status.ACTIVE, "is_active": True})[0]
+                AttendanceFallbackRequest.objects.create(user=u, request_type="check_in", work_date=get_current_kolkata_date(now), requested_time=now, reason=why)
+
+        with concurrent.futures.ThreadPoolExecutor(1) as ex:
+            ex.submit(mk).result()
+
+        def body(t, pg):
+            _step = t.step
+            t.step = lambda text, fn=None, wait=800, expect=None: _step(text, fn, wait=min(wait, 900), expect=expect)
+            txt = lambda: pg.inner_text("body")
+            pg.goto(APP + "/attendance/admin/")
+            t.step("Setup (test fixture): this account is Admin, and two people have pending fallback requests. Admin panel opens", expect=lambda: "Workspace Admin Panel" in txt() and "Pending Biometric Fallback Exceptions (2)" in txt(), wait=2400)
+            t.step("The IAM summary shows posture and counts, and the link to the IAM console is offered", expect=lambda: "iam posture" in txt().lower() and "central iam" in txt().lower(), wait=2000)
+            t.step("Today has no sessions yet", lambda: pg.evaluate("document.body.scrollTo(0,document.body.scrollHeight);window.scrollTo(0,document.body.scrollHeight);0"), expect=lambda: "No attendance sessions logged for today yet" in txt(), wait=1800)
+            t.step("Scroll to the pending requests table", lambda: pg.evaluate("document.querySelector('table').scrollIntoView({block:'center'});0"), expect=lambda: "Camera failed at the door" in txt() and "Forgot to check in" in txt(), wait=1800)
+            t.step("Approve the first request: the panel says it was approved and one request is left", lambda: pg.locator("tbody tr", has_text="Second Synthetic").locator("button:has-text('Approve')").click(), expect=lambda: "successfully approved" in txt() and "Pending Biometric Fallback Exceptions (1)" in txt(), wait=2400)
+            t.step("Today's sessions now lists the approved person", lambda: pg.evaluate("document.querySelectorAll('table')[pg_idx].scrollIntoView({block:'center'});0".replace("pg_idx", "document.querySelectorAll('table').length-1")), expect=lambda: "Today's Attendance Sessions (1)" in txt() and "Second Synthetic" in pg.inner_text("table >> nth=-1"), wait=2200)
+            t.step("Reject the second request: the panel says it was rejected", lambda: pg.locator("tbody tr", has_text="Third Synthetic").locator("button:has-text('Reject')").click(), expect=lambda: "successfully rejected" in txt() and "Pending Biometric Fallback Exceptions (0)" in txt() and "No pending fallback requests" in txt(), wait=2400)
+            t.step("Rejecting created no session: today still has 1", expect=lambda: "Today's Attendance Sessions (1)" in txt(), wait=1600)
+            t.step("Open the Central IAM console link", lambda: pg.click("a:has-text('Central IAM')"), expect=lambda: True, wait=2200)
+            t.step("The IAM console page is open (its own clip follows)", expect=lambda: "/admin/iam/" in pg.url, wait=1800)
+            t.note("Not shown: manager-only view of direct reports, HR role, approving a check-out request, reviewing your own request (refused), an already reviewed request, review notes.", 3)
+
+        run_tour(ctx, "17_workspace_admin", body, notes="Real Django on TiDB, headless Chromium 390x844 emulated. Fixtures (ORM, not product features): ST-LIVE-1 given the Admin role, two other people, two pending fallback requests.",
+                 unshown=["Manager direct-reports-only view", "HR role", "approving a check-out request", "reviewing your own request (refused)", "already-reviewed request error", "review notes field (no field on the page)", "IAM console itself (separate clip)"])
+
+    g["DRILLS"]["tour_admin"] = admin_tour
+
+
+def register_iam(g):
+    APP = g["APP"]
+    TABS = ("overview", "authentication", "identity", "roles", "security_mfa", "sessions", "recovery", "lifecycle", "audit", "people_teams", "investigation", "privileged", "services", "delivery_ops", "threats", "resilience", "l3_approvals")
+
+    def iam_tour(ctx):
+        import concurrent.futures
+
+        import django
+
+        django.setup()
+
+        def mk():
+            from apps.accounts.models import CustomUser
+
+            CustomUser.objects.filter(employee_id="ST-LIVE-1").update(role=CustomUser.Role.ADMIN)
+
+        with concurrent.futures.ThreadPoolExecutor(1) as ex:
+            ex.submit(mk).result()
+
+        def body(t, pg):
+            _step = t.step
+            t.step = lambda text, fn=None, wait=800, expect=None: _step(text, fn, wait=min(wait, 900), expect=expect)
+            txt = lambda: pg.inner_text("body")
+            seen = {}
+            pg.goto(APP + "/auth/admin/iam/")
+            t.step("Setup (test fixture): this account is Admin. The IAM console opens on the Overview tab", expect=lambda: "/admin/iam/" in pg.url and "Overview" in txt(), wait=2400)
+            t.step("Overview: the numbered area tiles (1 to 13) are listed", lambda: pg.evaluate("document.querySelector('.iam-tile').scrollIntoView({block:'start'});0"), expect=lambda: pg.locator(".iam-tile").count() >= 10, wait=2000)
+            for tab in TABS[1:]:
+                def go(tab=tab):
+                    pg.goto(APP + "/auth/admin/iam/?tab=" + tab)
+                    pg.wait_for_timeout(300)
+                    seen[tab] = [h.strip()[:60] for h in pg.locator("main h2, main h3").all_inner_texts()[:3]]
+                    pg.evaluate("document.querySelector('.tab-on')&&document.querySelector('.tab-on').scrollIntoView({inline:'center',block:'nearest'});0")
+                    pg.evaluate("window.scrollTo(0, 360);0")
+                t.step("Tab: %s opens (active tab highlighted, page content loads)" % tab, go, expect=lambda tab=tab: pg.locator(".tab-on").count() == 1 and tab in pg.url and "Traceback" not in txt() and "Server Error" not in txt(), wait=1500)
+            t.step("The attendance admin link leads back to the Workspace Admin panel", lambda: (pg.goto(APP + "/auth/admin/iam/?tab=overview"), pg.locator("a:has-text('Attendance'):visible").last.click()), expect=lambda: "/attendance/" in pg.url, wait=1800)
+            t.note("Not shown: every create, change, revoke, reset and approval form inside the tabs; the separate IAM host login; Super Admin step-up; the live stream; Shield.", 3)
+            ctx.iam_seen = seen
+
+        run_tour(ctx, "18_iam_console", body, notes="Real Django on TiDB, headless Chromium 390x844 emulated. Fixture: ST-LIVE-1 given the Admin role. This clip only OPENS each tab: it does not use any form in them. Opened on the normal app host, not the separate IAM host.",
+                 unshown=["every mutating form in the IAM tabs", "IAM host sign-in and recovery pages", "Super Admin step-up", "live event stream", "Shield page", "backups", "issued activation codes and service tokens"])
+        import json as _j
+        try:
+            _j.dump(seen, open(os.path.join(os.environ.get("DRILL_VIDEO", "/tmp"), "18_iam_tab_headings.json"), "w"), indent=1)
+        except Exception:
+            pass
+
+    g["DRILLS"]["tour_iam"] = iam_tour
