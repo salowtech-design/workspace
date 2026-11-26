@@ -3,11 +3,12 @@
   // Area highlights and freehand pen strokes drawn over a page. They are kept in this browser on this device, per file (keyed by the file's SHA-256, like notes),
   // and become standard Highlight and Ink annotations in a separate downloaded copy. A highlight is a rectangle the person drags,
   // not a selection of text: this viewer has no positioned text layer. Positions are fractions (0 to 1) of the page as shown, from the top-left.
-  var MAX_FILES = 30, MAX_STORED = 400000, MAX_MARKS = 300, MAX_STROKES = 20, MAX_POINTS = 2000, KINDS = { hl: 1, ink: 1 };
+  var MAX_FILES = 30, MAX_STORED = 400000, MAX_MARKS = 300, MAX_STROKES = 20, MAX_POINTS = 2000, MAX_TX = 200, KINDS = { hl: 1, ink: 1, tx: 1 };
   function unit(x) { return typeof x === "number" && x >= 0 && x <= 1; }
   function validMark(m) {
     if (!m || typeof m !== "object" || typeof m.id !== "string" || !/^[a-z0-9]{6,20}$/.test(m.id)) return false;
     if (!Number.isInteger(m.page) || m.page < 1 || m.page > 100000 || !KINDS[m.kind]) return false;
+    if (m.kind === "tx") return Array.isArray(m.r) && m.r.length >= 1 && m.r.length <= MAX_TX && m.r.every(function (q) { return Array.isArray(q) && q.length === 4 && q.every(unit) && q[2] > q[0] && q[3] > q[1]; });
     if (m.kind === "hl") return Array.isArray(m.r) && m.r.length === 4 && m.r.every(unit) && m.r[2] > m.r[0] && m.r[3] > m.r[1];
     if (!Array.isArray(m.s) || !m.s.length || m.s.length > MAX_STROKES) return false;
     var total = 0;
@@ -31,6 +32,15 @@
     if (!s.length) return { error: "Draw a line first." };
     var m = { id: fresh(marks, rand), page: page, kind: "ink", s: s };
     return validMark(m) ? { marks: marks.concat([m]) } : { error: "That drawing is too long. Draw it in smaller parts." };
+  }
+  // Text highlight: rects are the boxes of the text runs the person's dragged area touched (one box per run), as fractions of the page.
+  function addText(marks, page, rects, rand) {
+    if (marks.length >= MAX_MARKS) return { error: "This file already has " + MAX_MARKS + " marks. Remove one first." };
+    var rs = (Array.isArray(rects) ? rects : []).map(function (q) { return Array.isArray(q) && q.length === 4 ? [clamp(q[0]), clamp(q[1]), clamp(q[2]), clamp(q[3])] : null; }).filter(function (q) { return q && q[2] - q[0] > 0.001 && q[3] - q[1] > 0.001; });
+    if (!rs.length) return { error: "No text under that area. Drag over some text, or use Area highlight for any part of the page." };
+    if (rs.length > MAX_TX) return { error: "That area covers too many pieces of text. Drag over less." };
+    var m = { id: fresh(marks, rand), page: page, kind: "tx", r: rs };
+    return validMark(m) ? { marks: marks.concat([m]) } : { error: "That highlight could not be added." };
   }
   function remove(marks, id) { return marks.filter(function (m) { return m.id !== id; }); }
   function forPage(marks, p) { return marks.filter(function (m) { return m.page === p; }); }
@@ -80,7 +90,15 @@
       targets.forEach(function (t) {
         var m = t[0], page = t[1], box = E.shownBox(page), rot = page.getRotation().angle, annot, cur = page.node.lookup(N("Annots"));
         var at = function (u, v) { return E.toPage(box, rot, u, v); };
-        if (m.kind === "hl") {
+        if (m.kind === "tx") {
+          var bs = m.r.map(function (q) { var a = at(q[0], q[1]), b = at(q[2], q[3]); return [Math.min(a[0], b[0]), Math.min(a[1], b[1]), Math.max(a[0], b[0]), Math.max(a[1], b[1])]; });
+          var ux0 = Math.min.apply(null, bs.map(function (b) { return b[0]; })), uy0 = Math.min.apply(null, bs.map(function (b) { return b[1]; })), ux1 = Math.max.apply(null, bs.map(function (b) { return b[2]; })), uy1 = Math.max.apply(null, bs.map(function (b) { return b[3]; }));
+          var tops = [L.pushGraphicsState(), L.setGraphicsState(N("GS")), L.setFillingRgbColor(1, 0.92, 0.2)], quads = [];
+          bs.forEach(function (b) { tops.push(L.moveTo(b[0], b[1]), L.lineTo(b[2], b[1]), L.lineTo(b[2], b[3]), L.lineTo(b[0], b[3]), L.closePath(), L.fill()); quads.push(b[0], b[3], b[2], b[3], b[0], b[1], b[2], b[1]); });
+          tops.push(L.popGraphicsState());
+          var apT = ctx.formXObject(tops, { BBox: [ux0, uy0, ux1, uy1], Resources: { ExtGState: { GS: gs } } });
+          annot = ctx.obj({ Type: "Annot", Subtype: "Highlight", Rect: [ux0, uy0, ux1, uy1], QuadPoints: quads, C: [1, 0.92, 0.2], F: 4, T: L.PDFHexString.fromText("Salow text highlight"), AP: { N: ctx.register(apT) } });
+        } else if (m.kind === "hl") {
           var p0 = at(m.r[0], m.r[1]), p1 = at(m.r[2], m.r[3]), x0 = Math.min(p0[0], p1[0]), x1 = Math.max(p0[0], p1[0]), y0 = Math.min(p0[1], p1[1]), y1 = Math.max(p0[1], p1[1]);
           var ap = ctx.formXObject([L.pushGraphicsState(), L.setGraphicsState(N("GS")), L.setFillingRgbColor(1, 0.92, 0.2), L.moveTo(x0, y0), L.lineTo(x1, y0), L.lineTo(x1, y1), L.lineTo(x0, y1), L.closePath(), L.fill(), L.popGraphicsState()], { BBox: [x0, y0, x1, y1], Resources: { ExtGState: { GS: gs } } });
           annot = ctx.obj({ Type: "Annot", Subtype: "Highlight", Rect: [x0, y0, x1, y1], QuadPoints: [x0, y1, x1, y1, x0, y0, x1, y0], C: [1, 0.92, 0.2], F: 4, T: L.PDFHexString.fromText("Salow highlight"), AP: { N: ctx.register(ap) } });
@@ -101,6 +119,6 @@
       return pdf.save({ useObjectStreams: false }).then(function (out) { if (out.length > E.MAX_BYTES) throw fail("size", "copy too large"); return { bytes: out, added: done, signed: signed }; });
     }, function (e) { if (e && e.code) throw e; throw fail(/encrypt/i.test(String(e && e.message)) ? "encrypted" : "damaged", "could not read"); });
   }
-  var api = { MAX_FILES: MAX_FILES, MAX_STORED: MAX_STORED, load: load, dump: dump, plan: plan, applySave: applySave, MAX_MARKS: MAX_MARKS, MAX_STROKES: MAX_STROKES, MAX_POINTS: MAX_POINTS, validMark: validMark, addHighlight: addHighlight, addInk: addInk, remove: remove, forPage: forPage, build: build };
+  var api = { MAX_FILES: MAX_FILES, MAX_STORED: MAX_STORED, load: load, dump: dump, plan: plan, applySave: applySave, MAX_MARKS: MAX_MARKS, MAX_STROKES: MAX_STROKES, MAX_POINTS: MAX_POINTS, validMark: validMark, addHighlight: addHighlight, addText: addText, MAX_TX: MAX_TX, addInk: addInk, remove: remove, forPage: forPage, build: build };
   if (typeof module !== "undefined" && module.exports) module.exports = api; else root.PdfMarks = api;
 })(typeof self !== "undefined" ? self : this);

@@ -46,6 +46,16 @@ const done = (async () => {
   ok("a rotated highlight is not the same rectangle as the unrotated one (so the rotation row can fail)", Math.abs(rrect[2] - rrect[0] - 200) > 1);
   ok("marks for a page the file does not have are skipped", (await M.build(P, E, src, [{ id: "abcdefgh", page: 9, kind: "hl", r: [0.1, 0.1, 0.2, 0.2] }])).added === 0);
   ok("an invalid mark makes the copy refuse", (await code(() => M.build(P, E, src, [{ id: "x", page: 1, kind: "hl", r: [0, 0, 1, 1] }]))) === "mark");
+  // Text highlight (rects of text runs).
+  ok("a text highlight keeps one rect per run and drops slivers", (() => { const r = M.addText([], 1, [[0.1, 0.1, 0.4, 0.15], [0.1, 0.2, 0.3, 0.25], [0.5, 0.5, 0.5, 0.6]], rnd); return r.marks && r.marks[0].kind === "tx" && r.marks[0].r.length === 2; })());
+  ok("a text highlight with nothing under the area is refused with a plain message", /No text under that area/.test(M.addText([], 1, [], rnd).error || "") && !!M.addText([], 1, [[0.1, 0.1, 0.1, 0.1]], rnd).error);
+  ok("a text highlight over the rect cap is refused", !!M.addText([], 1, Array.from({ length: M.MAX_TX + 1 }, (_, i) => [0.1, (i % 90) / 100, 0.3, (i % 90) / 100 + 0.005]), rnd).error);
+  ok("validMark rejects a text highlight with a bad rect or no rects", ![{ id: "abcdef", page: 1, kind: "tx", r: [] }, { id: "abcdef", page: 1, kind: "tx", r: [[0.3, 0.1, 0.2, 0.2]] }, { id: "abcdef", page: 1, kind: "tx", r: [[0, 0, 2, 1]] }, { id: "abcdef", page: 1, kind: "tx", r: "x" }].some(M.validMark));
+  const txm = M.addText([], 1, [[0.1, 0.1, 0.5, 0.2], [0.1, 0.25, 0.4, 0.35]], rnd).marks;
+  ok("a text highlight survives the stored round trip", JSON.stringify(M.load(M.dump(txm)).marks) === JSON.stringify(txm));
+  const txPdf = await M.build(P, E, await pdfWith(), txm);
+  const txDoc = await P.PDFDocument.load(txPdf.bytes), txA = txDoc.getPage(0).node.lookup(P.PDFName.of("Annots")).lookup(0);
+  ok("a text highlight becomes one Highlight annotation with one quad per run", txPdf.added === 1 && String(txA.get(P.PDFName.of("Subtype"))) === "/Highlight" && txA.get(P.PDFName.of("QuadPoints")).size() === 16);
   // Keeping marks on the device (pure parts).
   const st = () => { const o = {}; return { o, getItem: (k) => (k in o ? o[k] : null), setItem: (k, v) => { o[k] = v; }, removeItem: (k) => { delete o[k]; } }; };
   const two = M.addInk(M.addHighlight([], 1, 0.1, 0.1, 0.4, 0.4, rnd).marks, 2, [[[0.1, 0.1], [0.5, 0.5]]], rnd).marks;

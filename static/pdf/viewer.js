@@ -597,13 +597,14 @@
   function mUsable() { return !!doc && !rot && drawn === page; }
   function mControls() {
     var on = !!doc && !rot && !mBusy; mNotesBox();
-    $("pdf-tool-hl").disabled = !on; $("pdf-tool-pen").disabled = !on; $("pdf-markcopy").disabled = !on || !mMarks.length; $("pdf-markclear").disabled = !on || !mMarks.length;
-    $("pdf-tool-hl").setAttribute("aria-pressed", mTool === "hl" ? "true" : "false"); $("pdf-tool-pen").setAttribute("aria-pressed", mTool === "pen" ? "true" : "false");
+    $("pdf-tool-hl").disabled = !on; $("pdf-tool-pen").disabled = !on; $("pdf-tool-tx").disabled = !on; $("pdf-markcopy").disabled = !on || !mMarks.length; $("pdf-markclear").disabled = !on || !mMarks.length;
+    $("pdf-tool-hl").setAttribute("aria-pressed", mTool === "hl" ? "true" : "false"); $("pdf-tool-pen").setAttribute("aria-pressed", mTool === "pen" ? "true" : "false"); $("pdf-tool-tx").setAttribute("aria-pressed", mTool === "tx" ? "true" : "false");
     var svg = $("pdf-marks"); svg.classList.toggle("pdf-marks-on", mTool !== "off" && on);
     var showD = mBad && !!doc; $("pdf-markdiscard").hidden = !showD; $("pdf-markdiscard").style.display = showD ? "" : "none"; $("pdf-markdiscard").disabled = mBusy || mSaving;
   }
   function mEl(name, attrs) { var e = document.createElementNS(SVGNS, name); Object.keys(attrs).forEach(function (k) { e.setAttribute(k, attrs[k]); }); return e; }
   function mDraw(m, temp) {
+    if (m.kind === "tx") { var gt = mEl("g", {}); m.r.forEach(function (q) { gt.appendChild(mEl("rect", { x: q[0], y: q[1], width: q[2] - q[0], height: q[3] - q[1], fill: "#ffeb33", "fill-opacity": "0.45", stroke: "none" })); }); return gt; }
     if (m.kind === "hl") return mEl("rect", { x: m.r[0], y: m.r[1], width: m.r[2] - m.r[0], height: m.r[3] - m.r[1], fill: "#ffeb33", "fill-opacity": "0.45", stroke: temp ? "#7a2a2a" : "none", "stroke-width": "1", "vector-effect": "non-scaling-stroke" });
     var g = mEl("g", {});
     m.s.forEach(function (st) { g.appendChild(mEl("polyline", { points: st.map(function (p) { return p[0] + "," + p[1]; }).join(" "), fill: "none", stroke: "#d91a1a", "stroke-width": "2", "stroke-linecap": "round", "stroke-linejoin": "round", "vector-effect": "non-scaling-stroke" })); });
@@ -614,13 +615,13 @@
     if (mUsable()) mMarks.forEach(function (m) { if (m.page === page) svg.appendChild(mDraw(m, false)); });
     var ol = $("pdf-marklist"); ol.textContent = "";
     mMarks.slice().sort(function (a, b) { return a.page - b.page; }).forEach(function (m, i) {
-      var li = document.createElement("li"); li.appendChild(document.createTextNode("Page " + m.page + ": " + (m.kind === "hl" ? "area highlight" : "pen drawing") + " "));
+      var li = document.createElement("li"); li.appendChild(document.createTextNode("Page " + m.page + ": " + (m.kind === "hl" ? "area highlight" : m.kind === "tx" ? "text highlight" : "pen drawing") + " "));
       var b = document.createElement("button"); b.type = "button"; b.className = "btn"; b.textContent = "Remove";
-      b.setAttribute("aria-label", "Remove " + (m.kind === "hl" ? "area highlight" : "pen drawing") + " " + (i + 1) + " on page " + m.page);
+      b.setAttribute("aria-label", "Remove " + (m.kind === "hl" ? "area highlight" : m.kind === "tx" ? "text highlight" : "pen drawing") + " " + (i + 1) + " on page " + m.page);
       b.addEventListener("click", function () {
         if (mBusy) return;
         var at = i, next = window.PdfMarks.remove(mMarks, m.id);
-        mApply(next, "Removed " + (m.kind === "hl" ? "an area highlight" : "a pen drawing") + " on page " + m.page + ". " + next.length + " mark(s) left.", function () {
+        mApply(next, "Removed " + (m.kind === "hl" ? "an area highlight" : m.kind === "tx" ? "a text highlight" : "a pen drawing") + " on page " + m.page + ". " + next.length + " mark(s) left.", function () {
           var btns = $("pdf-marklist").querySelectorAll("button"), nxt = btns[Math.min(at, btns.length - 1)];
           (nxt || $("pdf-tool-hl")).focus();
         });
@@ -629,10 +630,10 @@
     });
     mControls();
   }
-  function mSetTool(t) { mTool = mTool === t ? "off" : t; if (mTool !== "off" && adding) { adding = false; pending = null; nControls(); nmsg("Placing a note was turned off because a drawing tool is on."); } mDrag = null; mHold = mHold && mClearHold(); renderMarks(); if (mTool === "hl") mmsg("Area highlight is on. Drag over the page to draw a rectangle. It marks an area and does not select text."); else if (mTool === "pen") mmsg("Pen is on. Draw on the page with a finger, pen or mouse. Turn it off to scroll the page by touch."); else mmsg(""); }
+  function mSetTool(t) { mTool = mTool === t ? "off" : t; if (mTool !== "off" && adding) { adding = false; pending = null; nControls(); nmsg("Placing a note was turned off because a drawing tool is on."); } mDrag = null; mHold = mHold && mClearHold(); renderMarks(); if (mTool === "hl") mmsg("Area highlight is on. Drag over the page to draw a rectangle. It marks an area and does not select text."); else if (mTool === "tx") mmsg("Text highlight is on. Drag over the page. Every piece of text the area touches is highlighted whole, so it can take more than you dragged over. Scanned pages have no text to pick."); else if (mTool === "pen") mmsg("Pen is on. Draw on the page with a finger, pen or mouse. Turn it off to scroll the page by touch."); else mmsg(""); }
   function mClearHold() { if (mHold) clearTimeout(mHold.timer); return null; }
   function mPoint(e) { var r = $("pdf-marks").getBoundingClientRect(); return [Math.min(1, Math.max(0, (e.clientX - r.left) / (r.width || 1))), Math.min(1, Math.max(0, (e.clientY - r.top) / (r.height || 1)))]; }
-  function mTempShow() { var svg = $("pdf-marks"), old = svg.querySelector("[data-temp]"); if (old) old.remove(); if (!mDrag) return; var el = mDrag.kind === "hl" ? mDraw({ kind: "hl", r: [Math.min(mDrag.a[0], mDrag.b[0]), Math.min(mDrag.a[1], mDrag.b[1]), Math.max(mDrag.a[0], mDrag.b[0]) + 1e-9, Math.max(mDrag.a[1], mDrag.b[1]) + 1e-9] }, true) : mDraw({ kind: "ink", s: [mDrag.pts.length > 1 ? mDrag.pts : mDrag.pts.concat(mDrag.pts)] }, true); el.setAttribute("data-temp", "1"); svg.appendChild(el); }
+  function mTempShow() { var svg = $("pdf-marks"), old = svg.querySelector("[data-temp]"); if (old) old.remove(); if (!mDrag) return; var el = (mDrag.kind === "hl" || mDrag.kind === "tx") ? mDraw({ kind: "hl", r: [Math.min(mDrag.a[0], mDrag.b[0]), Math.min(mDrag.a[1], mDrag.b[1]), Math.max(mDrag.a[0], mDrag.b[0]) + 1e-9, Math.max(mDrag.a[1], mDrag.b[1]) + 1e-9] }, true) : mDraw({ kind: "ink", s: [mDrag.pts.length > 1 ? mDrag.pts : mDrag.pts.concat(mDrag.pts)] }, true); el.setAttribute("data-temp", "1"); svg.appendChild(el); }
   var mSvg = $("pdf-marks");
   mSvg.addEventListener("pointerdown", function (e) {
     if (mTool === "off" || !mUsable() || mBusy || e.button > 0) return;
@@ -642,19 +643,49 @@
   mSvg.addEventListener("pointermove", function (e) {
     if (!mDrag || e.pointerId !== mDrag.id) return;
     var p = mPoint(e);
-    if (mDrag.kind === "hl") mDrag.b = p;
+    if (mDrag.kind === "hl" || mDrag.kind === "tx") mDrag.b = p;
     else { var q = mDrag.pts[mDrag.pts.length - 1]; if (mDrag.pts.length >= window.PdfMarks.MAX_POINTS) { mmsg("This drawing reached its length limit. Lift to finish it, then draw the rest as a new line."); return; } if (Math.abs(p[0] - q[0]) + Math.abs(p[1] - q[1]) < 0.003) return; mDrag.pts.push(p); }
     mTempShow();
   });
   mSvg.addEventListener("pointerup", function (e) {
     if (!mDrag || e.pointerId !== mDrag.id) return;
-    var d = mDrag, p = mPoint(e); mDrag = null; if (d.kind === "hl") d.b = p;
+    var d = mDrag, p = mPoint(e); mDrag = null; if (d.kind === "hl" || d.kind === "tx") d.b = p;
+    if (d.kind === "tx") { mTextPick(d); return; }
     var M = window.PdfMarks, r = d.kind === "hl" ? M.addHighlight(mMarks, page, d.a[0], d.a[1], d.b[0], d.b[1]) : M.addInk(mMarks, page, [d.pts]);
     if (r.error) { mmsg(r.error); renderMarks(); return; }
     var pg0 = page;
     mApply(r.marks, (d.kind === "hl" ? "Area highlight" : "Pen drawing") + " added on page " + pg0 + ". " + (mState === "ok" ? "It is kept on this device for this file." : "It stays in this tab only."), null);
     renderMarks();
   });
+  function mMul(a, b) { return [a[0] * b[0] + a[2] * b[1], a[1] * b[0] + a[3] * b[1], a[0] * b[2] + a[2] * b[3], a[1] * b[2] + a[3] * b[3], a[0] * b[4] + a[2] * b[5] + a[4], a[1] * b[4] + a[3] * b[5] + a[5]]; }
+  // Text highlight: the whole text pieces (as pdf.js splits them, usually a line or part of one) that the dragged area touches. It does not cut inside a piece.
+  function mTextPick(d) {
+    var myDoc = doc, myTok = mToken, pg0 = page, M = window.PdfMarks;
+    var x0 = Math.min(d.a[0], d.b[0]), x1 = Math.max(d.a[0], d.b[0]), y0 = Math.min(d.a[1], d.b[1]), y1 = Math.max(d.a[1], d.b[1]);
+    mBusy = true; mControls(); mmsg("Finding text under the area...");
+    myDoc.getPage(pg0).then(function (pg) {
+      return pg.getTextContent().then(function (tc) {
+        var vp = pg.getViewport({ scale: 1 }), W = vp.width, H = vp.height, rects = [];
+        tc.items.forEach(function (it) {
+          if (!it.str || !it.str.trim() || !it.transform || !(it.width > 0)) return;
+          var sc = Math.hypot(it.transform[0], it.transform[1]); if (!(sc > 0)) return;
+          var t = mMul(vp.transform, it.transform), wl = it.width / sc;
+          var cs = [[0, 0], [wl, 0], [0, 1], [wl, 1]].map(function (c) { return [t[0] * c[0] + t[2] * c[1] + t[4], t[1] * c[0] + t[3] * c[1] + t[5]]; });
+          var xs = cs.map(function (c) { return c[0] / W; }), ys = cs.map(function (c) { return c[1] / H; });
+          var bx0 = Math.min.apply(null, xs), bx1 = Math.max.apply(null, xs), by0 = Math.min.apply(null, ys), by1 = Math.max.apply(null, ys);
+          if (bx1 > x0 && bx0 < x1 && by1 > y0 && by0 < y1) rects.push([bx0, by0, bx1, by1]);
+        });
+        return rects;
+      });
+    }).then(function (rects) {
+      mBusy = false;
+      if (myDoc !== doc || myTok !== mToken || page !== pg0 || !mUsable()) { mControls(); mmsg("The page changed before the text was found, so nothing was added."); renderMarks(); return; }
+      var r = M.addText(mMarks, pg0, rects, null);
+      if (r.error) { mControls(); mmsg(r.error); renderMarks(); return; }
+      mApply(r.marks, "Text highlight added on page " + pg0 + " (" + r.marks[r.marks.length - 1].r.length + " piece(s) of text). " + (mState === "ok" ? "It is kept on this device for this file." : "It stays in this tab only."), null);
+      renderMarks();
+    }, function () { mBusy = false; mControls(); mmsg("Could not read the text on this page. Nothing was added."); renderMarks(); });
+  }
   mSvg.addEventListener("pointercancel", function () { mDrag = null; renderMarks(); });
   // Keeping marks on this device: the same guarded pattern as notes (one Web Lock, re-read before write, stale refused, unreadable left alone).
   var mPrefix = $("pdf-marksbox").getAttribute("data-prefix") || "", mKey = "", mState = "tab", mLast = null, mSaving = false, mBad = false, mBadKey = "", mBadRaw = null, mDisc = null;
@@ -741,6 +772,7 @@
   });
   function mReset() { mToken++; mKey = ""; mBad = false; mDiscDisarm(); mState = "tab"; mLast = null; mSaving = false; mMarks = []; mTool = "off"; mDrag = null; mHold = mClearHold(); mBusy = false; renderMarks(); mmsg(""); }
   $("pdf-tool-hl").addEventListener("click", function () { mSetTool("hl"); });
+  $("pdf-tool-tx").addEventListener("click", function () { mSetTool("tx"); });
   $("pdf-tool-pen").addEventListener("click", function () { mSetTool("pen"); });
   $("pdf-markclear").addEventListener("click", function () { if (mBusy) return; mApply([], mState === "ok" ? "All marks for this file were removed from this device." : mBad ? "All marks removed from this tab. The saved marks that could not be read are still on this device." : "All marks removed from this tab.", function () { $("pdf-tool-hl").focus(); }); });
   $("pdf-markcopy").addEventListener("click", function () {

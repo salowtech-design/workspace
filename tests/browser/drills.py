@@ -6513,6 +6513,97 @@ def pdf_marks_shot(ctx):  # noqa: C901
     check("marks shot: the page does not scroll sideways at 390 px", sw <= 390, str(sw))
 
 
+def pdf_text_hl(ctx):  # noqa: C901
+    """Text highlight: the text pieces under a dragged area get a highlight, empty areas add nothing, and the copy carries one quad per piece."""
+    import io
+
+    from PIL import Image
+
+    shots = os.environ.get("DRILL_SHOTS", "/tmp")  # noqa: S108
+    out = []
+
+    def one(vw, vh):  # noqa: C901
+        pg = fresh(ctx, "/pdf/")
+        pg.set_viewport_size({"width": vw, "height": vh})
+        pg.reload()
+        pg.set_input_files(
+            "#pdf-open",
+            files=[
+                {"name": "t.pdf", "mimeType": "application/pdf", "buffer": _n_page_pdf(2, "Report")}
+            ],
+        )
+        for _ in range(50):
+            if pg.inner_text("#pdf-where").startswith("Page 1 of 2") and pg.evaluate(
+                "document.getElementById('pdf-canvas').width > 1"
+            ):
+                break
+            pg.wait_for_timeout(250)
+        pg.wait_for_timeout(900)
+        pg.click("#pdf-tool-tx")
+        pg.evaluate("document.getElementById('pdf-marks').scrollIntoView({block: 'start'});0")
+        pg.wait_for_timeout(200)
+        x, y, w, h = pg.evaluate(
+            "(()=>{const r=document.getElementById('pdf-marks').getBoundingClientRect();return [r.left,r.top,r.width,r.height]})()"
+        )
+
+        def drag(a, b):
+            pg.mouse.move(x + a[0] * w, y + a[1] * h)
+            pg.mouse.down()
+            pg.mouse.move(x + b[0] * w, y + b[1] * h, steps=4)
+            pg.mouse.up()
+            pg.wait_for_timeout(700)
+
+        drag((0.5, 0.6), (0.9, 0.7))
+        empty_ok = pg.locator(
+            "#pdf-marklist li"
+        ).count() == 0 and "No text under that area" in pg.inner_text("#pdf-markstatus")
+        drag((0.3, 0.075), (0.35, 0.1))
+        one = pg.locator("#pdf-marklist li").count() == 1 and "text highlight" in pg.inner_text(
+            "#pdf-marklist"
+        )
+        rects = pg.evaluate("[...document.querySelectorAll('#pdf-marks rect')].length")
+        pg.wait_for_timeout(200)
+        shot = pg.screenshot(clip={"x": x, "y": y, "width": w, "height": h})
+        open(os.path.join(shots, "pdf-text-hl-%d.png" % vw), "wb").write(shot)
+        im = Image.open(io.BytesIO(shot)).convert("RGB")
+        sx = im.width / w
+
+        def yellow(box):
+            n = t = 0
+            for yy in range(int(box[1] * im.height), int(box[3] * im.height), 2):
+                for xx in range(int(box[0] * im.width), int(box[2] * im.width), 2):
+                    r, g, b = im.getpixel((xx, yy))
+                    t += 1
+                    n += r > 230 and g > 215 and b < 200
+            return n / max(t, 1)
+
+        on_text = yellow((0.12, 0.075, 0.45, 0.1))
+        off_text = yellow((0.12, 0.3, 0.9, 0.5))
+        out.append((vw, empty_ok, one, rects, round(on_text, 2), round(off_text, 2), round(sx, 2)))
+        check(
+            "text highlight %d px: empty area adds nothing, a drag over text adds one mark, yellow sits on the text and not below it"
+            % vw,
+            empty_ok and one and rects == 1 and on_text > 0.3 and off_text < 0.02,
+            str(out[-1]),
+        )
+        if vw == 1280:
+            got = []
+            pg.on("download", lambda d: got.append(d))
+            pg.click("#pdf-markcopy")
+            for _ in range(20):
+                if got:
+                    break
+                pg.wait_for_timeout(300)
+            if got:
+                got[0].save_as(os.path.join(shots, "pdf-text-hl-copy.pdf"))
+            check("text highlight: the copy downloads", bool(got))
+        sw = pg.evaluate("document.documentElement.scrollWidth")
+        check("text highlight %d px: no sideways scroll" % vw, sw <= vw, str(sw))
+
+    one(1280, 900)
+    one(390, 800)
+
+
 def pdf_order(ctx):  # noqa: C901
     """Reorder and remove pages from a list, then download that order."""
     shots = os.environ.get("DRILL_SHOTS", "/tmp")  # noqa: S108
@@ -7144,6 +7235,7 @@ DRILLS = {
     "pdf_marks_secure": pdf_marks_secure,
     "pdf_marks_keep": pdf_marks_keep,
     "pdf_marks_shot": pdf_marks_shot,
+    "pdf_text_hl": pdf_text_hl,
     "slides_style": slides_style,
     "sheets_tabs": sheets_tabs,
     "sheets_chart": sheets_chart,
