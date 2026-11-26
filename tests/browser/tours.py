@@ -290,6 +290,7 @@ def register(g):
     register_sheets_tabs_rules(g)
     register_sheets_io_keys(g)
     register_slides_keys(g)
+    register_slides_pointer_anim(g)
     register_posts_more(g, users)
 
 
@@ -3720,6 +3721,78 @@ def register_pdf_view_buttons(g):
     g["DRILLS"]["tour_pdf_view_buttons"] = tour
 
 
+def register_slides_pointer_anim(g):
+    APP = g["APP"]
+
+    def tour(ctx):
+        def body(t, pg):
+            pg.goto(APP + "/slides/")
+            pg.evaluate("localStorage.clear()")
+            pg.goto(APP + "/slides/")
+            pg.wait_for_timeout(500)
+            pg.on("dialog", lambda d: d.accept())
+            see = lambda: pg.locator("#sl-canvas-wrap").scroll_into_view_if_needed()
+            num = lambda sel: int(pg.input_value(sel) or 0)
+            alist = lambda: [x.strip() for x in pg.locator("#sl-anim-list li").all_inner_texts()]
+            st = lambda: pg.inner_text("#sl-status")
+            t.cap("Next: add a rectangle")
+            pg.click("#sl-add-rect")
+            pg.wait_for_timeout(500)
+            see()
+            t.step("A rectangle is on the slide and selected", expect=lambda: pg.locator("#sl-items li").count() == 1, wait=2200)
+            x0, w0 = num("#sl-x"), num("#sl-w")
+            t.cap("Next: drag the rectangle with the mouse (press on it, move right, release)")
+            bb = pg.locator("#sl-canvas-wrap svg rect[data-id]").first.bounding_box()
+            cx, cy = bb["x"] + bb["width"] / 2, bb["y"] + bb["height"] / 2
+            pg.mouse.move(cx, cy)
+            pg.mouse.down()
+            pg.mouse.move(cx + 25, cy + 10, steps=6)
+            pg.mouse.move(cx + 50, cy + 20, steps=6)
+            pg.mouse.up()
+            pg.wait_for_timeout(600)
+            see()
+            x1 = num("#sl-x")
+            t.step("Drag: the X box went from %d to %d" % (x0, x1), expect=lambda: num("#sl-x") > x0, wait=3200)
+            t.cap("Next: drag the blue corner square to make it larger")
+            hb = pg.locator("#sl-canvas-wrap svg rect[data-handle]").first.bounding_box()
+            hx, hy = hb["x"] + hb["width"] / 2, hb["y"] + hb["height"] / 2
+            pg.mouse.move(hx, hy)
+            pg.mouse.down()
+            pg.mouse.move(hx + 15, hy + 8, steps=5)
+            pg.mouse.move(hx + 30, hy + 15, steps=5)
+            pg.mouse.up()
+            pg.wait_for_timeout(600)
+            see()
+            w1 = num("#sl-w")
+            t.step("Corner drag: the W box went from %d to %d" % (w0, w1), expect=lambda: num("#sl-w") > w0, wait=3200)
+            t.cap("Next: add an ellipse, set Animation to Appear on click for it, then select the rectangle and do the same")
+            pg.click("#sl-add-ellipse")
+            pg.wait_for_timeout(400)
+            pg.select_option("#sl-anim", "appear")
+            pg.wait_for_timeout(300)
+            pg.locator("#sl-items li").first.click()
+            pg.select_option("#sl-anim", "appear")
+            pg.wait_for_timeout(400)
+            pg.locator("#sl-anim-list").scroll_into_view_if_needed()
+            first0 = alist()
+            t.step("Animation order lists two items: %s" % " | ".join(first0), expect=lambda: len(alist()) == 2, wait=3600)
+            t.cap("Next: with the rectangle selected, press One click earlier")
+            pg.click("#sl-anim-up")
+            pg.wait_for_timeout(500)
+            pg.locator("#sl-anim-list").scroll_into_view_if_needed()
+            second = alist()
+            t.step("One click earlier: the order now reads %s" % " | ".join(second), expect=lambda: alist() != first0 and len(alist()) == 2, wait=3800)
+            t.cap("Next: press One click later")
+            pg.click("#sl-anim-down")
+            pg.wait_for_timeout(500)
+            pg.locator("#sl-anim-list").scroll_into_view_if_needed()
+            t.step("One click later: the order is back to %s" % " | ".join(first0), expect=lambda: alist() == first0, wait=3800)
+
+        run_tour(ctx, "68_slides_pointer_anim", body, notes="Device-local deck; secure-context test flag. Headless Chromium 390x844 emulated. The drags use a mouse pointer, not a finger on a touch screen.", unshown=["finger drag on a real touch screen", "unreadable-deck recovery"])
+
+    g["DRILLS"]["tour_slides_pointer_anim"] = tour
+
+
 def register_sheets_io_keys(g):
     APP = g["APP"]
 
@@ -3773,9 +3846,21 @@ def register_sheets_io_keys(g):
             pg.set_input_files("#sheet-import", imp)
             pg.wait_for_timeout(900)
             sc(pg, "#sheet-status")
-            t.step("Import: the status line says 3 cells were imported", expect=lambda: "Imported 3 cells" in st(), wait=3400)
+            t.step("Import: the status line says 3 cells were imported", expect=lambda: "Imported 3 cells" in st() and pg.input_value("#sheet-bar") == "" and val(pg, "C1") == "", wait=3400)
             sc(pg, 'input[data-addr="B2"]')
             t.step("The grid now shows Imported, 7 and the formula result 14, and the old cells are gone", expect=lambda: val(pg, "A1") == "Imported" and val(pg, "B1") == "7" and val(pg, "B2") == "14" and val(pg, "C1") == "" and val(pg, "A2") == "", wait=3400)
+            sc(pg, "#sheet-bar")
+            pg.screenshot(path="/tmp/vid/67_still_bar_after_import.png")
+            t.step("The Formula bar of the selected cell C1 is empty too (it matches the empty cell)", expect=lambda: pg.input_value("#sheet-bar") == "" and val(pg, "C1") == "", wait=3400)
+            t.cap("Next: click C1 again, then click A1, then C1 again")
+            pg.click('input[data-addr="C1"]')
+            pg.click('input[data-addr="A1"]')
+            pg.click('input[data-addr="C1"]')
+            pg.wait_for_timeout(400)
+            pg.click('input[data-addr="B1"]')
+            pg.wait_for_timeout(500)
+            sc(pg, "#sheet-bar")
+            t.step("After reselecting and leaving C1 the cell is still empty and the bar shows B1: 7", expect=lambda: val(pg, "C1") == "" and pg.input_value("#sheet-bar") == "7" and val(pg, "A1") == "Imported", wait=3600)
             t.cap("Next: Add a format rule, then press Remove on it")
             pg.fill("#fmt-range", "B1:B2")
             pg.select_option("#fmt-bold", "on")

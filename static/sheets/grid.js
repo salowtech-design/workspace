@@ -69,7 +69,14 @@
   var barRow = document.getElementById("sheet-barrow");
   function setBarH() { if (barRow) root.style.setProperty("--sheet-bar-h", barRow.offsetHeight + "px"); }
   setBarH(); window.addEventListener("resize", setBarH); if (window.ResizeObserver && barRow) new ResizeObserver(setBarH).observe(barRow);
-  function sync() { cells = H.cells; reloadRules(); reloadCf(); reloadFmt(); if (typeof clearPivot === "function") clearPivot(); show(); buttons(); drawChart(); applyFilter(); status.textContent = H.note; }
+  function sync() { cells = H.cells; reloadRules(); reloadCf(); reloadFmt(); if (typeof clearPivot === "function") clearPivot(); show(); refreshSelected(); buttons(); drawChart(); applyFilter(); status.textContent = H.note; }
+  // After any whole-sheet change (import, undo, redo, fill, sort, clear) the selected cell and the formula bar must show the new content, not what was there before. A focused cell is refreshed here too, so a later blur cannot write the old text back.
+  function refreshSelected() {
+    if (!cur) return;
+    var raw = cells[cur] || "", ai = document.activeElement;
+    if (ai && ai.dataset && ai.dataset.addr && inputs[ai.dataset.addr] === ai) { orig = cells[ai.dataset.addr] || ""; ai.value = orig; if (ai.dataset.addr === cur) bar.value = raw; }
+    else if (ai !== bar) { bar.value = raw; orig = raw; }
+  }
   function buttons() { undoBtn.disabled = !H.past.length; redoBtn.disabled = !H.future.length; }
   function change(next, note) { if (!H.change(next, note)) return false; sync(); return true; }
   function undo() { if (H.undo()) sync(); }
