@@ -9568,6 +9568,11 @@ def run_group(p, names, secure, state=None, keep=None):  # noqa: C901
     return 0
 
 
+import tours  # noqa: E402
+
+tours.register(globals())
+
+
 def main():
     names = sys.argv[1:] or [n for n in DRILLS if n != "selftest_scrub"]
     unknown = [n for n in names if n not in DRILLS]

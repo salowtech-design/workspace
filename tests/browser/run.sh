@@ -82,7 +82,7 @@ for i in $(seq 1 30); do
   sleep 1
 done
 [ "$ready" = 1 ] || { echo "App not ready"; RC=2; exit 2; }
-"${E[@]}" DRILL_SECRETS="$TMP/secrets.json" DRILL_APP="http://app.salowtech.com:$PORT_APP" DRILL_SHOTS="${DRILL_SHOTS:-}" "$PY" tests/browser/drills.py "$@" 2>&1 | tee "$TMP/drills.out"
+"${E[@]}" DRILL_SECRETS="$TMP/secrets.json" DRILL_APP="http://app.salowtech.com:$PORT_APP" DRILL_SHOTS="${DRILL_SHOTS:-}" DRILL_VIDEO="${DRILL_VIDEO:-}" "$PY" tests/browser/drills.py "$@" 2>&1 | tee "$TMP/drills.out"
 RC=${PIPESTATUS[0]}
 # Output must not hold this run's secrets. Checked here, in the shell, against the file that never prints them.
 "$PY" - "$TMP" <<'PYEOF'
