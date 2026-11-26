@@ -263,6 +263,7 @@ def register(g):
     register_att_checkout(g, users)
     register_chat_gaps(g)
     register_task_conflict(g)
+    register_sessions_scroll(g, users)
     register_posts_more(g, users)
 
 
@@ -2529,3 +2530,42 @@ def register_task_conflict(g):
         run_tour(ctx, "40_task_conflict", body, notes="Real Django on TiDB under uvicorn, headless Chromium 390x844 emulated. The competing edit is a script call to the task service while the form is open; it is not a second user.", unshown=["second signed-in person", "project task conflict"])
 
     g["DRILLS"]["tour_task_conflict"] = tour
+
+
+def register_sessions_scroll(g, users):
+    APP = g["APP"]
+
+    def tour(ctx):
+        import concurrent.futures
+        import datetime as dt
+
+        users(ctx)
+
+        def fixture():
+            from django.utils import timezone
+
+            from apps.accounts.models import CustomUser
+            from apps.attendance import services as at
+            from apps.attendance.models import WorkSession
+
+            me = CustomUser.objects.get(employee_id="ST-LIVE-1")
+            me.role = CustomUser.Role.HR
+            me.save(update_fields=["role"])
+            two = CustomUser.objects.get(employee_id="ST-LIVE-2")
+            now = timezone.now().replace(microsecond=0)
+            WorkSession.objects.create(user=two, work_date=at.get_current_kolkata_date(now), check_in_at=now - dt.timedelta(minutes=30), check_out_at=now - dt.timedelta(minutes=5), verification_method=WorkSession.VerificationMethod.MANUAL_APPROVED, state=WorkSession.State.COMPLETED, notes="Fixture completed session")
+
+        with concurrent.futures.ThreadPoolExecutor(1) as ex:
+            ex.submit(fixture).result()
+
+        def body(t, pg):
+            txt = lambda: pg.inner_text("body")
+            tbl = "(()=>{const e=[...document.querySelectorAll('h2,h3')].find(h=>/session/i.test(h.textContent)); e.scrollIntoView({block:'start'}); return 0})()"
+            pg.goto(APP + "/attendance/admin/")
+            t.step("Today's sessions table: Employee, Check-in, Check-out visible; Method and Status are off to the right", lambda: pg.evaluate(tbl), expect=lambda: "Second Synthetic" in txt(), wait=3500)
+            t.step("Scroll the table sideways (the table itself scrolls): Method and Status come into view (Completed)", lambda: pg.evaluate("(()=>{const w=[...document.querySelectorAll('.table-container table')].find(x=>x.textContent.indexOf('Check-In Time')>=0); w.scrollLeft=w.scrollWidth; return w.scrollLeft})()"), expect=lambda: pg.evaluate("(()=>{const w=[...document.querySelectorAll('.table-container table')].find(x=>x.textContent.indexOf('Check-In Time')>=0); return w.scrollLeft>0 && document.documentElement.scrollWidth<=window.innerWidth+1})()"), wait=4500)
+            t.note("Not shown: Admin role view of this table, a table with many rows.", 3)
+
+        run_tour(ctx, "41_sessions_scroll", body, notes="Real Django on TiDB, headless Chromium 390x844 emulated. Fixture by script: the signed-in account is HR; Second Synthetic has one completed session today.", unshown=["Admin view", "many rows"])
+
+    g["DRILLS"]["tour_sessions_scroll"] = tour
