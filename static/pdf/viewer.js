@@ -3,7 +3,7 @@
   var N = window.SalowPdfNotes, C = window.SalowPdfCheck, $ = function (i) { return document.getElementById(i); };
   var status = $("pdf-status"), canvas = $("pdf-canvas"), ctx = canvas.getContext("2d");
   var BASE = "/static/pdf/vendor/";
-  var lib = null, doc = null, loadTask = null, seq = new C.Seq(), page = 1, zoom = 1, fitPage = false, fitZoom = 1, task = null, token = 0, settle = Promise.resolve();
+  var lib = null, doc = null, loadTask = null, seq = new C.Seq(), page = 1, zoom = 1, fitPage = false, fitZoom = 1, rot = 0, task = null, token = 0, settle = Promise.resolve();
   var mark = ""; // the query whose matches are marked in the page text, set by a successful find
   var shown = "", shownCut = false;
   // Draws the current page text, marking matches of `mark` with real elements built from text nodes.
@@ -35,8 +35,8 @@
     var on = !!doc;
     $("pdf-prev").disabled = !on || page <= 1; $("pdf-next").disabled = !on || page >= doc.numPages;
     $("pdf-zin").disabled = !on || zoom >= 3; $("pdf-zout").disabled = !on || zoom <= 0.5;
-    $("pdf-fitw").disabled = !on || (!fitPage && zoom === 1); $("pdf-fitp").disabled = !on || fitPage; $("pdf-close").disabled = !on; $("pdf-page").disabled = !on; $("pdf-q").disabled = !on; $("pdf-find").disabled = !on || finding; $("pdf-exporttext").disabled = !on || textBusy;
-    $("pdf-where").textContent = on ? "Page " + page + " of " + doc.numPages + ", " + (fitPage ? "fit to page, " + Math.round(fitZoom * 100) + "%" : "zoom " + Math.round(zoom * 100) + "%") : "No file open.";
+    $("pdf-fitw").disabled = !on || (!fitPage && zoom === 1); $("pdf-fitp").disabled = !on || fitPage; $("pdf-rot").disabled = !on; $("pdf-close").disabled = !on; $("pdf-page").disabled = !on; $("pdf-q").disabled = !on; $("pdf-find").disabled = !on || finding; $("pdf-exporttext").disabled = !on || textBusy;
+    $("pdf-where").textContent = on ? "Page " + page + " of " + doc.numPages + ", " + (fitPage ? "fit to page, " + Math.round(fitZoom * 100) + "%" : "zoom " + Math.round(zoom * 100) + "%") + (rot ? ", turned " + rot + " degrees" : "") : "No file open.";
     if (on) $("pdf-page").value = page;
   }
   function draw() {
@@ -45,13 +45,13 @@
     // wait for every cancelled render to settle before the canvas is resized and reused
     settle.then(function () { return my === token ? doc.getPage(page) : null; }).then(function (pg) {
       if (!pg || my !== token) return;
-      var wrap = $("pdf-stage").clientWidth || 600, v1 = pg.getViewport({ scale: 1 });
+      var wrap = $("pdf-stage").clientWidth || 600, R = ((pg.rotate || 0) + rot) % 360, v1 = pg.getViewport({ scale: 1, rotation: R });
       var css = fitPage ? Math.min(Math.min(wrap, 1600) / v1.width, Math.max(200, window.innerHeight - 40) / v1.height) : Math.min(wrap, 1600) / v1.width * zoom;
       if (fitPage) { fitZoom = css * v1.width / Math.min(wrap, 1600); controls(); }
       var dpr = Math.min(window.devicePixelRatio || 1, 2);
-      var vp = pg.getViewport({ scale: css * dpr }), px = vp.width * vp.height;
+      var vp = pg.getViewport({ scale: css * dpr, rotation: R }), px = vp.width * vp.height;
       var shrink = Math.min(1, Math.sqrt(24e6 / px), 8192 / vp.width, 8192 / vp.height);
-      if (shrink < 1) vp = pg.getViewport({ scale: css * dpr * shrink });
+      if (shrink < 1) vp = pg.getViewport({ scale: css * dpr * shrink, rotation: R });
       canvas.width = Math.floor(vp.width); canvas.height = Math.floor(vp.height);
       canvas.style.width = Math.floor(v1.width * css) + "px"; canvas.style.height = Math.floor(v1.height * css) + "px";
       var tx = $("pdf-text"); shown = null; tx.textContent = "Reading the text of this page...";
@@ -132,7 +132,7 @@
   }
   function renderPins() {
     var layer = $("pdf-pins"); layer.textContent = "";
-    if (!doc || nState !== "ok" || drawn !== page) return;
+    if (!doc || nState !== "ok" || drawn !== page || rot) return;
     sorted().forEach(function (n, i) {
       if (n.page !== page || n.x === null) return;
       var b = document.createElement("button"); b.type = "button"; b.className = "pdf-pin";
@@ -213,7 +213,9 @@
     $("pdf-noteformpage").textContent = String(p); $("pdf-noteform").hidden = false; $("pdf-notetext").focus(); nmsg("");
   }
   $("pdf-addnote").addEventListener("click", function () {
-    if (nState !== "ok") return; adding = !adding; pending = null; $("pdf-noteform").hidden = true;
+    if (nState !== "ok") return;
+    if (rot) { adding = false; nControls(); nmsg("A note cannot be placed on a spot while the view is turned. Turn the view back, or use Add a note to this page."); return; }
+    adding = !adding; pending = null; $("pdf-noteform").hidden = true;
     nmsg(adding ? "Click the page where the note belongs. To add a note without choosing a spot, use Add a note to this page." : ""); nControls();
   });
   $("pdf-addpagenote").addEventListener("click", function () {
@@ -221,6 +223,7 @@
   });
   $("pdf-pagewrap").addEventListener("click", function (e) {
     if (!adding || nState !== "ok" || !doc || doc !== nDoc) return;
+    if (rot) { adding = false; nControls(); nmsg("A note cannot be placed on a spot while the view is turned."); return; }
     if (drawn !== page) { nmsg("Wait for the page to finish drawing, then click again."); return; }
     var r = canvas.getBoundingClientRect(); if (!(r.width > 0 && r.height > 0)) return;
     openForm(page, (e.clientX - r.left) / r.width, (e.clientY - r.top) / r.height);
@@ -312,7 +315,7 @@
   function go(p) { if (!doc) return; page = C.pageIndex(p, 0, doc.numPages); controls(); draw(); }
   function closeDoc(msg) {
     token++; cancelCurrent(); fseq.begin(); finding = false; mark = ""; $("pdf-fstop").disabled = true; fmsg(""); $("pdf-q").value = "";
-    var d = doc; doc = null; page = 1; zoom = 1; fitPage = false; notesClose(); $("pdf-text").textContent = ""; shown = "";
+    var d = doc; doc = null; page = 1; zoom = 1; fitPage = false; rot = 0; notesClose(); $("pdf-text").textContent = ""; shown = "";
     settle.then(function () { if (doc) return; canvas.width = 1; canvas.height = 1; canvas.style.width = "0"; canvas.style.height = "0"; });
     var lt = loadTask; loadTask = null; if (lt) { try { lt.destroy(); } catch (e) { /* already gone */ } }
     controls(); status.textContent = msg || "";
@@ -325,7 +328,7 @@
       return t.promise.then(function (d) { return { d: d, t: t }; }, function (e) { try { t.destroy(); } catch (x) { /* gone */ } throw e; });
     }).then(function (r) { return hashed.then(function (h) { r.h = h; return r; }); }).then(function (r) {
       if (!seq.current(mine)) { try { r.t.destroy(); } catch (x) { /* superseded by a newer open */ } return; }
-      var d = r.d; closeDoc(""); doc = d; loadTask = r.t; page = 1; zoom = 1; fitPage = false; $("pdf-name").textContent = name; notesOpen(d, r.h); controls(); draw();
+      var d = r.d; closeDoc(""); doc = d; loadTask = r.t; page = 1; zoom = 1; fitPage = false; rot = 0; $("pdf-name").textContent = name; notesOpen(d, r.h); controls(); draw();
     }).catch(function (e) {
       if (!seq.current(mine)) return;
       status.textContent = e && e.name === "PasswordException" ? "This PDF is password protected. Password files are not supported yet." : e && e.name === "InvalidPDFException" ? "That PDF is damaged or not readable." : "The viewer could not open that file.";
@@ -356,6 +359,9 @@
   $("pdf-fitw").addEventListener("click", function () { if (!doc) return; fitPage = false; zoom = 1; controls(); draw(); });
   // Fit page: the stage is scrolled to the top of the window first, so the page height can use the whole window (less a small margin). Resizing refits.
   $("pdf-fitp").addEventListener("click", function () { if (!doc) return; fitPage = true; $("pdf-stage").scrollIntoView({ block: "start" }); controls(); draw(); });
+  // Turn view: 90 degrees clockwise a step, for this view only (the file is not changed and nothing is stored). Note pins are placed on the unturned page,
+  // so they are hidden while the view is turned.
+  $("pdf-rot").addEventListener("click", function () { if (!doc) return; rot = (rot + 90) % 360; if (rot && adding) { adding = false; nControls(); nmsg("Choosing a spot for a note was cancelled because the view was turned."); } controls(); draw(); });
   var rz = null;
   window.addEventListener("resize", function () { clearTimeout(rz); rz = setTimeout(function () { if (doc) draw(); }, 200); });
   $("pdf-page").addEventListener("change", function () { var n = parseInt(this.value, 10); if (isNaN(n)) { controls(); return; } go(n); });

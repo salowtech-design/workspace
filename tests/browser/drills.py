@@ -4557,6 +4557,106 @@ def pdf_fit(ctx):  # noqa: C901
     pg.wait_for_timeout(300)
 
 
+def pdf_rotate(ctx):  # noqa: C901
+    """PDF viewer: Turn view rotates the shown page 90 degrees a step, for the view only; sizes, Fit page and reset on reopen follow the turned shape."""
+    pg = fresh(ctx, "/pdf/")
+    data = _two_page_pdf()
+    pg.set_viewport_size({"width": 1280, "height": 720})
+    pg.reload()
+    pg.set_input_files(
+        "#pdf-open", files=[{"name": "two.pdf", "mimeType": "application/pdf", "buffer": data}]
+    )
+    for _ in range(50):
+        if pg.inner_text("#pdf-where").startswith("Page 1 of 2"):
+            break
+        pg.wait_for_timeout(300)
+    pg.wait_for_timeout(700)
+
+    def shape():
+        return pg.evaluate(
+            "(()=>{const c=document.getElementById('pdf-canvas');return [parseInt(c.style.width),parseInt(c.style.height),c.width,c.height]})()"
+        )
+
+    def where():
+        return pg.inner_text("#pdf-where")
+
+    w0, h0, cw0, ch0 = shape()
+    check(
+        "rotate: portrait page starts upright (taller than wide)",
+        h0 > w0 and ch0 > cw0 and "turned" not in where(),
+        str((w0, h0, where())),
+    )
+    pg.click("#pdf-rot")
+    pg.wait_for_timeout(900)
+    w1, h1, cw1, ch1 = shape()
+    check(
+        "rotate: one turn makes it wider than tall and the readout says 90",
+        w1 > h1 and cw1 > ch1 and "turned 90 degrees" in where(),
+        str((w1, h1, where())),
+    )
+    check(
+        "rotate: the turned shape is the page shape swapped (612x792 becomes about 792x612)",
+        abs((w1 / h1) - (792 / 612)) < 0.02,
+        str(w1 / h1),
+    )
+    pg.click("#pdf-rot")
+    pg.wait_for_timeout(900)
+    w2, h2, _, _ = shape()
+    check(
+        "rotate: two turns is upright again, upside down, same page shape as at the start (size can differ a little when a scrollbar appears)",
+        abs(w2 / h2 - w0 / h0) < 0.02 and "turned 180" in where(),
+        str((w2, h2, where())),
+    )
+    pg.click("#pdf-rot")
+    pg.wait_for_timeout(600)
+    pg.click("#pdf-rot")
+    pg.wait_for_timeout(900)
+    w4, h4, _, _ = shape()
+    check(
+        "rotate: four turns return to the start and the readout drops the turn",
+        abs(w4 / h4 - w0 / h0) < 0.02 and "turned" not in where(),
+        str((w4, h4, where())),
+    )
+    pg.click("#pdf-rot")
+    pg.wait_for_timeout(700)
+    pg.click("#pdf-fitp")
+    pg.wait_for_timeout(900)
+    wf, hf, _, _ = shape()
+    ih = pg.evaluate("window.innerHeight")
+    t = pg.evaluate(
+        "(()=>{const r=document.getElementById('pdf-canvas').getBoundingClientRect();return [Math.round(r.top),Math.round(r.bottom)]})()"
+    )
+    check(
+        "rotate: Fit page on the turned page fits the turned shape and shows it whole",
+        wf > hf and hf <= ih - 40 + 2 and t[0] >= -1 and t[1] <= ih + 1,
+        str((wf, hf, ih, t)),
+    )
+    pg.screenshot(path=os.path.join(os.environ.get("DRILL_SHOTS", "./"), "pdf-rotate.png"))
+    pg.click("#pdf-next")
+    pg.wait_for_timeout(900)
+    w5, h5, _, _ = shape()
+    check(
+        "rotate: the turn stays when changing page (landscape page 2 turned is taller than wide)",
+        h5 > w5 and "Page 2 of 2" in where() and "turned 90" in where(),
+        str((w5, h5, where())),
+    )
+    pg.click("#pdf-close")
+    pg.set_input_files(
+        "#pdf-open", files=[{"name": "two.pdf", "mimeType": "application/pdf", "buffer": data}]
+    )
+    for _ in range(50):
+        if pg.inner_text("#pdf-where").startswith("Page 1 of 2"):
+            break
+        pg.wait_for_timeout(300)
+    pg.wait_for_timeout(700)
+    w6, h6, _, _ = shape()
+    check(
+        "rotate: reopening a file starts upright",
+        h6 > w6 and "turned" not in where(),
+        str((w6, h6, where())),
+    )
+
+
 def _poll_logger(codes, k):
     def log(resp):
         if "/poll/" in resp.url:
@@ -4802,6 +4902,7 @@ DRILLS = {
     "chat_poll_429": chat_poll_429,
     "chat_poll_real": chat_poll_real,
     "pdf_fit": pdf_fit,
+    "pdf_rotate": pdf_rotate,
     "slides_style": slides_style,
     "sheets_tabs": sheets_tabs,
     "sheets_chart": sheets_chart,
