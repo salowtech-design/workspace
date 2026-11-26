@@ -230,6 +230,7 @@ def register(g):
     register_sheets(g)
     register_slides(g)
     register_pdf(g)
+    register_attendance(g)
 
 
 def register_tasks(g, users):
@@ -534,3 +535,29 @@ def register_pdf(g):
                  unshown=["Text mark", "Signature", "Copy with marks / flatten", "Split", "Reorder", "Merge", "Form fields", "Password-protected file", "Export notes", "Download a copy", "Clear notes", "Thumbnails", "Discard marks"])
 
     g["DRILLS"]["tour_pdf"] = pdf_tour
+
+
+def register_attendance(g):
+    APP = g["APP"]
+
+    def att_tour(ctx):
+        def body(t, pg):
+            _step = t.step
+            t.step = lambda text, fn=None, wait=800, expect=None: _step(text, fn, wait=min(wait, 900), expect=expect)
+            body_text = lambda: pg.inner_text("body")
+            pg.goto(APP + "/attendance/")
+            pg.wait_for_timeout(400)
+            t.step("Attendance: the panel before checking in", expect=lambda: "Not Checked In" in body_text(), wait=1800)
+            t.step("Check in (the dev stub verifier passes it: this is NOT real face matching)", lambda: pg.click("#attendance-checkin-form button[type=submit]"), expect=lambda: "Currently Checked In" in body_text(), wait=1800)
+            t.step("Check out", lambda: pg.click("form[action$='/attendance/check-out/'] button[type=submit]"), expect=lambda: "Not Checked In" in body_text(), wait=1800)
+            t.step("Fallback request: type Manual Check In with a reason", lambda: (pg.select_option("#id_request_type", "check_in"), pg.fill("#id_reason", "Camera not working today"), pg.evaluate("document.getElementById('id_reason').scrollIntoView({block:'center'});0")), expect=lambda: pg.input_value("#id_reason") != "")
+            t.step("Submit the fallback request: it appears under Your Recent Requests", lambda: pg.click("form[action$='/attendance/fallback/'] button[type=submit]"), expect=lambda: "Camera not working today" in body_text() and "Your Recent Requests" in body_text(), wait=1800)
+            t.step("Empty reason is refused by the form", lambda: (pg.fill("#id_reason", ""), pg.click("form[action$='/attendance/fallback/'] button[type=submit]")), expect=lambda: pg.evaluate("!document.getElementById('id_reason').checkValidity()") and "/attendance/fallback" not in pg.url)
+            t.step("My attendance by month", lambda: pg.goto(APP + "/attendance/history/"), expect=lambda: "/history/" in pg.url, wait=1800)
+            t.step("Attendance report", lambda: pg.goto(APP + "/attendance/report/"), expect=lambda: "/report/" in pg.url, wait=1800)
+            t.note("Not shown: real face verification (dev stub used), camera preview, manager approval or rejection of the fallback request (admin panel), report filters.", 3)
+
+        run_tour(ctx, "11_attendance", body, notes="Real Django on TiDB, headless Chromium 390x844. DEV_VERIFIER stub is active: check-in does NOT prove face verification. Fallback requests stay pending (approval is an admin action not shown).",
+                 unshown=["real face verification", "camera preview", "manager approve/reject", "report filters", "history month switching"])
+
+    g["DRILLS"]["tour_attendance"] = att_tour
