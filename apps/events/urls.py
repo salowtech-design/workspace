@@ -14,5 +14,6 @@ urlpatterns = [
     path("event/<uuid:event_id>/", views.detail, name="detail"),
     path("event/<uuid:event_id>/edit/", views.edit, name="edit"),
     path("event/<uuid:event_id>/respond/", views.respond_view, name="respond"),
+    path("event/<uuid:event_id>/skip/", views.skip_view, name="skip"),
     path("event/<uuid:event_id>/cancel/", views.cancel_view, name="cancel"),
 ]

@@ -11,6 +11,7 @@ from django.utils import timezone
 from django.views.decorators.http import require_http_methods, require_POST
 
 from apps.core.foundation.throttle import throttled
+from apps.events import recurrence as rec
 from apps.events import services as es
 from apps.events.models import Guest
 
@@ -41,6 +42,33 @@ def _ids_to_pks(raw):
     return [found[i] for i in ids]
 
 
+def _rule_from(post):
+    """Repeat fields from the new-event form (server side validation is in the service)."""
+    freq = (post.get("freq") or "").strip()
+    if not freq:
+        return None
+    until = (post.get("until") or "").strip()
+    try:
+        until_d = dt.datetime.strptime(until, "%Y-%m-%d").date() if until else None
+    except ValueError:
+        raise ValidationError("Enter the end date as a date.") from None
+    try:
+        wds = [int(w) for w in post.getlist("weekday")]
+    except ValueError:
+        raise ValidationError("Unknown weekday.") from None
+    return {
+        "freq": freq,
+        "interval": post.get("interval") or 1,
+        "weekdays": wds,
+        "count": (post.get("count") or "").strip() or None,
+        "until": until_d,
+    }
+
+
+FREQ_CHOICES = (("daily", "Every day"), ("weekly", "Every week"), ("monthly", "Every month"))
+WEEKDAY_CHOICES = tuple(enumerate("Mon Tue Wed Thu Fri Sat Sun".split()))
+
+
 def _limited(request):
     if throttled(request.user, "events-write", WRITE_LIMIT):
         messages.error(request, "Too many changes in a minute. Wait and try again.")
@@ -63,9 +91,12 @@ def home(request):
     )
     rows = []
     for e in evs:
-        s, f = _local(e, e.tz)
-        mine = Guest.objects.filter(event=e, person=request.user).first()
-        rows.append({"e": e, "start": s, "end": f, "response": mine.response if mine else None})
+        s, f = e.start_utc.astimezone(ZoneInfo(e.tz)), e.end_utc.astimezone(ZoneInfo(e.tz))
+        mine = Guest.objects.filter(event=e.event, person=request.user).first()
+        rows.append(
+            {"e": e, "start": s, "end": f, "response": mine.response if mine else None,
+             "repeats": bool(e.freq)}
+        )  # fmt: skip
     return render(
         request, "events/home.html", {"rows": rows, "tz": DEFAULT_TZ, "days": AGENDA_DAYS}
     )
@@ -211,9 +242,11 @@ def month_view(request):
 @login_required
 @require_http_methods(["GET", "POST"])
 def new_event(request):
-    ctx = {"tz": DEFAULT_TZ, "form": {"tz": DEFAULT_TZ}, "action": "Create event"}
+    ctx = {"tz": DEFAULT_TZ, "form": {"tz": DEFAULT_TZ}, "action": "Create event",
+           "freqs": FREQ_CHOICES, "weekdays": WEEKDAY_CHOICES, "form_weekdays": ""}  # fmt: skip
     if request.method == "POST":
         ctx["form"] = request.POST
+        ctx["form_weekdays"] = request.POST.getlist("weekday")
         if _limited(request):
             return render(request, "events/form.html", ctx, status=429)
         try:
@@ -224,6 +257,7 @@ def new_event(request):
                 _dt(request.POST.get("end")),
                 request.POST.get("tz", DEFAULT_TZ),
                 _ids_to_pks(request.POST.get("guests")),
+                rule=_rule_from(request.POST),
             )
         except ValidationError as exc:
             messages.error(request, " ".join(exc.messages))
@@ -244,10 +278,27 @@ def detail(request, event_id):
     s, f = _local(ev, ev.tz)
     guests = list(ev.guests.select_related("person").order_by("person__employee_id"))
     mine = next((g for g in guests if g.person_id == request.user.pk), None)
+    upcoming, skipped = [], []
+    if ev.freq:
+        tz = ZoneInfo(ev.tz)
+        gone = set(ev.exceptions.values_list("local_date", flat=True))
+        today = timezone.now().astimezone(tz).date()
+        for d in rec.local_dates(ev):
+            o = rec.occurrence(ev, d)
+            if o is None:
+                continue
+            row = {"date": d, "start": o[0].astimezone(tz), "end": o[1].astimezone(tz)}
+            if d in gone:
+                skipped.append(row)
+            elif d >= today and len(upcoming) < 20:
+                upcoming.append(row)
     return render(
         request,
         "events/detail.html",
         {
+            "rule_text": rec.describe(ev),
+            "upcoming": upcoming,
+            "skipped": skipped,
             "e": ev,
             "start": s,
             "end": f,
@@ -310,6 +361,28 @@ def respond_view(request, event_id):
         return redirect("events:detail", event_id=event_id)
     try:
         es.respond(request.user, event_id, request.POST.get("response", ""))
+    except ValidationError as exc:
+        messages.error(request, " ".join(exc.messages))
+    return redirect("events:detail", event_id=event_id)
+
+
+@login_required
+@require_POST
+def skip_view(request, event_id):
+    """Organiser cancels one occurrence of a repeating event (by its local date)."""
+    ev = es.get_event(request.user, event_id)
+    if ev.organizer_id != request.user.pk:
+        from django.http import Http404
+
+        raise Http404
+    if _limited(request):
+        return redirect("events:detail", event_id=event_id)
+    try:
+        d = dt.datetime.strptime(request.POST.get("date", ""), "%Y-%m-%d").date()
+        es.skip_occurrence(request.user, event_id, d)
+        messages.success(request, f"{d:%a %-d %b %Y} cancelled. The other occurrences are unchanged.")
+    except ValueError:
+        messages.error(request, "Choose an occurrence to cancel.")
     except ValidationError as exc:
         messages.error(request, " ".join(exc.messages))
     return redirect("events:detail", event_id=event_id)

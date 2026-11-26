@@ -8,12 +8,21 @@
 <p>Saved version: {{ conflict.title }}, version {{ conflict.version }}.</p>
 <p><a href="{% url 'events:edit' conflict.public_id %}">Reload the saved version</a></p></div>{% endif %}
 <form method="post" class="cal-form">{% csrf_token %}
+{% if editing and e.freq %}<p class="cal-meta">This event repeats. Changes apply to the whole series. The repeat rule cannot be changed here.</p>{% endif %}
 {% if editing %}<input type="hidden" name="version" value="{% if conflict %}{{ conflict.version }}{% else %}{{ form.version }}{% endif %}">{% endif %}
 <label>Title<input type="text" name="title" maxlength="200" value="{{ form.title }}" required></label>
 <label>Starts<input type="datetime-local" name="start" value="{{ form.start }}" required></label>
 <label>Ends<input type="datetime-local" name="end" value="{{ form.end }}" required></label>
 <label>Time zone<input type="text" name="tz" maxlength="40" value="{{ form.tz }}" required></label>
-{% if not editing %}<label>Guests (employee IDs, separated by commas)<textarea name="guests" rows="2">{{ form.guests }}</textarea></label>{% endif %}
+{% if not editing %}<fieldset class="cal-repeat"><legend>Repeat</legend>
+<label>Repeats<select name="freq"><option value="">Does not repeat</option>{% for v,n in freqs %}<option value="{{ v }}"{% if form.freq == v %} selected{% endif %}>{{ n }}</option>{% endfor %}</select></label>
+<label>Every (1 to 12)<input type="number" name="interval" min="1" max="12" value="{{ form.interval|default:1 }}"></label>
+<div class="cal-meta">Weekly: tick the weekdays (the first day must be ticked; if none, the first day is used).</div>
+<div>{% for i,n in weekdays %}<label class="cal-inline"><input type="checkbox" name="weekday" value="{{ i }}"{% if i|stringformat:"s" in form_weekdays %} checked{% endif %}> {{ n }}</label>{% endfor %}</div>
+<label>Ends after this many times (1 to 200)<input type="number" name="count" min="1" max="200" value="{{ form.count }}"></label>
+<label>or ends on (within 2 years)<input type="date" name="until" value="{{ form.until }}"></label>
+<p class="cal-meta">Set one of the two. Monthly repeats on the same day of the month and skips months without it. A time that does not exist on a day because of a clock change is skipped and still counts. Afterwards you can cancel one occurrence or the whole series, but not change a single occurrence.</p></fieldset>
+<label>Guests (employee IDs, separated by commas)<textarea name="guests" rows="2">{{ form.guests }}</textarea></label>{% endif %}
 <button class="btn" type="submit">{{ action }}</button></form>
 </div>
 {% endblock %}

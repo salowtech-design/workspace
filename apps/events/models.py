@@ -22,6 +22,13 @@ class Event(models.Model):
     tz = models.CharField(max_length=40)
     status = models.CharField(max_length=10, default=CONFIRMED)
     version = models.PositiveIntegerField(default=1)
+    # Repeat rule (all empty for a single event). start_utc/end_utc are the first occurrence.
+    freq = models.CharField(max_length=7, blank=True, default="")  # daily, weekly, monthly
+    interval = models.PositiveSmallIntegerField(default=1)
+    weekdays = models.CharField(max_length=13, blank=True, default="")  # "0,2,4", Monday is 0
+    count = models.PositiveSmallIntegerField(null=True, blank=True)
+    until = models.DateField(null=True, blank=True)  # last allowed local date
+    last_end_utc = models.DateTimeField(null=True, blank=True)  # end of the last occurrence
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -52,3 +59,16 @@ class Guest(models.Model):
     class Meta:
         constraints = [models.UniqueConstraint(fields=["event", "person"], name="event_guest_uniq")]
         indexes = [models.Index(fields=["person"])]
+
+
+class EventException(models.Model):
+    """One occurrence of a repeating event that the organiser cancelled (local date in the
+    event's own zone)."""
+
+    event = models.ForeignKey(Event, on_delete=models.CASCADE, related_name="exceptions")
+    local_date = models.DateField()
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["event", "local_date"], name="event_exception_uniq")
+        ]
