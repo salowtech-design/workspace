@@ -1,8 +1,9 @@
 (function (root) {
   "use strict";
   // Area highlights and freehand pen strokes drawn over a page. They are kept in this browser on this device, per file (keyed by the file's SHA-256, like notes),
-  // and become standard Highlight and Ink annotations in a separate downloaded copy. A highlight is a rectangle the person drags,
-  // not a selection of text: this viewer has no positioned text layer. Positions are fractions (0 to 1) of the page as shown, from the top-left.
+  // and become standard Highlight and Ink annotations in a separate downloaded copy. An area highlight is a rectangle the person drags.
+  // A text-line highlight ("tx") is the whole text pieces (as pdf.js splits them, usually a line) that a dragged area touches, one box per piece. Neither
+  // selects letters or copies text: there is no character range. Positions are fractions (0 to 1) of the page as shown, from the top-left.
   var MAX_FILES = 30, MAX_STORED = 400000, MAX_MARKS = 300, MAX_STROKES = 20, MAX_POINTS = 2000, MAX_TX = 200, KINDS = { hl: 1, ink: 1, tx: 1 };
   function unit(x) { return typeof x === "number" && x >= 0 && x <= 1; }
   function validMark(m) {

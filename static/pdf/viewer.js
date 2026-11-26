@@ -615,13 +615,13 @@
     if (mUsable()) mMarks.forEach(function (m) { if (m.page === page) svg.appendChild(mDraw(m, false)); });
     var ol = $("pdf-marklist"); ol.textContent = "";
     mMarks.slice().sort(function (a, b) { return a.page - b.page; }).forEach(function (m, i) {
-      var li = document.createElement("li"); li.appendChild(document.createTextNode("Page " + m.page + ": " + (m.kind === "hl" ? "area highlight" : m.kind === "tx" ? "text highlight" : "pen drawing") + " "));
+      var li = document.createElement("li"); li.appendChild(document.createTextNode("Page " + m.page + ": " + (m.kind === "hl" ? "area highlight" : m.kind === "tx" ? "text-line highlight" : "pen drawing") + " "));
       var b = document.createElement("button"); b.type = "button"; b.className = "btn"; b.textContent = "Remove";
-      b.setAttribute("aria-label", "Remove " + (m.kind === "hl" ? "area highlight" : m.kind === "tx" ? "text highlight" : "pen drawing") + " " + (i + 1) + " on page " + m.page);
+      b.setAttribute("aria-label", "Remove " + (m.kind === "hl" ? "area highlight" : m.kind === "tx" ? "text-line highlight" : "pen drawing") + " " + (i + 1) + " on page " + m.page);
       b.addEventListener("click", function () {
         if (mBusy) return;
         var at = i, next = window.PdfMarks.remove(mMarks, m.id);
-        mApply(next, "Removed " + (m.kind === "hl" ? "an area highlight" : m.kind === "tx" ? "a text highlight" : "a pen drawing") + " on page " + m.page + ". " + next.length + " mark(s) left.", function () {
+        mApply(next, "Removed " + (m.kind === "hl" ? "an area highlight" : m.kind === "tx" ? "a text-line highlight" : "a pen drawing") + " on page " + m.page + ". " + next.length + " mark(s) left.", function () {
           var btns = $("pdf-marklist").querySelectorAll("button"), nxt = btns[Math.min(at, btns.length - 1)];
           (nxt || $("pdf-tool-hl")).focus();
         });
@@ -630,7 +630,7 @@
     });
     mControls();
   }
-  function mSetTool(t) { mTool = mTool === t ? "off" : t; if (mTool !== "off" && adding) { adding = false; pending = null; nControls(); nmsg("Placing a note was turned off because a drawing tool is on."); } mDrag = null; mHold = mHold && mClearHold(); renderMarks(); if (mTool === "hl") mmsg("Area highlight is on. Drag over the page to draw a rectangle. It marks an area and does not select text."); else if (mTool === "tx") mmsg("Text highlight is on. Drag over the page. Every piece of text the area touches is highlighted whole, so it can take more than you dragged over. Scanned pages have no text to pick."); else if (mTool === "pen") mmsg("Pen is on. Draw on the page with a finger, pen or mouse. Turn it off to scroll the page by touch."); else mmsg(""); }
+  function mSetTool(t) { mTool = mTool === t ? "off" : t; if (mTool !== "off" && adding) { adding = false; pending = null; nControls(); nmsg("Placing a note was turned off because a drawing tool is on."); } mDrag = null; mHold = mHold && mClearHold(); renderMarks(); if (mTool === "hl") mmsg("Area highlight is on. Drag over the page to draw a rectangle. It marks an area and does not select text."); else if (mTool === "tx") mmsg("Highlight text lines is on. Drag over the page. Every whole line or piece of text the area touches is highlighted, even a click on one, so it can take more than you dragged over. It does not select letters or copy text. Scanned pages have no text to pick."); else if (mTool === "pen") mmsg("Pen is on. Draw on the page with a finger, pen or mouse. Turn it off to scroll the page by touch."); else mmsg(""); }
   function mClearHold() { if (mHold) clearTimeout(mHold.timer); return null; }
   function mPoint(e) { var r = $("pdf-marks").getBoundingClientRect(); return [Math.min(1, Math.max(0, (e.clientX - r.left) / (r.width || 1))), Math.min(1, Math.max(0, (e.clientY - r.top) / (r.height || 1)))]; }
   function mTempShow() { var svg = $("pdf-marks"), old = svg.querySelector("[data-temp]"); if (old) old.remove(); if (!mDrag) return; var el = (mDrag.kind === "hl" || mDrag.kind === "tx") ? mDraw({ kind: "hl", r: [Math.min(mDrag.a[0], mDrag.b[0]), Math.min(mDrag.a[1], mDrag.b[1]), Math.max(mDrag.a[0], mDrag.b[0]) + 1e-9, Math.max(mDrag.a[1], mDrag.b[1]) + 1e-9] }, true) : mDraw({ kind: "ink", s: [mDrag.pts.length > 1 ? mDrag.pts : mDrag.pts.concat(mDrag.pts)] }, true); el.setAttribute("data-temp", "1"); svg.appendChild(el); }
@@ -661,6 +661,7 @@
   // Text highlight: the whole text pieces (as pdf.js splits them, usually a line or part of one) that the dragged area touches. It does not cut inside a piece.
   function mTextPick(d) {
     var myDoc = doc, myTok = mToken, pg0 = page, M = window.PdfMarks;
+    if (typeof M.addText !== "function") { mmsg("This page loaded mixed versions of its scripts. Reload the page, then try again."); renderMarks(); return; }
     var x0 = Math.min(d.a[0], d.b[0]), x1 = Math.max(d.a[0], d.b[0]), y0 = Math.min(d.a[1], d.b[1]), y1 = Math.max(d.a[1], d.b[1]);
     mBusy = true; mControls(); mmsg("Finding text under the area...");
     myDoc.getPage(pg0).then(function (pg) {
@@ -678,13 +679,14 @@
         return rects;
       });
     }).then(function (rects) {
+      if (myDoc !== doc || myTok !== mToken) return; // another file or a reset took over: it owns the busy flag and the status now
       mBusy = false;
-      if (myDoc !== doc || myTok !== mToken || page !== pg0 || !mUsable()) { mControls(); mmsg("The page changed before the text was found, so nothing was added."); renderMarks(); return; }
+      if (page !== pg0 || !mUsable()) { mControls(); mmsg("The page changed before the text was found, so nothing was added."); renderMarks(); return; }
       var r = M.addText(mMarks, pg0, rects, null);
       if (r.error) { mControls(); mmsg(r.error); renderMarks(); return; }
-      mApply(r.marks, "Text highlight added on page " + pg0 + " (" + r.marks[r.marks.length - 1].r.length + " piece(s) of text). " + (mState === "ok" ? "It is kept on this device for this file." : "It stays in this tab only."), null);
+      mApply(r.marks, "Text-line highlight added on page " + pg0 + " (" + r.marks[r.marks.length - 1].r.length + " piece(s) of text). " + (mState === "ok" ? "It is kept on this device for this file." : "It stays in this tab only."), null);
       renderMarks();
-    }, function () { mBusy = false; mControls(); mmsg("Could not read the text on this page. Nothing was added."); renderMarks(); });
+    }, function () { if (myDoc !== doc || myTok !== mToken) return; mBusy = false; mControls(); mmsg("Could not read the text on this page. Nothing was added."); renderMarks(); });
   }
   mSvg.addEventListener("pointercancel", function () { mDrag = null; renderMarks(); });
   // Keeping marks on this device: the same guarded pattern as notes (one Web Lock, re-read before write, stale refused, unreadable left alone).

@@ -6558,9 +6558,9 @@ def pdf_text_hl(ctx):  # noqa: C901
             "#pdf-marklist li"
         ).count() == 0 and "No text under that area" in pg.inner_text("#pdf-markstatus")
         drag((0.3, 0.075), (0.35, 0.1))
-        one = pg.locator("#pdf-marklist li").count() == 1 and "text highlight" in pg.inner_text(
-            "#pdf-marklist"
-        )
+        one = pg.locator(
+            "#pdf-marklist li"
+        ).count() == 1 and "text-line highlight" in pg.inner_text("#pdf-marklist")
         rects = pg.evaluate("[...document.querySelectorAll('#pdf-marks rect')].length")
         pg.wait_for_timeout(200)
         shot = pg.screenshot(clip={"x": x, "y": y, "width": w, "height": h})
@@ -6602,6 +6602,125 @@ def pdf_text_hl(ctx):  # noqa: C901
 
     one(1280, 900)
     one(390, 800)
+
+
+def _rot_crop_pdf():
+    """One page: MediaBox 612x792, CropBox [50 100 562 700] (not at 0,0), /Rotate 90, one line of text inside the crop."""
+    stream = b"BT /F1 40 Tf 120 400 Td (Rotated line) Tj ET"
+    objs = [
+        b"<< /Type /Catalog /Pages 2 0 R >>",
+        b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+        b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /CropBox [50 100 562 700] /Rotate 90 /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>",
+        b"<< /Length %d >>\nstream\n" % len(stream) + stream + b"\nendstream",
+        b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+    ]
+    out, offs = b"%PDF-1.4\n", []
+    for i, o in enumerate(objs):
+        offs.append(len(out))
+        out += b"%d 0 obj\n" % (i + 1) + o + b"\nendobj\n"
+    x = len(out)
+    out += b"xref\n0 %d\n0000000000 65535 f \n" % (len(objs) + 1)
+    for o in offs:
+        out += b"%010d 00000 n \n" % o
+    out += b"trailer\n<< /Size %d /Root 1 0 R >>\nstartxref\n%d\n%%%%EOF\n" % (len(objs) + 1, x)
+    return out
+
+
+def pdf_text_hl_rot(ctx):  # noqa: C901
+    """Text-line highlight on a page with native /Rotate 90 and a CropBox away from 0,0: the box picked on screen matches the box in a Poppler render of the copy."""
+    import subprocess
+    import tempfile
+
+    shots = os.environ.get("DRILL_SHOTS", "/tmp")  # noqa: S108
+    pg = fresh(ctx, "/pdf/")
+    pg.set_viewport_size({"width": 1280, "height": 900})
+    pg.reload()
+    pg.set_input_files(
+        "#pdf-open",
+        files=[{"name": "rot.pdf", "mimeType": "application/pdf", "buffer": _rot_crop_pdf()}],
+    )
+    for _ in range(50):
+        if pg.inner_text("#pdf-where").startswith("Page 1 of 1") and pg.evaluate(
+            "document.getElementById('pdf-canvas').width > 1"
+        ):
+            break
+        pg.wait_for_timeout(250)
+    pg.wait_for_timeout(900)
+    pg.click("#pdf-tool-tx")
+    pg.evaluate("document.getElementById('pdf-marks').scrollIntoView({block: 'start'});0")
+    pg.wait_for_timeout(200)
+    x, y, w, h = pg.evaluate(
+        "(()=>{const r=document.getElementById('pdf-marks').getBoundingClientRect();return [r.left,r.top,r.width,r.height]})()"
+    )
+    pg.mouse.move(x + 0.02 * w, y + 0.02 * h)
+    pg.mouse.down()
+    pg.mouse.move(x + 0.98 * w, y + 0.98 * h, steps=5)
+    pg.mouse.up()
+    pg.wait_for_timeout(800)
+    box = pg.evaluate(
+        "(()=>{const r=document.querySelector('#pdf-marks rect');if(!r)return null;const g=k=>parseFloat(r.getAttribute(k));return [g('x'),g('y'),g('x')+g('width'),g('y')+g('height')]})()"
+    )
+    shot = pg.screenshot(clip={"x": x, "y": y, "width": w, "height": h})
+    open(os.path.join(shots, "pdf-text-hl-rot-screen.png"), "wb").write(shot)
+    with pg.expect_download() as dl:
+        pg.click("#pdf-markcopy")
+    out = open(dl.value.path(), "rb").read()
+    open(os.path.join(shots, "pdf-text-hl-rot-copy.pdf"), "wb").write(out)
+    with tempfile.TemporaryDirectory() as td:
+        open(td + "/c.pdf", "wb").write(out)
+        subprocess.run(
+            ["pdftoppm", "-cropbox", "-r", "50", "-f", "1", "-l", "1", td + "/c.pdf", td + "/pg"],
+            check=True,
+            capture_output=True,
+        )  # noqa: S603, S607
+        subprocess.run(
+            [
+                "pdftoppm",
+                "-cropbox",
+                "-r",
+                "50",
+                "-png",
+                "-f",
+                "1",
+                "-l",
+                "1",
+                td + "/c.pdf",
+                shots + "/pdf-text-hl-rot-poppler",
+            ],
+            check=True,
+            capture_output=True,
+        )  # noqa: S603, S607
+        ppm = open(td + "/pg-1.ppm", "rb").read()
+    toks, pos = [], 0
+    while len(toks) < 4:
+        while ppm[pos : pos + 1].isspace():
+            pos += 1
+        s0 = pos
+        while not ppm[pos : pos + 1].isspace():
+            pos += 1
+        toks.append(ppm[s0:pos])
+    pos += 1
+    pw, ph = int(toks[1]), int(toks[2])
+    xs, ys = [], []
+    for yy in range(ph):
+        row = ppm[pos + yy * pw * 3 : pos + (yy + 1) * pw * 3]
+        for xx in range(pw):
+            if row[xx * 3] > 235 and row[xx * 3 + 1] > 215 and row[xx * 3 + 2] < 140:
+                xs.append(xx)
+                ys.append(yy)
+    fr = [min(xs) / pw, min(ys) / ph, (max(xs) + 1) / pw, (max(ys) + 1) / ph] if xs else None
+    check(
+        "text-line highlight on /Rotate 90 with an offset CropBox: one box is picked, and it is smaller than the page",
+        bool(box) and (box[2] - box[0]) < 0.9 and (box[3] - box[1]) < 0.5,
+        box,
+    )
+    check(
+        "text-line highlight on /Rotate 90 with an offset CropBox: the box in a Poppler render of the copy matches the picked box (within 0.015)",
+        bool(box)
+        and bool(fr)
+        and all(abs(a_ - b_) < 0.015 for a_, b_ in zip(fr, box, strict=True)),
+        (box, fr),
+    )
 
 
 def pdf_order(ctx):  # noqa: C901
@@ -7236,6 +7355,7 @@ DRILLS = {
     "pdf_marks_keep": pdf_marks_keep,
     "pdf_marks_shot": pdf_marks_shot,
     "pdf_text_hl": pdf_text_hl,
+    "pdf_text_hl_rot": pdf_text_hl_rot,
     "slides_style": slides_style,
     "sheets_tabs": sheets_tabs,
     "sheets_chart": sheets_chart,
