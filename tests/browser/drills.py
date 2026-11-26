@@ -5573,6 +5573,15 @@ def pdf_marks(ctx):  # noqa: C901
         pg.mouse.up()
         pg.wait_for_timeout(200)
 
+    def rects():
+        return pg.evaluate(
+            "(()=>{const a=document.getElementById('pdf-canvas').getBoundingClientRect(),b=document.getElementById('pdf-marks').getBoundingClientRect();return [a.left,a.top,a.width,a.height,b.left,b.top,b.width,b.height]})()"
+        )
+
+    def aligned():
+        r = rects()
+        return all(abs(r[i] - r[i + 4]) < 0.6 for i in range(4)), r
+
     def count(sel):
         return pg.evaluate("document.querySelectorAll('#pdf-marks %s').length" % sel)
 
@@ -5650,10 +5659,49 @@ def pdf_marks(ctx):  # noqa: C901
     )
     pg.click("#pdf-prev")
     pg.wait_for_timeout(900)
+    ok1, r1 = aligned()
+    check("marks: the overlay sits exactly on the canvas at 390 px", ok1, r1)
+    pg.set_viewport_size({"width": 1280, "height": 900})
+    pg.wait_for_timeout(1000)
+    ok2, r2 = aligned()
+    check("marks: the overlay sits exactly on the canvas at 1280 px", ok2 and r2[2] > 500, r2)
+    pg.click("#pdf-zin")
+    pg.click("#pdf-zin")
+    pg.wait_for_timeout(1300)
+    ok3, r3 = aligned()
+    check(
+        "marks: the overlay still sits exactly on the canvas after zooming in",
+        ok3 and r3[2] > r2[2],
+        (r2[2], r3),
+    )
+    pg.click("#pdf-fitw")
+    pg.set_viewport_size({"width": 390, "height": 800})
+    pg.wait_for_timeout(1300)
+    pg.evaluate("document.getElementById('pdf-stage').scrollIntoView({block:'start'});0")
+    pg.wait_for_timeout(300)
+    pg.locator("#pdf-stage").screenshot(path=shots + "/pdf-marks-overlay.png")
     check(
         "marks: back on page 1 both marks are drawn again",
         count("rect") == 1 and count("polyline") == 1,
     )
+    pg.click("#pdf-tool-hl")
+    pg.evaluate("document.getElementById('pdf-marks').scrollIntoView({block:'start'});0")
+    x, y, w, h = box()
+    pg.mouse.move(x + 0.1 * w, y + 0.8 * h)
+    pg.mouse.down()
+    pg.mouse.move(x + 0.5 * w, y + 0.9 * h)
+    pg.evaluate("document.getElementById('pdf-next').click();0")
+    pg.wait_for_timeout(1000)
+    pg.mouse.up()
+    pg.wait_for_timeout(300)
+    check(
+        "marks: changing the page in the middle of a drag adds nothing and leaves no half-drawn shape",
+        pg.locator("#pdf-marklist li").count() == 2 and count("[data-temp]") == 0,
+        pg.locator("#pdf-marklist li").count(),
+    )
+    pg.evaluate("document.getElementById('pdf-prev').click();0")
+    pg.wait_for_timeout(1000)
+    pg.click("#pdf-tool-hl")
     pg.click("#pdf-rot")
     pg.wait_for_timeout(800)
     check(
@@ -5685,6 +5733,12 @@ def pdf_marks(ctx):  # noqa: C901
     li = pg.locator("#pdf-marklist li").nth(0).locator("button")
     li.click()
     check(
+        "marks: after Remove the focus moves to the next Remove button and the change is announced",
+        pg.evaluate("document.activeElement.textContent") == "Remove"
+        and "1 mark(s) left" in pg.inner_text("#pdf-markstatus"),
+        pg.inner_text("#pdf-markstatus"),
+    )
+    check(
         "marks: Remove drops that mark from the page and the list",
         pg.locator("#pdf-marklist li").count() == 1 and count("rect") + count("polyline") == 1,
     )
@@ -5712,6 +5766,29 @@ def pdf_marks(ctx):  # noqa: C901
         "marks: a held signed copy is dropped when the marks change, even if they come back the same",
         warned and not got and "again within 15 seconds" in pg.inner_text("#pdf-markstatus"),
         (warned, len(got)),
+    )
+    open_pdf("first.pdf", _n_page_pdf(2, "First"))
+    pg.click("#pdf-tool-hl")
+    drag((0.1, 0.1), (0.4, 0.2))
+    pg.evaluate(
+        "(()=>{const o=window.PdfMarks.build;window.__ob=o;window.__rel=null;window.PdfMarks.build=function(){const a=arguments,t=this;return new Promise(function(r){window.__rel=function(){r(o.apply(t,a))}})};0})()"
+    )
+    got.clear()
+    pg.click("#pdf-markcopy")
+    pg.wait_for_timeout(500)
+    held = pg.evaluate("typeof window.__rel === 'function'")
+    open_pdf("second.pdf", _n_page_pdf(2, "Second"))
+    pg.evaluate("window.__rel && window.__rel();0")
+    pg.evaluate("window.PdfMarks.build = window.__ob;0")
+    pg.wait_for_timeout(1500)
+    check(
+        "marks: a build finishing after another file was opened downloads nothing and does not report success",
+        held and not got and "Downloaded" not in pg.inner_text("#pdf-markstatus"),
+        (held, len(got), pg.inner_text("#pdf-markstatus")),
+    )
+    check(
+        "marks: the new file is not left busy and has no marks from the first",
+        pg.locator("#pdf-marklist li").count() == 0 and not pg.is_disabled("#pdf-tool-hl"),
     )
     open_pdf(
         "xfa.pdf",

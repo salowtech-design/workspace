@@ -45,7 +45,7 @@
   }
   function draw() {
     if (!doc) return;
-    var my = ++token, pageNo = page; cancelCurrent(); drawn = 0; $("pdf-pins").textContent = ""; $("pdf-marks").textContent = "";
+    var my = ++token, pageNo = page; cancelCurrent(); drawn = 0; $("pdf-pins").textContent = ""; $("pdf-marks").textContent = ""; mDrag = null;
     // wait for every cancelled render to settle before the canvas is resized and reused
     settle.then(function () { return my === token ? doc.getPage(page) : null; }).then(function (pg) {
       if (!pg || my !== token) return;
@@ -220,6 +220,7 @@
     if (nState !== "ok") return;
     if (rot) { adding = false; nControls(); nmsg("A note cannot be placed on a spot while the view is turned. Turn the view back, or use Add a note to this page."); return; }
     adding = !adding; pending = null; $("pdf-noteform").hidden = true;
+    if (adding && typeof mTool !== "undefined" && mTool !== "off") { mTool = "off"; mDrag = null; renderMarks(); mmsg("Area highlight and Pen were turned off because you are placing a note."); }
     nmsg(adding ? "Click the page where the note belongs. To add a note without choosing a spot, use Add a note to this page." : ""); nControls();
   });
   $("pdf-addpagenote").addEventListener("click", function () {
@@ -609,12 +610,18 @@
       var li = document.createElement("li"); li.appendChild(document.createTextNode("Page " + m.page + ": " + (m.kind === "hl" ? "area highlight" : "pen drawing") + " "));
       var b = document.createElement("button"); b.type = "button"; b.className = "btn"; b.textContent = "Remove";
       b.setAttribute("aria-label", "Remove " + (m.kind === "hl" ? "area highlight" : "pen drawing") + " " + (i + 1) + " on page " + m.page);
-      b.addEventListener("click", function () { if (mBusy) return; mMarks = window.PdfMarks.remove(mMarks, m.id); mHold = null; renderMarks(); mControls(); mmsg("Removed."); });
+      b.addEventListener("click", function () {
+        if (mBusy) return;
+        var at = i; mMarks = window.PdfMarks.remove(mMarks, m.id); mHold = mClearHold(); renderMarks(); mControls();
+        var btns = $("pdf-marklist").querySelectorAll("button"), nxt = btns[Math.min(at, btns.length - 1)];
+        (nxt || $("pdf-tool-hl")).focus();
+        mmsg("Removed " + (m.kind === "hl" ? "an area highlight" : "a pen drawing") + " on page " + m.page + ". " + mMarks.length + " mark(s) left.");
+      });
       li.appendChild(b); ol.appendChild(li);
     });
     mControls();
   }
-  function mSetTool(t) { mTool = mTool === t ? "off" : t; mDrag = null; mHold = mHold && mClearHold(); renderMarks(); if (mTool === "hl") mmsg("Area highlight is on. Drag over the page to draw a rectangle. It marks an area and does not select text."); else if (mTool === "pen") mmsg("Pen is on. Draw on the page with a finger, pen or mouse. Turn it off to scroll the page by touch."); else mmsg(""); }
+  function mSetTool(t) { mTool = mTool === t ? "off" : t; if (mTool !== "off" && adding) { adding = false; pending = null; nControls(); nmsg("Placing a note was turned off because a drawing tool is on."); } mDrag = null; mHold = mHold && mClearHold(); renderMarks(); if (mTool === "hl") mmsg("Area highlight is on. Drag over the page to draw a rectangle. It marks an area and does not select text."); else if (mTool === "pen") mmsg("Pen is on. Draw on the page with a finger, pen or mouse. Turn it off to scroll the page by touch."); else mmsg(""); }
   function mClearHold() { if (mHold) clearTimeout(mHold.timer); return null; }
   function mPoint(e) { var r = $("pdf-marks").getBoundingClientRect(); return [Math.min(1, Math.max(0, (e.clientX - r.left) / (r.width || 1))), Math.min(1, Math.max(0, (e.clientY - r.top) / (r.height || 1)))]; }
   function mTempShow() { var svg = $("pdf-marks"), old = svg.querySelector("[data-temp]"); if (old) old.remove(); if (!mDrag) return; var el = mDrag.kind === "hl" ? mDraw({ kind: "hl", r: [Math.min(mDrag.a[0], mDrag.b[0]), Math.min(mDrag.a[1], mDrag.b[1]), Math.max(mDrag.a[0], mDrag.b[0]) + 1e-9, Math.max(mDrag.a[1], mDrag.b[1]) + 1e-9] }, true) : mDraw({ kind: "ink", s: [mDrag.pts.length > 1 ? mDrag.pts : mDrag.pts.concat(mDrag.pts)] }, true); el.setAttribute("data-temp", "1"); svg.appendChild(el); }
@@ -628,7 +635,7 @@
     if (!mDrag || e.pointerId !== mDrag.id) return;
     var p = mPoint(e);
     if (mDrag.kind === "hl") mDrag.b = p;
-    else { var q = mDrag.pts[mDrag.pts.length - 1]; if (Math.abs(p[0] - q[0]) + Math.abs(p[1] - q[1]) < 0.003 || mDrag.pts.length >= window.PdfMarks.MAX_POINTS) return; mDrag.pts.push(p); }
+    else { var q = mDrag.pts[mDrag.pts.length - 1]; if (mDrag.pts.length >= window.PdfMarks.MAX_POINTS) { mmsg("This drawing reached its length limit. Lift to finish it, then draw the rest as a new line."); return; } if (Math.abs(p[0] - q[0]) + Math.abs(p[1] - q[1]) < 0.003) return; mDrag.pts.push(p); }
     mTempShow();
   });
   mSvg.addEventListener("pointerup", function (e) {
@@ -642,7 +649,7 @@
   function mReset() { mToken++; mMarks = []; mTool = "off"; mDrag = null; mHold = mClearHold(); mBusy = false; renderMarks(); mmsg(""); }
   $("pdf-tool-hl").addEventListener("click", function () { mSetTool("hl"); });
   $("pdf-tool-pen").addEventListener("click", function () { mSetTool("pen"); });
-  $("pdf-markclear").addEventListener("click", function () { if (mBusy) return; mMarks = []; mHold = mClearHold(); renderMarks(); mmsg("All marks removed."); });
+  $("pdf-markclear").addEventListener("click", function () { if (mBusy) return; mMarks = []; mHold = mClearHold(); renderMarks(); $("pdf-tool-hl").focus(); mmsg("All marks removed."); });
   $("pdf-markcopy").addEventListener("click", function () {
     if (!doc || mBusy || !mMarks.length) return;
     var myDoc = doc, nameText = $("pdf-name").textContent || "PDF file", tok = ++mToken, sig = JSON.stringify(mMarks);
