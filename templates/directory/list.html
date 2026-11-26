@@ -51,15 +51,13 @@
                         <a href="{% url 'directory:profile' user.employee_id %}" class="btn btn-sm btn-outline">Profile</a>
                     </td>
                 </tr>
-                {% empty %}
-                <tr>
-                    <td colspan="5" class="s-e2741f68">
-                        No employees match the search filter.
-                    </td>
-                </tr>
                 {% endfor %}
             </tbody>
         </table>
     </div>
+    {% if not users %}
+    {# Outside the sideways-scrolling table so the message is centred on the screen #}
+    <p class="s-e2741f68 directory-empty">No employees match the search filter.</p>
+    {% endif %}
 </div>
 {% endblock %}

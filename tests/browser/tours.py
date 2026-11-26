@@ -277,6 +277,7 @@ def register(g):
     register_event_time_zone(g, users)
     register_event_week_day_arrows(g, users)
     register_certs_filter(g)
+    register_empty_states(g, users)
     register_posts_more(g, users)
 
 
@@ -3138,3 +3139,22 @@ def register_certs_filter(g):
         run_tour(ctx, "54_certs_filter", body, notes="Real Django on TiDB, headless Chromium 390x844 emulated. Fixture by script: ST-LIVE-1 made Admin, two certificates (one revoked) for two people.", unshown=["search by serial number"])
 
     g["DRILLS"]["tour_certs_filter"] = tour
+
+
+def register_empty_states(g, users):
+    APP = g["APP"]
+
+    def tour(ctx):
+        users(ctx)
+
+        def body(t, pg):
+            def inview(text):
+                return lambda: pg.evaluate("t => { const e = [...document.querySelectorAll('td, p, div')].filter(x => x.children.length === 0 && x.textContent.indexOf(t) >= 0)[0]; if (!e) return false; const r0 = e.getBoundingClientRect(); window.scrollBy(0, r0.top - 300); const r = e.getBoundingClientRect(); return r.left >= 0 && r.right <= window.innerWidth; }", text)
+            pg.goto(APP + "/directory/?q=zzzznomatch")
+            t.step("People search with no match: the message is fully on the screen", expect=inview("No employees match the search filter."), wait=4000)
+            pg.goto(APP + "/auth/security/")
+            t.step("Security and Sessions with no passkey: the message is fully on the screen", expect=inview("No passkeys registered."), wait=4000)
+
+        run_tour(ctx, "55_empty_states", body, notes="Real Django on TiDB, headless Chromium 390x844 emulated. No fixture: the account has no passkey and no person matches the search.", unshown=["empty team members page", "empty security events"])
+
+    g["DRILLS"]["tour_empty_states"] = tour

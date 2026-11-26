@@ -70,16 +70,13 @@
                             </form>
                         </td>
                     </tr>
-                    {% empty %}
-                    <tr>
-                        <td colspan="5" class="s-767d5844">
-                            No passkeys registered. Click "Enroll Passkey" to register your current device.
-                        </td>
-                    </tr>
                     {% endfor %}
                 </tbody>
             </table>
         </div>
+        {% if not passkeys %}
+        <p class="s-767d5844">No passkeys registered. Click "Enroll Passkey" to register your current device.</p>
+        {% endif %}
     </div>
 
     <!-- Active Sessions Section -->
@@ -136,14 +133,13 @@
                             {% endif %}
                         </td>
                     </tr>
-                    {% empty %}
-                    <tr>
-                        <td colspan="5" class="s-767d5844">No active sessions found.</td>
-                    </tr>
                     {% endfor %}
                 </tbody>
             </table>
         </div>
+        {% if not sessions %}
+        <p class="s-767d5844">No active sessions found.</p>
+        {% endif %}
     </div>
 
     <!-- Security Events Audit Section -->
@@ -167,14 +163,13 @@
                         <td><code>{{ evt.reference_id|default:"-" }}</code></td>
                         <td>{{ evt.network_address|default:"-" }}</td>
                     </tr>
-                    {% empty %}
-                    <tr>
-                        <td colspan="4" class="s-767d5844">No recent security events recorded.</td>
-                    </tr>
                     {% endfor %}
                 </tbody>
             </table>
         </div>
+        {% if not recent_events %}
+        <p class="s-767d5844">No recent security events recorded.</p>
+        {% endif %}
     </div>
 </div>
 
