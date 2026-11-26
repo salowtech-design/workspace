@@ -293,6 +293,7 @@ def register(g):
     register_slides_pointer_anim(g)
     register_worklog_team_refusal(g, users)
     register_sheets_focus_edges(g)
+    register_drive_two_sessions(g, users)
     register_posts_more(g, users)
 
 
@@ -3721,6 +3722,103 @@ def register_pdf_view_buttons(g):
         run_tour(ctx, "63_pdf_view_buttons", body, notes="Device-local viewer on a generated 4-page PDF; secure-context test flag. Headless Chromium 390x844 emulated. The text file is saved off-camera. Password-protected files are not filmed on purpose.", unshown=["password-protected open (not filmed, no password entry on camera)", "Discard unreadable saved marks"])
 
     g["DRILLS"]["tour_pdf_view_buttons"] = tour
+
+
+def register_drive_two_sessions(g, users):
+    APP = g["APP"]
+
+    def tour(ctx):
+        import concurrent.futures
+        import secrets as _secrets
+        import time as _time
+
+        import pyotp
+
+        users(ctx)
+        pw2 = _secrets.token_urlsafe(18) + "aA1!"
+        sec2 = pyotp.random_base32(length=32)
+
+        def make():
+            from django.contrib.auth.hashers import make_password
+            from django.utils import timezone
+
+            from apps.accounts.auth.mfa_totp import encrypt_secret, get_auth_key_ring
+            from apps.accounts.models import CustomUser, TOTPCredential
+
+            two = CustomUser.objects.get(employee_id="ST-LIVE-2")
+            two.password = make_password(pw2)
+            two.save(update_fields=["password"])
+            ct, nonce, key_id = encrypt_secret(sec2, get_auth_key_ring())
+            TOTPCredential.objects.create(user=two, encrypted_secret=ct, nonce=nonce, key_id=key_id, confirmed_at=timezone.now())
+
+        with concurrent.futures.ThreadPoolExecutor(1) as ex:
+            ex.submit(make).result()
+
+        # off camera: sign in as the second synthetic account in a separate, unrecorded browser window
+        errs, remote, guard = ctx.salow_hooks
+        c2 = ctx.browser.new_context(viewport={"width": 390, "height": 844})
+        c2.route("**/*", guard)
+        q = c2.new_page()
+        q.goto(APP + "/sign-in/")
+        q.wait_for_timeout(800)
+        q.click("#btn-signin")
+        q.wait_for_timeout(500)
+        q.fill("#employee_id", "ST-LIVE-2")
+        q.fill("#password", pw2)
+        tt = pyotp.TOTP(sec2)
+        left = tt.interval - (_time.time() % tt.interval)
+        if left < 5:
+            _time.sleep(left + 0.5)
+        q.fill("#totp_code", tt.now())
+        q.click("#confirm-btn")
+        q.wait_for_load_state()
+        q.wait_for_timeout(1500)
+        signed_in = "/sign-in" not in q.url
+        cookies2 = c2.cookies()
+        c2.close()
+
+        def body(t, pg):
+            txt = lambda: pg.inner_text("body")
+            cookies1 = pg.context.cookies()
+            pg.goto(APP + "/drive/")
+            t.step("First account (ST-LIVE-1): My Drive", expect=lambda: "Drive" in txt(), wait=1800)
+            t.cap("Next: create the folder Joint plans, open it, share it with ST-LIVE-2 as Editor")
+            pg.fill("input[placeholder='New folder name']", "Joint plans")
+            pg.click("button:has-text('Create folder')")
+            pg.wait_for_timeout(500)
+            pg.click("a.drive-name:has-text('Joint plans')")
+            pg.wait_for_timeout(500)
+            pg.fill("input[placeholder='Employee ID']", "ST-LIVE-2")
+            pg.select_option("select[name=role]", "editor")
+            pg.click("button:has-text('Share folder')")
+            pg.wait_for_timeout(500)
+            pg.locator(".drive-share").scroll_into_view_if_needed()
+            t.step("Sharing lists Second Synthetic as Editor", expect=lambda: "Second Synthetic" in pg.locator(".drive-share").inner_text() and "Editor" in pg.locator(".drive-share").inner_text(), wait=3000)
+            pg.context.clear_cookies()
+            pg.context.add_cookies(cookies2)
+            pg.goto(APP + "/drive/")
+            t.step("Second account: the page shows Live-employee name is gone and the signed-in person is Second Synthetic" if False else "Now the second account (signed in off camera): its own My Drive is empty", expect=lambda: signed_in and "Joint plans" not in txt() and "Nothing here yet" in txt(), wait=3000)
+            t.cap("Next: open the Shared with me tab")
+            pg.click(".drive-tabs a:has-text('Shared with me')")
+            pg.wait_for_timeout(500)
+            t.step("Shared with me lists Joint plans with Editor access", expect=lambda: "Joint plans" in txt() and "Editor access" in txt(), wait=3000)
+            t.cap("Next: open Joint plans and create a folder inside it")
+            pg.click("a.drive-name:has-text('Joint plans')")
+            pg.wait_for_timeout(500)
+            pg.fill("input[placeholder='New folder name']", "Made by second")
+            pg.click("button:has-text('Create folder')")
+            pg.wait_for_timeout(500)
+            t.step("The second account created the folder Made by second inside Joint plans", expect=lambda: pg.locator("a.drive-name", has_text="Made by second").count() == 1, wait=3000)
+            pg.context.clear_cookies()
+            pg.context.add_cookies(cookies1)
+            pg.goto(APP + "/drive/")
+            pg.click("a.drive-name:has-text('Joint plans')")
+            pg.wait_for_timeout(500)
+            t.step("Back as the first account: Joint plans now holds Made by second", expect=lambda: pg.locator("a.drive-name", has_text="Made by second").count() == 1, wait=3200)
+
+        run_tour(ctx, "71_drive_two_sessions", body, notes="Real Django on TiDB, headless Chromium 390x844 emulated. Two separate signed-in synthetic accounts; the second sign-in is done in a separate unrecorded window and only its session is swapped into the recorded window. Nothing secret is typed on camera.", unshown=["both accounts open at the same moment"])
+
+    g["DRILLS"]["tour_drive_two_sessions"] = tour
 
 
 def register_sheets_focus_edges(g):
