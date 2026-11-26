@@ -3341,6 +3341,88 @@ def slides_animation(ctx):
     pg.set_viewport_size({"width": 1100, "height": 900})
 
 
+def slides_after_previous(ctx):
+    """Timing: an item set to After previous plays by itself 1 second after the step before it. Keys stay in charge. Saved as version 7."""
+    pg = fresh(ctx, "/slides/")
+    KEY = pg.evaluate("document.getElementById('slide-root').dataset.storeKey")
+
+    def stored():
+        return json.loads(pg.evaluate("localStorage.getItem(%s)" % json.dumps(KEY)))
+
+    def count():
+        return pg.inner_text("#sl-show-count")
+
+    pg.click("#sl-add-text")
+    pg.fill("#sl-text", "Alpha title")
+    pg.press("#sl-text", "Tab")
+    pg.click("#sl-add-rect")
+    pg.fill("#sl-y", "250")
+    pg.press("#sl-y", "Tab")
+    pg.click("#sl-add-ellipse")
+    pg.fill("#sl-x", "500")
+    pg.press("#sl-x", "Tab")
+    for i, fx in ((1, "appear"), (2, "appear"), (3, "fade")):
+        pg.click("#sl-items li:nth-child(%d) button" % i)
+        pg.select_option("#sl-anim", fx)
+    check("after previous: the timing control reads On click by default", pg.input_value("#sl-anim-when") == "click" and stored()["v"] == 6, stored()["v"])
+    pg.click("#sl-items li:nth-child(2) button")
+    pg.select_option("#sl-anim-when", "after")
+    pg.click("#sl-items li:nth-child(3) button")
+    pg.select_option("#sl-anim-when", "after")
+    sl = stored()["slides"][0]
+    check("after previous: two entries carry the flag, the first does not, and the deck is version 7", stored()["v"] == 7 and [a.get("after") for a in sl["anim"]] == [None, True, True], sl["anim"])
+    check("after previous: the list names the timing", "after previous" in pg.inner_text("#sl-anim-list") and "Click 1" in pg.inner_text("#sl-anim-list"), pg.inner_text("#sl-anim-list"))
+    pg.evaluate("document.getElementById('sl-anim').scrollIntoView({block:'start'})")
+    shot(pg, "slides_after_editor_desktop")
+    pg.click("#sl-present")
+    pg.wait_for_timeout(1400)
+    check("after previous: the first entry is a click, so nothing plays by itself", "step 0 of 3" in count(), count())
+    pg.keyboard.press("ArrowRight")
+    pg.wait_for_timeout(400)
+    check("after previous: just after the click the next entry has not played yet", "step 1 of 3" in count(), count())
+    pg.wait_for_timeout(900)
+    check("after previous: about a second later the second entry plays by itself", "step 2 of 3" in count(), count())
+    pg.wait_for_timeout(1300)
+    check("after previous: and the third after another second, then it stops on the slide", "step 3 of 3" in count() and "Slide 1 of 1" in count(), count())
+    pg.keyboard.press("ArrowLeft")
+    pg.wait_for_timeout(1600)
+    check("after previous: going back does not start the timer again", "step 2 of 3" in count(), count())
+    pg.keyboard.press("Home")
+    pg.keyboard.press("ArrowRight")
+    pg.keyboard.press("ArrowRight")
+    check("after previous: a key press goes on at once without waiting", "step 2 of 3" in count(), count())
+    pg.wait_for_timeout(1400)
+    check("after previous: the timer was restarted by the key and then played the last entry", "step 3 of 3" in count(), count())
+    pg.keyboard.press("Home")
+    pg.keyboard.press("ArrowRight")
+    pg.keyboard.press("Escape")
+    pg.wait_for_timeout(1600)
+    pg.click("#sl-present")
+    pg.wait_for_timeout(300)
+    check("after previous: closing the show cancels the pending timer, a new show starts at step 0", "step 0 of 3" in count(), count())
+    pg.keyboard.press("Escape")
+    pg.reload()
+    pg.wait_for_timeout(400)
+    pg.click("#sl-items li:nth-child(2) button")
+    check("after previous: the timing survives a reload", pg.input_value("#sl-anim-when") == "after" and stored()["v"] == 7)
+    pg.click("#sl-items li:nth-child(1) button")
+    pg.select_option("#sl-anim-when", "after")
+    pg.click("#sl-present")
+    pg.wait_for_timeout(1500)
+    check("after previous: a first entry set to after plays by itself when the show opens", "step 1 of 3" in count(), count())
+    pg.keyboard.press("Escape")
+    pg.click("#sl-items li:nth-child(2) button")
+    pg.select_option("#sl-anim-when", "click")
+    sl = stored()["slides"][0]
+    check("after previous: switching one entry back to click clears only its flag", [a.get("after") for a in sl["anim"]] == [True, None, True] and stored()["v"] == 7, sl["anim"])
+    pg.set_viewport_size({"width": 390, "height": 800})
+    pg.evaluate("document.getElementById('sl-anim').scrollIntoView({block:'start'})")
+    pg.wait_for_timeout(100)
+    shot(pg, "slides_after_editor_390")
+    check("after previous: at 390 the timing control stays inside the page", pg.evaluate("document.getElementById('sl-anim-when').getBoundingClientRect().right <= window.innerWidth + 1"))
+    pg.set_viewport_size({"width": 1100, "height": 900})
+
+
 def slides_transition(ctx):
     pg = fresh(ctx, "/slides/")
     KEY = pg.evaluate("document.getElementById('slide-root').dataset.storeKey")
@@ -8996,6 +9078,7 @@ DRILLS = {
     "cal_month": cal_month,
     "slides_show": slides_show,
     "slides_edit": slides_edit,
+    "slides_after_previous": slides_after_previous,
     "slides_pdf": slides_pdf,
     "slides_layout": slides_layout,
     "slides_pdf_theme": slides_pdf_theme,

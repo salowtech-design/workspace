@@ -51,8 +51,8 @@
   }
   // returns a clean deck or null; unknown fields are dropped and numbers are clamped
   function validate(d) {
-    if (!d || typeof d !== "object" || Array.isArray(d) || (has(d, "v") && [1, 2, 3, 4, 5, 6].indexOf(d.v) < 0) || !Array.isArray(d.slides) || !d.slides.length || d.slides.length > MAX_SLIDES) return null;
-    var TRANS = ["none", "fade"], ids = Object.create(null), out = { v: 1, theme: has(THEMES, d.theme) ? d.theme : "light", slides: [] }, masterEls = [], anyHide = false, anyTrans = false, anyStyle = false, nImg = 0, anyAnim = false;
+    if (!d || typeof d !== "object" || Array.isArray(d) || (has(d, "v") && [1, 2, 3, 4, 5, 6, 7].indexOf(d.v) < 0) || !Array.isArray(d.slides) || !d.slides.length || d.slides.length > MAX_SLIDES) return null;
+    var TRANS = ["none", "fade"], ids = Object.create(null), out = { v: 1, theme: has(THEMES, d.theme) ? d.theme : "light", slides: [] }, masterEls = [], anyHide = false, anyTrans = false, anyStyle = false, nImg = 0, anyAnim = false, anyAfter = false;
     if (has(d, "master")) {
       var m = d.master; if (!m || typeof m !== "object" || Array.isArray(m) || !Array.isArray(m.elements) || m.elements.length > MAX_MASTER) return null;
       for (var k = 0; k < m.elements.length; k++) { var me = fixEl(m.elements[k], true); if (!me || ids[me.id]) return null; ids[me.id] = true; masterEls.push(me); if (styled(me)) anyStyle = true; }
@@ -73,7 +73,8 @@
         for (var q = 0; q < s.anim.length; q++) {
           var a = s.anim[q];
           if (!a || typeof a !== "object" || typeof a.el !== "string" || FX.indexOf(a.fx) < 0 || seen[a.el] || !els.some(function (x) { return x.id === a.el; })) return null;
-          seen[a.el] = true; an.push({ el: a.el, fx: a.fx });
+          if (has(a, "after") && typeof a.after !== "boolean") return null;
+          seen[a.el] = true; var item = { el: a.el, fx: a.fx }; if (a.after === true) { item.after = true; anyAfter = true; } an.push(item);
         }
         if (an.length) { ns.anim = an; anyAnim = true; }
       }
@@ -91,6 +92,8 @@
     if (nImg) out.v = 5;
     // Version 6 when any item is animated: older code only knows 1 to 5 and refuses 6, so it never drops an animation silently.
     if (anyAnim) out.v = 6;
+    // Version 7 when an item plays "after previous": older code only knows 1 to 6 and refuses 7, so it never drops that timing silently.
+    if (anyAfter) out.v = 7;
     return out;
   }
   // how many text fields in a raw (unvalidated) deck are longer than the limits and so will be shortened
@@ -153,6 +156,12 @@
       if (fx === "none") { if (k < 0) return null; a.splice(k, 1); } else if (k >= 0) { if (a[k].fx === fx) return null; a[k].fx = fx; } else a.push({ el: id, fx: fx });
       if (a.length) t.anim = a; else delete t.anim; return normVersion(n);
     },
+    // Timing: after = true plays the item by itself 1 second after the step before it (or after the slide appears, when it is first). false is "on click".
+    setAnimAfter: function (d, i, id, after) {
+      var s = d.slides[i]; if (!s || !s.anim || typeof after !== "boolean") return null; var k = -1; s.anim.forEach(function (x, q) { if (x.el === id) k = q; });
+      if (k < 0 || (s.anim[k].after === true) === after) return null;
+      var n = copy(d), e = n.slides[i].anim[k]; if (after) e.after = true; else delete e.after; return normVersion(n);
+    },
     // dir -1 plays the item's animation one click earlier, +1 one click later. Null at the ends or when the item has none.
     moveAnim: function (d, i, id, dir) {
       var s = d.slides[i]; if (!s || !s.anim || (dir !== 1 && dir !== -1)) return null; var k = -1; s.anim.forEach(function (x, q) { if (x.el === id) k = q; });
@@ -163,10 +172,10 @@
   };
   // The master is edited through the same item operations as a slide, on a one-slide stand-in deck.
   function normVersion(n) {
-    var any = n.slides.some(function (s) { return s.hideMaster === true; }), trans = n.slides.some(function (s) { return s.transition === "fade"; }), anim = n.slides.some(function (s) { return s.anim && s.anim.length; });
+    var any = n.slides.some(function (s) { return s.hideMaster === true; }), trans = n.slides.some(function (s) { return s.transition === "fade"; }), anim = n.slides.some(function (s) { return s.anim && s.anim.length; }), after = n.slides.some(function (s) { return s.anim && s.anim.some(function (x) { return x.after === true; }); });
     if (n.master && !n.master.elements.length) delete n.master;
     var sty = n.slides.some(function (s) { return s.elements.some(styled); }) || (n.master && n.master.elements.some(styled));
-    var img = n.slides.some(function (s) { return s.elements.some(isImg); }); n.v = anim ? 6 : img ? 5 : sty ? 4 : trans ? 3 : (n.master || any ? 2 : 1); return n;
+    var img = n.slides.some(function (s) { return s.elements.some(isImg); }); n.v = after ? 7 : anim ? 6 : img ? 5 : sty ? 4 : trans ? 3 : (n.master || any ? 2 : 1); return n;
   }
   function viaMaster(d, fn, adding) {
     var els = d.master ? d.master.elements : [];
@@ -242,6 +251,9 @@
     return null;
   }
   // ids of the items of slide i that are not shown yet at this step
+  // true when the next entry (index step) plays by itself, so the show moves on after AUTO_MS without a key
+  var AUTO_MS = 1000;
+  function autoNext(d, i, step) { var a = d.slides[i] && d.slides[i].anim; return !!(a && step >= 0 && step < a.length && a[step].after === true); }
   function hiddenIds(d, i, step) { var a = d.slides[i] && d.slides[i].anim || [], out = {}; a.forEach(function (x, q) { if (q >= step) out[x.el] = true; }); return out; }
   function fmtClock(sec) { sec = Math.max(0, Math.floor(Number(sec) || 0)); var m = Math.floor(sec / 60), r = sec % 60; return m + ":" + (r < 10 ? "0" : "") + r; }
   // Wrap text to a width. A character is estimated at 0.55 of the font size, and wide scripts and emoji at twice that.
@@ -265,6 +277,6 @@
     return out;
   }
   function textHeight(lines, size) { return Math.ceil(lines.length * size * 1.2); }
-  var api = { showStep: showStep, hiddenIds: hiddenIds, animCount: animCount, FX: FX, LAYOUTS: LAYOUTS, countCut: countCut, cut: cut, MAX_NOTES: MAX_NOTES, fmtClock: fmtClock, wrapLines: wrapLines, textHeight: textHeight, showNav: showNav, W: W, H: H, THEMES: THEMES, FILLS: FILLS, MAX_SLIDES: MAX_SLIDES, MAX_EL: MAX_EL, newDeck: newDeck, validate: validate, ops: ops, color: color, textColor: textColor, onFill: onFill, contrast: contrast, loadDeck: loadDeck, describe: describe, describeEls: describeEls, masterOf: masterOf, MAX_MASTER: MAX_MASTER, History: History, copy: copy };
+  var api = { autoNext: autoNext, AUTO_MS: AUTO_MS, showStep: showStep, hiddenIds: hiddenIds, animCount: animCount, FX: FX, LAYOUTS: LAYOUTS, countCut: countCut, cut: cut, MAX_NOTES: MAX_NOTES, fmtClock: fmtClock, wrapLines: wrapLines, textHeight: textHeight, showNav: showNav, W: W, H: H, THEMES: THEMES, FILLS: FILLS, MAX_SLIDES: MAX_SLIDES, MAX_EL: MAX_EL, newDeck: newDeck, validate: validate, ops: ops, color: color, textColor: textColor, onFill: onFill, contrast: contrast, loadDeck: loadDeck, describe: describe, describeEls: describeEls, masterOf: masterOf, MAX_MASTER: MAX_MASTER, History: History, copy: copy };
   if (typeof module !== "undefined" && module.exports) module.exports = api; else root.SalowSlides = api;
 })(typeof self !== "undefined" ? self : this);

@@ -158,8 +158,9 @@
     $("sl-trans").value = d.slides[cur] && d.slides[cur].transition === "fade" ? "fade" : "none"; $("sl-trans").disabled = editMaster;
     var an = d.slides[cur] && d.slides[cur].anim || [], mine = -1, al = $("sl-anim-list"); an.forEach(function (x, q) { if (e && x.el === e.id) mine = q; });
     $("sl-anim").value = mine >= 0 ? an[mine].fx : "none"; $("sl-anim").disabled = !e || editMaster;
+    $("sl-anim-when").value = mine >= 0 && an[mine].after === true ? "after" : "click"; $("sl-anim-when").disabled = mine < 0 || editMaster;
     $("sl-anim-up").disabled = mine <= 0 || editMaster; $("sl-anim-down").disabled = mine < 0 || mine >= an.length - 1 || editMaster;
-    al.textContent = ""; if (!editMaster) an.forEach(function (x, q) { var it = d.slides[cur].elements.filter(function (y) { return y.id === x.el; })[0], li = document.createElement("li"); li.textContent = "Click " + (q + 1) + ": " + (x.fx === "fade" ? "fade in" : "appears") + ": " + (it ? S.describeEls([it])[0].replace(/^1\. /, "") : "item"); al.appendChild(li); });
+    al.textContent = ""; if (!editMaster) an.forEach(function (x, q) { var it = d.slides[cur].elements.filter(function (y) { return y.id === x.el; })[0], li = document.createElement("li"); li.textContent = (x.after === true ? "Step " + (q + 1) + " (after previous): " : "Click " + (q + 1) + ": ") + (x.fx === "fade" ? "fade in" : "appears") + ": " + (it ? S.describeEls([it])[0].replace(/^1\. /, "") : "item"); al.appendChild(li); });
     $("sl-anim-empty").hidden = editMaster || an.length > 0;
     $("sl-master").textContent = editMaster ? "Back to slides" : "Edit master"; $("sl-master").setAttribute("aria-pressed", editMaster ? "true" : "false");
     $("sl-master-on").checked = !(d.slides[cur] && d.slides[cur].hideMaster === true); $("sl-master-on").disabled = editMaster;
@@ -173,6 +174,7 @@
   }
   $("sl-trans").addEventListener("change", function () { var n = S.ops.setTransition(H.deck, cur, this.value); if (!n || !apply(n, this.value === "fade" ? "This slide now fades in during Present." : "This slide has no transition.")) render(); });
   $("sl-anim").addEventListener("change", function () { var e = sel(); if (!e) return; var n = S.ops.setAnim(H.deck, cur, e.id, this.value); if (!n || !apply(n, this.value === "none" ? "Animation removed from this item." : "This item now " + (this.value === "fade" ? "fades in" : "appears") + " on a click in Present.")) render(); });
+  $("sl-anim-when").addEventListener("change", function () { var e = sel(); if (!e) return; var after = this.value === "after", n = S.ops.setAnimAfter(H.deck, cur, e.id, after); if (!n || !apply(n, after ? "This item now plays by itself 1 second after the step before it in Present." : "This item now plays on a click in Present.")) render(); });
   $("sl-anim-up").addEventListener("click", function () { var e = sel(); if (e) apply(S.ops.moveAnim(H.deck, cur, e.id, -1), "Animation moved one click earlier."); });
   $("sl-anim-down").addEventListener("click", function () { var e = sel(); if (e) apply(S.ops.moveAnim(H.deck, cur, e.id, 1), "Animation moved one click later."); });
   $("sl-master").addEventListener("click", function () { editMaster = !editMaster; selId = null; render(); status.textContent = editMaster ? "Editing the master. Items you add here appear on every slide that shows the master." : "Back to editing slides."; });
@@ -368,7 +370,11 @@
   // Slide show: a read-only modal dialog. It never changes the deck. The browser's dialog traps focus, makes the page behind inert and closes on Escape.
   var show = $("sl-show"), showAt = 0, showStep = 0;
   function reduced() { try { return window.matchMedia("(prefers-reduced-motion: reduce)").matches; } catch (e) { return true; } }
+  var autoT = null;
+  function autoStop() { if (autoT) { clearTimeout(autoT); autoT = null; } }
+  function autoArm() { autoStop(); if (!show.open || !S.autoNext(H.deck, showAt, showStep)) return; var at = showAt, st = showStep; autoT = setTimeout(function () { autoT = null; if (show.open && showAt === at && showStep === st) showGo(S.showStep(H.deck, showAt, showStep, "ArrowRight"), true); }, S.AUTO_MS); }
   function showDraw(animate, reveal) {
+    autoStop();
     var d = H.deck, th = S.THEMES[d.theme], box = $("sl-show-canvas"); box.textContent = "";
     var svg = el("svg", { viewBox: "0 0 " + S.W + " " + S.H, role: "img", "aria-label": "Slide " + (showAt + 1) + " of " + d.slides.length });
     svg.appendChild(el("desc", {}, S.describe(d, showAt).join("; ") || "Empty slide"));
@@ -388,7 +394,7 @@
     $("sl-show-prev").disabled = showAt === 0 && showStep === 0; $("sl-show-next").disabled = showAt >= d.slides.length - 1 && showStep >= total;
     var ae = document.activeElement; if (!ae || ae === document.body || ae.disabled) show.focus(); // a disabled button cannot keep focus or keys
   }
-  function showGo(r) { if (r === null || (r.at === showAt && r.step === showStep)) return; var slideChange = r.at !== showAt, forward = !slideChange && r.step === showStep + 1; showAt = r.at; showStep = r.step; showDraw(slideChange, forward); }
+  function showGo(r) { if (r === null || (r.at === showAt && r.step === showStep)) return; var slideChange = r.at !== showAt, forward = !slideChange && r.step === showStep + 1, arrive = forward || (r.at === showAt + 1 && r.step === 0); showAt = r.at; showStep = r.step; showDraw(slideChange, forward); if (arrive) autoArm(); }
   var clock = null, t0 = 0;
   function tick() { $("sl-show-timer").textContent = "Time " + S.fmtClock((Date.now() - t0) / 1000); }
   function showNotes(on) {
@@ -398,7 +404,7 @@
   $("sl-show-notes-on").addEventListener("change", function () { showNotes(this.checked); });
   $("sl-present").addEventListener("click", function () {
     if (unreadable || H.blocked || typeof show.showModal !== "function") { status.textContent = "The slide show is not available here."; return; }
-    showAt = Math.min(cur, H.deck.slides.length - 1); showStep = 0; t0 = Date.now(); $("sl-show-notes-on").checked = false; showDraw(); show.showModal(); showNotes(false); $("sl-show-next").focus();
+    showAt = Math.min(cur, H.deck.slides.length - 1); showStep = 0; t0 = Date.now(); $("sl-show-notes-on").checked = false; showDraw(); show.showModal(); showNotes(false); autoArm(); $("sl-show-next").focus();
   });
   $("sl-show-prev").addEventListener("click", function () { showGo(S.showStep(H.deck, showAt, showStep, "ArrowLeft")); });
   $("sl-show-next").addEventListener("click", function () { showGo(S.showStep(H.deck, showAt, showStep, "ArrowRight")); });
@@ -408,7 +414,7 @@
     if ((ev.target.tagName === "BUTTON" || ev.target.tagName === "INPUT") && (ev.key === " " || ev.key === "Enter")) return; // a focused button keeps its own action
     var n = S.showStep(H.deck, showAt, showStep, ev.key); if (n === null) return; ev.preventDefault(); showGo(n);
   });
-  show.addEventListener("close", function () { if (clock) { clearInterval(clock); clock = null; } if (document.fullscreenElement) document.exitFullscreen().catch(function () {}); $("sl-present").focus(); });
+  show.addEventListener("close", function () { autoStop(); if (clock) { clearInterval(clock); clock = null; } if (document.fullscreenElement) document.exitFullscreen().catch(function () {}); $("sl-present").focus(); });
   show.addEventListener("click", function (ev) { var r = show.getBoundingClientRect(); if (ev.target === show && (ev.clientX < r.left || ev.clientX > r.right || ev.clientY < r.top || ev.clientY > r.bottom)) show.close(); });
   render(); status.textContent = unreadable ? "Your stored deck could not be read, so it was left untouched." : "";
 })();
