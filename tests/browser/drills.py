@@ -6603,7 +6603,7 @@ def run_group(p, names, secure, state=None, keep=None):  # noqa: C901
         # Test browser only: one drill needs a secure context (navigator.locks) on the plain-HTTP drill origin. Not the app's policy.
         + (["--unsafely-treat-insecure-origin-as-secure=" + APP.rstrip("/")] if secure else []),
     )
-    ctx = b.new_context(viewport={"width": 1100, "height": 900}, storage_state=state)
+    ctx = b.new_context(viewport={"width": 1100, "height": 900})
     ctx.set_default_timeout(8000)
     errs = []
     remote = []
@@ -6633,6 +6633,8 @@ def run_group(p, names, secure, state=None, keep=None):  # noqa: C901
         if state is None:
             login(pg)
         else:
+            # Only after the loopback check: the earlier sign-in's cookies go to this address, never before it is verified.
+            ctx.add_cookies(state)
             pg.goto(APP + "/")
     except Exception as ex:
         print("FAIL login:", describe(ex))
@@ -6640,6 +6642,10 @@ def run_group(p, names, secure, state=None, keep=None):  # noqa: C901
     if "/sign-in" in pg.url:
         print("FAIL login: still on the sign-in page")
         return 1
+    if keep is not None and not keep:
+        keep.append(
+            ctx.cookies()
+        )  # taken right after the verified sign-in, before any drill can change the session
     for n in names:
         try:
             DRILLS[n](ctx)
@@ -6647,8 +6653,6 @@ def run_group(p, names, secure, state=None, keep=None):  # noqa: C901
             check(n + ": drill ran to the end", False, describe(ex))
     check("no uncaught page errors", not errs, errs[:2])
     check("no request left this machine", not remote, remote[:3])
-    if keep is not None:
-        keep.append(ctx.storage_state())
     b.close()
     return 0
 
@@ -6664,6 +6668,7 @@ def main():
         (False, [n for n in names if n not in SECURE_DRILLS]),
         (True, [n for n in names if n in SECURE_DRILLS]),
     ]
+    code = 0
     saved = []  # the second browser reuses the first sign-in (one MFA code per run)
     with sync_playwright() as p:
         for secure, group in groups:
@@ -6676,9 +6681,18 @@ def main():
                 )
             code = run_group(p, group, secure, saved[0] if saved else None, saved)
             if code:
-                return code
-    print("%d/%d checks passed in %.0f s" % (sum(results), len(results), time.time() - t0))
-    return 0 if all(results) else 1
+                break
+    # The summary always prints, so a failed second group still shows what the first one counted.
+    print(
+        "%d/%d checks passed in %.0f s%s"
+        % (
+            sum(results),
+            len(results),
+            time.time() - t0,
+            "" if not code else " (stopped early, exit %d)" % code,
+        )
+    )
+    return code or (0 if all(results) else 1)
 
 
 if __name__ == "__main__":
