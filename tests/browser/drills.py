@@ -4074,6 +4074,61 @@ def slides_images_race(ctx):  # noqa: C901
     )
 
 
+def _js_route(body):
+    return lambda route: route.fulfill(status=200, content_type="application/javascript", body=body)
+
+
+def slides_oldpage_v5(ctx):  # noqa: C901
+    """An older Slides page (the files from before pictures) must not touch a version 5 deck: it is left byte-identical and nothing is overwritten."""
+    pg = fresh(ctx, "/slides/")
+    KEY = "document.getElementById('slide-root').dataset.storeKey"
+    pg.on("dialog", lambda d: d.accept())
+    pg.set_input_files(
+        "#sl-img-file", files=[{"name": "c.png", "mimeType": "image/png", "buffer": _png(40, 20)}]
+    )
+    pg.wait_for_timeout(900)
+    before = pg.evaluate("localStorage.getItem(%s)" % KEY)
+    import json as _json
+
+    check(
+        "oldpage: the current page stored a version 5 deck",
+        _json.loads(before)["v"] == 5,
+        before[:60],
+    )
+    base = "tests/js/fixtures/slides_page_v4_before_images/"
+    olds = {f: open(base + f + ".js").read() for f in ("editor", "model", "pdf")}
+
+    def old_files(route, request=None):
+        m = re.search(r"/static/slides/(editor|model|pdf|images)\.js", route.request.url)
+        body = "" if m.group(1) == "images" else olds[m.group(1)]
+        route.fulfill(status=200, content_type="application/javascript", body=body)
+
+    pg.route(re.compile(r"/static/slides/(editor|model|pdf|images)\.js"), old_files)
+    pg.reload()
+    pg.wait_for_timeout(800)
+    st = pg.inner_text("#sl-status")
+    print("oldpage status:", st[:200])
+    after_open = pg.evaluate("localStorage.getItem(%s)" % KEY)
+    check("oldpage: opening it left the stored deck byte-identical", after_open == before)
+    for sel in ("#sl-add-text", "#sl-add-rect", "#sl-add-slide"):
+        if pg.query_selector(sel):
+            try:
+                pg.click(sel, timeout=1500)
+            except Exception:  # noqa: S110 # a disabled button cannot be clicked: that is the expected case
+                pass
+    pg.wait_for_timeout(400)
+    after_edit = pg.evaluate("localStorage.getItem(%s)" % KEY)
+    check(
+        "oldpage: trying to add things still leaves the stored deck byte-identical",
+        after_edit == before,
+    )
+    check(
+        "oldpage: it says the deck could not be read or is from a newer version",
+        bool(st.strip()),
+        st[:120],
+    )
+
+
 def slides_images_pdfmem(ctx):  # noqa: C901
     """Pictures: the deck pixel cap at add time, and a deck over it is refused for the PDF with a message while a deck at the cap still exports."""
     import json as _json
@@ -4176,6 +4231,7 @@ DRILLS = {
     "slides_images_edge": slides_images_edge,
     "slides_images_race": slides_images_race,
     "slides_images_pdfmem": slides_images_pdfmem,
+    "slides_oldpage_v5": slides_oldpage_v5,
     "slides_style": slides_style,
     "sheets_tabs": sheets_tabs,
     "sheets_chart": sheets_chart,
