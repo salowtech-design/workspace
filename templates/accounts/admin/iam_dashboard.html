@@ -27,7 +27,7 @@
     </div>
 </div>
 
-{% include 'accounts/admin/_iam_live_events.html' %}
+{% if request.is_iam_host %}{% include 'accounts/admin/_iam_live_events.html' %}{% else %}<div class="card" id="iam-live-events-unavailable"><p class="cal-meta">The live action feed is only served on the separate IAM console host, with an IAM session. It is not shown here, because this page is signed in with a workspace session and the feed refuses those.</p></div>{% endif %}
 
 <!-- Issued Activation Credential Callout (Displayed Once) -->
 {% if issued_activation %}

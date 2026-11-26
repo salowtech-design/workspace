@@ -521,3 +521,34 @@ def test_live_refresh_header_does_not_help_a_post(session_and_token):
     assert get_iam_session_from_request(request) is not None
     session.refresh_from_db()
     assert (timezone.now() - session.last_activity).total_seconds() < 5
+
+
+def test_live_strip_is_only_on_the_iam_host_and_points_at_a_route_that_exists(session_and_token):
+    """On the workspace host the strip pointed at /iam-internal/ addresses that host refuses (404), so it said
+    Reconnecting forever. It is now left out there; on the IAM host it shows and its addresses answer."""
+    from django.test import Client
+
+    from apps.accounts.auth.live_events import reset_snapshot
+
+    session, token = session_and_token
+    ic = _iam_client(token)
+    page = ic.get("/iam/dashboard/")
+    html = page.content.decode()
+    assert page.status_code == 200 and 'id="iam-live-events"' in html
+    assert 'data-url="/iam/live-events/"' in html and "iam-live-events-unavailable" not in html
+    reset_snapshot()
+    ev = _emit("team_membership_added", actor="ST-ACT9", subject="ST-SUB9")
+    reset_snapshot()
+    assert ev.id in [e["id"] for e in ic.get("/iam/live-events/?limit=100").json()["events"]]  # an emitted event is served
+
+    admin = CustomUser.objects.create_user(
+        employee_id="ST-WSADM-1", full_name="WS Admin", password="ValidStrongPassword123!",
+        role="admin", status="active",
+    )  # fmt: skip
+    wc = Client(HTTP_HOST="app.salowtech.com")
+    wc.force_login(admin)
+    r = wc.get("/auth/admin/iam/")
+    body = r.content.decode()
+    assert r.status_code == 200 and "iam-live-events-unavailable" in body
+    assert 'id="iam-live-events"' not in body and "/iam-internal/" not in body
+    assert wc.get("/iam-internal/live-events/").status_code == 404  # the workspace host still refuses it
