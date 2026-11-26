@@ -775,12 +775,13 @@ def _board_titles(client, p, **params):
 def test_board_filters_title_milestone_overdue_and_hide_only():
     import datetime
 
-    from django.utils import timezone
+    from zoneinfo import ZoneInfo
 
     a = _u("BF-A")
     p = pj.create_project(a, "Filt")
     todo, doing, done = list(p.columns.all())
-    today = timezone.localdate()
+    # today from the wall clock in Asia/Kolkata (settings.TIME_ZONE), not from the code under test
+    today = datetime.datetime.now(ZoneInfo("Asia/Kolkata")).date()
     y = today - datetime.timedelta(days=1)
     m1 = pj.create_milestone(a, p, "M1")
     t_alpha = pj.add_task(a, p, todo.pk, "Alpha plan", due=y)
@@ -845,3 +846,9 @@ def test_board_query_count_does_not_grow_with_tasks_when_filtering():
     with CaptureQueriesContext(connection) as big:
         ca.get(url, {"q": "t", "milestone": "none"})
     assert len(big) == len(small), (len(small), len(big))
+
+
+def test_overdue_uses_the_configured_time_zone_setting():
+    from django.conf import settings
+
+    assert settings.TIME_ZONE == "Asia/Kolkata"

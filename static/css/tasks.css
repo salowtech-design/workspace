@@ -38,3 +38,7 @@
 .comment-body{white-space:pre-wrap;overflow-wrap:anywhere;margin:.25rem 0 0;flex-basis:100%}
 .comment{flex-wrap:wrap}
 .comment-form textarea{width:100%;box-sizing:border-box}
+/* a long milestone name must not widen the page: selects shrink to their card */
+.tasks select { max-width: 100%; box-sizing: border-box; text-overflow: ellipsis; }
+.tasks .tasks-inline { max-width: 100%; }
+.tasks .board-filter input[type=search] { max-width: 100%; box-sizing: border-box; }

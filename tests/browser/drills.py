@@ -7877,7 +7877,70 @@ def task_comments(ctx):
     pg.set_viewport_size({"width": 1100, "height": 900})
 
 
+def task_filters(ctx):
+    """Project board filters at 390 px: title search, milestone, overdue, the count line, Clear."""
+    import concurrent.futures
+    import datetime
+
+    import django
+
+    django.setup()
+    shots = os.environ.get("DRILL_SHOTS", "/tmp")  # noqa: S108
+    pg = ctx.pages[0]
+    pg.set_viewport_size({"width": 390, "height": 800})
+
+    def seed():
+        from django.utils import timezone
+
+        from apps.accounts.models import CustomUser
+        from apps.tasks import projects as pj
+
+        me = CustomUser.objects.get(employee_id="ST-LIVE-1")
+        p = pj.create_project(me, "Filter drill")
+        todo, doing, done = list(p.columns.all())
+        y = timezone.localdate() - datetime.timedelta(days=1)
+        m = pj.create_milestone(me, p, "Launch of the whole shared planning workspace for every office, round two of three")
+        a = pj.add_task(me, p, todo.pk, "Alpha plan", due=y)
+        pj.add_task(me, p, doing.pk, "Beta review", due=timezone.localdate())
+        pj.add_task(me, p, done.pk, "Gamma shipped", due=y)
+        pj.add_task(me, p, todo.pk, "Delta notes")
+        pj.set_milestone(me, a, m.pk)
+        return str(p.public_id)
+
+    with concurrent.futures.ThreadPoolExecutor(1) as ex:
+        pid = ex.submit(seed).result()
+    pg.goto(APP + "/tasks/projects/%s/" % pid)
+    cards = lambda: pg.locator(".task-card").count()  # noqa: E731
+    check("task filters: unfiltered board shows 4 cards and no count line", cards() == 4 and pg.locator("[role=status]").count() == 0)
+    pg.fill("input[name=q]", "ALPHA")
+    pg.click(".board-filter button[type=submit]")
+    pg.wait_for_load_state()
+    check("task filters: a case-insensitive title search shows 1 card and says 1 of 4", cards() == 1 and "Showing 1 of 4 tasks" in pg.inner_text("[role=status]") and "Alpha plan" in pg.inner_text(".task-card"), str(cards()))
+    check("task filters: the search box keeps the typed text", pg.input_value("input[name=q]") == "ALPHA")
+    pg.click("a:has-text('Clear')")
+    pg.wait_for_load_state()
+    pg.check("input[name=overdue]")
+    pg.click(".board-filter button[type=submit]")
+    pg.wait_for_load_state()
+    check("task filters: overdue shows only the open task due yesterday", cards() == 1 and "Alpha plan" in pg.inner_text(".task-card"), str(cards()))
+    pg.select_option("select[name=milestone]", "none")
+    pg.uncheck("input[name=overdue]")
+    pg.click(".board-filter button[type=submit]")
+    pg.wait_for_load_state()
+    check("task filters: no-milestone shows the other 3 cards", cards() == 3 and "Alpha plan" not in pg.inner_text(".tasks-board"), str(cards()))
+    pg.fill("input[name=q]", "zzz")
+    pg.click(".board-filter button[type=submit]")
+    pg.wait_for_load_state()
+    check("task filters: a search with no match shows 0 cards and 3 'No matching tasks.' lines and the count", cards() == 0 and pg.locator("text=No matching tasks.").count() == 3 and "Showing 0 of 4 tasks" in pg.inner_text("[role=status]"))
+    pg.screenshot(path=os.path.join(shots, "task_filters_empty_390.png"), full_page=True)
+    pg.goto(APP + "/tasks/projects/%s/?milestone=none&q=" % pid)
+    check("task filters: no sideways scroll at 390 px", not pg.evaluate("document.documentElement.scrollWidth > document.documentElement.clientWidth"))
+    pg.screenshot(path=os.path.join(shots, "task_filters_390.png"), full_page=True)
+    pg.set_viewport_size({"width": 1100, "height": 900})
+
+
 DRILLS = {
+    "task_filters": task_filters,
     "task_comments": task_comments,
     "cal_series_page": cal_series_page,
     "cal_series": cal_series,
