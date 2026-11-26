@@ -200,3 +200,26 @@ def test_history_names_the_day_when_a_session_runs_past_midnight():
     c.force_login(me)
     html = c.get("/attendance/history/?month=2026-10").content.decode()
     assert "23:30 to 07:30 on Thu 15 Oct" in html and "8.0 h" in html
+
+
+@pytest.mark.django_db
+def test_admin_panel_review_messages_name_the_decision_and_unknown_decisions_change_nothing():
+    from django.test import Client
+
+    admin, e1, e2, e3 = _u("AT-A9", "admin"), _u("AT-P9"), _u("AT-P8"), _u("AT-P7")
+    now = timezone.now()
+    r1, r2, r3 = (_fallback(e, "check_in", now) for e in (e1, e2, e3))
+    c = Client(HTTP_HOST="app.salowtech.com")
+    c.force_login(admin)
+
+    def post(req, decision):
+        r = c.post("/attendance/admin/", {"action": "review_fallback", "request_id": req.id, "decision": decision}, follow=True)
+        return " ".join(str(m) for m in r.context["messages"])
+
+    assert "Choose Approve or Reject" in post(r3, "foo") and "Choose Approve or Reject" in post(r3, "")
+    r3.refresh_from_db()
+    assert r3.status == AttendanceFallbackRequest.Status.PENDING  # an unknown decision is not read as a rejection
+    assert "successfully approved." in post(r1, "approve")
+    assert "successfully rejected." in post(r2, "reject")  # was "rejectd"
+    r1.refresh_from_db(), r2.refresh_from_db()
+    assert (r1.status, r2.status) == ("approved", "rejected")

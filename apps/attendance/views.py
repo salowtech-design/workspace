@@ -217,6 +217,8 @@ def attendance_admin_panel_view(request):
             try:
                 if not request_id:
                     raise ValueError("Fallback request ID is required.")
+                if decision not in ("approve", "reject"):
+                    raise ValueError("Choose Approve or Reject.")
                 review_fallback_request(
                     request_id=int(request_id),
                     reviewer=actor,
