@@ -4920,7 +4920,7 @@ def chat_two_users(ctx):  # noqa: C901
     p2.wait_for_timeout(12000)  # a full poll cycle of person two's own page
     check(
         "two users: after removal person one's new message is stored for person one but person two's poll, page fetch and screen never get it",
-        ok1 and poll == [404, False] and page_get[1] is False and page_get[0] in (404, 302, 403) and "Private after removal." not in p2.inner_text("body"),
+        ok1 and poll == [404, False] and page_get[1] is False and page_get[0] in (404, 403) and "Private after removal." not in p2.inner_text("body"),
         (ok1, poll, page_get),
     )
     p1.click("#m1 button[value=heart]")
@@ -5017,7 +5017,7 @@ def pdf_password(ctx):  # noqa: C901
     pg.click("#pdf-pwcancel")
     pg.wait_for_timeout(500)
     check(
-        "password: Cancel hides and empties the box, says nothing was opened or stored, the earlier file stays",
+        "password: Cancel hides and empties the box, says it was not opened and nothing was saved from the file, the earlier file stays",
         not form_up() and pg.input_value("#pdf-pw") == "" and "Not opened" in pg.inner_text("#pdf-status") and pg.inner_text("#pdf-name") == "locked.pdf",
         (form_up(), pg.inner_text("#pdf-status"), pg.inner_text("#pdf-name")),
     )
@@ -5058,7 +5058,7 @@ def pdf_password(ctx):  # noqa: C901
 
 
 def pdf_password_secure(ctx):
-    """Secure-context page: an encrypted PDF opened with its password still cannot be copied, nothing downloads, and the stored original bytes are untouched (the page never writes the file)."""
+    """Secure-context page: an encrypted PDF opened with its password still cannot be copied, split or merged, and nothing downloads."""
     import subprocess
     import tempfile
 
@@ -5107,10 +5107,15 @@ def pdf_password_secure(ctx):
         pg.wait_for_timeout(250)
     pg.set_input_files("#pdf-mergeadd", files=[{"name": "locked.pdf", "mimeType": "application/pdf", "buffer": data}])
     pg.wait_for_timeout(1000)
+    pre_merge = pg.inner_text("#pdf-pagesstatus")
     pg.click("#pdf-mergego")
     pg.wait_for_timeout(2500)
-    merge_msg = pg.inner_text("#pdf-pagesstatus") + " | " + pg.inner_text("#pdf-mergelist")
-    check("password copy: Download merged PDF with an encrypted file in it is refused, nothing downloaded", "ncrypted" in merge_msg and not got, (merge_msg[:200], len(got)))
+    merge_msg = pg.inner_text("#pdf-pagesstatus")
+    check(
+        "password copy: Download merged PDF with an encrypted file in it is refused (the status line itself changed to say so), nothing downloaded",
+        "ncrypted" in merge_msg and merge_msg != pre_merge and "ncrypted" not in pre_merge and not got,
+        (pre_merge[:80], merge_msg[:200], len(got)),
+    )
     leaks = pg.evaluate("(()=>{const o=[];for(const s of [localStorage,sessionStorage]){for(let i=0;i<s.length;i++){o.push(s.key(i)+'='+s.getItem(s.key(i)))}}return o.join('|')})()")
     names = pg.evaluate("(async()=>{const o=[];if(indexedDB.databases){for(const d of await indexedDB.databases()){o.push('idb:'+d.name)}}if(window.caches){for(const k of await caches.keys()){o.push('cache:'+k)}}return o})()")
     check("password copy: no password in storage, and no IndexedDB database or cache was created", "open sesame" not in leaks and names == base_names and not any("open sesame" in n for n in names), (base_names, names))

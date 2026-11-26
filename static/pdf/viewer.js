@@ -857,7 +857,7 @@
     if (!seq.current(mine)) { try { t.destroy(); } catch (e) { /* superseded */ } return; }
     pwPending = { update: update, mine: mine, t: t };
     pwBox.value = ""; pwForm.hidden = false;
-    status.textContent = reason === 2 ? "That password did not work. Try again, or press Cancel." : "This PDF needs a password. It is used only to open it here and is not stored.";
+    status.textContent = reason === 2 ? "That password did not work. Try again, or press Cancel." : "This PDF needs a password. This page does not store it. Your browser may offer to save it.";
     pwBox.focus();
   }
   pwForm.addEventListener("submit", function (e) {
@@ -867,7 +867,7 @@
     pwPending = null; pwForm.hidden = true; status.textContent = "Opening...";
     p.update(v); // a wrong one asks again through pwAsk with reason 2
   });
-  $("pdf-pwcancel").addEventListener("click", function () { seq.begin(); pwDrop(); status.textContent = "Not opened. That PDF needs a password. Nothing was stored."; });
+  $("pdf-pwcancel").addEventListener("click", function () { seq.begin(); pwDrop(); status.textContent = "Not opened. That PDF needs a password. Nothing was saved from this file."; });
   window.addEventListener("pagehide", pwDrop);
   function open(buf, name, mine) {
     var canSave = !!(navigator.locks && navigator.locks.request);
