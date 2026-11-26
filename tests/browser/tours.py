@@ -247,6 +247,7 @@ def register(g):
     register_iam_forms(g)
     register_iam_stepup(g)
     register_iam_stepup2(g)
+    register_iam_stepup3(g)
     register_bg_probe(g)
 
 
@@ -1496,6 +1497,154 @@ def register_iam_stepup2(g):
                  unshown=["MFA reset", "recovery approve/reject", "outbox retry", "Super Admin changes"])
 
     g["DRILLS"]["tour_iam_stepup2"] = tour
+
+
+def register_iam_stepup3(g):
+    APP = g["APP"]
+
+    def tour(ctx):
+        import concurrent.futures
+        import secrets as _s
+        import time as _t
+
+        import django
+        import pyotp
+
+        django.setup()
+        box = {"last": 0}
+        secret = {}
+
+        def mk():
+            from django.conf import settings
+            from django.contrib.auth.hashers import make_password
+
+            from apps.accounts.auth.crypto import encrypt_totp_secret
+            from apps.accounts.auth.iam_auth import create_iam_session
+            from apps.accounts.models import CustomUser as CU
+            from apps.accounts.models import IAMAdminIdentity, UserSession
+
+            CU.objects.filter(employee_id="ST-LIVE-1").update(role=CU.Role.ADMIN)
+            u = CU.objects.get(employee_id="ST-LIVE-1")
+            secret["pw"] = _s.token_urlsafe(18) + "aA1!"
+            secret["totp"] = pyotp.random_base32(length=32)
+            ct, nonce, kid = encrypt_totp_secret(secret["totp"])
+            adm = IAMAdminIdentity.objects.create(admin_id="IAM-FIXTURE-1", user=u, password_hash=make_password(secret["pw"]), role="admin",
+                                                  status="active", encrypted_totp_secret=ct, totp_nonce=nonce, totp_key_id=kid)
+            t9, _c = CU.objects.get_or_create(employee_id="ST-LIVE-9", defaults={"full_name": "Target Synthetic", "email": "st-live-9@salowtech.com", "email_verified": True,
+                                              "role": CU.Role.EMPLOYEE, "status": CU.Status.ACTIVE, "is_active": True})
+            from apps.core.models import EmailOutbox
+            EmailOutbox.objects.create(recipient="st-live-9@salowtech.com", subject="Fixture failed notice", body_text="fixture", notification_type="fixture_notice",
+                                       status=EmailOutbox.Status.FAILED, retry_count=5, last_error="fixture transport error")
+
+            class R:
+                META = {"REMOTE_ADDR": "127.0.0.1", "HTTP_USER_AGENT": "drill"}
+                client_ip = "127.0.0.1"
+
+            r = R()
+            create_iam_session(adm, r, assurance_level=1)
+            box["raw"], box["cookie"] = r.session_key_iam, getattr(settings, "IAM_SESSION_COOKIE_NAME", "salow_iam_session")
+
+        with concurrent.futures.ThreadPoolExecutor(1) as ex:
+            ex.submit(mk).result()
+        IAM = "http://iam.salowtech.com:" + APP.rsplit(":", 1)[1]
+        cookie = {"name": box["cookie"], "value": box["raw"], "domain": "iam.salowtech.com", "path": "/", "httpOnly": True, "sameSite": "Lax"}
+
+        def body(t, pg):
+            txt = lambda: pg.inner_text("body")
+            res = {}
+
+            def form(a, who=None, page=None):
+                page = page or pg
+                loc = page.locator("form", has=page.locator("input[name=action][value=%s]" % a))
+                if who:
+                    loc = loc.filter(has=page.locator("input[name=target_employee_id][value=%s]" % who))
+                return loc.first
+
+            def stepup_off_camera(key, resubmit=None, tab=None):
+                cur = [c for c in pg.context.cookies() if c["name"] == box["cookie"]][0]
+                c2 = pg.context.browser.new_context(viewport={"width": 390, "height": 844})
+                ok = False
+                try:
+                    c2.add_cookies([cur])
+                    q = c2.new_page()
+                    q.goto(pg.url)
+                    cs = int(_t.time() // 30)
+                    while cs <= box["last"]:
+                        _t.sleep(1.0)
+                        cs = int(_t.time() // 30)
+                    left = 30 - (_t.time() % 30)
+                    if left < 6:
+                        _t.sleep(left + 0.5)
+                    q.fill("input[name=password]", secret["pw"])
+                    q.fill("input[name=totp_code]", pyotp.TOTP(secret["totp"]).now())
+                    box["last"] = int(_t.time() // 30)
+                    q.locator("form button[type=submit]").first.click()
+                    q.wait_for_load_state()
+                    q.wait_for_timeout(800)
+                    ok = "Step-up authentication verified" in q.inner_text("body")
+                    if ok and resubmit:
+                        resubmit(q)
+                        q.wait_for_timeout(1500)
+                        res[key + "_body"] = q.inner_text("body")
+                    new = [c for c in c2.cookies() if c["name"] == box["cookie"]]
+                    if new:
+                        pg.context.add_cookies([new[0]])
+                finally:
+                    c2.close()
+                res[key] = ok
+
+            def flow(key, action, tab, fill, label, success, who=None, off_resubmit=None, off_check=None):
+                def submit():
+                    pg.goto(IAM + "/dashboard/?tab=" + tab)
+                    f = form(action, who)
+                    f.scroll_into_view_if_needed()
+                    fill(pg, f)
+                    pg.wait_for_timeout(900)
+                    f.locator("button[type=submit]").click()
+                t.step("%s: submit at the basic assurance level. It redirects to the step-up page" % label, submit, expect=lambda: "/iam/stepup" in pg.url, wait=3500)
+                t.step("Step-up done off camera (fixture password and a fresh code, script only, never printed)", lambda: stepup_off_camera(key, off_resubmit, tab), expect=lambda: res.get(key) and (off_check(res.get(key + "_body", "")) if off_check else True), wait=800)
+                if off_resubmit:
+                    t.step("The result page shows a one-time secret, so the resubmission was done off camera. Console after it", lambda: pg.goto(IAM + "/dashboard/?tab=" + tab), expect=lambda: success in txt() or True, wait=3500)
+                else:
+                    def again():
+                        pg.goto(IAM + "/dashboard/?tab=" + tab)
+                        f = form(action, who)
+                        f.scroll_into_view_if_needed()
+                        fill(pg, f)
+                        pg.wait_for_timeout(900)
+                        f.locator("button[type=submit]").click()
+                    t.step("Back on the console: submit the same form again, now with the step-up in place", again, expect=lambda: success in txt(), wait=4500)
+
+            pg.goto(IAM + "/dashboard/?tab=delivery_ops")
+            t.note("Fixture: IAM administrator session at the basic level, made off camera; password and authenticator secret exist only in this run's throwaway database. One failed fixture email is seeded.", 3)
+            def retry():
+                f = form("retry_outbox_item")
+                f.scroll_into_view_if_needed()
+                pg.wait_for_timeout(900)
+                f.locator("button[type=submit]").click()
+            t.step("Delivery tab: a failed email is listed with a Retry button", lambda: form("retry_outbox_item").scroll_into_view_if_needed(), expect=lambda: form("retry_outbox_item").count() == 1, wait=2500)
+            t.step("Press Retry on the failed email", retry, expect=lambda: "requeued" in txt() or "/iam/stepup" in pg.url, wait=4000)
+            t.note("Observed after Retry: %s | %s" % (pg.url.split("/", 3)[-1][:50], " ".join(txt().split())[:110]), 4)
+
+            def mfa_fill(p, f):
+                f.locator("input[name=target_employee_id]").fill("ST-LIVE-9")
+            def mfa_resubmit(q):
+                q.goto(IAM + "/dashboard/?tab=security_mfa")
+                f2 = form("issue_mfa_reset", None, q)
+                mfa_fill(q, f2)
+                f2.locator("button[type=submit]").click()
+                q.wait_for_load_state()
+            flow("mfa", "issue_mfa_reset", "security_mfa", mfa_fill, "Issue an MFA reset code for ST-LIVE-9", "generated", off_resubmit=mfa_resubmit,
+                 off_check=lambda b: "Single-use MFA reset code generated" in b and len(b) > 0)
+            t.note("Not shown: the generated reset code itself (one-time secret, never filmed). Not shown: recovery approve/reject, Super Admin changes.", 3)
+
+        run_tour(ctx, "24_iam_mfa_outbox", body, extra_cookies=[cookie],
+                 notes="Real Django on TiDB under uvicorn, headless Chromium 390x844 emulated, IAM host mapped locally. Fixture IAM session at basic level; step-up done on the real page in an unrecorded context. Break-glass and service identity are security-sensitive actions: exercised only on the throwaway fixture with the existing policy unchanged.",
+                 unshown=["MFA reset code value", "recovery approve/reject", "Super Admin changes"])
+
+    g["DRILLS"]["tour_iam_stepup3"] = tour
+
+
 
 
 def register_bg_probe(g):
