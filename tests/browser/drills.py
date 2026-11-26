@@ -4123,8 +4123,8 @@ def slides_oldpage_v5(ctx):  # noqa: C901
         after_edit == before,
     )
     check(
-        "oldpage: it says the deck could not be read or is from a newer version",
-        bool(st.strip()),
+        "oldpage: the status says the stored deck could not be read and was left untouched",
+        "could not be read" in st and "left untouched" in st,
         st[:120],
     )
 
