@@ -5665,6 +5665,24 @@ def pdf_marks(ctx):  # noqa: C901
     pg.wait_for_timeout(1000)
     ok2, r2 = aligned()
     check("marks: the overlay sits exactly on the canvas at 1280 px", ok2 and r2[2] > 500, r2)
+    pg.click("#pdf-zout")
+    pg.click("#pdf-zout")
+    pg.wait_for_timeout(1300)
+    ok50, r50 = aligned()
+    check(
+        "marks: the overlay sits exactly on the canvas at 50 percent (page narrower than the stage)",
+        ok50 and r50[2] < r2[2] - 50,
+        (r2[2], r50),
+    )
+    pg.click("#pdf-zin")
+    pg.click("#pdf-zin")
+    pg.wait_for_timeout(1300)
+    ok100, r100 = aligned()
+    check(
+        "marks: the overlay sits exactly on the canvas back at 100 percent",
+        ok100 and abs(r100[2] - r2[2]) < 1,
+        (r2[2], r100),
+    )
     pg.click("#pdf-zin")
     pg.click("#pdf-zin")
     pg.wait_for_timeout(1300)
@@ -5674,7 +5692,12 @@ def pdf_marks(ctx):  # noqa: C901
         ok3 and r3[2] > r2[2],
         (r2[2], r3),
     )
+    pg.click("#pdf-fitp")
+    pg.wait_for_timeout(1300)
+    okf, rf = aligned()
+    check("marks: the overlay sits exactly on the canvas at Fit page", okf, rf)
     pg.click("#pdf-fitw")
+    pg.wait_for_timeout(1000)
     pg.set_viewport_size({"width": 390, "height": 800})
     pg.wait_for_timeout(1300)
     pg.evaluate("document.getElementById('pdf-stage').scrollIntoView({block:'start'});0")
@@ -5727,6 +5750,42 @@ def pdf_marks(ctx):  # noqa: C901
         and len(re.findall(rb"/Subtype\s*/Highlight", out)) == 1
         and len(re.findall(rb"/Subtype\s*/Ink", out)) == 1,
         dl.value.suggested_filename,
+    )
+    import subprocess
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as td:
+        open(td + "/c.pdf", "wb").write(out)
+        subprocess.run(
+            ["pdftoppm", "-r", "50", "-f", "1", "-l", "1", td + "/c.pdf", td + "/pg"],
+            check=True,
+            capture_output=True,
+        )  # noqa: S603, S607
+        ppm = open(td + "/pg-1.ppm", "rb").read()
+    toks, pos = [], 0
+    while len(toks) < 4:
+        while ppm[pos : pos + 1].isspace():
+            pos += 1
+        s0 = pos
+        while not ppm[pos : pos + 1].isspace():
+            pos += 1
+        toks.append(ppm[s0:pos])
+    pos += 1
+    pw, ph = int(toks[1]), int(toks[2])
+    xs, ys = [], []
+    for yy in range(ph):
+        row = ppm[pos + yy * pw * 3 : pos + (yy + 1) * pw * 3]
+        for xx in range(pw):
+            r_, g_, b_ = row[xx * 3], row[xx * 3 + 1], row[xx * 3 + 2]
+            if r_ > 235 and g_ > 215 and b_ < 140:
+                xs.append(xx)
+                ys.append(yy)
+    fr = [min(xs) / pw, min(ys) / ph, (max(xs) + 1) / pw, (max(ys) + 1) / ph] if xs else None
+    check(
+        "marks: the highlight dragged at 0.2,0.2 to 0.7,0.35 on the page shows in a poppler render of the copy at the same fractions (within 0.015)",
+        bool(fr)
+        and all(abs(a_ - b_) < 0.015 for a_, b_ in zip(fr, [0.2, 0.2, 0.7, 0.35], strict=True)),
+        fr,
     )
     pg.locator("#pdf-marksbox").scroll_into_view_if_needed()
     pg.screenshot(path=shots + "/pdf-marks-phone.png")
@@ -5808,6 +5867,77 @@ def pdf_marks(ctx):  # noqa: C901
     )
     sw = pg.evaluate("[document.documentElement.scrollWidth, window.innerWidth]")
     check("marks: the panel does not widen the page at 390", sw[0] <= sw[1], sw)
+
+
+def pdf_marks_secure(ctx):  # noqa: C901
+    """Note placing and the drawing tools exclude each other, and the stroke limit is announced. Needs a secure context, so run alone; the runner then treats the drill origin as secure for this browser only (a test flag, not the app's HTTPS deployment)."""
+    pg = fresh(ctx, "/pdf/")
+    pg.set_viewport_size({"width": 1280, "height": 900})
+    pg.reload()
+    if not pg.evaluate("!!(navigator.locks && navigator.locks.request)"):
+        check(
+            "marks secure: the browser offers a secure context (run this drill alone)",
+            False,
+            "navigator.locks missing",
+        )
+        return
+    pg.set_input_files(
+        "#pdf-open",
+        files=[{"name": "two.pdf", "mimeType": "application/pdf", "buffer": _n_page_pdf(2)}],
+    )
+    for _ in range(50):
+        if pg.inner_text("#pdf-where").startswith("Page 1 of 2"):
+            break
+        pg.wait_for_timeout(300)
+    pg.wait_for_timeout(1200)
+    check("marks secure: notes are on in this test browser", not pg.is_disabled("#pdf-addnote"))
+
+    def pressed(i):
+        return pg.evaluate("document.getElementById('%s').getAttribute('aria-pressed')" % i)
+
+    pg.click("#pdf-addnote")
+    check("marks secure: note placing is on", pressed("pdf-addnote") == "true")
+    pg.click("#pdf-tool-hl")
+    check(
+        "marks secure: turning on Area highlight turns note placing off and says so",
+        pressed("pdf-addnote") == "false"
+        and pressed("pdf-tool-hl") == "true"
+        and "Placing a note was turned off" in pg.inner_text("#pdf-notestatus"),
+        pg.inner_text("#pdf-notestatus"),
+    )
+    pg.click("#pdf-addnote")
+    check(
+        "marks secure: turning on note placing turns the drawing tool off and says so",
+        pressed("pdf-addnote") == "true"
+        and pressed("pdf-tool-hl") == "false"
+        and "turned off because you are placing a note" in pg.inner_text("#pdf-markstatus"),
+        pg.inner_text("#pdf-markstatus"),
+    )
+    pg.evaluate("document.getElementById('pdf-marks').scrollIntoView({block:'start'});0")
+    x, y, w, h = pg.evaluate(
+        "(()=>{const r=document.getElementById('pdf-canvas').getBoundingClientRect();return [r.left,r.top,r.width,r.height]})()"
+    )
+    pg.mouse.click(x + 0.3 * w, y + 0.3 * h)
+    pg.wait_for_timeout(300)
+    check(
+        "marks secure: with note placing on, a click on the page opens the note form and adds no mark",
+        not pg.evaluate("document.getElementById('pdf-noteform').hidden")
+        and pg.locator("#pdf-marklist li").count() == 0,
+    )
+    pg.click("#pdf-addnote")
+    pg.click("#pdf-tool-pen")
+    n = pg.evaluate(
+        "(()=>{const s=document.getElementById('pdf-marks'),r=s.getBoundingClientRect();const f=(t,x,y)=>s.dispatchEvent(new PointerEvent(t,{pointerId:3,clientX:r.left+x*r.width,clientY:r.top+y*r.height,bubbles:true,button:0}));f('pointerdown',0.01,0.01);let k=0;for(let i=0;i<2100;i++){f('pointermove',0.01+0.98*((i*7)%997)/997,0.01+0.98*((i*13)%991)/991);k++}return document.getElementById('pdf-markstatus').textContent})()"
+    )
+    check("marks secure: a stroke past the point limit says so", "length limit" in n, n[:120])
+    pg.evaluate(
+        "document.getElementById('pdf-marks').dispatchEvent(new PointerEvent('pointerup',{pointerId:3,clientX:50,clientY:50,bubbles:true,button:0}));0"
+    )
+    pg.wait_for_timeout(300)
+    check(
+        "marks secure: the long stroke is kept as one drawing capped at the limit",
+        pg.locator("#pdf-marklist li").count() == 1,
+    )
 
 
 def pdf_order(ctx):  # noqa: C901
@@ -6438,6 +6568,7 @@ DRILLS = {
     "pdf_pages": pdf_pages,
     "pdf_order": pdf_order,
     "pdf_marks": pdf_marks,
+    "pdf_marks_secure": pdf_marks_secure,
     "slides_style": slides_style,
     "sheets_tabs": sheets_tabs,
     "sheets_chart": sheets_chart,
@@ -6474,7 +6605,7 @@ def main():
             # Test browser only: one drill needs a secure context (navigator.locks) on the plain-HTTP drill origin. Not the app's policy.
             + (
                 ["--unsafely-treat-insecure-origin-as-secure=" + APP.rstrip("/")]
-                if names == ["pdf_notes_turn"]
+                if names in (["pdf_notes_turn"], ["pdf_marks_secure"])
                 else []
             ),
         )
