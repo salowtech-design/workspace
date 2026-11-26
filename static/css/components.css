@@ -152,6 +152,12 @@ a:hover {
   margin-bottom: var(--space-4);
 }
 
+.form-group .form-control {
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
 .form-label {
   display: block;
   font-size: var(--text-sm);
