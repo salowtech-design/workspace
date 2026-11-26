@@ -547,6 +547,7 @@
 .s-c94a6f27 { padding: 0.85rem !important; border: 1px solid var(--color-border-subtle) !important; border-radius: 6px !important; background: #fafafa !important; }
 .s-c97152cf { margin-top: 0.25rem !important; }
 .s-c9981839 { display: grid; grid-template-columns: 2fr 1fr !important; gap: var(--space-6) !important; align-items: start !important; }
+@media (max-width: 700px) { .s-c9981839 { grid-template-columns: minmax(0, 1fr) !important; } .s-c9981839 > * { min-width: 0; } }
 .s-c99db545 { background-color: var(--color-bg-subtle) !important; border-radius: var(--radius-md) !important; padding: var(--space-4) !important; margin-bottom: var(--space-4) !important; }
 .s-ca5a75a5 { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)) !important; gap: 0.75rem !important; }
 .s-ca6fb486 { font-size: 1.05rem !important; font-weight: 700 !important; letter-spacing: 1.5px !important; color: var(--color-text-main, #1e293b) !important; }
