@@ -229,6 +229,7 @@ def register(g):
     register_calendar(g, users)
     register_sheets(g)
     register_slides(g)
+    register_pdf(g)
 
 
 def register_tasks(g, users):
@@ -471,3 +472,65 @@ def register_slides(g):
                  unshown=["PDF export (secure context)", "Import", "Add picture", "animations", "master", "drag and resize", "arrow-key move", "Clear deck", "unreadable-deck recovery", "Move down", "declining the delete question"])
 
     g["DRILLS"]["tour_slides"] = slides_tour
+
+
+def register_pdf(g):
+    APP = g["APP"]
+
+    def pdf_tour(ctx):
+        def body(t, pg):
+            _step = t.step
+            t.step = lambda text, fn=None, wait=800, expect=None: _step(text, fn, wait=min(wait, 900), expect=expect)
+            data = g["_n_page_pdf"](4, "Keep")
+            pg.goto(APP + "/pdf/")
+            pg.evaluate("localStorage.clear()")
+            pg.goto(APP + "/pdf/")
+            pg.wait_for_timeout(500)
+            where = lambda: pg.inner_text("#pdf-where")
+            if not pg.evaluate("!!(navigator.locks && navigator.locks.request)"):
+                t.step("This browser has no secure context: marks cannot be kept", expect=lambda: False)
+                return
+
+            def opened():
+                pg.set_input_files("#pdf-open", files=[{"name": "demo.pdf", "mimeType": "application/pdf", "buffer": data}])
+                for _ in range(40):
+                    if where().startswith("Page 1 of 4") and pg.evaluate("document.getElementById('pdf-canvas').width > 1"):
+                        break
+                    pg.wait_for_timeout(250)
+
+            def drag(a, b):
+                pg.evaluate("document.getElementById('pdf-marks').scrollIntoView({block:'center'});0")
+                pg.wait_for_timeout(150)
+                x, y, w, h = pg.evaluate("(()=>{const r=document.getElementById('pdf-marks').getBoundingClientRect();return [r.left,r.top,r.width,r.height]})()")
+                pg.mouse.move(x + a[0] * w, y + a[1] * h)
+                pg.mouse.down()
+                for i in range(1, 7):
+                    pg.mouse.move(x + (a[0] + (b[0] - a[0]) * i / 6) * w, y + (a[1] + (b[1] - a[1]) * i / 6) * h)
+                pg.mouse.up()
+                pg.wait_for_timeout(300)
+
+            def top():
+                pg.evaluate("document.getElementById('pdf-pagewrap').scrollIntoView({block:'start'});0")
+
+            marks = lambda: pg.locator("#pdf-marklist li").count()
+            t.step("PDF: open a 4-page file; it stays in this browser", opened, expect=lambda: where().startswith("Page 1 of 4"), wait=1500)
+            t.step("Next page", lambda: (pg.click("#pdf-next"), top()), expect=lambda: where().startswith("Page 2 of 4"))
+            t.step("Previous page", lambda: (pg.click("#pdf-prev"), top()), expect=lambda: where().startswith("Page 1 of 4"))
+            w0 = {}
+            t.step("Zoom in", lambda: (w0.update(w=pg.evaluate("document.getElementById('pdf-canvas').width")), pg.click("#pdf-zin"), pg.wait_for_timeout(500), top()), expect=lambda: pg.evaluate("document.getElementById('pdf-canvas').width") > w0["w"])
+            t.step("Fit to width", lambda: (pg.click("#pdf-fitw"), top()), expect=lambda: True)
+            t.step("Rotate the view", lambda: (pg.click("#pdf-rot"), pg.wait_for_timeout(400), top()), expect=lambda: True)
+            t.step("Rotate three more times to return to upright", lambda: ([(pg.click("#pdf-rot"), pg.wait_for_timeout(300)) for _ in range(3)], top()), expect=lambda: True)
+            t.step("Find the word Keep", lambda: (pg.fill("#pdf-q", "Keep"), pg.click("#pdf-find"), pg.wait_for_timeout(600), pg.evaluate("document.getElementById('pdf-fstatus').scrollIntoView({block:'center'});0")), expect=lambda: bool(pg.inner_text("#pdf-fstatus").strip()))
+            t.step("Add a note for this page", lambda: (pg.click("#pdf-addpagenote"), pg.fill("#pdf-notetext", "Check totals"), pg.click("#pdf-noteform button[type=submit]")), expect=lambda: pg.locator("#pdf-notelist li").count() == 1)
+            t.step("Highlight tool: draw a highlight on the page", lambda: (pg.click("#pdf-tool-hl"), drag((0.2, 0.2), (0.6, 0.4))), expect=lambda: marks() == 1)
+            t.step("Pen tool: draw a line", lambda: (pg.click("#pdf-tool-pen"), drag((0.1, 0.6), (0.8, 0.7))), expect=lambda: marks() == 2)
+            t.step("Reload: the marks and the note come back (the file is picked again)", lambda: (pg.reload(), pg.wait_for_timeout(600), opened(), pg.wait_for_timeout(800)), expect=lambda: marks() == 2 and pg.locator("#pdf-notelist li").count() == 1, wait=1200)
+            t.step("Clear the marks", lambda: pg.click("#pdf-markclear"), expect=lambda: marks() == 0)
+            t.step("Close the file", lambda: (pg.click("#pdf-close"), top()), expect=lambda: not where().startswith("Page 1 of 4"))
+            t.note("Not shown: Text mark, Signature, Copy with marks, flatten, Split, reorder, Merge, form fields, password-protected files, export notes, copy download, clear notes, thumbnails.", 3)
+
+        run_tour(ctx, "10_pdf", body, notes="Device-local viewer on a generated 4-page PDF. Secure-context test browser flag (plain-HTTP drill origin treated as secure; test setting only). Headless Chromium 390x844 emulation.",
+                 unshown=["Text mark", "Signature", "Copy with marks / flatten", "Split", "Reorder", "Merge", "Form fields", "Password-protected file", "Export notes", "Download a copy", "Clear notes", "Thumbnails", "Discard marks"])
+
+    g["DRILLS"]["tour_pdf"] = pdf_tour
