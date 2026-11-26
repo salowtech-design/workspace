@@ -902,3 +902,42 @@ def test_assign_view_lead_only_member_only_stale_checked_and_guarded():
     assert "Assigned to P AS-B" in cb.get(reverse("tasks:project", args=[p.public_id])).content.decode()
     assert url not in cb.get(reverse("tasks:project", args=[p.public_id])).content.decode()
     assert url in ca.get(reverse("tasks:project", args=[p.public_id])).content.decode()
+
+
+@pytest.mark.django_db
+def test_assign_route_resolves_in_both_urlconfs_and_removed_or_deactivated_people_are_blocked():
+    from django.urls import resolve
+    from apps.tasks.models import ProjectTask
+    from django.utils import timezone
+
+    a, b, c = _u("AS-D"), _u("AS-E"), _u("AS-F")
+    p, t = _ptask(a)
+    mb = ProjectMember.objects.create(project=p, person=b, added_by=a)
+    ProjectMember.objects.create(project=p, person=c, added_by=a)
+    url = reverse("tasks:project_assign", args=[t.public_id])
+    for conf in ("config.urls", "config.urls_workspace"):
+        assert resolve(url, urlconf=conf).view_name == "tasks:project_assign"
+    ca = _c(a)
+
+    def state():
+        x = ProjectTask.objects.get(pk=t.pk)
+        return x.assignee_id, x.version
+
+    # target: a removed member and a deactivated member cannot be assigned
+    ProjectMember.objects.filter(pk=mb.pk).update(removed_at=timezone.now())
+    ca.post(url, {"person": b.pk, "version": 1})
+    assert state() == (None, 1)
+    CustomUser.objects.filter(pk=c.pk).update(is_active=False)
+    ca.post(url, {"person": c.pk, "version": 1})
+    assert state() == (None, 1)
+    # actor: a lead who was removed, or deactivated, can no longer assign
+    ProjectMember.objects.filter(project=p, person=a).update(role="lead")
+    ca.post(url, {"person": a.pk, "version": 1})
+    assert state() == (a.pk, 2)
+    ProjectMember.objects.filter(project=p, person=a).update(removed_at=timezone.now())
+    assert ca.post(url, {"person": "", "version": 2}).status_code == 404
+    assert state() == (a.pk, 2)
+    ProjectMember.objects.filter(project=p, person=a).update(removed_at=None)
+    CustomUser.objects.filter(pk=a.pk).update(is_active=False)
+    r = _c(a).post(url, {"person": "", "version": 2})
+    assert state() == (a.pk, 2), r.status_code

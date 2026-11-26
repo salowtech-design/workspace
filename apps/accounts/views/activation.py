@@ -27,7 +27,8 @@ def activate_code_view(request):
 
     error = None
     if request.method == "POST":
-        emp_id = normalize_employee_id(request.POST.get("employee_id", ""))
+        raw_id = request.POST.get("employee_id", "")
+        emp_id = normalize_employee_id(raw_id)
         submitted_cred = (
             request.POST.get("password") or request.POST.get("activation_code") or ""
         ).strip()
@@ -35,7 +36,15 @@ def activate_code_view(request):
 
         try:
             # First check if user exists and password matches
-            user = CustomUser.objects.filter(employee_id=emp_id).first()
+            # Stored ids are upper case (CustomUser.save enforces it), so the exact match is the
+            # normal path. A row written around save() (a bulk write, raw SQL, older data) may be
+            # stored in another case: fall back to the lookup this view used before, so it is
+            # still found. On a case-sensitive column that fallback matches exactly as typed.
+            user = CustomUser.objects.filter(employee_id=emp_id).first() or (
+                CustomUser.objects.filter(employee_id__iexact=raw_id.strip()).first()
+                if raw_id.strip()
+                else None
+            )
             if user and user.has_usable_password() and user.check_password(submitted_cred):
                 request.session[ACTIVATION_SESSION_KEY] = user.id
                 request.session.set_expiry(1800)  # 30 minute activation session
