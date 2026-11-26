@@ -7636,7 +7636,44 @@ def slides_images_pdfmem(ctx):  # noqa: C901
     )
 
 
+def cal_month(ctx):
+    """Calendar month grid: events made through the real form land on the right day cells; cell cap, no sideways scroll at 390 px."""
+    shots = os.environ.get("DRILL_SHOTS", "/tmp")  # noqa: S108
+    pg = ctx.pages[0]
+    mk = [("Standup", "2026-12-15T09:00", "2026-12-15T09:30")] * 1
+    mk += [(f"Review {i}", "2026-12-15T1%d:00" % i, "2026-12-15T1%d:30" % i) for i in range(4)]
+    mk += [("Offsite", "2026-11-30T10:00", "2026-12-02T10:00"), ("Late call", "2026-12-01T01:30", "2026-12-01T02:00")]
+    for title, a, b in mk:
+        pg.goto(APP + "/calendar/new/")
+        pg.fill("input[name=title]", title)
+        pg.fill("input[name=start]", a)
+        pg.fill("input[name=end]", b)
+        pg.click(".cal-form button[type=submit]")
+        pg.wait_for_load_state()
+    pg.goto(APP + "/calendar/month/?m=2026-12")
+    pg.wait_for_timeout(400)
+    cell = lambda d: pg.evaluate(  # noqa: E731
+        "(d)=>{for(const td of document.querySelectorAll('.cal-month td')){if(td.classList.contains('cal-other'))continue;"
+        "if(td.querySelector('.cal-dn').textContent.trim().split(' ')[0]===d)return td.innerText}return null}", d)
+    c15 = cell("15") or ""
+    check("cal month: 15 Dec names 3 events and counts the other 2", c15.count("Review") + c15.count("Standup") == 3 and "+2 more" in c15, c15)
+    c1 = cell("1") or ""
+    check("cal month: 1 Dec holds the Offsite and the 01:30 IST call", "Offsite" in c1 and "Late call" in c1, c1)
+    check("cal month: 3 Dec has no Offsite", "Offsite" not in (cell("3") or ""))
+    shot(pg, "cal_month_desktop")
+    pg.set_viewport_size({"width": 390, "height": 800})
+    pg.reload()
+    pg.wait_for_timeout(400)
+    ov = pg.evaluate("document.documentElement.scrollWidth > document.documentElement.clientWidth")
+    check("cal month: no sideways page scroll at 390 px", not ov)
+    shot(pg, "cal_month_390")
+    pg.set_viewport_size({"width": 1100, "height": 900})
+    pg.goto(APP + "/calendar/month/?m=2026-13")
+    check("cal month: a bad month shows the error text", "Month must look like" in pg.inner_text("body"))
+
+
 DRILLS = {
+    "cal_month": cal_month,
     "slides_show": slides_show,
     "slides_edit": slides_edit,
     "slides_pdf": slides_pdf,
