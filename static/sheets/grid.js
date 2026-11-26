@@ -98,7 +98,7 @@
       if (f.align) inp.dataset.align = f.align; else delete inp.dataset.align;
       if (document.activeElement === inp) return;
       var text = F.isErr(sv) ? shown : M.fmtText(f.nf, shown);
-      inp.value = text; inp.title = (cells[a] || "") + (col ? (cells[a] ? " " : "") + "(highlighted " + col + " by a colour rule)" : "") + (text !== shown ? (cells[a] || col ? " " : "") + "(shown with a number format; value " + shown + ")" : "");
+      inp.value = text; inp.title = (cells[a] || "") + (typeof cells[a] === "string" && cells[a][0] === "=" && text === shown ? " (result " + shown + ")" : "") + (col ? (cells[a] ? " " : "") + "(highlighted " + col + " by a colour rule)" : "") + (text !== shown ? (cells[a] || col ? " " : "") + "(shown with a number format; value " + shown + ")" : "");
     });
   }
   function commit(a, v) {

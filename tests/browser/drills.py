@@ -394,6 +394,7 @@ def sheets_stats_math(ctx):
     pg.click('input[data-addr="A14"]')
     for i, (f, want, label) in enumerate(cases, 1):
         check("sheets stats math: %s shows %s" % (f, want), val("A%d" % i) == want, val("A%d" % i))
+    check("sheets stats math: a clipped result is readable in the cell tooltip", "(result 1234567890123456)" in (pg.get_attribute('input[data-addr="A7"]', "title") or ""), pg.get_attribute('input[data-addr="A7"]', "title"))
     pg.locator("details", has_text="Supported functions and limits").first.locator("summary").click()
     pg.evaluate("window.scrollTo(0, 380)")
     shot(pg, "sheets_stats_help_desktop")
