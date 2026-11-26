@@ -5530,6 +5530,209 @@ def pdf_thumbs_cancel(ctx):  # noqa: C901
     )
 
 
+def pdf_marks(ctx):  # noqa: C901
+    """Area highlight and pen marks over a page, kept in the tab, written to a separate copy."""
+    import pathlib
+    import re
+
+    shots = os.environ.get("DRILL_SHOTS", "/tmp")  # noqa: S108
+    signed = (
+        pathlib.Path(__file__).resolve().parents[1] / "js" / "fixtures" / "form_signed3.pdf"
+    ).read_bytes()
+    pg = fresh(ctx, "/pdf/")
+    pg.set_viewport_size({"width": 390, "height": 800})
+
+    def open_pdf(name, data):
+        pg.set_input_files(
+            "#pdf-open", files=[{"name": name, "mimeType": "application/pdf", "buffer": data}]
+        )
+        for _ in range(50):
+            if pg.inner_text("#pdf-where").startswith("Page 1 of") and pg.evaluate(
+                "document.getElementById('pdf-canvas').width > 1"
+            ):
+                break
+            pg.wait_for_timeout(250)
+        pg.wait_for_timeout(600)
+
+    def box():
+        return pg.evaluate(
+            "(()=>{const r=document.getElementById('pdf-marks').getBoundingClientRect();return [r.left,r.top,r.width,r.height]})()"
+        )
+
+    def drag(a, b, steps=6):
+        pg.evaluate("document.getElementById('pdf-marks').scrollIntoView({block: 'start'});0")
+        pg.wait_for_timeout(150)
+        x, y, w, h = box()
+        pg.mouse.move(x + a[0] * w, y + a[1] * h)
+        pg.mouse.down()
+        for i in range(1, steps + 1):
+            pg.mouse.move(
+                x + (a[0] + (b[0] - a[0]) * i / steps) * w,
+                y + (a[1] + (b[1] - a[1]) * i / steps) * h,
+            )
+        pg.mouse.up()
+        pg.wait_for_timeout(200)
+
+    def count(sel):
+        return pg.evaluate("document.querySelectorAll('#pdf-marks %s').length" % sel)
+
+    check(
+        "marks: tools are off with no file",
+        pg.is_disabled("#pdf-tool-hl")
+        and pg.is_disabled("#pdf-tool-pen")
+        and pg.is_disabled("#pdf-markcopy"),
+    )
+    hint = pg.inner_text("#pdf-markhint")
+    check(
+        "marks: before use the panel says area only, tab only and no keyboard drawing",
+        "does not select or recognise text" in hint
+        and "Marks stay only in this tab" in hint
+        and "no keyboard way to draw" in hint,
+    )
+    open_pdf("three.pdf", _n_page_pdf(3))
+    check(
+        "marks: with a file open the tools turn on, copy waits for a mark",
+        not pg.is_disabled("#pdf-tool-hl") and pg.is_disabled("#pdf-markcopy"),
+    )
+    check(
+        "marks: with no tool on the overlay does not take pointer events or touch scrolling",
+        pg.evaluate("getComputedStyle(document.getElementById('pdf-marks')).pointerEvents")
+        == "none"
+        and pg.evaluate("getComputedStyle(document.getElementById('pdf-marks')).touchAction")
+        != "none",
+    )
+    pg.click("#pdf-tool-hl")
+    check(
+        "marks: Area highlight on says what it does and takes the pointer",
+        "does not select text" in pg.inner_text("#pdf-markstatus")
+        and pg.evaluate("getComputedStyle(document.getElementById('pdf-marks')).touchAction")
+        == "none",
+    )
+    drag((0.2, 0.2), (0.7, 0.35))
+    r = pg.evaluate(
+        "(()=>{const e=document.querySelector('#pdf-marks rect');return e?[+e.getAttribute('x'),+e.getAttribute('y'),+e.getAttribute('width'),+e.getAttribute('height')]:null})()"
+    )
+    check(
+        "marks: a drag adds one rectangle at about 0.2,0.2 sized 0.5x0.15",
+        bool(r)
+        and abs(r[0] - 0.2) < 0.03
+        and abs(r[1] - 0.2) < 0.03
+        and abs(r[2] - 0.5) < 0.04
+        and abs(r[3] - 0.15) < 0.04,
+        r,
+    )
+    pg.click("#pdf-tool-pen")
+    drag((0.1, 0.6), (0.9, 0.7), steps=12)
+    check(
+        "marks: the pen adds a polyline",
+        count("polyline") == 1 and pg.locator("#pdf-marklist li").count() == 2,
+    )
+    pg.evaluate(
+        "document.getElementById('pdf-marks').dispatchEvent(new PointerEvent('pointerdown',{pointerId:7,clientX:100,clientY:300,bubbles:true,button:0}));document.getElementById('pdf-marks').dispatchEvent(new PointerEvent('pointercancel',{pointerId:7,bubbles:true}));0"
+    )
+    pg.wait_for_timeout(200)
+    check(
+        "marks: a cancelled touch stroke adds nothing and leaves no half-drawn line",
+        pg.locator("#pdf-marklist li").count() == 2 and count("[data-temp]") == 0,
+    )
+    pg.click("#pdf-tool-pen")
+    check(
+        "marks: turning the tool off gives the page back to scrolling",
+        pg.evaluate("getComputedStyle(document.getElementById('pdf-marks')).touchAction") != "none",
+    )
+    pg.click("#pdf-next")
+    pg.wait_for_timeout(900)
+    check(
+        "marks: page 2 shows none of page 1's marks and the list still has both",
+        count("rect") == 0
+        and count("polyline") == 0
+        and pg.locator("#pdf-marklist li").count() == 2,
+    )
+    pg.click("#pdf-prev")
+    pg.wait_for_timeout(900)
+    check(
+        "marks: back on page 1 both marks are drawn again",
+        count("rect") == 1 and count("polyline") == 1,
+    )
+    pg.click("#pdf-rot")
+    pg.wait_for_timeout(800)
+    check(
+        "marks: while the page is turned the tools are off and no marks are drawn over it",
+        pg.is_disabled("#pdf-tool-hl") and pg.is_disabled("#pdf-tool-pen") and count("rect") == 0,
+    )
+    pg.click("#pdf-rot")
+    pg.click("#pdf-rot")
+    pg.click("#pdf-rot")
+    pg.wait_for_timeout(1000)
+    check(
+        "marks: turned back to upright the marks and tools return",
+        not pg.is_disabled("#pdf-tool-hl") and count("rect") == 1,
+        (count("rect"), pg.is_disabled("#pdf-tool-hl")),
+    )
+    with pg.expect_download() as dl:
+        pg.click("#pdf-markcopy")
+    out = open(dl.value.path(), "rb").read()
+    open(shots + "/pdf-marks-copy.pdf", "wb").write(out)
+    check(
+        "marks: the copy is a separate -marks file with one Highlight and one Ink annotation",
+        dl.value.suggested_filename == "three-marks.pdf"
+        and len(re.findall(rb"/Subtype\s*/Highlight", out)) == 1
+        and len(re.findall(rb"/Subtype\s*/Ink", out)) == 1,
+        dl.value.suggested_filename,
+    )
+    pg.locator("#pdf-marksbox").scroll_into_view_if_needed()
+    pg.screenshot(path=shots + "/pdf-marks-phone.png")
+    li = pg.locator("#pdf-marklist li").nth(0).locator("button")
+    li.click()
+    check(
+        "marks: Remove drops that mark from the page and the list",
+        pg.locator("#pdf-marklist li").count() == 1 and count("rect") + count("polyline") == 1,
+    )
+    open_pdf("two.pdf", _n_page_pdf(2))
+    check(
+        "marks: opening another file clears the marks and turns the tools back to off",
+        pg.locator("#pdf-marklist li").count() == 0
+        and count("rect") == 0
+        and pg.evaluate("document.getElementById('pdf-tool-hl').getAttribute('aria-pressed')")
+        == "false",
+    )
+    open_pdf("signed.pdf", signed)
+    pg.click("#pdf-tool-hl")
+    drag((0.1, 0.1), (0.4, 0.2))
+    got = []
+    pg.on("download", lambda x: got.append(x))
+    pg.click("#pdf-markcopy")
+    pg.wait_for_timeout(1200)
+    warned = "will not validate" in pg.inner_text("#pdf-markstatus") and not got
+    drag((0.5, 0.5), (0.8, 0.6))
+    pg.locator("#pdf-marklist li").nth(1).locator("button").click()
+    pg.click("#pdf-markcopy")
+    pg.wait_for_timeout(1200)
+    check(
+        "marks: a held signed copy is dropped when the marks change, even if they come back the same",
+        warned and not got and "again within 15 seconds" in pg.inner_text("#pdf-markstatus"),
+        (warned, len(got)),
+    )
+    open_pdf(
+        "xfa.pdf",
+        (
+            pathlib.Path(__file__).resolve().parents[1] / "js" / "fixtures" / "form_xfa.pdf"
+        ).read_bytes(),
+    )
+    pg.click("#pdf-tool-hl")
+    drag((0.1, 0.1), (0.4, 0.2))
+    got.clear()
+    pg.click("#pdf-markcopy")
+    pg.wait_for_timeout(1200)
+    check(
+        "marks: an XFA file is refused with a reason and nothing downloads",
+        not got and "XFA" in pg.inner_text("#pdf-markstatus"),
+        pg.inner_text("#pdf-markstatus"),
+    )
+    sw = pg.evaluate("[document.documentElement.scrollWidth, window.innerWidth]")
+    check("marks: the panel does not widen the page at 390", sw[0] <= sw[1], sw)
+
+
 def pdf_order(ctx):  # noqa: C901
     """Reorder and remove pages from a list, then download that order."""
     shots = os.environ.get("DRILL_SHOTS", "/tmp")  # noqa: S108
@@ -6157,6 +6360,7 @@ DRILLS = {
     "pdf_thumbs_cancel": pdf_thumbs_cancel,
     "pdf_pages": pdf_pages,
     "pdf_order": pdf_order,
+    "pdf_marks": pdf_marks,
     "slides_style": slides_style,
     "sheets_tabs": sheets_tabs,
     "sheets_chart": sheets_chart,

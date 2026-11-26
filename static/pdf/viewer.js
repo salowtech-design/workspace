@@ -34,6 +34,7 @@
   function controls() {
     if (typeof fControls === "function") fControls();
     if (typeof pControls === "function") pControls();
+    if (typeof mControls === "function") mControls();
     var on = !!doc;
     $("pdf-prev").disabled = !on || page <= 1; $("pdf-next").disabled = !on || page >= doc.numPages;
     $("pdf-zin").disabled = !on || zoom >= 3; $("pdf-zout").disabled = !on || zoom <= 0.5;
@@ -44,7 +45,7 @@
   }
   function draw() {
     if (!doc) return;
-    var my = ++token, pageNo = page; cancelCurrent(); drawn = 0; $("pdf-pins").textContent = "";
+    var my = ++token, pageNo = page; cancelCurrent(); drawn = 0; $("pdf-pins").textContent = ""; $("pdf-marks").textContent = "";
     // wait for every cancelled render to settle before the canvas is resized and reused
     settle.then(function () { return my === token ? doc.getPage(page) : null; }).then(function (pg) {
       if (!pg || my !== token) return;
@@ -64,7 +65,7 @@
         shown = t; shownCut = r.cut; paintText();
       }, function () { if (my === token) tx.textContent = "The text of this page could not be read."; });
       task = pg.render({ canvasContext: ctx, viewport: vp });
-      return task.promise.then(function () { if (my === token) { status.textContent = ""; drawn = pageNo; renderPins(); } });
+      return task.promise.then(function () { if (my === token) { status.textContent = ""; drawn = pageNo; renderPins(); renderMarks(); } });
     }).catch(function (e) { if (my !== token || (e && e.name === "RenderingCancelledException")) return; status.textContent = "This page could not be drawn."; });
   }
   var textBusy = false;
@@ -583,9 +584,97 @@
   thStrip.addEventListener("click", function (e) { var b = e.target.closest && e.target.closest(".pdf-thumb"); if (b && doc) go(parseInt(b.dataset.n, 10)); });
   thStrip.addEventListener("scroll", function () { if (doc) thSchedule(100); });
   function go(p) { if (!doc) return; page = C.pageIndex(p, 0, doc.numPages); controls(); draw(); }
+  // Marks: area highlights and pen strokes drawn over the page, kept only in this tab and written into a separate downloaded copy.
+  var mMarks = [], mTool = "off", mDrag = null, mHold = null, mBusy = false, mToken = 0, SVGNS = "http://www.w3.org/2000/svg";
+  function mmsg(t) { $("pdf-markstatus").textContent = t; }
+  function mUsable() { return !!doc && !rot && drawn === page; }
+  function mControls() {
+    var on = !!doc && !rot && !mBusy;
+    $("pdf-tool-hl").disabled = !on; $("pdf-tool-pen").disabled = !on; $("pdf-markcopy").disabled = !on || !mMarks.length; $("pdf-markclear").disabled = !on || !mMarks.length;
+    $("pdf-tool-hl").setAttribute("aria-pressed", mTool === "hl" ? "true" : "false"); $("pdf-tool-pen").setAttribute("aria-pressed", mTool === "pen" ? "true" : "false");
+    var svg = $("pdf-marks"); svg.classList.toggle("pdf-marks-on", mTool !== "off" && on);
+  }
+  function mEl(name, attrs) { var e = document.createElementNS(SVGNS, name); Object.keys(attrs).forEach(function (k) { e.setAttribute(k, attrs[k]); }); return e; }
+  function mDraw(m, temp) {
+    if (m.kind === "hl") return mEl("rect", { x: m.r[0], y: m.r[1], width: m.r[2] - m.r[0], height: m.r[3] - m.r[1], fill: "#ffeb33", "fill-opacity": "0.45", stroke: temp ? "#7a2a2a" : "none", "stroke-width": "1", "vector-effect": "non-scaling-stroke" });
+    var g = mEl("g", {});
+    m.s.forEach(function (st) { g.appendChild(mEl("polyline", { points: st.map(function (p) { return p[0] + "," + p[1]; }).join(" "), fill: "none", stroke: "#d91a1a", "stroke-width": "2", "stroke-linecap": "round", "stroke-linejoin": "round", "vector-effect": "non-scaling-stroke" })); });
+    return g;
+  }
+  function renderMarks() {
+    var svg = $("pdf-marks"); svg.textContent = "";
+    if (mUsable()) mMarks.forEach(function (m) { if (m.page === page) svg.appendChild(mDraw(m, false)); });
+    var ol = $("pdf-marklist"); ol.textContent = "";
+    mMarks.slice().sort(function (a, b) { return a.page - b.page; }).forEach(function (m, i) {
+      var li = document.createElement("li"); li.appendChild(document.createTextNode("Page " + m.page + ": " + (m.kind === "hl" ? "area highlight" : "pen drawing") + " "));
+      var b = document.createElement("button"); b.type = "button"; b.className = "btn"; b.textContent = "Remove";
+      b.setAttribute("aria-label", "Remove " + (m.kind === "hl" ? "area highlight" : "pen drawing") + " " + (i + 1) + " on page " + m.page);
+      b.addEventListener("click", function () { if (mBusy) return; mMarks = window.PdfMarks.remove(mMarks, m.id); mHold = null; renderMarks(); mControls(); mmsg("Removed."); });
+      li.appendChild(b); ol.appendChild(li);
+    });
+    mControls();
+  }
+  function mSetTool(t) { mTool = mTool === t ? "off" : t; mDrag = null; mHold = mHold && mClearHold(); renderMarks(); if (mTool === "hl") mmsg("Area highlight is on. Drag over the page to draw a rectangle. It marks an area and does not select text."); else if (mTool === "pen") mmsg("Pen is on. Draw on the page with a finger, pen or mouse. Turn it off to scroll the page by touch."); else mmsg(""); }
+  function mClearHold() { if (mHold) clearTimeout(mHold.timer); return null; }
+  function mPoint(e) { var r = $("pdf-marks").getBoundingClientRect(); return [Math.min(1, Math.max(0, (e.clientX - r.left) / (r.width || 1))), Math.min(1, Math.max(0, (e.clientY - r.top) / (r.height || 1)))]; }
+  function mTempShow() { var svg = $("pdf-marks"), old = svg.querySelector("[data-temp]"); if (old) old.remove(); if (!mDrag) return; var el = mDrag.kind === "hl" ? mDraw({ kind: "hl", r: [Math.min(mDrag.a[0], mDrag.b[0]), Math.min(mDrag.a[1], mDrag.b[1]), Math.max(mDrag.a[0], mDrag.b[0]) + 1e-9, Math.max(mDrag.a[1], mDrag.b[1]) + 1e-9] }, true) : mDraw({ kind: "ink", s: [mDrag.pts.length > 1 ? mDrag.pts : mDrag.pts.concat(mDrag.pts)] }, true); el.setAttribute("data-temp", "1"); svg.appendChild(el); }
+  var mSvg = $("pdf-marks");
+  mSvg.addEventListener("pointerdown", function (e) {
+    if (mTool === "off" || !mUsable() || mBusy || e.button > 0) return;
+    e.preventDefault(); try { mSvg.setPointerCapture(e.pointerId); } catch (x) { /* capture is best effort */ }
+    var p = mPoint(e); mDrag = { kind: mTool, id: e.pointerId, a: p, b: p, pts: [p], n: 1 }; mTempShow();
+  });
+  mSvg.addEventListener("pointermove", function (e) {
+    if (!mDrag || e.pointerId !== mDrag.id) return;
+    var p = mPoint(e);
+    if (mDrag.kind === "hl") mDrag.b = p;
+    else { var q = mDrag.pts[mDrag.pts.length - 1]; if (Math.abs(p[0] - q[0]) + Math.abs(p[1] - q[1]) < 0.003 || mDrag.pts.length >= window.PdfMarks.MAX_POINTS) return; mDrag.pts.push(p); }
+    mTempShow();
+  });
+  mSvg.addEventListener("pointerup", function (e) {
+    if (!mDrag || e.pointerId !== mDrag.id) return;
+    var d = mDrag, p = mPoint(e); mDrag = null; if (d.kind === "hl") d.b = p;
+    var M = window.PdfMarks, r = d.kind === "hl" ? M.addHighlight(mMarks, page, d.a[0], d.a[1], d.b[0], d.b[1]) : M.addInk(mMarks, page, [d.pts]);
+    if (r.error) mmsg(r.error); else { mMarks = r.marks; mHold = mClearHold(); mmsg((d.kind === "hl" ? "Area highlight" : "Pen drawing") + " added on page " + page + ". It stays in this tab only until you download a copy."); }
+    renderMarks();
+  });
+  mSvg.addEventListener("pointercancel", function () { mDrag = null; renderMarks(); });
+  function mReset() { mToken++; mMarks = []; mTool = "off"; mDrag = null; mHold = mClearHold(); mBusy = false; renderMarks(); mmsg(""); }
+  $("pdf-tool-hl").addEventListener("click", function () { mSetTool("hl"); });
+  $("pdf-tool-pen").addEventListener("click", function () { mSetTool("pen"); });
+  $("pdf-markclear").addEventListener("click", function () { if (mBusy) return; mMarks = []; mHold = mClearHold(); renderMarks(); mmsg("All marks removed."); });
+  $("pdf-markcopy").addEventListener("click", function () {
+    if (!doc || mBusy || !mMarks.length) return;
+    var myDoc = doc, nameText = $("pdf-name").textContent || "PDF file", tok = ++mToken, sig = JSON.stringify(mMarks);
+    if (mHold && mHold.doc === myDoc && mHold.sig === sig) { var h = mHold; mHold = mClearHold(); pSave(h.r, nameText, "-marks.pdf"); mmsg("Downloaded a copy with " + h.r.added + " mark(s). The file you opened was not changed."); return; }
+    mHold = mClearHold(); mBusy = true; mControls(); mmsg("Building the copy in this browser.");
+    var libs = window.PDFLib ? Promise.resolve() : loadScript(BASE + "pdf-lib.min.js").catch(function () { throw { stage: "load" }; });
+    libs.then(function () { return myDoc.getData().catch(function () { throw { stage: "read" }; }); }).then(function (bytes) {
+      return window.PdfMarks.build(window.PDFLib, window.PdfNotesExport, bytes, mMarks.slice());
+    }).then(function (r) {
+      if (tok !== mToken || myDoc !== doc) return;
+      if (r.signed) {
+        mHold = { doc: myDoc, r: r, sig: sig, timer: setTimeout(function () { mHold = null; if (myDoc === doc) mmsg("The copy was not downloaded."); }, 15000) };
+        mmsg("This file has a digital signature. A copy rewrites the file, so the signature in the copy will not validate. The original is not touched. Press Download a copy with marks again within 15 seconds, with no changes to the marks, to download it anyway.");
+        return;
+      }
+      pSave(r, nameText, "-marks.pdf"); mmsg("Downloaded a copy with " + r.added + " mark(s). The file you opened was not changed.");
+    }).catch(function (e) {
+      if (tok !== mToken || myDoc !== doc) return;
+      var c = e && (e.stage || e.code), m = "The copy could not be made. Nothing was downloaded and the file you opened was not changed.";
+      if (c === "load") m = "The part of this page that writes PDFs could not be loaded. Check the connection and try again.";
+      else if (c === "read") m = "This page could not read the open file's bytes again. Open the file again and retry.";
+      else if (c === "size") m = "The copy would be over 20 MB. Nothing was downloaded.";
+      else if (c === "encrypted") m = "This file is encrypted, so it cannot be copied. Nothing was downloaded.";
+      else if (c === "damaged") m = "This file could not be read again (it may be damaged). Nothing was downloaded.";
+      else if (c === "annots") m = "A page in this file has an annotation list this page cannot add to. Nothing was downloaded.";
+      else if (c === "xfa") m = "This file has an XFA form, which a copy made here would lose. Nothing was downloaded.";
+      mmsg(m);
+    }).then(function () { if (tok === mToken) { mBusy = false; mControls(); } });
+  });
   function closeDoc(msg) {
     token++; cancelCurrent(); fseq.begin(); finding = false; mark = ""; $("pdf-fstop").disabled = true; fmsg(""); $("pdf-q").value = "";
-    formsReset(); pagesReset(); thClose(); var d = doc; doc = null; page = 1; zoom = 1; fitPage = false; rot = 0; notesClose(); $("pdf-text").textContent = ""; shown = "";
+    formsReset(); pagesReset(); mReset(); thClose(); var d = doc; doc = null; page = 1; zoom = 1; fitPage = false; rot = 0; notesClose(); $("pdf-text").textContent = ""; shown = "";
     settle.then(function () { if (doc) return; canvas.width = 1; canvas.height = 1; canvas.style.width = "0"; canvas.style.height = "0"; });
     var lt = loadTask; loadTask = null; if (lt) { try { lt.destroy(); } catch (e) { /* already gone */ } }
     controls(); status.textContent = msg || "";

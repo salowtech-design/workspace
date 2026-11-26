@@ -24,7 +24,7 @@
 <p class="cal-meta"><span id="pdf-name"></span> <span id="pdf-where" role="status">No file open.</span></p>
 <div id="pdf-thumbs" class="pdf-thumbs" role="group" aria-label="Page thumbnails" hidden></div>
 <p class="cal-meta" id="pdf-thumbnote" hidden></p>
-<div id="pdf-stage" class="pdf-stage"><div class="pdf-pagewrap" id="pdf-pagewrap"><canvas id="pdf-canvas" width="1" height="1" role="img" aria-label="Current PDF page as a picture. Its extracted text is in the block below."></canvas><div id="pdf-pins" class="pdf-pins"></div></div></div>
+<div id="pdf-stage" class="pdf-stage"><div class="pdf-pagewrap" id="pdf-pagewrap"><canvas id="pdf-canvas" width="1" height="1" role="img" aria-label="Current PDF page as a picture. Its extracted text is in the block below."></canvas><div id="pdf-pins" class="pdf-pins"></div><svg id="pdf-marks" class="pdf-marks" viewBox="0 0 1 1" preserveAspectRatio="none" aria-hidden="true" focusable="false"></svg></div></div>
 <div class="pdf-notes" id="pdf-notes" data-prefix="{{ notes_prefix }}">
 <p class="pdf-tools"><button class="btn" type="button" id="pdf-addnote" disabled aria-pressed="false">Add a note</button>
 <button class="btn" type="button" id="pdf-addpagenote" disabled>Add a note to this page</button>
@@ -36,6 +36,14 @@
 <button class="btn" type="submit">Save note</button> <button class="btn" type="button" id="pdf-notecancel">Cancel</button></form>
 <p class="cal-meta" id="pdf-notestatus" role="status"></p>
 <ol class="pdf-notelist" id="pdf-notelist"></ol></div>
+<div class="pdf-marksbox" id="pdf-marksbox">
+<p class="cal-meta" id="pdf-markhint"><strong>Area highlight and Pen.</strong> Area highlight draws a rectangle over part of the page. It does not select or recognise text. Marks stay only in this tab: they are gone when you close the file or leave the page, and they are not stored. Download a copy to keep them. The copy is a separate file with only these marks (not the notes), the original is not changed, and a digital signature in the original will not validate in the copy. Marks cannot be added while the page is turned. Drawing needs a pointer, finger or pen; there is no keyboard way to draw yet.</p>
+<p class="pdf-tools"><button class="btn" type="button" id="pdf-tool-hl" disabled aria-pressed="false">Area highlight</button>
+<button class="btn" type="button" id="pdf-tool-pen" disabled aria-pressed="false">Pen</button>
+<button class="btn" type="button" id="pdf-markclear" disabled>Remove all marks</button>
+<button class="btn" type="button" id="pdf-markcopy" disabled>Download a copy with marks</button></p>
+<ol class="pdf-notelist" id="pdf-marklist"></ol>
+<p class="cal-meta" id="pdf-markstatus" role="status"></p></div>
 <div class="pdf-pages" id="pdf-pages">
 <p class="pdf-tools"><label>Pages to keep <input type="text" id="pdf-range" maxlength="400" placeholder="1-3,5" autocomplete="off" disabled></label>
 <button class="btn" type="button" id="pdf-splitgo" disabled>Download these pages as a new PDF</button></p>
@@ -61,6 +69,7 @@
 <script src="/static/pdf/export.js"></script>
 <script src="/static/pdf/forms.js"></script>
 <script src="/static/pdf/pages.js"></script>
+<script src="/static/pdf/marks.js"></script>
 <script src="/static/pdf/thumbs.js"></script>
 <script src="/static/pdf/viewer.js"></script>
 {% endblock %}

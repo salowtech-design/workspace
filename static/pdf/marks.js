@@ -37,7 +37,9 @@
   function fail(code, msg) { var e = new Error(msg); e.code = code; return e; }
   // A copy of the file with the marks as annotations. E is PdfNotesExport (for the page-box and rotation maths and the signed check).
   function build(L, E, bytes, marks) {
-    return L.PDFDocument.load(bytes, { ignoreEncryption: false, updateMetadata: false }).then(function (pdf) {
+    // pdf-lib drops XFA data when it saves; a copy that silently lost it would differ from the file, so such files are refused (the same rule as filled copies).
+    return L.PDFDocument.load(bytes, { ignoreEncryption: false, updateMetadata: false, preserveXFA: true }).then(function (pdf) {
+      try { var af = pdf.catalog.lookup(L.PDFName.of("AcroForm")); if (af instanceof L.PDFDict && af.get(L.PDFName.of("XFA")) !== undefined) throw fail("xfa", "xfa form"); } catch (e) { if (e && e.code === "xfa") throw e; }
       var ctx = pdf.context, count = pdf.getPageCount(), signed = E.looksSigned(L, pdf, bytes), done = 0, N = L.PDFName.of, targets = [];
       marks.forEach(function (m) {
         if (!validMark(m)) throw fail("mark", "invalid mark");

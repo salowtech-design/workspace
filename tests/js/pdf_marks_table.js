@@ -32,6 +32,13 @@ const done = (async () => {
   const ink = an.lookup(1), il = ink.lookup(P.PDFName.of("InkList"));
   ok("the ink keeps one stroke of three points in page coordinates", il.size() === 1 && il.lookup(0).size() === 6 && Math.abs(il.lookup(0).lookup(0).asNumber() - 40) < 1e-6 && Math.abs(il.lookup(0).lookup(1).asNumber() - 300) < 1e-6);
 
+  // Hand-worked expected rectangles (not computed with toPage): a 400x600 page, a highlight over the top-left quarter-width, quarter-height of the display.
+  const hr = async (setup, r) => { const f = await pdfWith(setup), o = await M.build(P, E, f, M.addHighlight([], 1, r[0], r[1], r[2], r[3], rnd).marks), dd = await P.PDFDocument.load(o.bytes); return dd.getPage(0).node.lookup(P.PDFName.of("Annots")).lookup(0).lookup(P.PDFName.of("Rect")).asArray().map((q) => q.asNumber()); };
+  const near = (a, b) => a.length === b.length && a.every((v, i) => Math.abs(v - b[i]) < 1e-6);
+  ok("rotation 90: display top-left (u 0..0.5, v 0..0.25) is x 0..100, y 0..300 on a 400x600 page", near(await hr((dd, pg) => pg.setRotation(P.degrees(90)), [0, 0, 0.5, 0.25]), [0, 0, 100, 300]));
+  ok("rotation 180: x 200..400, y 0..150", near(await hr((dd, pg) => pg.setRotation(P.degrees(180)), [0, 0, 0.5, 0.25]), [200, 0, 400, 150]));
+  ok("rotation 270: x 300..400, y 300..600", near(await hr((dd, pg) => pg.setRotation(P.degrees(270)), [0, 0, 0.5, 0.25]), [300, 300, 400, 600]));
+  ok("a crop box with a non-zero origin: crop [50,100,300,400], top-left quarter is x 50..200, y 300..500", near(await hr((dd, pg) => pg.setCropBox(50, 100, 300, 400), [0, 0, 0.5, 0.5]), [50, 300, 200, 500]));
   const rotated = await pdfWith((dd, pg) => pg.setRotation(P.degrees(90)));
   const rr = await M.build(P, E, rotated, M.addHighlight([], 1, 0, 0, 0.5, 0.25, rnd).marks);
   const dr = await P.PDFDocument.load(rr.bytes), rrect = dr.getPage(0).node.lookup(P.PDFName.of("Annots")).lookup(0).lookup(P.PDFName.of("Rect")).asArray().map((x) => x.asNumber());
@@ -47,6 +54,7 @@ const done = (async () => {
   ok("existing annotations are kept and the new ones follow them", wa.getPage(0).node.lookup(P.PDFName.of("Annots")).size() === 3);
   const sg = fs.readFileSync(__dirname + "/fixtures/form_signed.pdf");
   ok("a signed input is reported as signed", (await M.build(P, E, sg, [])).signed === true && r.signed === false);
+  ok("an XFA form is refused, not copied without its XFA data", (await code(() => M.build(P, E, fs.readFileSync(__dirname + "/fixtures/form_xfa.pdf"), m))) === "xfa");
   console.log((n - bad) + "/" + n + " pdf marks rows passed");
 })();
 done.catch((e) => { console.log("ERROR " + e.stack); process.exit(1); });
