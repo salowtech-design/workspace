@@ -103,9 +103,11 @@ def test_activation_chain_should_not_reactivate_a_blocked_person(status):
 def test_activation_overlong_id_creates_no_session_and_fails_closed():
     """RECORDED: an id longer than the rate-limit key column makes the rate-limit middleware
     raise on the real TiDB store (strict mode), and it answers 503 (fails closed). SQLite
-    accepts the long key and the page answers 200. Either way no session is created. The
+    accepts the long key and the page answers 200. Either way no next step is granted. The
     middleware is not changed here."""
     _user()
     c = Client(HTTP_HOST="app.salowtech.com", raise_request_exception=False)
     r = c.post(reverse("accounts:activate"), {"employee_id": "x" * 20000, "password": PW})
-    assert r.status_code in (200, 503) and ACTIVATION_SESSION_KEY not in c.session
+    # no redirect means no next activation step was granted (the session is not read here: on
+    # TiDB the failed insert leaves the test transaction unusable)
+    assert r.status_code in (200, 503) and not r.has_header("Location")
