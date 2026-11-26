@@ -256,6 +256,7 @@ def register(g):
     register_sheets_more(g)
     register_pdf_more(g)
     register_slides_more(g)
+    register_att_more(g, users)
     register_posts_more(g, users)
 
 
@@ -2160,3 +2161,75 @@ def register_slides_more(g):
         run_tour(ctx, "33_slides_more", body, notes="Device-local deck, secure-context test flag, headless Chromium 390x844 emulated. Exported files are checked off video.", unshown=["finger drag", "arrow-key move", "Export with pictures", "unreadable-deck recovery", "Move down"])
 
     g["DRILLS"]["tour_slides_more"] = tour
+
+
+def register_att_more(g, users):
+    APP = g["APP"]
+
+    def tour(ctx):
+        import concurrent.futures
+        import datetime as dt
+
+        users(ctx)
+
+        def run(fn):
+            with concurrent.futures.ThreadPoolExecutor(1) as ex:
+                return ex.submit(fn).result()
+
+        def fixture():
+            from django.utils import timezone
+
+            from apps.accounts.models import CustomUser
+            from apps.attendance import services as at
+
+            me = CustomUser.objects.get(employee_id="ST-LIVE-1")
+            me.role = CustomUser.Role.HR
+            me.save(update_fields=["role"])
+            two = CustomUser.objects.get(employee_id="ST-LIVE-2")
+            three = CustomUser.objects.get(employee_id="ST-LIVE-3")
+            now = timezone.now().replace(microsecond=0)
+            wd = timezone.localtime(now, dt.timezone(dt.timedelta(hours=5, minutes=30))).date()
+            for who, kind, why in ((me, "check_in", "My own camera request"), (two, "check_in", "Second: camera broken"), (three, "check_in", "Third: badge lost")):
+                at.create_fallback_request(who, kind, wd, now, why)
+
+        run(fixture)
+
+        def to_manager():
+            from apps.accounts.models import CustomUser
+            from apps.directory.models import ReportingRelationship
+
+            me = CustomUser.objects.get(employee_id="ST-LIVE-1")
+            two = CustomUser.objects.get(employee_id="ST-LIVE-2")
+            me.role = CustomUser.Role.MANAGER
+            me.save(update_fields=["role"])
+            ReportingRelationship.objects.get_or_create(manager=me, subordinate=two)
+            from django.utils import timezone
+
+            from apps.attendance import services as at
+            now = timezone.now().replace(microsecond=0)
+            wd = timezone.localtime(now, dt.timezone(dt.timedelta(hours=5, minutes=30))).date()
+            three = CustomUser.objects.get(employee_id="ST-LIVE-3")
+            at.create_fallback_request(two, "check_out", wd, now + dt.timedelta(seconds=1), "Second: forgot to check out")
+
+        def body(t, pg):
+            txt = lambda: pg.inner_text("body")
+            row = lambda who: pg.evaluate("w=>{const r=[...document.querySelectorAll('tbody tr')].find(x=>x.textContent.indexOf(w)>=0); if(r) r.scrollIntoView({block:'center'}); return !!r}", who)
+            pg.goto(APP + "/attendance/admin/")
+            t.step("Attendance admin panel as HR: three pending requests", lambda: row("ST-LIVE-3"), expect=lambda: "ST-LIVE-2" in txt() and "ST-LIVE-3" in txt() and "ST-LIVE-1" in txt(), wait=3000)
+            t.step("Approve my own request: refused", lambda: (pg.evaluate("w=>{const r=[...document.querySelectorAll('tbody tr')].find(x=>x.textContent.indexOf(w)>=0); r.querySelector('button[value=approve]').click()}", "My own camera request")), expect=lambda: "cannot review your own" in txt(), wait=1800)
+            t.step("The refusal message and the request still listed", lambda: pg.evaluate("window.scrollTo(0,0)"), expect=lambda: "My own camera request" in txt(), wait=3200)
+            t.step("Approve Second's request", lambda: pg.evaluate("w=>{const r=[...document.querySelectorAll('tbody tr')].find(x=>x.textContent.indexOf(w)>=0); r.querySelector('button[value=approve]').click()}", "Second: camera broken"), expect=lambda: "successfully approved" in txt(), wait=1800)
+            t.step("Banner says approved; Second's row is gone from pending", lambda: pg.evaluate("window.scrollTo(0,0)"), expect=lambda: "Second: camera broken" not in txt(), wait=3200)
+            t.step("Reject Third's request", lambda: pg.evaluate("w=>{const r=[...document.querySelectorAll('tbody tr')].find(x=>x.textContent.indexOf(w)>=0); r.querySelector('button[value=reject]').click()}", "Third: badge lost"), expect=lambda: "successfully rejected" in txt(), wait=1800)
+            t.step("Banner says rejected; the list holds only my own request", lambda: pg.evaluate("window.scrollTo(0,0)"), expect=lambda: "Third: badge lost" not in txt(), wait=3200)
+            t.step("Today's sessions show Second's approved manual check-in", lambda: pg.evaluate("(()=>{const e=[...document.querySelectorAll('h2,h3')].find(h=>/session/i.test(h.textContent)); if(e) e.scrollIntoView({block:'start'}); return 0})()"), expect=lambda: "ST-LIVE-2" in txt(), wait=3500)
+            run(to_manager)
+            pg.goto(APP + "/attendance/admin/")
+            t.step("Now the same account as a Manager of Second only: panel lists only Second's new request", lambda: row("forgot to check out"), expect=lambda: "forgot to check out" in txt() and "My own camera request" not in txt(), wait=3500)
+            t.step("Approve it", lambda: pg.evaluate("w=>{const r=[...document.querySelectorAll('tbody tr')].find(x=>x.textContent.indexOf(w)>=0); r.querySelector('button[value=approve]').click()}", "forgot to check out"), expect=lambda: "successfully approved" in txt() or "Nothing was changed" in txt() or "no open" in txt().lower(), wait=1800)
+            t.step("Result banner", lambda: pg.evaluate("window.scrollTo(0,0)"), expect=lambda: True, wait=3500)
+            t.note("Not shown: Admin view, Manager approving a non-report (the page hides it), the check-out result on the worker's own page.", 3)
+
+        run_tour(ctx, "34_attendance_review", body, notes="Real Django on TiDB, headless Chromium 390x844 emulated. Fixture: the signed-in account was made HR, then Manager of Second Synthetic, by script; pending requests created by script. Check-in still uses the dev stub elsewhere.", unshown=["Admin view", "non-report approval attempt via crafted request", "worker's own page after approval"])
+
+    g["DRILLS"]["tour_att_more"] = tour
