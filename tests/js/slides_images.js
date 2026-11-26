@@ -29,6 +29,10 @@ ok("jpeg: truncated before the end marker, and a frame header lying past the fil
 const big = new Uint8Array(I.LIMITS.MAX_BYTES + 1); big.set(png(8, 4)); ok("size: a file over 2 MB is refused", !I.sniff(big).ok && I.LIMITS.MAX_BYTES === 2000000);
 ok("type: GIF, SVG, WebP, HTML and an empty file are refused by signature, whatever the name", ["GIF89a" + "x".repeat(60), "<svg xmlns='http://www.w3.org/2000/svg'></svg>", "RIFF\0\0\0\0WEBPVP8 " + "x".repeat(40), "<html><script>alert(1)</script></html>", ""].every((t) => !I.sniff(new Uint8Array(Buffer.from(t, "latin1"))).ok));
 ok("type: a PNG renamed .jpg is still read as a PNG and a JPEG signature with PNG body is refused", I.sniff(png(8, 4)).type === "image/png" && !I.sniff(new Uint8Array([255, 216, 255, 0, 0, 0, 0, 0])).ok);
+const samples = [new Uint8Array(0), new Uint8Array([1, 2, 3]), new Uint8Array(55), new Uint8Array(56), new Uint8Array(64), new Uint8Array(1000).map((_, i) => i * 7), new Uint8Array(100000).map((_, i) => i * 31)];
+Promise.all(samples.map((x) => Promise.all([I.sha256(x, true), I.sha256(x)]))).then((rs) => {
+  ok("sha256: the plain-code fallback equals the browser digest and node's for 0, 3, 55, 56, 64, 1000 and 100000 bytes", rs.every((p, k) => p[0] === p[1] && p[0] === crypto.createHash("sha256").update(Buffer.from(samples[k])).digest("hex")));
+});
 I.sha256(new Uint8Array([1, 2, 3])).then((h) => {
   ok("sha256: matches the reference value", h === crypto.createHash("sha256").update(Buffer.from([1, 2, 3])).digest("hex") && /^[0-9a-f]{64}$/.test(h));
   console.log(`${n - bad}/${n} slides image rows passed`); process.exit(bad ? 1 : 0);

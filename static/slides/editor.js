@@ -15,9 +15,34 @@
   }
   var H = new S.History(initial, { save: function (d) { try { localStorage.setItem(KEY, JSON.stringify(d)); return true; } catch (e) { return false; } } });
   H.blocked = unreadable;
+  // Pictures: bytes live in this browser's IndexedDB (one database per person), never in the deck. The deck holds only the SHA-256.
+  var IM = window.SalowSlidesImages, store = IM ? new IM.Store("salow.slides.pictures." + KEY) : null, urls = Object.create(null), MAXB = IM ? IM.LIMITS.MAX_DECK_BYTES : 0;
+  function b64(u8) { var out = "", step = 0x8000; for (var i = 0; i < u8.length; i += step) out += String.fromCharCode.apply(null, u8.subarray(i, i + step)); return btoa(out); }
+  // Returns a data: URL once the picture is loaded and checked (signature, then SHA-256 against the name it is stored under), else null and urls[hash] says why.
+  function pictureUrl(hash) {
+    var u = urls[hash]; if (u && u.indexOf("data:") === 0) return u; if (u) return null;
+    if (!store) { urls[hash] = "missing"; return null; }
+    urls[hash] = "loading";
+    store.get(hash).then(function (rec) {
+      if (!rec) { urls[hash] = "missing"; return; }
+      var bytes = new Uint8Array(rec.bytes), sn = IM.sniff(bytes);
+      if (!sn.ok) { urls[hash] = "damaged"; return; }
+      return IM.sha256(bytes).then(function (h) { urls[hash] = h === hash ? "data:" + sn.type + ";base64," + b64(bytes) : "damaged"; });
+    }).catch(function () { urls[hash] = "missing"; }).then(function () { refresh(); });
+    return null;
+  }
+  function refresh() { if (H) { render(); if (show.open) showDraw(); } }
   function el(n, at, tx) { var x = document.createElementNS(NS, n); Object.keys(at || {}).forEach(function (k) { x.setAttribute(k, at[k]); }); if (tx !== undefined) x.textContent = tx; return x; }
   // Shape and text of one item, shared by the editor and the slide show.
   function drawEl(g, d, e) {
+    if (e.type === "image") {
+      var url = pictureUrl(e.img);
+      if (url) { g.appendChild(el("image", { href: url, x: e.x, y: e.y, width: e.w, height: e.h, preserveAspectRatio: "xMidYMid meet" })); return; }
+      var why = urls[e.img] === "loading" || urls[e.img] === undefined ? "Loading picture" : urls[e.img] === "damaged" ? "Picture damaged" : "Picture missing";
+      g.appendChild(el("rect", { x: e.x, y: e.y, width: e.w, height: e.h, fill: "#e8e8e8", stroke: "#808080", "stroke-width": 1 }));
+      g.appendChild(el("text", { x: e.x + e.w / 2, y: e.y + e.h / 2, "text-anchor": "middle", "font-size": Math.max(10, Math.min(22, e.h / 3)), fill: "#333333", "font-family": "sans-serif" }, why));
+      return;
+    }
     var c = S.color(d, e);
     if (e.type === "rect") g.appendChild(el("rect", { x: e.x, y: e.y, width: e.w, height: e.h, fill: c }));
     else if (e.type === "ellipse") g.appendChild(el("ellipse", { cx: e.x + e.w / 2, cy: e.y + e.h / 2, rx: e.w / 2, ry: e.h / 2, fill: c }));
@@ -119,6 +144,8 @@
     });
     $("sl-items-empty").hidden = tgt().length > 0;
     var e = sel(), props = $("sl-props"); props.disabled = !e; $("sl-del-el").disabled = !e;
+    var isPic = !!(e && e.type === "image"); ["sl-size", "sl-fill", "sl-bold", "sl-italic", "sl-align"].forEach(function (id) { $(id).disabled = isPic; });
+    $("sl-text-label").textContent = isPic ? "Description (for screen readers, not drawn)" : "Text";
     var pos = e ? tgt().indexOf(e) : -1; $("sl-back").disabled = pos <= 0; $("sl-fwd").disabled = pos < 0 || pos >= tgt().length - 1;
     ["text", "size", "x", "y", "w", "h", "fill"].forEach(function (f) { var inp = $("sl-" + f); if (document.activeElement !== inp) inp.value = e ? e[f] : ""; });
     $("sl-bold").checked = !!(e && e.b); $("sl-italic").checked = !!(e && e.i); $("sl-align").value = e && e.al ? e.al : "default";
@@ -134,7 +161,7 @@
     $("sl-notes-label").textContent = editMaster ? "Speaker notes (not available while editing the master; leave the master to edit this slide's notes)" : "Speaker notes for this slide";
     var mu = editMaster ? [] : S.masterOf(d, cur); $("sl-master-under").textContent = mu.length ? "Master items drawn under this slide (not selectable here): " + S.describeEls(mu).join("; ") : "";
     status.textContent = H.note;
-    var cs = sel(); if (cs && cs.text) { var ln = S.wrapLines(cs.text, cs.size, cs.type === "text" ? cs.w : cs.w - 8, cs.b === true); if (S.textHeight(ln, cs.size) > cs.h) status.textContent += " The text is estimated to run past the item's edges."; }
+    var cs = sel(); if (cs && cs.text && cs.type !== "image") { var ln = S.wrapLines(cs.text, cs.size, cs.type === "text" ? cs.w : cs.w - 8, cs.b === true); if (S.textHeight(ln, cs.size) > cs.h) status.textContent += " The text is estimated to run past the item's edges."; }
   }
   $("sl-trans").addEventListener("change", function () { var n = S.ops.setTransition(H.deck, cur, this.value); if (!n || !apply(n, this.value === "fade" ? "This slide now fades in during Present." : "This slide has no transition.")) render(); });
   $("sl-master").addEventListener("click", function () { editMaster = !editMaster; selId = null; render(); status.textContent = editMaster ? "Editing the master. Items you add here appear on every slide that shows the master." : "Back to editing slides."; });
@@ -154,6 +181,32 @@
   $("sl-align").addEventListener("change", function () { var e = sel(); if (e) apply(eop("updateElement", e.id, { al: this.value }), "Align set to " + this.value + "."); });
   fill.addEventListener("change", function () { var e = sel(); if (e) apply(eop("updateElement", e.id, { fill: fill.value })); });
   ["text", "rect", "ellipse"].forEach(function (t) { $("sl-add-" + t).addEventListener("click", function () { var r = eop("addElement", t); if (!r) { status.textContent = editMaster ? "The master holds up to " + S.MAX_MASTER + " items." : "A slide holds up to " + S.MAX_EL + " items."; return; } selId = r.id; apply(r.deck); }); });
+  $("sl-add-img").addEventListener("click", function () {
+    if (unreadable) return;
+    if (editMaster) { status.textContent = "Pictures cannot go on the master. Leave the master to add one to a slide."; return; }
+    if (!store || !IM) { status.textContent = "This browser cannot keep pictures here, so none was added."; return; }
+    $("sl-img-file").click();
+  });
+  $("sl-img-file").addEventListener("change", function (ev) {
+    var f = ev.target.files[0]; ev.target.value = ""; if (!f || unreadable || editMaster) return;
+    if (f.size > IM.LIMITS.MAX_BYTES) { status.textContent = "That file is " + (f.size / 1e6).toFixed(1) + " MB. The limit is " + IM.LIMITS.MAX_BYTES / 1e6 + " MB per picture. Nothing was added."; return; }
+    status.textContent = "Checking the picture on this device...";
+    var at = cur, snap = H.deck;
+    f.arrayBuffer().then(function (buf) { return IM.qualify(new Uint8Array(buf)); }).then(function (rec) {
+      var dry = S.ops.addImage(snap, at, rec.hash, rec.w, rec.h, "");
+      if (!dry) throw new Error("This slide or deck is full (30 items per slide, 20 pictures per deck). Nothing was added.");
+      var hs = []; snap.slides.forEach(function (sl) { sl.elements.forEach(function (x) { if (x.type === "image") hs.push(x.img); }); });
+      return store.sizes(hs).then(function (sz) {
+        var already = hs.indexOf(rec.hash) >= 0;
+        if (!already && sz.total + rec.bytes.length > MAXB) throw new Error("Pictures in this deck would pass " + MAXB / 1e6 + " MB. Nothing was added.");
+        return store.put(rec);
+      }).then(function () {
+        urls[rec.hash] = "data:" + rec.type + ";base64," + b64(rec.bytes);
+        if (H.deck !== snap || cur !== at) { var r2 = S.ops.addImage(H.deck, cur, rec.hash, rec.w, rec.h, ""); if (!r2) throw new Error("The deck changed while the picture was being checked and is now full. Nothing was added."); dry = r2; } else dry = S.ops.addImage(H.deck, cur, rec.hash, rec.w, rec.h, "");
+        selId = dry.id; if (!apply(dry.deck, "Picture added (" + rec.w + " by " + rec.h + " pixels). Describe it in the Description box for screen readers.")) { selId = null; render(); }
+      });
+    }).catch(function (err) { status.textContent = (err && err.message ? err.message : "The picture could not be added.") + (store ? "" : ""); });
+  });
   [["sl-back", -1, "Item sent backward."], ["sl-fwd", 1, "Item brought forward."]].forEach(function (c) {
     $(c[0]).addEventListener("click", function () { var e = sel(); if (e && apply(eop("moveElement", e.id, c[1]), c[2])) { var b = $(c[0]); if (b.disabled) $("sl-del-el").focus(); else b.focus(); } });
   });
@@ -184,34 +237,97 @@
     unreadable = false; H.blocked = false; rawKept = null; render();
     status.textContent = "Started a new deck. The unreadable data is kept in this browser under a backup key and is replaced only if you start another new deck.";
   });
+  function deckHashes(d) { var hs = []; d.slides.forEach(function (sl) { sl.elements.forEach(function (x) { if (x.type === "image" && hs.indexOf(x.img) < 0) hs.push(x.img); }); }); return hs; }
+  // Loads and re-checks every picture a deck names: { hash: { type, bytes } } for the good ones, plus lists of the missing and damaged ones.
+  function loadPictures(d) {
+    var hs = deckHashes(d), out = { pics: {}, missing: [], damaged: [] };
+    if (!hs.length) return Promise.resolve(out);
+    if (!store) { out.missing = hs; return Promise.resolve(out); }
+    return Promise.all(hs.map(function (h) {
+      return store.get(h).then(function (rec) {
+        if (!rec) { out.missing.push(h); return; }
+        var bytes = new Uint8Array(rec.bytes), sn = IM.sniff(bytes); if (!sn.ok) { out.damaged.push(h); return; }
+        return IM.sha256(bytes).then(function (x) { if (x === h) out.pics[h] = { type: sn.type, bytes: bytes }; else out.damaged.push(h); });
+      }, function () { out.missing.push(h); });
+    })).then(function () { return out; });
+  }
+  function download(name, text) {
+    var u = URL.createObjectURL(new Blob([text], { type: "application/json" })), l = document.createElement("a");
+    l.href = u; l.download = name; document.body.appendChild(l); l.click(); l.remove(); setTimeout(function () { URL.revokeObjectURL(u); }, 4000);
+  }
+  $("sl-export-pics").addEventListener("click", function () {
+    var d = H.deck; if (!deckHashes(d).length) { status.textContent = "This deck has no pictures. Use Export (.json), which is the same file."; return; }
+    status.textContent = "Collecting the pictures on this device...";
+    loadPictures(d).then(function (r) {
+      if (r.missing.length || r.damaged.length) { status.textContent = "No file was made: " + (r.missing.length ? r.missing.length + " picture(s) are missing from this browser" : "") + (r.missing.length && r.damaged.length ? " and " : "") + (r.damaged.length ? r.damaged.length + " are damaged" : "") + ". Export (.json) would hold references only."; return; }
+      var list = Object.keys(r.pics).map(function (h) { return { hash: h, type: r.pics[h].type, data: b64(r.pics[h].bytes) }; });
+      download("deck-with-pictures.json", JSON.stringify({ format: "salow-slides-with-pictures", version: 1, deck: d, pictures: list }));
+      status.textContent = "Downloaded deck-with-pictures.json with " + list.length + " picture file(s) inside. Anyone with this file can see the pictures.";
+    }).catch(function () { status.textContent = "The pictures could not be collected, so no file was made."; });
+  });
   $("sl-export").addEventListener("click", function () {
-    var u = URL.createObjectURL(new Blob([JSON.stringify(H.deck)], { type: "application/json" })), l = document.createElement("a");
-    l.href = u; l.download = "deck.json"; document.body.appendChild(l); l.click(); l.remove(); URL.revokeObjectURL(u);
+    if (deckHashes(H.deck).length && !window.confirm("This deck has pictures. Export (.json) saves only references to them, not the pictures, so opening the file elsewhere shows 'Picture missing' boxes. Use 'Export with pictures' to include them. Download the references-only file anyway?")) { status.textContent = "Export cancelled. Nothing was downloaded."; return; }
+    if (deckHashes(H.deck).length) status.textContent = "Downloaded deck.json WITHOUT the picture files: references only.";
+    download("deck.json", JSON.stringify(H.deck));
   });
   $("sl-pdf").addEventListener("click", function () {
     var btn = $("sl-pdf"), deck = H.deck;
     if (!window.PDFLib || !window.SalowSlidesPdf) { status.textContent = "The PDF maker did not load, so no PDF was made."; return; }
     btn.disabled = true; status.textContent = "Making the PDF on this device...";
-    Promise.resolve().then(function () { return window.SalowSlidesPdf.build(window.PDFLib, S, deck); }).then(function (bytes) {
+    var info = {}, pr;
+    loadPictures(deck).then(function (r) { pr = r; var all = Object.assign({}, r.pics); return window.SalowSlidesPdf.build(window.PDFLib, S, deck, all, info); }).then(function (bytes) {
       var u = null;
       try {
         u = URL.createObjectURL(new Blob([bytes], { type: "application/pdf" }));
         var l = document.createElement("a"); l.href = u; l.download = "slides.pdf"; document.body.appendChild(l); l.click(); l.remove();
       } catch (e) { if (u) URL.revokeObjectURL(u); throw e; }
       setTimeout(function () { URL.revokeObjectURL(u); }, 4000);
-      status.textContent = "Downloaded slides.pdf: " + deck.slides.length + " pages, one per slide. Speaker notes are not in the PDF. Line breaks follow the screen estimate, so text may sit a little differently than in the editor.";
+      status.textContent = "Downloaded slides.pdf: " + deck.slides.length + " pages, one per slide. Speaker notes are not in the PDF. Line breaks follow the screen estimate, so text may sit a little differently than in the editor." + (info.missing.length || info.failed.length || pr.damaged.length ? " WARNING: " + (info.missing.length + pr.damaged.length) + " picture(s) were missing or damaged and are drawn as grey boxes" + (info.failed.length ? "; " + info.failed.length + " could not be read by the PDF maker and are also grey boxes" : "") + "." : "");
     }).catch(function (err) {
       status.textContent = err && err.code === "chars" ? err.message : "The PDF could not be made or saved, so nothing was downloaded.";
     }).then(function () { btn.disabled = false; }, function () { btn.disabled = false; });
   });
+  var B64 = /^[A-Za-z0-9+/]+={0,2}$/, WRAP = "salow-slides-with-pictures";
+  // A file made by "Export with pictures": every picture is checked again exactly as if it had been added by hand, its fingerprint must equal the name it is filed under,
+  // and nothing is replaced until all of them pass and the person agrees.
+  function importWithPictures(raw, finish) {
+    var d = S.validate(raw && raw.deck), list = raw && raw.pictures;
+    if (raw.version !== 1 || !d || !Array.isArray(list) || list.length > S.MAX_EL * 20 || !store) { status.textContent = "That file is not a usable deck with pictures. Your deck was not changed."; return; }
+    var seen = Object.create(null), total = 0, jobs = [];
+    for (var k = 0; k < list.length; k++) {
+      var p = list[k];
+      if (!p || typeof p.hash !== "string" || typeof p.data !== "string" || seen[p.hash] || p.data.length > Math.ceil(IM.LIMITS.MAX_BYTES * 4 / 3) + 8 || p.data.length % 4 || !B64.test(p.data)) { status.textContent = "That file has a damaged picture entry. Your deck was not changed."; return; }
+      seen[p.hash] = true;
+      var bin; try { bin = atob(p.data); } catch (x) { status.textContent = "That file has a damaged picture entry. Your deck was not changed."; return; }
+      var u8 = new Uint8Array(bin.length); for (var q = 0; q < bin.length; q++) u8[q] = bin.charCodeAt(q);
+      total += u8.length; jobs.push({ hash: p.hash, bytes: u8 });
+    }
+    if (total > MAXB) { status.textContent = "The pictures in that file pass " + MAXB / 1e6 + " MB. Your deck was not changed."; return; }
+    Promise.all(jobs.map(function (j) { return IM.qualify(j.bytes).then(function (rec) { if (rec.hash !== j.hash) throw new Error("A picture in that file does not match its fingerprint."); return rec; }); })).then(function (recs) {
+      var need = deckHashes(d).filter(function (h) { return !seen[h]; });
+      return store.sizes(need).then(function (sz) { return { recs: recs, absent: sz.missing }; });
+    }).then(function (r) {
+      var msg = "Replace this deck with the " + d.slides.length + " slides and " + r.recs.length + " picture file(s) in this file? The pictures are kept in this browser. You can undo the deck change until you reload." + (r.absent.length ? " " + r.absent.length + " picture(s) it uses are not in the file or this browser and will show as 'Picture missing'." : "");
+      if (!window.confirm(msg)) { status.textContent = "Import cancelled. Your deck was not changed."; return; }
+      return Promise.all(r.recs.map(function (rec) { return store.put(rec).then(function () { urls[rec.hash] = "data:" + rec.type + ";base64," + b64(rec.bytes); }); })).then(function () { finish(d, r.absent.length); });
+    }).catch(function (err) { status.textContent = (err && err.message ? err.message : "The pictures could not be stored.") + " Your deck was not changed."; });
+  }
   $("sl-import").addEventListener("change", function (e) {
     var f = e.target.files[0]; if (!f) return;
-    if (f.size > 1000000) { status.textContent = "That file is too large. Your deck was not changed."; return; }
+    if (f.size > 14000000) { status.textContent = "That file is too large. Your deck was not changed."; return; }
     var rd = new FileReader();
     rd.onload = function () {
-      var d = null, cutN = 0; try { var rawObj = JSON.parse(String(rd.result)); d = S.validate(rawObj); cutN = S.countCut(rawObj); } catch (x) { d = null; }
+      var rawObj = null, d = null, cutN = 0; try { rawObj = JSON.parse(String(rd.result)); } catch (x) { rawObj = null; }
+      function done(deck, absent) {
+        var prev = cur, prevSel = selId; cur = 0; selId = null;
+        if (!apply(deck, "Imported " + deck.slides.length + " slides." + (absent ? " " + absent + " picture(s) are missing and show as grey boxes." : "") + " You can undo this import.")) { cur = prev; selId = prevSel; status.textContent = H.blocked ? H.note : "That deck is the same as the current one, so the deck did not change." + (deckHashes(deck).length ? " Its pictures are kept in this browser." : ""); refresh(); }
+      }
+      if (rawObj && typeof rawObj === "object" && rawObj.format === WRAP) { importWithPictures(rawObj, done); return; }
+      if (f.size > 1000000) { status.textContent = "That file is too large. Your deck was not changed."; return; }
+      try { d = S.validate(rawObj); cutN = S.countCut(rawObj); } catch (x) { d = null; }
       if (!d) { status.textContent = "That file is not a usable deck. Your deck was not changed."; return; }
-      if (!window.confirm("Replace this deck with the " + d.slides.length + " slides in this file? You can undo it until you reload.")) { status.textContent = "Import cancelled. Your deck was not changed."; return; }
+      var refs = deckHashes(d).length;
+      if (!window.confirm("Replace this deck with the " + d.slides.length + " slides in this file? You can undo it until you reload." + (refs ? " It names " + refs + " picture(s) by reference only; any that this browser does not have will show as 'Picture missing'." : ""))) { status.textContent = "Import cancelled. Your deck was not changed."; return; }
       var prev = cur, prevSel = selId; cur = 0; selId = null; if (!apply(d, "Imported " + d.slides.length + " slides." + (cutN ? " " + cutN + " text " + (cutN === 1 ? "field was" : "fields were") + " shortened to fit the limits." : "") + " You can undo this import.")) { cur = prev; selId = prevSel; status.textContent = H.blocked ? H.note : "That deck is the same as the current one. Nothing changed."; }
     };
     rd.readAsText(f); e.target.value = "";

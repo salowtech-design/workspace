@@ -997,8 +997,8 @@ def slides_layout(ctx):
     pg.wait_for_timeout(300)
     check(
         "layouts: the slide show shows the layout text",
-        "Subtitle" in pg.inner_text("#sl-show-canvas"),
-        pg.inner_text("#sl-show-canvas"),
+        "Subtitle" in pg.text_content("#sl-show-canvas"),
+        pg.text_content("#sl-show-canvas"),
     )
     pg.keyboard.press("Escape")
 
@@ -3440,6 +3440,280 @@ def sheets_pivot(ctx):
     check("pivot: it builds again from the stored cells after a reload", "a=" in table(), table())
 
 
+def _png(w, h, rgb=(200, 30, 30)):
+    """A valid PNG of one colour, built with the standard library."""
+    import struct
+
+    def ch(n, d):
+        c = struct.pack(">I", len(d)) + n + d
+        return c + struct.pack(">I", zlib.crc32(n + d) & 0xFFFFFFFF)
+
+    # a size larger than 4096 is only declared in the header, with a tiny data chunk, so the test itself stays small
+    rw, rh = (w, h) if w <= 4096 and h <= 4096 else (8, 4)
+    raw = b"".join(b"\x00" + bytes(rgb) * rw for _ in range(rh))
+    return (
+        b"\x89PNG\r\n\x1a\n"
+        + ch(b"IHDR", struct.pack(">IIBBBBB", w, h, 8, 2, 0, 0, 0))
+        + ch(b"IDAT", zlib.compress(raw))
+        + ch(b"IEND", b"")
+    )
+
+
+TMP_FULL = "/tmp/deck-pics.json"  # noqa: S108
+TMP_TAMPER = "/tmp/deck-pics-tampered.json"  # noqa: S108
+
+
+def slides_images(ctx):  # noqa: C901
+    """Pictures: bytes only in this browser's IndexedDB, a version 5 deck holds a fingerprint, refusals, missing bytes, PDF and portable export."""
+    import json as _json
+
+    pg = fresh(ctx, "/slides/")
+    KEY = "document.getElementById('slide-root').dataset.storeKey"
+    pg.evaluate(
+        "new Promise(r=>{const q=indexedDB.deleteDatabase('salow.slides.pictures.'+%s);q.onsuccess=q.onerror=q.onblocked=()=>r()})"
+        % KEY
+    )
+    pg.reload()
+    pg.wait_for_timeout(400)
+    msgs = []
+    pg.on("dialog", lambda d: (msgs.append(d.message), d.accept()))
+
+    def deck():
+        return pg.evaluate("JSON.parse(localStorage.getItem(%s))" % KEY)
+
+    def status():
+        return pg.inner_text("#sl-status")
+
+    def idb_count():
+        return pg.evaluate(
+            "new Promise(res=>{const r=indexedDB.open('salow.slides.pictures.'+%s,1);r.onupgradeneeded=()=>r.result.createObjectStore('img',{keyPath:'hash'});r.onsuccess=()=>{const t=r.result.transaction('img');const q=t.objectStore('img').count();q.onsuccess=()=>{r.result.close();res(q.result)}}})"
+            % KEY
+        )
+
+    def add(name, data, mime="image/png"):
+        pg.set_input_files("#sl-img-file", files=[{"name": name, "mimeType": mime, "buffer": data}])
+        pg.wait_for_timeout(900)
+
+    def pic():
+        return [e for e in deck()["slides"][0]["elements"] if e["type"] == "image"]
+
+    def canvas():
+        return pg.evaluate(
+            "(()=>{const i=document.querySelector('#sl-canvas-wrap svg image');return i?i.getAttribute('href').slice(0,21):null})()"
+        )
+
+    def canvas_text():
+        return pg.text_content("#sl-canvas-wrap svg")
+
+    good = _png(40, 20)
+    add("chart.png", good)
+    e = pic()
+    check(
+        "pic: a PNG is added as a version 5 deck holding a 64 hex fingerprint",
+        deck()["v"] == 5 and len(e) == 1 and len(e[0]["img"]) == 64,
+        str(e),
+    )
+    stored_text = pg.evaluate("localStorage.getItem(%s)" % KEY)
+    check(
+        "pic: the stored deck has no picture bytes and no file name",
+        "iVBOR" not in stored_text and "chart" not in stored_text and len(stored_text) < 1500,
+        str(len(stored_text)),
+    )
+    check(
+        "pic: the canvas draws the picture from the browser store",
+        canvas() == "data:image/png;base64",
+        str(canvas()),
+    )
+    check(
+        "pic: the bytes are in the browser store (1 record), under a per-person database name",
+        idb_count() == 1,
+    )
+    names = pg.evaluate("indexedDB.databases().then(a=>a.map(x=>x.name))")
+    key = pg.evaluate(KEY)
+    check(
+        "pic: the database name carries the per-person key",
+        ("salow.slides.pictures." + key) in names,
+        str(names),
+    )
+    # refusals
+    before = (_json.dumps(deck()), idb_count())
+    add("a.png", b"GIF89a" + b"\x00" * 80)
+    st1 = status()
+    add("big.png", _png(60000, 60000))
+    st2 = status()
+    trunc = good[:-20]
+    add("cut.png", trunc)
+    st3 = status()
+    add("huge.bin", b"\xff" * 2_100_000)
+    st4 = status()
+    check(
+        "pic: a GIF, a 60000 by 60000 header, a truncated PNG and a 2.1 MB file are each refused with a message and change nothing",
+        (_json.dumps(deck()), idb_count()) == before
+        and "Only PNG" in st1
+        and "limit" in st2
+        and "damaged" in st3
+        and "limit" in st4,
+        str((st1, st2, st3, st4)),
+    )
+    # structure ok but the pixel data is corrupt: the browser decode catches it
+    bad = bytearray(good)
+    i = bad.index(b"IDAT") + 6
+    bad[i : i + 8] = b"\x00" * 8
+    add("corrupt.png", bytes(bad))
+    check(
+        "pic: a PNG with valid chunks but corrupt pixel data is refused by the decode check",
+        (_json.dumps(deck()), idb_count()) == before,
+        status(),
+    )
+    # undo keeps the bytes
+    pg.click("#sl-undo")
+    check(
+        "pic: Undo removes the item, the deck is version 1 again and the bytes are still stored",
+        deck()["v"] == 1 and not pic() and idb_count() == 1,
+    )
+    pg.click("#sl-redo")
+    pg.wait_for_timeout(400)
+    check(
+        "pic: Redo brings the picture back and it draws",
+        deck()["v"] == 5 and canvas() == "data:image/png;base64",
+    )
+    pg.reload()
+    pg.wait_for_timeout(800)
+    check(
+        "pic: after a reload the picture draws from the store",
+        canvas() == "data:image/png;base64",
+        str(canvas()),
+    )
+    # Clear deck then Undo
+    pg.click("#sl-clear")
+    pg.wait_for_timeout(300)
+    check("pic: Clear deck does not delete the stored bytes", idb_count() == 1 and deck()["v"] == 1)
+    pg.click("#sl-undo")
+    pg.wait_for_timeout(500)
+    check(
+        "pic: Undo after Clear deck brings the picture back",
+        canvas() == "data:image/png;base64" and deck()["v"] == 5,
+    )
+    # PDF with a picture: position
+    pg.click(".slide-items button, #sl-items button")
+    pg.fill("#sl-w", "200")
+    pg.press("#sl-w", "Tab")
+    pg.fill("#sl-h", "200")
+    pg.press("#sl-h", "Tab")
+    el = pic()[0]
+    with pg.expect_download() as dl:
+        pg.click("#sl-pdf")
+    raw = open(dl.value.path(), "rb").read()
+    if SHOTS:
+        open(f"{SHOTS}/slides-images-69.pdf", "wb").write(raw)
+    ccs = []
+    for m in re.finditer(rb"stream\r?\n(.*?)endstream", raw, re.S):
+        body = m.group(1)
+        try:
+            body = zlib.decompress(body)
+        except Exception:  # noqa: S112
+            continue
+        for blk in re.findall(rb"q\n((?:[-\d. ]+ cm\n)+)/\S+ Do", body):
+            mat = (1.0, 1.0, 0.0, 0.0)
+            for ln in blk.decode().strip().split("\n"):
+                a, b_, c, d, e_, f_ = (float(v) for v in ln.split()[:6])
+                # new CTM = this matrix x previous CTM (PDF cm order); only scale and translate occur
+                mat = (a * mat[0], d * mat[1], mat[2] + mat[0] * e_, mat[3] + mat[1] * f_)
+            ccs.append(mat)
+    ex_w, ex_h = 200.0, 100.0
+    ex_x, ex_y = el["x"], 540 - el["y"] - (el["h"] - ex_h) / 2 - ex_h
+    got = ccs
+    check(
+        "pic: the PDF places the 40 by 20 picture fitted inside its 200 by 200 box, centred, at the exact coordinates",
+        len(got) == 1
+        and all(abs(a - b) < 0.01 for a, b in zip(got[0], (ex_w, ex_h, ex_x, ex_y), strict=True)),
+        str((got, (ex_w, ex_h, ex_x, ex_y))),
+    )
+    check("pic: the PDF has one image object", raw.count(b"/Subtype /Image") == 1)
+    # reference-only export
+    msgs.clear()
+    with pg.expect_download() as d1:
+        pg.click("#sl-export")
+    ref = open(d1.value.path()).read()
+    check(
+        "pic: Export (.json) asks first, says references only, and the file holds no picture bytes",
+        msgs and "references" in msgs[-1] and "iVBOR" not in ref and "WITHOUT" in status(),
+        str(msgs),
+    )
+    with pg.expect_download() as d2:
+        pg.click("#sl-export-pics")
+    full = _json.loads(open(d2.value.path()).read())
+    check(
+        "pic: Export with pictures holds the deck and the picture bytes",
+        full["format"] == "salow-slides-with-pictures"
+        and len(full["pictures"]) == 1
+        and full["pictures"][0]["hash"] == el["img"],
+    )
+    open(TMP_FULL, "w").write(_json.dumps(full))
+    tam = _json.loads(_json.dumps(full))
+    d0 = tam["pictures"][0]["data"]
+    tam["pictures"][0]["data"] = d0[:80] + ("A" if d0[80] != "A" else "B") + d0[81:]
+    open(TMP_TAMPER, "w").write(_json.dumps(tam))
+    # simulate the browser clearing its site data: remove the record (test only)
+    pg.evaluate(
+        "new Promise(res=>{const r=indexedDB.open('salow.slides.pictures.'+%s,1);r.onsuccess=()=>{const t=r.result.transaction('img','readwrite');t.objectStore('img').clear();t.oncomplete=()=>{r.result.close();res()}}})"
+        % KEY
+    )
+    pg.reload()
+    pg.wait_for_timeout(800)
+    check(
+        "pic: with the bytes gone the deck stays version 5 and the editor draws a visible 'Picture missing' box",
+        deck()["v"] == 5 and "Picture missing" in canvas_text(),
+        canvas_text(),
+    )
+    pg.click("#sl-present")
+    pg.wait_for_timeout(300)
+    pm = pg.text_content("#sl-show-canvas")
+    pg.click("#sl-show-exit")
+    check("pic: Present also shows the 'Picture missing' box", "Picture missing" in pm, pm)
+    with pg.expect_download() as d3:
+        pg.click("#sl-pdf")
+    raw3 = open(d3.value.path(), "rb").read()
+    txt = b""
+    for m in re.finditer(rb"stream\r?\n(.*?)endstream", raw3, re.S):
+        try:
+            txt += zlib.decompress(m.group(1))
+        except Exception:  # noqa: S110
+            pass
+    check(
+        "pic: the PDF draws a grey 'Picture missing' box and the status warns, with no image object",
+        b"Picture missing".hex().upper().encode() in txt.upper()
+        and raw3.count(b"/Subtype /Image") == 0
+        and "WARNING" in status(),
+        status(),
+    )
+    # tampered import is refused, deck unchanged
+    snap = _json.dumps(deck())
+    pg.set_input_files("#sl-import", TMP_TAMPER)
+    pg.wait_for_timeout(900)
+    check(
+        "pic: a file whose picture bytes do not match their fingerprint is refused and the deck is unchanged",
+        _json.dumps(deck()) == snap
+        and idb_count() == 0
+        and "Your deck was not changed" in status(),
+        status(),
+    )
+    # real import restores
+    pg.set_input_files("#sl-import", TMP_FULL)
+    pg.wait_for_timeout(1200)
+    check(
+        "pic: importing the file with pictures restores the bytes and the picture draws",
+        idb_count() == 1 and canvas() == "data:image/png;base64",
+        str((idb_count(), status())),
+    )
+    if SHOTS:
+        pg.screenshot(path=f"{SHOTS}/slides-images-69.png")
+        pg.set_viewport_size({"width": 390, "height": 800})
+        pg.wait_for_timeout(300)
+        pg.screenshot(path=f"{SHOTS}/slides-images-69-phone.png")
+        pg.set_viewport_size({"width": 1100, "height": 900})
+
+
 DRILLS = {
     "slides_show": slides_show,
     "slides_edit": slides_edit,
@@ -3450,6 +3724,7 @@ DRILLS = {
     "sheets_fill": sheets_fill,
     "sheets_headers": sheets_headers,
     "slides_drag": slides_drag,
+    "slides_images": slides_images,
     "slides_style": slides_style,
     "sheets_tabs": sheets_tabs,
     "sheets_chart": sheets_chart,

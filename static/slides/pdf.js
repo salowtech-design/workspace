@@ -14,7 +14,7 @@
     function can(ch) { return set[ch.codePointAt(0)] === true; }
     function scan(els, label) {
       els.forEach(function (e, j) {
-        if (!e.text) return;
+        if (!e.text || e.type === "image") return;
         var seen = [];
         Array.from(e.text).forEach(function (ch) { if (!/\s/.test(ch) && !can(ch) && seen.indexOf(ch) < 0) seen.push(ch); });
         if (seen.length) bad.push({ slide: label, item: j + 1, chars: seen });
@@ -29,20 +29,46 @@
     return "The PDF fonts cannot draw some characters, so no PDF was made: " + parts.join(", ") + (bad.length > 5 ? ", and " + (bad.length - 5) + " more items" : "") + ". Change or remove them and try again.";
   }
   // L is the pdf-lib global, S the SalowSlides model. Returns Promise<Uint8Array>, or rejects with an Error whose code is "chars".
-  function build(L, S, deck) {
+  function build(L, S, deck, pics, info) {
+    pics = pics || {}; info = info || {}; info.missing = []; info.failed = [];
+    var embedded = Object.create(null);
     return L.PDFDocument.create().then(function (doc) {
       var SF = L.StandardFonts;
       // Regular plus the three styled standard fonts (no font file is embedded); all four share one character set.
       return Promise.all([doc.embedFont(SF.Helvetica), doc.embedFont(SF.HelveticaBold), doc.embedFont(SF.HelveticaOblique), doc.embedFont(SF.HelveticaBoldOblique)]).then(function (fs) {
         var font = fs[0], fontFor = function (e) { return e.b && e.i ? fs[3] : e.b ? fs[1] : e.i ? fs[2] : fs[0]; };
+        var hashes = []; deck.slides.forEach(function (s) { s.elements.forEach(function (e) { if (e.type === "image" && hashes.indexOf(e.img) < 0) hashes.push(e.img); }); });
+        return Promise.all(hashes.map(function (h) {
+          var rec = pics[h]; if (!rec || !rec.bytes) return null;
+          var f = rec.type === "image/png" ? doc.embedPng(rec.bytes) : rec.type === "image/jpeg" ? doc.embedJpg(rec.bytes) : Promise.reject(new Error("type"));
+          return f.then(function (img) { rec.pending = img; }, function () { rec.pending = null; });
+        })).then(function () {
         var bad = unsupported(font, deck);
         if (bad.length) { var err = new Error(refusal(bad)); err.code = "chars"; err.items = bad; throw err; }
         var th = S.THEMES[deck.theme], W = S.W, H = S.H;
         doc.setTitle("Salow Slides deck"); doc.setProducer("Salow Slides"); doc.setCreator("Salow Slides");
+        // A picture is fitted inside its box without stretching (the editor does the same). When the bytes are absent or the PDF library
+        // cannot read them, a grey box that says so is drawn, and the item is listed in info.missing or info.failed: never a silent gap.
+        function placeholder(pg, e, why) {
+          pg.drawRectangle({ x: e.x, y: H - e.y - e.h, width: e.w, height: e.h, color: L.rgb(0.91, 0.91, 0.91), borderColor: L.rgb(0.5, 0.5, 0.5), borderWidth: 1 });
+          var msg = why, sz = Math.max(8, Math.min(18, e.h / 3)), tw = font.widthOfTextAtSize(msg, sz);
+          while (tw > e.w - 4 && sz > 6) { sz -= 1; tw = font.widthOfTextAtSize(msg, sz); }
+          pg.drawText(msg, { x: e.x + (e.w - tw) / 2, y: H - e.y - e.h / 2 - sz / 3, size: sz, font: font, color: L.rgb(0.2, 0.2, 0.2) });
+        }
+        function drawPicture(pg, e) {
+          var rec = pics[e.img];
+          if (!rec || !rec.bytes) { if (info.missing.indexOf(e.img) < 0) info.missing.push(e.img); placeholder(pg, e, "Picture missing"); return; }
+          var p = embedded[e.img];
+          if (p === undefined) { p = embedded[e.img] = rec.pending; }
+          if (!p) { if (info.failed.indexOf(e.img) < 0) info.failed.push(e.img); placeholder(pg, e, "Picture unreadable"); return; }
+          var sc = Math.min(e.w / p.width, e.h / p.height), dw = p.width * sc, dh = p.height * sc;
+          pg.drawImage(p, { x: e.x + (e.w - dw) / 2, y: H - e.y - (e.h - dh) / 2 - dh, width: dw, height: dh });
+        }
         deck.slides.forEach(function (s) {
           var pg = doc.addPage([W, H]);
           pg.drawRectangle({ x: 0, y: 0, width: W, height: H, color: rgbOf(L, th.bg) });
           S.masterOf(deck, deck.slides.indexOf(s)).concat(s.elements).forEach(function (e) {
+            if (e.type === "image") return drawPicture(pg, e);
             var c = S.color(deck, e);
             if (e.type === "rect") pg.drawRectangle({ x: e.x, y: H - e.y - e.h, width: e.w, height: e.h, color: rgbOf(L, c) });
             else if (e.type === "ellipse") pg.drawEllipse({ x: e.x + e.w / 2, y: H - e.y - e.h / 2, xScale: e.w / 2, yScale: e.h / 2, color: rgbOf(L, c) });
@@ -57,6 +83,7 @@
           });
         });
         return doc.save();
+        });
       });
     });
   }
