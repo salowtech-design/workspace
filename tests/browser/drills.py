@@ -4104,6 +4104,7 @@ def chat_poll_429(ctx):  # noqa: C901
         space_id = ex.submit(make_space).result()
     url = APP + "/chat/space/%s/" % space_id
     pg = ctx.pages[0]
+    loaded = []
     mode = {"m": "429", "ra": None, "n": 0}
     seen = []
 
@@ -4112,7 +4113,12 @@ def chat_poll_429(ctx):  # noqa: C901
         mode["n"] += 1
         m = mode["m"]
         if m == "429":
-            hd = {"Retry-After": str(mode["ra"])} if mode["ra"] else {}
+            ra = mode["ra"]
+            if ra == "date":
+                from email.utils import formatdate
+
+                ra = formatdate(time.time() + 100, usegmt=True)
+            hd = {"Retry-After": str(ra)} if ra else {}
             route.fulfill(status=429, headers=hd, body="")
         elif m == "500":
             route.fulfill(status=500, body="")
@@ -4137,6 +4143,18 @@ def chat_poll_429(ctx):  # noqa: C901
             done += step
 
     def load(m, ra=None):
+        nonlocal pg
+        if loaded:
+            old = pg
+            old.goto("about:blank")
+            old.wait_for_timeout(
+                14000
+            )  # the site-wide request limit answers a page load with 429 when loads come too fast
+            pg = ctx.new_page()
+            old.goto("about:blank")  # stops the old page's timers so only the new page polls
+            if old is not ctx.pages[0]:
+                old.close()
+        loaded.append(1)
         mode.update({"m": m, "ra": ra, "n": 0})
         seen.clear()
         pg.unroute_all() if hasattr(pg, "unroute_all") else None
@@ -4150,7 +4168,7 @@ def chat_poll_429(ctx):  # noqa: C901
     st = status()
     check(
         "chat429: 300 s of 429 answers: not paused, and the page says updates are slower",
-        "paused" not in st and "slower" in st,
+        "paused" not in st and "rate limited" in st,
         st[:140],
     )
     check(
@@ -4160,11 +4178,11 @@ def chat_poll_429(ctx):  # noqa: C901
     )
     check(
         "chat429: every retry asked for the same position (nothing skipped)",
-        set(seen) == {"0"} or len(set(seen)) == 1,
+        set(seen) == {"0"},
         str(set(seen)),
     )
     mode["m"] = "ok"
-    run(125)
+    run(160)
     st2 = status()
     html = pg.inner_html("#chat-list")
     check(
@@ -4183,13 +4201,57 @@ def chat_poll_429(ctx):  # noqa: C901
     load("429", ra=45)
     run(15)
     check(
-        "chat429: a Retry-After of 45 s is honoured and shown",
-        "45 seconds" in status(),
+        "chat429: a Retry-After of 45 s is shown as the rate-limit notice without a countdown",
+        "rate limited" in status() and "seconds" not in status(),
         status()[:120],
+    )
+    pg.set_viewport_size({"width": 390, "height": 800})
+    pg.screenshot(
+        path=os.path.join(os.environ.get("DRILL_SHOTS", "./"), "chat-throttle-notice-phone.png")
     )
     n0 = mode["n"]
     run(30)
     check("chat429: no poll during the 45 s wait", mode["n"] == n0, "%d vs %d" % (mode["n"], n0))
+    run(20)
+    check(
+        "chat429: after the 45 s the page tries again",
+        mode["n"] == n0 + 1,
+        "%d vs %d" % (mode["n"], n0),
+    )
+    load("429", ra=300)
+    run(10)
+    n1 = mode["n"]
+    run(285)
+    check(
+        "chat429: a Retry-After of 300 s (over the 120 s fallback cap) is not retried early",
+        mode["n"] == n1,
+        "%d vs %d" % (mode["n"], n1),
+    )
+    run(60)
+    check(
+        "chat429: and is retried after the 300 s", mode["n"] == n1 + 1, "%d vs %d" % (mode["n"], n1)
+    )
+    load("429", ra=90000)
+    run(10)
+    n3 = mode["n"]
+    run(280)
+    check(
+        "chat429: a Retry-After of 90000 s (over a day) is not cut short or retried early",
+        mode["n"] == n3 and mode["n"] >= 1,
+        "%d vs %d" % (mode["n"], n3),
+    )
+    load("429", ra="date")
+    run(15)
+
+    n2 = mode["n"]
+    run(80)
+    check(
+        "chat429: a Retry-After HTTP date about 100 s ahead is not retried early",
+        mode["n"] == n2,
+        "%d vs %d" % (mode["n"], n2),
+    )
+    run(40)
+    check("chat429: and is retried after it", mode["n"] == n2 + 1, "%d vs %d" % (mode["n"], n2))
     load("500")
     run(70)
     st3 = status()
@@ -4201,6 +4263,103 @@ def chat_poll_429(ctx):  # noqa: C901
         "session has ended" in status(),
         status()[:100],
     )
+
+
+def chat_poll_real(ctx):  # noqa: C901
+    """Chat, real server and TiDB: a message sent by the second person while this person's polls are rate limited arrives once and the position advances."""
+    import concurrent.futures
+
+    import django
+
+    django.setup()
+    holder = {}
+
+    def setup():
+        from apps.accounts.models import CustomUser
+        from apps.chat import services as cs
+
+        me = CustomUser.objects.get(employee_id="ST-LIVE-1")
+        other, _ = CustomUser.objects.get_or_create(
+            employee_id="ST-LIVE-2",
+            defaults={
+                "full_name": "Second Synthetic",
+                "email": "live.two@salowtech.com",
+                "email_verified": True,
+                "role": CustomUser.Role.EMPLOYEE,
+                "status": CustomUser.Status.ACTIVE,
+                "is_active": True,
+            },
+        )
+        holder["other"], holder["cs"] = other, cs
+        return cs.open_dm(me, other.pk).public_id
+
+    def send(body, cid):
+        return holder["cs"].post_message(holder["other"], space_id, body, cid).seq
+
+    ex = concurrent.futures.ThreadPoolExecutor(1)
+    space_id = ex.submit(setup).result()
+    pg = ctx.pages[0]
+    log = []
+    pg.on("response", _poll_log(log))
+    pg.goto(APP + "/chat/space/%s/" % space_id)
+    pg.wait_for_timeout(500)
+    burst = pg.evaluate(
+        "(async()=>{const u=document.getElementById('chat-list').dataset.poll+'?after=0';const c=[];for(let i=0;i<40;i++){const r=await fetch(u,{credentials:'same-origin'});c.push(r.status)}return c})()"
+    )
+    print("chat_poll_real: burst statuses 200:", burst.count(200), "429:", burst.count(429))
+    seq1 = ex.submit(send, "sent while limited one", "real-1").result()
+    t0 = time.time()
+    body = lambda: pg.inner_html("#chat-list")  # noqa: E731
+    while time.time() - t0 < 230 and body().count("sent while limited one") == 0:
+        pg.wait_for_timeout(3000)
+    waited = time.time() - t0
+    seen = [e for e in log if e[0] == 429]
+    print(
+        "chat_poll_real: waited %.0f s, polls %d, 429 answers %d, Retry-After values %s"
+        % (waited, len(log), len(seen), sorted({e[1] for e in seen}))
+    )
+    pg.wait_for_timeout(25000)
+    check(
+        "real: the message sent during the rate limit arrived exactly once",
+        body().count("sent while limited one") == 1,
+        str(body().count("sent while limited one")),
+    )
+    check(
+        "real: the position advanced to that message",
+        pg.get_attribute("#chat-list", "data-last") == str(seq1),
+        "%s vs %s" % (pg.get_attribute("#chat-list", "data-last"), seq1),
+    )
+    check(
+        "real: live updates were not paused and the notice is gone",
+        "paused" not in pg.inner_text("#chat-status")
+        and "rate limited" not in pg.inner_text("#chat-status"),
+        pg.inner_text("#chat-status")[:100],
+    )
+    seq2 = ex.submit(send, "second after recovery", "real-2").result()
+    pg.wait_for_timeout(26000)
+    check(
+        "real: a later message also arrives exactly once",
+        body().count("second after recovery") == 1 and body().count("sent while limited one") == 1,
+        str((body().count("second after recovery"), body().count("sent while limited one"))),
+    )
+    check(
+        "real: the position advanced again",
+        pg.get_attribute("#chat-list", "data-last") == str(seq2),
+        "%s vs %s" % (pg.get_attribute("#chat-list", "data-last"), seq2),
+    )
+    check(
+        "real: a 429 was observed during the run (burst)",
+        burst.count(429) > 0 or len(seen) > 0,
+        str((burst.count(429), len(seen))),
+    )
+
+
+def _poll_log(log):
+    def f(resp):
+        if "/poll/" in resp.url:
+            log.append((resp.status, resp.headers.get("retry-after")))
+
+    return f
 
 
 def _poll_logger(codes, k):
@@ -4257,7 +4416,7 @@ def chat_poll_tabs(ctx):  # noqa: C901
     n429 = allc.count(429)
     stat = [p.inner_text("#chat-status") for p in pages]
     paused = [x for x in stat if "paused" in x]
-    slow_tabs = [k for k, x in enumerate(stat) if "slower" in x]
+    slow_tabs = [k for k, x in enumerate(stat) if "rate limited" in x]
     if slow_tabs:
         pages[slow_tabs[0]].screenshot(
             path=os.path.join(os.environ.get("DRILL_SHOTS", "./"), "chat-throttle-notice.png")
@@ -4446,6 +4605,7 @@ DRILLS = {
     "slides_oldpage_v5": slides_oldpage_v5,
     "chat_poll_tabs": chat_poll_tabs,
     "chat_poll_429": chat_poll_429,
+    "chat_poll_real": chat_poll_real,
     "slides_style": slides_style,
     "sheets_tabs": sheets_tabs,
     "sheets_chart": sheets_chart,

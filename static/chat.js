@@ -6,16 +6,21 @@
   var EVERY = 10000, SLOW_FIRST = 20000, SLOW_MAX = 120000;
   function say(t) { if (status) status.textContent = t; }
   function stop(t) { stopped = true; clearTimeout(timer); say(t); }
-  function later(ms) { clearTimeout(timer); if (!stopped) timer = setTimeout(tick, ms); }
-  // 429 means too many polls from this person in a minute (for example many open windows). It is not a failure of the page:
-  // wait longer (the server's Retry-After when it sends one, else 20 s doubling to 2 minutes), say so, and go back to
-  // the normal pace after the next answer. It never counts toward the five failures that pause live updates.
+  function later(ms) { clearTimeout(timer); if (!stopped) timer = setTimeout(tick, Math.min(ms, 2147483647)); } // a longer wait is rechecked by tick() against notBefore, never shortened
+  // 429 means the server is rate limiting this person's polls. It is not a failure of the page. When the server sends Retry-After the
+  // page waits at least that long (never earlier, with no upper limit). Without it the wait is 20 s doubling to 2 minutes. The notice says the limit is
+  // active and has no countdown (nothing here ticks). The next good answer returns to the normal pace and clears it. It never counts
+  // toward the five failures that pause live updates.
   function slowDown(r) {
-    var ra = parseInt(r.headers.get("Retry-After"), 10);
+    var raw = r.headers.get("Retry-After"), ra = parseInt(raw, 10), wait = 0;
+    if (/^\s*\d+\s*$/.test(raw || "")) wait = ra * 1000; // seconds, no cap
+    else if (raw) { var d = Date.parse(raw) - Date.now(); if (d > 0) wait = d; } // an HTTP date
     slow = slow ? Math.min(slow * 2, SLOW_MAX) : SLOW_FIRST;
-    var wait = ra > 0 ? Math.min(ra * 1000, SLOW_MAX) : slow;
+    // With no usable Retry-After the wait is the fallback, spread by up to 25 percent so tabs do not retry together. A server
+    // instruction is only ever lengthened (by up to 10 percent, same reason), never shortened, with no upper limit.
+    wait = wait ? Math.round(wait * (1 + Math.random() * 0.1)) : Math.round(slow * (1 + Math.random() * 0.25));
     notBefore = Date.now() + wait;
-    say("Updates are slower for a moment because Chat is open in many places. Trying again in " + Math.round(wait / 1000) + " seconds.");
+    say("Chat is being rate limited right now, so updates are slower. It will try again by itself.");
     return wait;
   }
   function tick() {
