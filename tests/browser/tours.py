@@ -253,6 +253,7 @@ def register(g):
     register_drive_editor(g)
     register_tasks_more(g)
     register_cal_repeats(g)
+    register_sheets_more(g)
 
 
 def register_tasks(g, users):
@@ -1911,3 +1912,58 @@ def register_cal_repeats(g):
         run_tour(ctx, "29_calendar_repeats", body, notes="Real Django on TiDB under uvicorn, headless Chromium 390x844 emulated. Dates are relative to the run date.", unshown=["paging of occurrences", "guest answers inside a series", "edit conflict"])
 
     g["DRILLS"]["tour_cal_repeats"] = tour
+
+
+def register_sheets_more(g):
+    APP = g["APP"]
+
+    def tour(ctx):
+        def put(pg, cells):
+            for a, v in cells:
+                sel = 'input[data-addr="%s"]' % a
+                pg.click(sel)
+                pg.fill(sel, v)
+                pg.press(sel, "Tab")
+
+        def val(pg, a):
+            return pg.input_value('input[data-addr="%s"]' % a)
+
+        DATA = [("A1", "Item"), ("B1", "Qty"), ("A2", "pens"), ("B2", "30"), ("A3", "paper"), ("B3", "12"), ("A4", "ink"), ("B4", "7"), ("A5", "pens"), ("B5", "20")]
+
+        def sc(pg, a):
+            pg.locator('input[data-addr="%s"]' % a).scroll_into_view_if_needed()
+            pg.evaluate("a=>{var e=document.querySelector('input[data-addr=\\''+a+'\\']');if(e)e.scrollIntoView({block:'center'})}", a)
+
+        def body(t, pg):
+            pg.goto(APP + "/sheets/")
+            pg.evaluate("localStorage.clear()")
+            pg.goto(APP + "/sheets/")
+            pg.wait_for_timeout(500)
+            t.step("Sheets: type the small table again", lambda: put(pg, DATA), expect=lambda: val(pg, "B5") == "20")
+            def piv(agg):
+                pg.fill("#pivot-range", "A1:B5")
+                pg.fill("#pivot-key", "A")
+                pg.fill("#pivot-val", "B")
+                pg.select_option("#pivot-agg", agg)
+                pg.click("#pivot-build")
+                pg.locator("#pivot-out").scroll_into_view_if_needed()
+            for agg in ("count", "average", "min", "max"):
+                t.step("Pivot with %s per item" % agg, lambda a=agg: piv(a), expect=lambda: "pens" in pg.inner_text("#pivot-out"), wait=2200)
+            t.step("Line chart of B2:B5", lambda: (pg.fill("#chart-range", "B2:B5"), pg.select_option("#chart-type", "line"), pg.click("#chart-draw"), pg.locator("#chart-out").scroll_into_view_if_needed()), expect=lambda: pg.locator("#chart-out *").count() > 0, wait=2200)
+            t.step("Colour rule: yellow when below 15", lambda: (pg.fill("#cf-range", "B2:B5"), pg.select_option("#cf-kind", "less"), pg.fill("#cf-value", "15"), pg.select_option("#cf-color", "yellow"), pg.click("#cf-add"), pg.locator("#cf-list").scroll_into_view_if_needed()), expect=lambda: pg.locator("#cf-list *").count() > 0, wait=2200)
+            t.step("Format: percent, centred", lambda: (pg.fill("#fmt-range", "B2:B5"), pg.select_option("#fmt-align", "center"), pg.select_option("#fmt-nf", "percent"), pg.click("#fmt-add"), pg.locator("#fmt-list").scroll_into_view_if_needed()), expect=lambda: pg.locator("#fmt-list *").count() > 0, wait=2200)
+            t.step("Validation: D2:D5 must be one of yes, no", lambda: (pg.fill("#val-range", "D2:D5"), pg.select_option("#val-kind", "list"), pg.fill("#val-items", "yes, no"), pg.click("#val-add"), pg.locator("#val-list").scroll_into_view_if_needed()), expect=lambda: pg.locator("#val-list *").count() > 0, wait=2200)
+            t.step("Look at the cells B2 to B5: yellow below 15, percent, centred", lambda: sc(pg, "B3"), expect=lambda: True, wait=3000)
+            t.step("Type maybe in D2: refused", lambda: (put(pg, [("D2", "maybe")]), sc(pg, "D2")), expect=lambda: val(pg, "D2") != "maybe", wait=2800)
+            t.step("Type yes in D3: accepted", lambda: (put(pg, [("D3", "yes")]), sc(pg, "D3")), expect=lambda: val(pg, "D3") == "yes", wait=2800)
+            t.step("Formulas: AVERAGE, IF, SUMIF and a divide by zero", lambda: put(pg, [("F1", "=AVERAGE(B2:B5)"), ("F2", '=IF(B2>25,"big","small")'), ("F3", '=SUMIF(A2:A5,"pens",B2:B5)'), ("F4", "=B2/0")]), expect=lambda: True, wait=2500)
+            for a in ("F1", "F2", "F3", "F4"):
+                t.step("Select %s: bar shows its result" % a, lambda x=a: pg.click('input[data-addr="%s"]' % x), expect=lambda: pg.inner_text("#sheet-val").strip() != "", wait=2200)
+            t.step("Sort A1:B5 by Qty, small to large, with the first row as headers", lambda: (pg.fill("#sort-range", "A1:B5"), pg.fill("#sort-col", "B"), pg.select_option("#sort-dir", "asc"), pg.check("#sort-header"), pg.click("#sort-go"), sc(pg, "A3")), expect=lambda: val(pg, "B2") != "", wait=3000)
+            t.step("Filter: Item contains pe", lambda: (pg.fill("#filter-col", "A"), pg.select_option("#filter-op", "contains"), pg.fill("#filter-val", "pe"), pg.click("#filter-go"), sc(pg, "A3")), expect=lambda: pg.inner_text("#filter-status").strip() != "", wait=3200)
+            t.step("Show all rows again", lambda: (pg.click("#filter-clear"), sc(pg, "A3")), expect=lambda: pg.is_disabled("#filter-clear"), wait=2500)
+            t.note("Not shown: Import (file picker), cells beyond Z or row 100 (unsupported).", 3)
+
+        run_tour(ctx, "30_sheets_more", body, notes="Device-local sheet (browser only; nothing stored on the server). Headless Chromium 390x844 emulated.", unshown=["Import", "cells beyond column Z or row 100"])
+
+    g["DRILLS"]["tour_sheets_more"] = tour
