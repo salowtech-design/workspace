@@ -331,9 +331,13 @@ def add_comment(user, task, body):
         raise ValidationError("Write something before posting.")
     if len(body) > COMMENT_MAX:
         raise ValidationError(f"Comments can be up to {COMMENT_MAX} characters.")
+    # Project row first (the same lock a removal takes), then judge membership on fresh data, so a
+    # person removed a moment ago cannot land a comment after the removal.
+    project = _lock_project(task.project)
     task = ProjectTask.objects.select_for_update().get(pk=task.pk)
-    if task.deleted_at is not None or not can_view(user, task.project):
+    if task.deleted_at is not None or not can_view(user, project):
         raise Http404
+    _pause()
     c = TaskComment.objects.create(task=task, author=user, body=body)
     audit(user, "tasks.project.comment", "project_task", task.pk, comment=c.pk)
     return c

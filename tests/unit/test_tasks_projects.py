@@ -945,3 +945,55 @@ def test_assign_route_resolves_in_both_urlconfs_and_removed_or_deactivated_peopl
     CustomUser.objects.filter(pk=a.pk).update(is_active=False)
     r = _c(a).post(url, {"person": "", "version": 2})
     assert state() == (a.pk, 2), r.status_code
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.parametrize("locked", [True, False])
+def test_race_removal_vs_comment(monkeypatch, locked):
+    """A member is removed while their comment is between the membership check and the write. With
+    the project lock the removal waits for the comment (the comment was posted while they were a
+    member); in the control (lock removed) the comment lands after the removal committed.
+    Real TiDB only; each round is a fixture removal that takes the project lock like a future remove."""
+    import threading
+
+    from django.db import transaction
+
+    from apps.tasks.models import ProjectTask, TaskComment
+    from tests.unit.test_drive_services import _threads
+
+    _need_mysql()
+    if not locked:
+        monkeypatch.setattr(pj, "_lock_project", lambda p: Project.objects.get(pk=p.pk))
+    rounds = 2
+    saw_commit, outcomes, after_removal = [], [], 0
+    for i in range(rounds):
+        a, m = _u(f"RC-A{i}{locked}"), _u(f"RC-M{i}{locked}")
+        p = pj.create_project(a, "P")
+        _member(p, m)
+        t = ProjectTask.objects.create(project=p, column=p.columns.first(), title="t", created_by=a)
+        committed, paused = threading.Event(), threading.Event()
+
+        def hook(committed=committed, paused=paused):
+            paused.set()
+            saw_commit.append(committed.wait(timeout=2.0))
+
+        monkeypatch.setattr(pj, "_pause", hook)
+
+        def remove(p=p, m=m, committed=committed, paused=paused):
+            assert paused.wait(timeout=10), "the comment never reached its write"
+            with transaction.atomic():
+                Project.objects.select_for_update().get(pk=p.pk)
+                ProjectMember.objects.filter(project=p, person=m).update(removed_at="2026-01-01T00:00:00Z")
+            committed.set()
+
+        def comment(t=t, m=m):
+            pj.add_comment(m, t, "hello")
+
+        outcomes.append(_threads([remove, comment]))
+        removed = not ProjectMember.objects.filter(project=p, person=m, removed_at__isnull=True).exists()
+        if removed and TaskComment.objects.filter(task=t, author=m).exists():
+            # committed order: the removal committed first and the comment still landed
+            after_removal += 1 if saw_commit[-1] else 0
+    assert outcomes == [["ok", "ok"]] * rounds, outcomes
+    assert saw_commit == [not locked] * rounds, saw_commit
+    assert (after_removal == 0) if locked else (after_removal == rounds), (after_removal, rounds)
