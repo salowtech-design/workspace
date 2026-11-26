@@ -280,6 +280,7 @@ def register(g):
     register_empty_states(g, users)
     register_project_filters(g, users)
     register_directory_dept(g, users)
+    register_subtask_delete(g, users)
     register_posts_more(g, users)
 
 
@@ -3298,3 +3299,55 @@ def register_directory_dept(g, users):
         run_tour(ctx, "57_directory_department", body, notes="Real Django on TiDB, headless Chromium 390x844 emulated. Two departments, two teams and the memberships were created by script.", unshown=["team detail page", "org chart", "a person in several departments"])
 
     g["DRILLS"]["tour_directory_dept"] = tour
+
+
+def register_subtask_delete(g, users):
+    APP = g["APP"]
+
+    def tour(ctx):
+        users(ctx)
+        import concurrent.futures
+
+        import django
+
+        django.setup()
+        ids = {}
+
+        def make():
+            from apps.accounts.models import CustomUser
+            from apps.tasks import services as svc
+
+            me = CustomUser.objects.get(employee_id="ST-LIVE-1")
+            tl = svc.create_list(me, "Sub-task list")
+            parent = svc.create_task(me, tl, "Parent task")
+            svc.create_task(me, tl, "Sub one", parent=parent)
+            svc.create_task(me, tl, "Sub two", parent=parent)
+            ids["l"] = str(tl.public_id)
+
+        with concurrent.futures.ThreadPoolExecutor(1) as ex:
+            ex.submit(make).result()
+
+        def body(t, pg):
+            txt = lambda: pg.inner_text("body")
+            subs = lambda: [x.strip() for x in pg.locator(".task-row.sub .task-title").all_inner_texts()]
+            pg.goto(APP + "/tasks/list/%s/" % ids["l"])
+            pg.wait_for_timeout(1500)
+            t.step("List: Parent task with sub-tasks Sub one and Sub two", expect=lambda: subs() == ["Sub one", "Sub two"], wait=3000)
+            pg.locator(".task-row.sub", has_text="Sub one").locator("a:has-text('Delete')").click()
+            pg.wait_for_timeout(1200)
+            t.step("Delete on Sub one opens a confirmation page naming Sub one", expect=lambda: "Delete this task?" in txt() and "Sub one" in txt(), wait=3500)
+            pg.click("a:has-text('Keep it')")
+            pg.wait_for_timeout(1200)
+            t.step("Keep it: back on the list, both sub-tasks still there", expect=lambda: subs() == ["Sub one", "Sub two"], wait=3000)
+            pg.locator(".task-row.sub", has_text="Sub one").locator("a:has-text('Delete')").click()
+            pg.wait_for_timeout(1000)
+            pg.click("button:has-text('Delete')")
+            pg.wait_for_timeout(1500)
+            pg.locator(".task-row", has_text="Parent task").first.scroll_into_view_if_needed()
+            pg.evaluate("window.scrollBy(0, 150)")
+            pg.wait_for_timeout(600)
+            t.step("Confirm Delete: under Parent task only Sub two is left (Sub one is gone)", expect=lambda: subs() == ["Sub two"] and "Parent task" in txt(), wait=3500)
+
+        run_tour(ctx, "58_subtask_delete", body, notes="Real Django on TiDB, headless Chromium 390x844 emulated. The list, parent and two sub-tasks were created by script as the signed-in account.", unshown=["deleting the parent with its sub-tasks", "restore (not built)", "another person deleting"])
+
+    g["DRILLS"]["tour_subtask_delete"] = tour
