@@ -4840,6 +4840,77 @@ def pdf_notes_turn(ctx):  # noqa: C901
     pg.set_viewport_size({"width": 1280, "height": 720})
 
 
+def _n_page_pdf(n):
+    """A valid PDF of n portrait pages, each with a frame and its number (for measuring, not for the app)."""
+    objs = [b"<< /Type /Catalog /Pages 2 0 R >>"]
+    kids = " ".join("%d 0 R" % (3 + 2 * i) for i in range(n))
+    objs.append(("<< /Type /Pages /Kids [%s] /Count %d >>" % (kids, n)).encode())
+    font_ref = 3 + 2 * n
+    for i in range(n):
+        objs.append(
+            (
+                "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents %d 0 R /Resources << /Font << /F1 %d 0 R >> >> >>"
+                % (4 + 2 * i, font_ref)
+            ).encode()
+        )
+        t = ("2 w 20 20 572 752 re S BT /F1 48 Tf 60 700 Td (Page %d) Tj ET" % (i + 1)).encode()
+        objs.append(b"<< /Length %d >>\nstream\n" % len(t) + t + b"\nendstream")
+    objs.append(b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>")
+    out = b"%PDF-1.4\n"
+    offs = []
+    for i, o in enumerate(objs, 1):
+        offs.append(len(out))
+        out += b"%d 0 obj\n" % i + o + b"\nendobj\n"
+    x = len(out)
+    out += b"xref\n0 %d\n0000000000 65535 f \n" % (len(objs) + 1)
+    for o in offs:
+        out += b"%010d 00000 n \n" % o
+    out += b"trailer\n<< /Size %d /Root 1 0 R >>\nstartxref\n%d\n%%%%EOF\n" % (len(objs) + 1, x)
+    return out
+
+
+def pdf_thumb_measure(ctx):  # noqa: C901
+    """Measurement only (no app change): thumbnails of a 300 page PDF, rendered one at a time in this browser, with the time and the coarse JS heap."""
+    import base64
+
+    pg = fresh(ctx, "/pdf/")
+    n = 300
+    b64 = base64.b64encode(_n_page_pdf(n)).decode()
+    js = """async (args) => {
+      const [b64, n, keepAll] = args;
+      const m = await import('/static/pdf/vendor/pdf.min.mjs');
+      m.GlobalWorkerOptions.workerSrc = '/static/pdf/vendor/pdf.worker.min.mjs';
+      const bin = Uint8Array.from(atob(b64), c => c.charCodeAt(0));
+      const doc = await m.getDocument({ data: bin }).promise;
+      const heap = () => (performance.memory ? performance.memory.usedJSHeapSize : -1);
+      const h0 = heap(), t0 = performance.now(), kept = [], times = [];
+      for (let i = 1; i <= n; i++) {
+        const t1 = performance.now();
+        const p = await doc.getPage(i);
+        const v1 = p.getViewport({ scale: 1 });
+        const vp = p.getViewport({ scale: 120 / v1.width });
+        const c = document.createElement('canvas');
+        c.width = Math.floor(vp.width); c.height = Math.floor(vp.height);
+        await p.render({ canvasContext: c.getContext('2d'), viewport: vp }).promise;
+        p.cleanup();
+        times.push(performance.now() - t1);
+        if (keepAll) kept.push(c);
+      }
+      const total = performance.now() - t0, h1 = heap();
+      times.sort((a, b) => a - b);
+      window.__kept = kept;
+      return { pages: n, keepAll, totalMs: Math.round(total), medianMs: Math.round(times[n >> 1]), p95Ms: Math.round(times[Math.floor(n * 0.95)]), heapBefore: h0, heapAfter: h1, thumbW: Math.floor(120), thumbH: Math.floor(120 * 792 / 612) };
+    }"""
+    for keep in (False, True):
+        r = pg.evaluate(js, [b64, n, keep])
+        print("thumb measure:", r)
+        check(
+            "thumb measure: %d thumbnails rendered one at a time (keep all: %s)" % (n, keep),
+            r["pages"] == n,
+            str(r),
+        )
+
+
 def _poll_logger(codes, k):
     def log(resp):
         if "/poll/" in resp.url:
@@ -5087,6 +5158,7 @@ DRILLS = {
     "pdf_fit": pdf_fit,
     "pdf_rotate": pdf_rotate,
     "pdf_notes_turn": pdf_notes_turn,
+    "pdf_thumb_measure": pdf_thumb_measure,
     "slides_style": slides_style,
     "sheets_tabs": sheets_tabs,
     "sheets_chart": sheets_chart,
