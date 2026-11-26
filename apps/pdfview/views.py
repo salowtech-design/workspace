@@ -11,4 +11,11 @@ def home(request):
     sent to or read by the server."""
     if getattr(request.user, "status", "active") != "active":
         raise Http404
-    return render(request, "pdf/home.html", {"notes_prefix": f"salow.pdfnotes.{request.user.pk}."})
+    return render(
+        request,
+        "pdf/home.html",
+        {
+            "notes_prefix": f"salow.pdfnotes.{request.user.pk}.",
+            "marks_prefix": f"salow.pdfmarks.{request.user.pk}.",
+        },
+    )

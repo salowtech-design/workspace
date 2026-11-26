@@ -5595,7 +5595,7 @@ def pdf_marks(ctx):  # noqa: C901
     check(
         "marks: before use the panel says area only, tab only and no keyboard drawing",
         "does not select or recognise text" in hint
-        and "Marks stay only in this tab" in hint
+        and "kept in this browser on this device" in hint
         and "no keyboard way to draw" in hint,
     )
     open_pdf("three.pdf", _n_page_pdf(3))
@@ -5937,6 +5937,193 @@ def pdf_marks_secure(ctx):  # noqa: C901
     check(
         "marks secure: the long stroke is kept as one drawing capped at the limit",
         pg.locator("#pdf-marklist li").count() == 1,
+    )
+
+
+def pdf_marks_keep(ctx):  # noqa: C901
+    """Marks are kept on this device per file: come back after a reload, stay per file, two tabs cannot overwrite each other, failures stay visible. Needs a secure context, so the runner gives it the flagged test browser."""
+    KEY = "salow.pdfmarks."
+    pg = fresh(ctx, "/pdf/")
+    pg.set_viewport_size({"width": 1280, "height": 900})
+    pg.reload()
+    if not pg.evaluate("!!(navigator.locks && navigator.locks.request)"):
+        check(
+            "marks keep: the browser offers a secure context (flagged test browser)",
+            False,
+            "navigator.locks missing",
+        )
+        return
+    A = _n_page_pdf(4, "Keep")
+    B = _n_page_pdf(4, "Other")
+
+    def open_pdf(page, data):
+        page.set_input_files(
+            "#pdf-open", files=[{"name": "k.pdf", "mimeType": "application/pdf", "buffer": data}]
+        )
+        for _ in range(50):
+            if page.inner_text("#pdf-where").startswith("Page 1 of 4") and page.evaluate(
+                "document.getElementById('pdf-canvas').width > 1"
+            ):
+                break
+            page.wait_for_timeout(250)
+        page.wait_for_timeout(700)
+
+    def drag(page, a, b):
+        page.evaluate("document.getElementById('pdf-marks').scrollIntoView({block: 'start'});0")
+        page.wait_for_timeout(150)
+        x, y, w, h = page.evaluate(
+            "(()=>{const r=document.getElementById('pdf-marks').getBoundingClientRect();return [r.left,r.top,r.width,r.height]})()"
+        )
+        page.mouse.move(x + a[0] * w, y + a[1] * h)
+        page.mouse.down()
+        for i in range(1, 7):
+            page.mouse.move(
+                x + (a[0] + (b[0] - a[0]) * i / 6) * w, y + (a[1] + (b[1] - a[1]) * i / 6) * h
+            )
+        page.mouse.up()
+        page.wait_for_timeout(300)
+
+    def n_list(page):
+        return page.locator("#pdf-marklist li").count()
+
+    def keys(page):
+        return page.evaluate("Object.keys(localStorage).filter(k=>k.indexOf('%s')>=0).length" % KEY)
+
+    def status(page):
+        return page.inner_text("#pdf-markstatus")
+
+    open_pdf(pg, A)
+    pg.click("#pdf-tool-hl")
+    drag(pg, (0.2, 0.2), (0.6, 0.4))
+    pg.click("#pdf-tool-pen")
+    drag(pg, (0.1, 0.6), (0.8, 0.7))
+    check(
+        "marks keep: two marks added, the status says they are kept on this device and one key is stored",
+        n_list(pg) == 2 and "kept on this device" in status(pg) and keys(pg) == 1,
+        status(pg),
+    )
+    check(
+        "marks keep: the stored value is only marks (no file bytes) and is small",
+        pg.evaluate(
+            "(()=>{const k=Object.keys(localStorage).filter(k=>k.indexOf('%s')>=0)[0];const v=JSON.parse(localStorage.getItem(k));return Object.keys(v).join()==='v,marks'&&localStorage.getItem(k).length<4000})()"
+            % KEY
+        ),
+    )
+    pg.reload()
+    pg.wait_for_timeout(500)
+    open_pdf(pg, A)
+    check(
+        "marks keep: after a reload the same file shows both marks and says they were saved",
+        n_list(pg) == 2 and "2 saved mark(s)" in status(pg),
+        status(pg),
+    )
+    check(
+        "marks keep: the saved marks are drawn on the page",
+        pg.evaluate("document.querySelectorAll('#pdf-marks rect, #pdf-marks polyline').length")
+        == 2,
+    )
+    open_pdf(pg, B)
+    check("marks keep: a different file shows no marks", n_list(pg) == 0)
+    open_pdf(pg, A)
+    pg.locator("#pdf-marklist button").first.click()
+    pg.wait_for_timeout(300)
+    pg.reload()
+    pg.wait_for_timeout(500)
+    open_pdf(pg, A)
+    check(
+        "marks keep: a removed mark stays removed after a reload", n_list(pg) == 1, str(n_list(pg))
+    )
+
+    # Two tabs.
+    t2 = ctx.new_page()
+    t2.goto(APP + "/pdf/")
+    t2.wait_for_timeout(500)
+    open_pdf(t2, A)
+    check("marks keep: a second tab shows the saved mark", n_list(t2) == 1)
+    pg.bring_to_front()
+    pg.click("#pdf-tool-hl")
+    drag(pg, (0.3, 0.1), (0.5, 0.2))
+    t2.wait_for_timeout(600)
+    check(
+        "marks keep: a mark added in one tab shows in the other with a message",
+        n_list(t2) == 2 and "changed in another tab" in status(t2),
+        status(t2),
+    )
+    # Make the second tab stale on purpose: change what is stored from inside it (no event reaches itself).
+    t2.evaluate(
+        "(()=>{const k=Object.keys(localStorage).filter(k=>k.indexOf('%s')>=0)[0];const v=JSON.parse(localStorage.getItem(k));v.marks.push({id:'zzzzzzzz01',page:2,kind:'hl',r:[0.1,0.1,0.3,0.3]});localStorage.setItem(k,JSON.stringify(v));return 0})()"
+        % KEY
+    )
+    pg.bring_to_front()
+    t2.bring_to_front()
+    t2.click("#pdf-tool-hl")
+    drag(t2, (0.5, 0.5), (0.7, 0.7))
+    stored = t2.evaluate(
+        "(()=>{const k=Object.keys(localStorage).filter(k=>k.indexOf('%s')>=0)[0];return JSON.parse(localStorage.getItem(k)).marks.length})()"
+        % KEY
+    )
+    check(
+        "marks keep: a stale tab's change is refused, said so, and nothing is overwritten",
+        "was not applied" in status(t2) and stored == 3 and n_list(t2) == 3,
+        "%s | stored %s | list %s" % (status(t2), stored, n_list(t2)),
+    )
+    t2.close()
+    pg.bring_to_front()
+
+    # Quota or write failure.
+    pg.evaluate(
+        "window.__orig=Storage.prototype.setItem;Storage.prototype.setItem=function(){throw new Error('quota')};0"
+    )
+    before = n_list(pg)
+    if pg.evaluate("document.getElementById('pdf-tool-hl').getAttribute('aria-pressed')") != "true":
+        pg.click("#pdf-tool-hl")
+    drag(pg, (0.6, 0.6), (0.9, 0.9))
+    check(
+        "marks keep: when the browser cannot save, the mark is not added and the status says so",
+        n_list(pg) == before and "would not save" in status(pg),
+        status(pg),
+    )
+    pg.evaluate("Storage.prototype.setItem=window.__orig;0")
+
+    # Unreadable stored data is left alone.
+    pg.evaluate(
+        "(()=>{const k=Object.keys(localStorage).filter(k=>k.indexOf('%s')>=0)[0];localStorage.setItem(k,'not json');return 0})()"
+        % KEY
+    )
+    pg.reload()
+    pg.wait_for_timeout(500)
+    open_pdf(pg, A)
+    check(
+        "marks keep: unreadable saved marks are left as they are and the page says marks stay in this tab",
+        "could not be read" in status(pg) and "this tab only" in status(pg),
+        status(pg),
+    )
+    pg.click("#pdf-tool-hl")
+    drag(pg, (0.2, 0.2), (0.4, 0.4))
+    kept = pg.evaluate(
+        "(()=>{const k=Object.keys(localStorage).filter(k=>k.indexOf('%s')>=0)[0];return localStorage.getItem(k)})()"
+        % KEY
+    )
+    check(
+        "marks keep: in that state a mark still works in the tab and the stored value is untouched",
+        n_list(pg) == 1 and kept == "not json",
+        str(kept),
+    )
+
+    # Remove all clears the key.
+    pg.evaluate("localStorage.clear();0")
+    pg.reload()
+    pg.wait_for_timeout(500)
+    open_pdf(pg, A)
+    pg.click("#pdf-tool-hl")
+    drag(pg, (0.2, 0.2), (0.4, 0.4))
+    check("marks keep: one key is stored before Remove all marks", keys(pg) == 1)
+    pg.click("#pdf-markclear")
+    pg.wait_for_timeout(300)
+    check(
+        "marks keep: Remove all marks empties the list and deletes the stored key",
+        n_list(pg) == 0 and keys(pg) == 0 and "removed from this device" in status(pg),
+        status(pg),
     )
 
 
@@ -6569,6 +6756,7 @@ DRILLS = {
     "pdf_order": pdf_order,
     "pdf_marks": pdf_marks,
     "pdf_marks_secure": pdf_marks_secure,
+    "pdf_marks_keep": pdf_marks_keep,
     "slides_style": slides_style,
     "sheets_tabs": sheets_tabs,
     "sheets_chart": sheets_chart,
@@ -6590,7 +6778,7 @@ DRILLS = {
 
 # Drills that need a secure context (navigator.locks) run in their own browser, started with a flag that treats the plain-HTTP drill origin as
 # secure. This is a test browser setting only, not the app's policy or an HTTPS deployment. Other drills never get the flag.
-SECURE_DRILLS = ("pdf_notes_turn", "pdf_marks_secure")
+SECURE_DRILLS = ("pdf_notes_turn", "pdf_marks_secure", "pdf_marks_keep")
 
 
 def run_group(p, names, secure, state=None, keep=None):  # noqa: C901

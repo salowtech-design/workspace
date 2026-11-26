@@ -612,10 +612,11 @@
       b.setAttribute("aria-label", "Remove " + (m.kind === "hl" ? "area highlight" : "pen drawing") + " " + (i + 1) + " on page " + m.page);
       b.addEventListener("click", function () {
         if (mBusy) return;
-        var at = i; mMarks = window.PdfMarks.remove(mMarks, m.id); mHold = mClearHold(); renderMarks(); mControls();
-        var btns = $("pdf-marklist").querySelectorAll("button"), nxt = btns[Math.min(at, btns.length - 1)];
-        (nxt || $("pdf-tool-hl")).focus();
-        mmsg("Removed " + (m.kind === "hl" ? "an area highlight" : "a pen drawing") + " on page " + m.page + ". " + mMarks.length + " mark(s) left.");
+        var at = i, next = window.PdfMarks.remove(mMarks, m.id);
+        mApply(next, "Removed " + (m.kind === "hl" ? "an area highlight" : "a pen drawing") + " on page " + m.page + ". " + next.length + " mark(s) left.", function () {
+          var btns = $("pdf-marklist").querySelectorAll("button"), nxt = btns[Math.min(at, btns.length - 1)];
+          (nxt || $("pdf-tool-hl")).focus();
+        });
       });
       li.appendChild(b); ol.appendChild(li);
     });
@@ -642,14 +643,62 @@
     if (!mDrag || e.pointerId !== mDrag.id) return;
     var d = mDrag, p = mPoint(e); mDrag = null; if (d.kind === "hl") d.b = p;
     var M = window.PdfMarks, r = d.kind === "hl" ? M.addHighlight(mMarks, page, d.a[0], d.a[1], d.b[0], d.b[1]) : M.addInk(mMarks, page, [d.pts]);
-    if (r.error) mmsg(r.error); else { mMarks = r.marks; mHold = mClearHold(); mmsg((d.kind === "hl" ? "Area highlight" : "Pen drawing") + " added on page " + page + ". It stays in this tab only until you download a copy."); }
+    if (r.error) { mmsg(r.error); renderMarks(); return; }
+    var pg0 = page;
+    mApply(r.marks, (d.kind === "hl" ? "Area highlight" : "Pen drawing") + " added on page " + pg0 + ". " + (mState === "ok" ? "It is kept on this device for this file." : "It stays in this tab only."), null);
     renderMarks();
   });
   mSvg.addEventListener("pointercancel", function () { mDrag = null; renderMarks(); });
-  function mReset() { mToken++; mMarks = []; mTool = "off"; mDrag = null; mHold = mClearHold(); mBusy = false; renderMarks(); mmsg(""); }
+  // Keeping marks on this device: the same guarded pattern as notes (one Web Lock, re-read before write, stale refused, unreadable left alone).
+  var mPrefix = $("pdf-marksbox").getAttribute("data-prefix") || "salow.pdfmarks.", mKey = "", mState = "tab", mLast = null, mSaving = false;
+  function mFileCount() {
+    var c = 0; try { for (var i = 0; i < localStorage.length; i++) if ((localStorage.key(i) || "").indexOf(mPrefix) === 0) c++; } catch (e) { return 0; }
+    return c;
+  }
+  function mOpen(hash) {
+    mKey = ""; mState = "tab"; mLast = null;
+    var M = window.PdfMarks, tab = " Marks stay in this tab only for this file.";
+    if (!(navigator.locks && navigator.locks.request)) { mmsg("This browser or connection cannot keep marks safely when the same file is open in two tabs." + tab); return; }
+    if (typeof hash !== "string" || !/^[0-9a-f]{64}$/.test(hash)) { mmsg("The viewer could not identify this file, so it cannot keep marks for it." + tab); return; }
+    var key = mPrefix + hash, raw; try { raw = localStorage.getItem(key); } catch (e) { mmsg("This browser will not keep marks." + tab); return; }
+    if (raw === null && mFileCount() >= M.MAX_FILES) { mmsg("Marks are kept for up to " + M.MAX_FILES + " files on this device. Remove all marks of a file you no longer need first." + tab); return; }
+    var l = M.load(raw);
+    if (l.unreadable) { mmsg("The saved marks for this file could not be read. They were left as they are, and nothing will be written for this file." + tab); return; }
+    mKey = key; mLast = raw; mState = "ok"; mMarks = l.marks;
+    mmsg(l.marks.length ? l.marks.length + " saved mark(s) for this file on this device." : ""); renderMarks();
+  }
+  function mAdopt(raw, why) {
+    var l = window.PdfMarks.load(raw); mDrag = null; mHold = mClearHold();
+    if (l.unreadable) { mMarks = []; mState = "tab"; mmsg(why + " The saved marks could not be read, so they stay in this tab only and nothing more is written."); }
+    else { mMarks = l.marks; mLast = raw; mmsg(why); }
+    renderMarks();
+  }
+  // One change to the marks list: saved first (when this file's marks are kept), shown only after the save worked.
+  function mApply(next, okMsg, after) {
+    if (mSaving) { mmsg("Still saving the last change. Try again."); return; }
+    var myDoc = doc, myKey = mKey, myLast = mLast, M = window.PdfMarks;
+    var fin = function (r) {
+      mSaving = false;
+      if (r.stale) { mAdopt(r.raw, "Marks for this file changed in another tab, so that change was not applied. Showing the saved marks."); return; }
+      if (r.limit) { mmsg("Marks are kept for up to " + M.MAX_FILES + " files on this device. Nothing was changed."); renderMarks(); return; }
+      if (r.size) { mmsg("The marks for this file are too large to keep on this device, so nothing was changed. Remove some marks first."); renderMarks(); return; }
+      if (r.err) { mmsg("This browser would not save that change, so nothing was changed."); renderMarks(); return; }
+      mMarks = next; mHold = mClearHold(); if (myKey === mKey && r.raw !== undefined) mLast = r.raw;
+      mmsg(okMsg); renderMarks(); if (after) after();
+    };
+    mSaving = true;
+    if (mState !== "ok") { fin({ ok: true }); return; }
+    var run = function () { return M.applySave(localStorage, myKey, myLast, next, mFileCount); };
+    navigator.locks.request("salow-pdfmarks", function () { return run(); }).then(function (r) { if (myDoc !== doc) return; fin(r); }, function () { if (myDoc === doc) { mSaving = false; mmsg("The change could not be saved."); renderMarks(); } });
+  }
+  window.addEventListener("storage", function (e) {
+    if (!doc || !mKey || mState !== "ok" || e.key !== mKey || e.storageArea !== localStorage) return;
+    mAdopt(e.newValue, "Marks for this file were changed in another tab. Showing the saved marks.");
+  });
+  function mReset() { mToken++; mKey = ""; mState = "tab"; mLast = null; mSaving = false; mMarks = []; mTool = "off"; mDrag = null; mHold = mClearHold(); mBusy = false; renderMarks(); mmsg(""); }
   $("pdf-tool-hl").addEventListener("click", function () { mSetTool("hl"); });
   $("pdf-tool-pen").addEventListener("click", function () { mSetTool("pen"); });
-  $("pdf-markclear").addEventListener("click", function () { if (mBusy) return; mMarks = []; mHold = mClearHold(); renderMarks(); $("pdf-tool-hl").focus(); mmsg("All marks removed."); });
+  $("pdf-markclear").addEventListener("click", function () { if (mBusy) return; mApply([], mState === "ok" ? "All marks for this file were removed from this device." : "All marks removed.", function () { $("pdf-tool-hl").focus(); }); });
   $("pdf-markcopy").addEventListener("click", function () {
     if (!doc || mBusy || !mMarks.length) return;
     var myDoc = doc, nameText = $("pdf-name").textContent || "PDF file", tok = ++mToken, sig = JSON.stringify(mMarks);
@@ -694,7 +743,7 @@
       return t.promise.then(function (d) { return { d: d, t: t }; }, function (e) { try { t.destroy(); } catch (x) { /* gone */ } throw e; });
     }).then(function (r) { return hashed.then(function (h) { r.h = h; return r; }); }).then(function (r) {
       if (!seq.current(mine)) { try { r.t.destroy(); } catch (x) { /* superseded by a newer open */ } return; }
-      var d = r.d; closeDoc(""); doc = d; loadTask = r.t; page = 1; zoom = 1; fitPage = false; rot = 0; $("pdf-name").textContent = name; notesOpen(d, r.h); controls(); fControls(); thOpen(d); thMark(); draw();
+      var d = r.d; closeDoc(""); doc = d; loadTask = r.t; page = 1; zoom = 1; fitPage = false; rot = 0; $("pdf-name").textContent = name; notesOpen(d, r.h); mOpen(r.h); controls(); fControls(); thOpen(d); thMark(); draw();
     }).catch(function (e) {
       if (!seq.current(mine)) return;
       status.textContent = e && e.name === "PasswordException" ? "This PDF is password protected. Password files are not supported yet." : e && e.name === "InvalidPDFException" ? "That PDF is damaged or not readable." : "The viewer could not open that file.";

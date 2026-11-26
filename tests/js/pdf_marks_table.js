@@ -46,6 +46,21 @@ const done = (async () => {
   ok("a rotated highlight is not the same rectangle as the unrotated one (so the rotation row can fail)", Math.abs(rrect[2] - rrect[0] - 200) > 1);
   ok("marks for a page the file does not have are skipped", (await M.build(P, E, src, [{ id: "abcdefgh", page: 9, kind: "hl", r: [0.1, 0.1, 0.2, 0.2] }])).added === 0);
   ok("an invalid mark makes the copy refuse", (await code(() => M.build(P, E, src, [{ id: "x", page: 1, kind: "hl", r: [0, 0, 1, 1] }]))) === "mark");
+  // Keeping marks on the device (pure parts).
+  const st = () => { const o = {}; return { o, getItem: (k) => (k in o ? o[k] : null), setItem: (k, v) => { o[k] = v; }, removeItem: (k) => { delete o[k]; } }; };
+  const two = M.addInk(M.addHighlight([], 1, 0.1, 0.1, 0.4, 0.4, rnd).marks, 2, [[[0.1, 0.1], [0.5, 0.5]]], rnd).marks;
+  ok("a saved list loads back exactly", JSON.stringify(M.load(M.dump(two)).marks) === JSON.stringify(two) && !M.load(M.dump(two)).unreadable);
+  ok("nothing stored loads as an empty, readable list", (() => { const l = M.load(null); return !l.unreadable && l.marks.length === 0; })());
+  ok("garbage, wrong version, a bad mark and duplicate ids are unreadable", ["not json", "{}", JSON.stringify({ v: 2, marks: [] }), JSON.stringify({ v: 1, marks: [{ id: "abcdef", page: 1, kind: "x" }] }), JSON.stringify({ v: 1, marks: [two[0], two[0]] })].every((r) => M.load(r).unreadable));
+  const s1 = st(); const r1 = M.applySave(s1, "k", null, two, () => 0);
+  ok("a first save writes the list and reports what it wrote", r1.ok && s1.o.k === M.dump(two) && r1.raw === s1.o.k);
+  ok("a save against a baseline that is no longer stored is refused as stale, and writes nothing", (() => { const s = st(); s.o.k = M.dump(two); const r = M.applySave(s, "k", null, [two[0]], () => 0); return r.stale === true && s.o.k === M.dump(two); })());
+  ok("saving an empty list removes the key; with nothing stored it does nothing", (() => { const s = st(); M.applySave(s, "k", null, two, () => 0); const r = M.applySave(s, "k", s.o.k, [], () => 0); return r.ok && !("k" in s.o) && M.applySave(st(), "k", null, [], () => 0).ok; })());
+  ok("a new file is refused at the file limit, an existing one still saves", M.applySave(st(), "k", null, two, () => M.MAX_FILES).limit === true && (() => { const s = st(); s.o.k = M.dump(two); return M.applySave(s, "k", s.o.k, [two[0]], () => M.MAX_FILES).ok === true; })());
+  ok("a list over the stored size cap is refused and the old value stays", (() => { const s = st(); s.o.k = M.dump(two); let big = []; const pts = Array.from({ length: 2000 }, (_, i) => [Math.random(), Math.random()]); for (let i = 0; i < 12; i++) big.push({ id: "big" + String(i).padStart(4, "0"), page: 1, kind: "ink", s: [pts] }); const r = M.applySave(s, "k", s.o.k, big, () => 0); return r.size === true && s.o.k === M.dump(two) && big.every(M.validMark); })());
+  ok("a browser that throws on write reports an error and keeps the old value", (() => { const s = st(); s.o.k = M.dump(two); s.setItem = () => { throw new Error("q"); }; const r = M.applySave(s, "k", s.o.k, [two[0]], () => 0); return r.err === "write" && s.o.k === M.dump(two); })());
+  ok("a browser that throws on read reports an error", M.applySave({ getItem() { throw new Error("x"); } }, "k", null, two, () => 0).err === "read");
+
   const odd = await pdfWith((dd, pg) => pg.node.set(P.PDFName.of("Annots"), dd.context.obj({ A: 1 })));
   ok("an annotation list that is not an array stops the copy", (await code(() => M.build(P, E, odd, m))) === "annots");
   ok("garbage bytes are reported as damaged", (await code(() => M.build(P, E, Buffer.from("nope"), m))) === "damaged");

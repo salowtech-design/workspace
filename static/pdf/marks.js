@@ -1,9 +1,9 @@
 (function (root) {
   "use strict";
-  // Area highlights and freehand pen strokes drawn over a page. They live only in this tab while the file is open (nothing is stored),
+  // Area highlights and freehand pen strokes drawn over a page. They are kept in this browser on this device, per file (keyed by the file's SHA-256, like notes),
   // and become standard Highlight and Ink annotations in a separate downloaded copy. A highlight is a rectangle the person drags,
   // not a selection of text: this viewer has no positioned text layer. Positions are fractions (0 to 1) of the page as shown, from the top-left.
-  var MAX_MARKS = 300, MAX_STROKES = 20, MAX_POINTS = 2000, KINDS = { hl: 1, ink: 1 };
+  var MAX_FILES = 30, MAX_STORED = 400000, MAX_MARKS = 300, MAX_STROKES = 20, MAX_POINTS = 2000, KINDS = { hl: 1, ink: 1 };
   function unit(x) { return typeof x === "number" && x >= 0 && x <= 1; }
   function validMark(m) {
     if (!m || typeof m !== "object" || typeof m.id !== "string" || !/^[a-z0-9]{6,20}$/.test(m.id)) return false;
@@ -34,6 +34,34 @@
   }
   function remove(marks, id) { return marks.filter(function (m) { return m.id !== id; }); }
   function forPage(marks, p) { return marks.filter(function (m) { return m.page === p; }); }
+  // Local keeping, the same pattern as notes: a stored value is either exactly a valid list or unreadable (and then left alone, never replaced).
+  function load(raw) {
+    if (raw === null || raw === undefined) return { marks: [], unreadable: false };
+    var v; try { v = JSON.parse(raw); } catch (e) { return { marks: [], unreadable: true }; }
+    if (!v || v.v !== 1 || !Array.isArray(v.marks) || v.marks.length > MAX_MARKS) return { marks: [], unreadable: true };
+    var seen = {};
+    for (var i = 0; i < v.marks.length; i++) { var m = v.marks[i]; if (!validMark(m) || seen[m.id]) return { marks: [], unreadable: true }; seen[m.id] = true; }
+    return { marks: v.marks, unreadable: false };
+  }
+  function dump(marks) { return JSON.stringify({ v: 1, marks: marks }); }
+  // What a save may do. last is what this tab last saw stored, cur is what is stored now.
+  function plan(last, cur, next, fileCount) {
+    if (cur !== last) return "stale";
+    if (!next.length) return cur === null ? "none" : "remove";
+    if (cur === null && fileCount >= MAX_FILES) return "limit";
+    if (dump(next).length > MAX_STORED) return "size";
+    return "set";
+  }
+  // The guarded write. Returns {stale, raw}, {limit}, {size}, {err}, or {ok, raw}.
+  function applySave(store, key, last, next, countFiles) {
+    var cur; try { cur = store.getItem(key); } catch (e) { return { err: "read" }; }
+    var act = plan(last, cur, next, cur === null ? countFiles() : 0);
+    if (act === "stale") return { stale: true, raw: cur };
+    if (act === "limit") return { limit: true };
+    if (act === "size") return { size: true };
+    try { if (act === "remove") store.removeItem(key); else if (act === "set") store.setItem(key, dump(next)); } catch (e) { return { err: "write" }; }
+    return { ok: true, raw: act === "set" ? dump(next) : null };
+  }
   function fail(code, msg) { var e = new Error(msg); e.code = code; return e; }
   // A copy of the file with the marks as annotations. E is PdfNotesExport (for the page-box and rotation maths and the signed check).
   function build(L, E, bytes, marks) {
@@ -73,6 +101,6 @@
       return pdf.save({ useObjectStreams: false }).then(function (out) { if (out.length > E.MAX_BYTES) throw fail("size", "copy too large"); return { bytes: out, added: done, signed: signed }; });
     }, function (e) { if (e && e.code) throw e; throw fail(/encrypt/i.test(String(e && e.message)) ? "encrypted" : "damaged", "could not read"); });
   }
-  var api = { MAX_MARKS: MAX_MARKS, MAX_STROKES: MAX_STROKES, MAX_POINTS: MAX_POINTS, validMark: validMark, addHighlight: addHighlight, addInk: addInk, remove: remove, forPage: forPage, build: build };
+  var api = { MAX_FILES: MAX_FILES, MAX_STORED: MAX_STORED, load: load, dump: dump, plan: plan, applySave: applySave, MAX_MARKS: MAX_MARKS, MAX_STROKES: MAX_STROKES, MAX_POINTS: MAX_POINTS, validMark: validMark, addHighlight: addHighlight, addInk: addInk, remove: remove, forPage: forPage, build: build };
   if (typeof module !== "undefined" && module.exports) module.exports = api; else root.PdfMarks = api;
 })(typeof self !== "undefined" ? self : this);
