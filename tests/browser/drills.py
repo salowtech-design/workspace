@@ -7945,7 +7945,57 @@ def task_filters(ctx):
     pg.set_viewport_size({"width": 1100, "height": 900})
 
 
+def finder_projects(ctx):
+    """Finder at 390 px: a lower-case query finds a project by name, the result opens that project,
+    a long name wraps, and a person who is not a member does not get it (checked in the store)."""
+    import concurrent.futures
+
+    import django
+
+    django.setup()
+    shots = os.environ.get("DRILL_SHOTS", "/tmp")  # noqa: S108
+    pg = ctx.pages[0]
+    pg.set_viewport_size({"width": 390, "height": 800})
+    long_name = "Quokka planning workspace for every office and every shared team space, round two of three"
+
+    def seed():
+        from apps.accounts.models import CustomUser
+        from apps.tasks import projects as pj
+
+        me = CustomUser.objects.get(employee_id="ST-LIVE-1")
+        p = pj.create_project(me, long_name[:120])
+        other = CustomUser.objects.create(employee_id="FD-OTHER", full_name="Other Person", email="fd-other@salowtech.com", status="active", is_active=True)
+        pj.create_project(other, "Quokka private project of the other person")
+        return str(p.public_id), other.pk
+
+    with concurrent.futures.ThreadPoolExecutor(1) as ex:
+        pid, other_pk = ex.submit(seed).result()
+    pg.goto(APP + "/search/?q=quokka")
+    body = pg.inner_text("body")
+    check("finder projects: a lower-case query finds the project by name under Tasks", "Quokka planning workspace" in body and "<h3>Tasks</h3>" in pg.content())
+    check("finder projects: another person's private project is not listed", "private project of the other person" not in body)
+    check("finder projects: no sideways scroll at 390 px with the long name", not pg.evaluate("document.documentElement.scrollWidth > document.documentElement.clientWidth"))
+    pg.screenshot(path=os.path.join(shots, "finder_projects_390.png"), full_page=True)
+    pg.click("a.cal-title:has-text('Quokka planning workspace')")
+    pg.wait_for_load_state()
+    check("finder projects: the result opens that project", pg.url.endswith("/tasks/projects/%s/" % pid) and "Quokka planning" in pg.inner_text("body"), pg.url[-60:])
+
+    def audience():
+        from apps.core.foundation.search import search_grouped
+        from apps.accounts.models import CustomUser
+
+        o = CustomUser.objects.get(pk=other_pk)
+        hits = search_grouped(o, "quokka", types=("tasks",), per_module=20)
+        return [h.title for hh, _ in hits.values() for h in hh]
+
+    with concurrent.futures.ThreadPoolExecutor(1) as ex:
+        titles = ex.submit(audience).result()
+    check("finder projects: the other person finds only their own project, not the lead's (store check, not a second browser login)", titles == ["Quokka private project of the other person"], str(titles))
+    pg.set_viewport_size({"width": 1100, "height": 900})
+
+
 DRILLS = {
+    "finder_projects": finder_projects,
     "task_filters": task_filters,
     "task_comments": task_comments,
     "cal_series_page": cal_series_page,
