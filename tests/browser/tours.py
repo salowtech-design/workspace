@@ -275,6 +275,7 @@ def register(g):
     register_event_occurrence_paging(g, users)
     register_event_series_guest(g, users)
     register_event_time_zone(g, users)
+    register_event_week_day_arrows(g, users)
     register_posts_more(g, users)
 
 
@@ -3028,3 +3029,51 @@ def register_event_time_zone(g, users):
         run_tour(ctx, "52_event_time_zone", body, notes="Real Django on TiDB, headless Chromium 390x844 emulated. The workspace zone is Asia/Kolkata; the event is in America/New_York.", unshown=["clock-change gap time"])
 
     g["DRILLS"]["tour_event_time_zone"] = tour
+
+
+def register_event_week_day_arrows(g, users):
+    APP = g["APP"]
+
+    def tour(ctx):
+        import concurrent.futures
+        import datetime as dt
+
+        users(ctx)
+        today = dt.date.today()
+        monday = today - dt.timedelta(days=today.weekday())
+        this_week = monday + dt.timedelta(days=2)
+        next_week = monday + dt.timedelta(days=9)
+
+        def make():
+            from apps.accounts.models import CustomUser
+            from apps.events import services as es
+
+            me = CustomUser.objects.get(employee_id="ST-LIVE-1")
+            for title, d in (("Planning this week", this_week), ("Review next week", next_week)):
+                base = dt.datetime.combine(d, dt.time(11, 0))
+                es.create_event(me, title, base, base + dt.timedelta(hours=1), "Asia/Kolkata", [])
+
+        with concurrent.futures.ThreadPoolExecutor(1) as ex:
+            ex.submit(make).result()
+
+        def body(t, pg):
+            txt = lambda: pg.inner_text("body")
+            def go(sel):
+                with pg.expect_navigation():
+                    pg.click(sel)
+            def show():
+                pg.evaluate("document.querySelector('.cal-nav').scrollIntoView({block:'start'})")
+            pg.goto(APP + "/calendar/week/?d=" + monday.isoformat())
+            t.step("Week view of this week: only Planning this week is listed", lambda: show(), expect=lambda: "Planning this week" in txt() and "Review next week" not in txt(), wait=4000)
+            t.step("Next: the following week lists Review next week", lambda: (go("a:has-text('Next')"), show()), expect=lambda: "Review next week" in txt() and "Planning this week" not in txt(), wait=4000)
+            t.step("Previous: back to this week", lambda: (go("a:has-text('Previous')"), show()), expect=lambda: "Planning this week" in txt() and "Review next week" not in txt(), wait=4000)
+            pg.goto(APP + "/calendar/day/?d=" + this_week.isoformat())
+            t.step("Day view of the day of Planning this week", lambda: show(), expect=lambda: "Planning this week" in txt(), wait=3500)
+            t.step("Next: the following day is empty", lambda: (go("a:has-text('Next')"), show()), expect=lambda: "Planning this week" not in txt(), wait=3500)
+            t.step("Previous twice: the day before is empty too", lambda: (go("a:has-text('Previous')"), go("a:has-text('Previous')"), show()), expect=lambda: "Planning this week" not in txt(), wait=3500)
+            t.step("Next once: back on the day with Planning this week", lambda: (go("a:has-text('Next')"), show()), expect=lambda: "Planning this week" in txt(), wait=3500)
+            t.note("Not shown: month arrows were filmed in an earlier clip. Arrows at the edge of the supported date range are not shown.", 3)
+
+        run_tour(ctx, "53_event_week_day_arrows", body, notes="Real Django on TiDB, headless Chromium 390x844 emulated. Fixture by script: one event this week and one the week after.", unshown=["arrows at the edge of the supported date range"])
+
+    g["DRILLS"]["tour_event_week_day_arrows"] = tour
