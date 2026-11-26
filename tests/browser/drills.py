@@ -4783,6 +4783,129 @@ def chat_reactions(ctx):  # noqa: C901
     pg.set_viewport_size({"width": 1280, "height": 800})
 
 
+def chat_two_users(ctx):  # noqa: C901
+    """Chat with two real browser contexts. The second person's session is created on the server side (not through the sign-in page, which the drill only runs for the first person), then each browser acts for its own person."""
+    import concurrent.futures
+
+    import django
+
+    django.setup()
+
+    def setup():
+        from django.conf import settings
+        from django.test import Client
+
+        from apps.accounts.models import CustomUser
+        from apps.chat import services as cs
+
+        me = CustomUser.objects.get(employee_id="ST-LIVE-1")
+        other, _ = CustomUser.objects.get_or_create(
+            employee_id="ST-LIVE-2",
+            defaults={
+                "full_name": "Second Synthetic",
+                "email": "live.two@salowtech.com",
+                "email_verified": True,
+                "role": CustomUser.Role.EMPLOYEE,
+                "status": CustomUser.Status.ACTIVE,
+                "is_active": True,
+            },
+        )
+        c = Client(HTTP_HOST="app.salowtech.com")
+        c.force_login(other)
+        sp = cs.open_dm(me, other.pk)
+        cs.post_message(me, sp.public_id, "First message from one.", "tu-1")
+        return sp.public_id, c.cookies[settings.SESSION_COOKIE_NAME].value, settings.SESSION_COOKIE_NAME
+
+    def run(fn, *a):
+        with concurrent.futures.ThreadPoolExecutor(1) as ex:
+            return ex.submit(fn, *a).result()
+
+    space_id, cookie, cname = run(setup)
+    url = APP + "/chat/space/%s/" % space_id
+    host = urlsplit(APP).hostname
+    c2 = ctx.browser.new_context(viewport={"width": 1100, "height": 900})
+    c2.add_cookies([{"name": cname, "value": cookie, "domain": host, "path": "/"}])
+    p1, p2 = ctx.pages[0], c2.new_page()
+    p1.goto(url)
+    p2.goto(url)
+    p1.wait_for_timeout(600)
+    p2.wait_for_timeout(600)
+    check(
+        "two users: the second browser is signed in as the second person and sees the first message",
+        "First message from one." in p2.inner_text("#chat-list") and "Second Synthetic" not in p2.inner_text("#chat-list"),
+        p2.url + " | " + p2.inner_text("body")[:120],
+    )
+
+    def lab(pg, seq, key):
+        return pg.get_attribute("#m%d button[value=%s]" % (seq, key), "aria-label")
+
+    p1.click("#m1 button[value=heart]")
+    p1.wait_for_timeout(700)
+    check("two users: person one presses heart and sees it as theirs", lab(p1, 1, "heart") == "Heart, 1, you reacted", lab(p1, 1, "heart"))
+    check("two users: before the poll person two still shows no count", lab(p2, 1, "heart") == "Heart", lab(p2, 1, "heart"))
+    t0 = time.time()
+    while lab(p2, 1, "heart") != "Heart, 1" and time.time() - t0 < 40:
+        p2.wait_for_timeout(500)
+    check(
+        "two users: person two's page shows person one's reaction by polling, not as their own",
+        lab(p2, 1, "heart") == "Heart, 1" and p2.get_attribute("#m1 button[value=heart]", "aria-pressed") == "false",
+        (lab(p2, 1, "heart"), time.time() - t0),
+    )
+    # person two sends a message from their own browser; person one gets it and can react to it
+    p2.fill("textarea[name=body]", "Reply from two.")
+    p2.click(".chat-compose button[type=submit]")
+    p2.wait_for_load_state()
+    p2.wait_for_timeout(600)
+    t0 = time.time()
+    while "Reply from two." not in p1.inner_text("#chat-list") and time.time() - t0 < 40:
+        p1.wait_for_timeout(500)
+    check("two users: the new message reaches person one by polling", "Reply from two." in p1.inner_text("#chat-list"), p1.inner_text("#chat-list")[:200])
+    p1.click("#m2 button[value=tada]")
+    p1.wait_for_timeout(700)
+    check("two users: person one can react to the polled-in message", lab(p1, 2, "tada") == "Celebrate, 1, you reacted", lab(p1, 2, "tada"))
+    t0 = time.time()
+    while lab(p2, 2, "tada") != "Celebrate, 1" and time.time() - t0 < 40:
+        p2.wait_for_timeout(500)
+    check("two users: and person two sees that count", lab(p2, 2, "tada") == "Celebrate, 1", lab(p2, 2, "tada"))
+
+    # person two is removed from the conversation: their press is refused, nothing is stored, their page stops
+    def remove():
+        from django.utils import timezone
+
+        from apps.chat.models import Member, Reaction
+        from apps.accounts.models import CustomUser
+
+        Member.objects.filter(space__public_id=space_id, person__employee_id="ST-LIVE-2").update(left_at=timezone.now())
+        return Reaction.objects.filter(person__employee_id="ST-LIVE-2").count()
+
+    before = run(remove)
+
+    def after():
+        from apps.chat.models import Reaction
+
+        return Reaction.objects.filter(person__employee_id="ST-LIVE-2").count()
+
+    p2.click("#m1 button[value=eyes]")
+    p2.wait_for_timeout(900)
+    status = p2.inner_text("#chat-status")
+    check(
+        "two users: after removal person two's press is refused with a message and stores nothing",
+        "no longer available" in status and run(after) == before and lab(p2, 1, "eyes") == "Looking",
+        (status, before, run(after), lab(p2, 1, "eyes")),
+    )
+    t0 = time.time()
+    while "no longer available" not in p2.inner_text("#chat-status") and time.time() - t0 < 5:
+        p2.wait_for_timeout(300)
+    r = p2.evaluate(
+        "fetch(document.getElementById('chat-list').dataset.reactions+'?first=1&last=2',{credentials:'same-origin'}).then(r=>r.status)"
+    )
+    check("two users: after removal the refresh endpoint answers person two with 404", r == 404, r)
+    p1.click("#m1 button[value=heart]")
+    p1.wait_for_timeout(600)
+    check("two users: person one is not affected (heart off again, page still working)", lab(p1, 1, "heart") == "Heart", lab(p1, 1, "heart"))
+    c2.close()
+
+
 def chat_poll_real(ctx):  # noqa: C901
     """Chat, real server and TiDB: a message sent by the second person while this person's polls are rate limited arrives once and the position advances."""
     import concurrent.futures
@@ -8666,6 +8789,7 @@ DRILLS = {
     "chat_poll_429": chat_poll_429,
     "chat_poll_real": chat_poll_real,
     "chat_reactions": chat_reactions,
+    "chat_two_users": chat_two_users,
     "pdf_fit": pdf_fit,
     "pdf_rotate": pdf_rotate,
     "pdf_notes_turn": pdf_notes_turn,
