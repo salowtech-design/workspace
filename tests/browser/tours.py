@@ -64,7 +64,7 @@ class Tour:
         self.log.append({"step": text, "ok": None, "detail": "note"})
 
 
-def run_tour(ctx, name, body, w=390, h=844, scale=2, notes=""):
+def run_tour(ctx, name, body, w=390, h=844, scale=2, notes="", unshown=()):
     out = os.environ.get("DRILL_VIDEO", "")
     if not out:
         print("tour %s skipped: DRILL_VIDEO is not set" % name)
@@ -101,7 +101,7 @@ def run_tour(ctx, name, body, w=390, h=844, scale=2, notes=""):
          "-pix_fmt", "yuv420p", "-movflags", "+faststart", "-an", dst], check=True)  # noqa: S607
     shutil.rmtree(tmp, ignore_errors=True)
     size = os.path.getsize(dst)
-    res = {"name": name, "seconds": round(secs), "bytes": size, "page_errors": perr[:3], "notes": notes, "steps": log}
+    res = {"name": name, "seconds": round(secs), "bytes": size, "page_errors": perr[:3], "notes": notes, "controls_not_shown": list(unshown), "steps": log}
     json.dump(res, open(os.path.join(out, name + ".json"), "w"), indent=1)
     bad = [s for s in log if s["ok"] is False]
     print("TOUR %s: %d steps, %d failed, %.1f MB, %d s" % (name, len(log), len(bad), size / 1e6, secs), flush=True)
@@ -162,3 +162,63 @@ def register(g):
         run_tour(ctx, "01_chat", body, notes="Server side is the real Django app on real TiDB (unistore). The other person's two first messages were inserted by a script, not typed live. Headless Chromium at 390x844 is an emulated phone, not a real device.")
 
     g["DRILLS"]["tour_chat"] = chat_tour
+
+    def users(ctx):
+        import concurrent.futures
+
+        import django
+
+        django.setup()
+
+        def mk():
+            from apps.accounts.models import CustomUser
+
+            out = {}
+            for eid, nm in (("ST-LIVE-2", "Second Synthetic"), ("ST-LIVE-3", "Third Synthetic")):
+                out[eid] = CustomUser.objects.get_or_create(
+                    employee_id=eid,
+                    defaults={"full_name": nm, "email": eid.lower() + "@salowtech.com", "email_verified": True,
+                              "role": CustomUser.Role.EMPLOYEE, "status": CustomUser.Status.ACTIVE, "is_active": True})[0].pk
+            return out
+
+        with concurrent.futures.ThreadPoolExecutor(1) as ex:
+            return ex.submit(mk).result()
+
+    def drive_tour(ctx):
+        import concurrent.futures
+
+        users(ctx)
+
+        def fixture():
+            from apps.accounts.models import CustomUser
+            from apps.drive import services as ds
+
+            two = CustomUser.objects.get(employee_id="ST-LIVE-2")
+            me = CustomUser.objects.get(employee_id="ST-LIVE-1")
+            f = ds.create_folder(two, "Rota from Second Synthetic")
+            ds.share(two, f, me, "viewer")
+
+        with concurrent.futures.ThreadPoolExecutor(1) as ex:
+            ex.submit(fixture).result()
+
+        def body(t, pg):
+            pg.goto(APP + "/drive/")
+            t.step("Drive: My Drive tab, with the notice that upload and download are not available yet", expect=lambda: "not available yet" in pg.inner_text("body"), wait=2500)
+            t.step("Type a folder name", lambda: pg.fill("input[placeholder='New folder name']", "Projects"))
+            t.step("Create folder", lambda: pg.click("button:has-text('Create folder')"), expect=lambda: pg.locator("a.drive-name", has_text="Projects").count() == 1)
+            t.step("Open the folder", lambda: pg.click("a.drive-name:has-text('Projects')"), expect=lambda: "Sharing" in pg.inner_text("body"))
+            t.step("Create a folder inside it", lambda: (pg.fill("input[placeholder='New folder name']", "2026"), pg.click("button:has-text('Create folder')")), expect=lambda: pg.locator("a.drive-name", has_text="2026").count() == 1)
+            t.step("Rename it to 2026 plans", lambda: (pg.fill("input[aria-label='New name']", "2026 plans"), pg.click("button:has-text('Rename')")), expect=lambda: pg.locator("a.drive-name", has_text="2026 plans").count() == 1)
+            t.step("Try a duplicate folder name: it is refused with a message", lambda: (pg.fill("input[placeholder='New folder name']", "2026 plans"), pg.click("button:has-text('Create folder')")), expect=lambda: pg.locator("a.drive-name", has_text="2026 plans").count() == 1 and ("already" in pg.inner_text("body").lower() or "exists" in pg.inner_text("body").lower() or "taken" in pg.inner_text("body").lower()))
+            t.step("Share this folder with ST-LIVE-2 as Viewer", lambda: (pg.fill("input[placeholder='Employee ID']", "ST-LIVE-2"), pg.select_option("select[name=role]", "viewer"), pg.click("button:has-text('Share folder')")), expect=lambda: "Second Synthetic" in pg.locator(".drive-share").inner_text())
+            t.step("Remove that access", lambda: pg.click(".drive-share button:has-text('Remove access')"), expect=lambda: "Not shared with anyone" in pg.inner_text(".drive-share"))
+            t.step("Move the inner folder to trash", lambda: pg.click("button:has-text('Move to trash')"), expect=lambda: "Nothing here yet" in pg.inner_text("body"))
+            t.step("Trash tab: the folder is listed", lambda: pg.click(".drive-tabs a:has-text('Trash')"), expect=lambda: "2026 plans" in pg.inner_text("body"))
+            t.step("Restore it", lambda: pg.click("button:has-text('Restore')"), expect=lambda: "The trash is empty" in pg.inner_text("body"))
+            t.step("Shared with me tab: a folder another person shared", lambda: pg.click(".drive-tabs a:has-text('Shared with me')"), expect=lambda: "Rota from Second" in pg.inner_text("body"))
+            t.step("Open the shared folder (Viewer: no create or rename controls)", lambda: pg.click("a.drive-name:has-text('Rota')"), expect=lambda: pg.locator("button:has-text('Create folder')").count() == 0)
+            t.note("Not built, so not shown: file upload and download (no file storage), moving, versions, search inside Drive.", 3.5)
+
+        run_tour(ctx, "02_drive", body, notes="Real Django app on real TiDB. The folder shared by the second person was created by a script. Headless Chromium 390x844 emulation.", unshown=["Editor role sharing (only Viewer shown)", "folder move", "files (none can be uploaded)", "trash of a folder that has contents", "share to a non-existent ID"])
+
+    g["DRILLS"]["tour_drive"] = drive_tour
