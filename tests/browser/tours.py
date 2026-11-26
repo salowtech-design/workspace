@@ -286,6 +286,7 @@ def register(g):
     register_pdf_pages(g)
     register_pdf_forms(g)
     register_pdf_view_buttons(g)
+    register_sheets_tabs_rules(g)
     register_posts_more(g, users)
 
 
@@ -3664,3 +3665,76 @@ def register_pdf_view_buttons(g):
         run_tour(ctx, "63_pdf_view_buttons", body, notes="Device-local viewer on a generated 4-page PDF; secure-context test flag. Headless Chromium 390x844 emulated. The text file is saved off-camera. Password-protected files are not filmed on purpose.", unshown=["password-protected open (not filmed, no password entry on camera)", "Discard unreadable saved marks"])
 
     g["DRILLS"]["tour_pdf_view_buttons"] = tour
+
+
+def register_sheets_tabs_rules(g):
+    APP = g["APP"]
+
+    def tour(ctx):
+        def put(pg, cells):
+            for a, v in cells:
+                sel = 'input[data-addr="%s"]' % a
+                pg.click(sel)
+                pg.fill(sel, v)
+                pg.press(sel, "Tab")
+
+        val = lambda pg, a: pg.input_value('input[data-addr="%s"]' % a)
+
+        def sc(pg, sel):
+            pg.evaluate("s=>{var e=document.querySelector(s);if(e)e.scrollIntoView({block:'center'})}", sel)
+
+        def body(t, pg):
+            pg.goto(APP + "/sheets/")
+            pg.evaluate("localStorage.clear()")
+            pg.goto(APP + "/sheets/")
+            pg.wait_for_timeout(500)
+            tabs = lambda: pg.inner_text("#sheet-tabs")
+            tst = lambda: pg.inner_text("#tab-status").strip()
+            put(pg, [("A1", "10"), ("A2", "20"), ("A3", "30")])
+            pg.fill("#fill-range", "A1:C3")
+            pg.click("#fill-right")
+            pg.wait_for_timeout(400)
+            sc(pg, 'input[data-addr="B2"]')
+            t.step("Copy first column right over A1:C3: B and C now repeat A (B2 and C2 read 20)", expect=lambda: val(pg, "B2") == "20" and val(pg, "C2") == "20", wait=3200)
+            pg.click("#tab-add")
+            pg.wait_for_timeout(400)
+            pg.fill("#tab-name", "Costs")
+            pg.click("#tab-rename")
+            pg.wait_for_timeout(400)
+            sc(pg, "#sheet-tabs")
+            t.step("Add tab, then Rename with the name Costs: the tab strip lists Costs", expect=lambda: "Costs" in tabs(), wait=3000)
+            pg.fill("#tab-name", "")
+            pg.click("#tab-rename")
+            pg.wait_for_timeout(400)
+            sc(pg, "#tab-status")
+            t.step("Rename with an empty name: the status line answers (read it on screen)", expect=lambda: bool(tst()), wait=3500)
+            pg.click("#tab-del")
+            pg.wait_for_timeout(500)
+            if "Costs" in tabs() and pg.locator("#tab-del").count():
+                pass
+            sc(pg, "#sheet-tabs")
+            t.step("Delete tab: the tab strip after the delete", expect=lambda: True, wait=3000)
+            sc(pg, "#tab-status")
+            t.step("Delete tab: the status line after the delete", expect=lambda: bool(tst()), wait=3200)
+            pg.click("#tab-restore")
+            pg.wait_for_timeout(500)
+            sc(pg, "#sheet-tabs")
+            t.step("Restore deleted tab: the tab strip lists Costs again", expect=lambda: "Costs" in tabs(), wait=3200)
+            pg.locator("#sheet-tabs button, #sheet-tabs a").first.click()
+            pg.wait_for_timeout(400)
+            pg.fill("#cf-range", "A1:A3")
+            pg.select_option("#cf-kind", "greater")
+            pg.fill("#cf-value", "15")
+            pg.select_option("#cf-color", "red")
+            pg.click("#cf-add")
+            pg.wait_for_timeout(400)
+            sc(pg, "#cf-list")
+            t.step("Colour rule added so there is one to remove: the rule list shows it", expect=lambda: pg.locator("#cf-list li").count() == 1, wait=3000)
+            pg.locator("#cf-list button").first.click()
+            pg.wait_for_timeout(500)
+            sc(pg, "#cf-none")
+            t.step("Remove on the rule: the list is empty and the page says No colour rules on this tab", expect=lambda: pg.locator("#cf-list li").count() == 0 and "No colour rules" in pg.inner_text("#cf-none"), wait=3200)
+
+        run_tour(ctx, "64_sheets_tabs_rules", body, notes="Device-local sheet; nothing stored on the server. Headless Chromium 390x844 emulated.", unshown=["Import (file picker)", "paste from another spreadsheet", "keyboard navigation", "remove of format and validation rules"])
+
+    g["DRILLS"]["tour_sheets_tabs_rules"] = tour
