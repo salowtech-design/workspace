@@ -6932,12 +6932,20 @@ def pdf_signature(ctx):  # noqa: C901
     data = (pathlib.Path(__file__).resolve().parents[1] / "js" / "fixtures" / "form_basic.pdf").read_bytes()
     pg = fresh(ctx, "/pdf/")
     pg.set_viewport_size({"width": 1100, "height": 900})
-    pg.set_input_files("#pdf-open", files=[{"name": "basic.pdf", "mimeType": "application/pdf", "buffer": data}])
-    for _ in range(50):
-        if pg.inner_text("#pdf-where").startswith("Page 1 of") and pg.evaluate("document.getElementById('pdf-canvas').width > 1"):
-            break
-        pg.wait_for_timeout(250)
-    pg.wait_for_timeout(600)
+    pg.reload()  # the runner gives this drill a secure-context browser (flagged test browser), so the stored-marks path is the one under test
+    if not pg.evaluate("!!(navigator.locks && navigator.locks.request)"):
+        check("signature: the browser offers a secure context (flagged test browser)", False, "navigator.locks missing")
+        return
+
+    def open_pdf():
+        pg.set_input_files("#pdf-open", files=[{"name": "basic.pdf", "mimeType": "application/pdf", "buffer": data}])
+        for _ in range(50):
+            if pg.inner_text("#pdf-where").startswith("Page 1 of") and pg.evaluate("document.getElementById('pdf-canvas').width > 1"):
+                break
+            pg.wait_for_timeout(250)
+        pg.wait_for_timeout(700)
+
+    open_pdf()
     check("signature: Place signature is off until a signature is chosen", pg.is_disabled("#pdf-tool-sig"))
     pg.evaluate("document.getElementById('pdf-sigbox').open = true")
     pg.click("#pdf-sig-use")
@@ -6950,6 +6958,12 @@ def pdf_signature(ctx):  # noqa: C901
     pg.mouse.up()
     check("signature: the pad shows the drawn line", pg.evaluate("document.querySelectorAll('#pdf-sigpad polyline').length") == 1)
     pg.click("#pdf-sig-use")
+    pg.mouse.move(r[0] + r[2] * 0.2, r[1] + r[3] * 0.2)
+    pg.mouse.down()
+    pg.mouse.move(r[0] + r[2] * 0.3, r[1] + r[3] * 0.3, steps=4)
+    pg.mouse.up()
+    check("signature: drawing in the box after Use switches Place signature off and asks to choose Use again", pg.is_disabled("#pdf-tool-sig") and "again" in pg.inner_text("#pdf-sig-state"), pg.inner_text("#pdf-sig-state"))
+    pg.click("#pdf-sig-use")
     check("signature: after Use this signature, Place signature is on", not pg.is_disabled("#pdf-tool-sig") and "ready" in pg.inner_text("#pdf-sig-state"))
     pg.click("#pdf-tool-sig")
     pg.evaluate("document.getElementById('pdf-marks').scrollIntoView({block: 'start'});0")
@@ -6958,8 +6972,8 @@ def pdf_signature(ctx):  # noqa: C901
     before = pg.evaluate("document.querySelectorAll('#pdf-marks *').length")
     pg.mouse.click(b[0] + b[2] * 0.5, b[1] + b[3] * 0.7)
     pg.wait_for_timeout(300)
-    check("signature: one click puts one drawing on the page", pg.evaluate("document.querySelectorAll('#pdf-marks *').length") > before and "Signature drawing placed on page 1" in pg.inner_text("#pdf-markstatus"), pg.inner_text("#pdf-markstatus"))
-    box = pg.evaluate("(()=>{const e=document.querySelector('#pdf-marks polyline, #pdf-marks path');if(!e)return null;const q=e.getBoundingClientRect(),p=document.getElementById('pdf-marks').getBoundingClientRect();return [(q.left-p.left)/p.width,(q.top-p.top)/p.height,(q.right-p.left)/p.width,(q.bottom-p.top)/p.height]})()")
+    check("signature: one click puts one drawing on the page", pg.evaluate("document.querySelectorAll('#pdf-marks *').length") > before and "Signature drawing placed on page 1" in pg.inner_text("#pdf-markstatus") and "kept on this device" in pg.inner_text("#pdf-markstatus"), pg.inner_text("#pdf-markstatus"))
+    box = pg.evaluate("(()=>{const es=[...document.querySelectorAll('#pdf-marks polyline, #pdf-marks path')];if(!es.length)return null;const rs=es.map(x=>x.getBoundingClientRect()),q={left:Math.min(...rs.map(r=>r.left)),top:Math.min(...rs.map(r=>r.top)),right:Math.max(...rs.map(r=>r.right)),bottom:Math.max(...rs.map(r=>r.bottom))},p=document.getElementById('pdf-marks').getBoundingClientRect();return [(q.left-p.left)/p.width,(q.top-p.top)/p.height,(q.right-p.left)/p.width,(q.bottom-p.top)/p.height]})()")
     check("signature: it sits around the click and about 22% of the page wide", box is not None and 0.25 < box[0] < 0.45 and 0.55 < box[2] < 0.8 and 0.15 < box[2] - box[0] < 0.26, box)
     pg.evaluate("document.getElementById('pdf-marks').scrollIntoView({block: 'start'});0")
     shot(pg, "pdf_signature_desktop")
@@ -6967,8 +6981,31 @@ def pdf_signature(ctx):  # noqa: C901
     with pg.expect_download() as dl:
         pg.click("#pdf-markcopy")
     raw = open(dl.value.path(), "rb").read()
+    import subprocess
+    import tempfile
+
+    from PIL import Image
+
+    tmp = tempfile.mkdtemp()
+    open(tmp + "/copy.pdf", "wb").write(raw)
+    subprocess.run(["pdftoppm", "-r", "72", "-png", "-f", "1", "-l", "1", tmp + "/copy.pdf", tmp + "/pg"], check=True)  # noqa: S603, S607
+    png = [f for f in os.listdir(tmp) if f.endswith(".png")][0]
+    im = Image.open(tmp + "/" + png).convert("RGB")
+    W, H = im.size
+    reds = [(x, y) for x in range(W) for y in range(H) if (lambda c: c[0] > 170 and c[1] < 90 and c[2] < 90)(im.getpixel((x, y)))]
+    rb = (min(p[0] for p in reds) / W, min(p[1] for p in reds) / H, max(p[0] for p in reds) / W, max(p[1] for p in reds) / H) if reds else None
+    check("signature: in the copy rendered by poppler, the red drawing sits where the page showed it (within 2% of the page) and at the same size", rb is not None and box is not None and all(abs(a - b) < 0.02 for a, b in zip(rb, box, strict=True)), (rb, box))
+    im.save(os.path.join(shots, "pdf_signature_copy_render.png"))
     check("signature: the copy carries it as an Ink annotation and says nothing about a signer", raw[:5] == b"%PDF-" and b"/Subtype /Ink" in raw and b"/Sig" not in raw.replace(b"/Signature", b""), len(raw))
+    # stored round trip: reload, open the same file again, the placed drawing comes back (the pad does not)
+    nbefore = pg.evaluate("document.querySelectorAll('#pdf-marks polyline, #pdf-marks path').length")
+    pg.reload()
+    open_pdf()
+    pg.wait_for_timeout(400)
+    back = pg.evaluate("document.querySelectorAll('#pdf-marks polyline, #pdf-marks path').length")
+    check("signature: after a reload and reopening the same file, the placed drawing is back from this device's storage, while the pad and Place signature are empty again", back == nbefore and back >= 1 and pg.is_disabled("#pdf-tool-sig") and "pen drawing" in pg.inner_text("#pdf-marklist"), (back, pg.inner_text("#pdf-marklist")))
     pg.set_viewport_size({"width": 390, "height": 800})
+    pg.evaluate("document.getElementById('pdf-sigbox').open = true")
     pg.evaluate("document.getElementById('pdf-sigbox').scrollIntoView({block: 'start'});0")
     pg.wait_for_timeout(150)
     shot(pg, "pdf_signature_390")
@@ -9397,7 +9434,7 @@ DRILLS = {
 
 # Drills that need a secure context (navigator.locks) run in their own browser, started with a flag that treats the plain-HTTP drill origin as
 # secure. This is a test browser setting only, not the app's policy or an HTTPS deployment. Other drills never get the flag.
-SECURE_DRILLS = ("pdf_password_secure", "pdf_notes_turn", "pdf_marks_secure", "pdf_marks_keep", "pdf_marks_shot")
+SECURE_DRILLS = ("pdf_signature", "pdf_password_secure", "pdf_notes_turn", "pdf_marks_secure", "pdf_marks_keep", "pdf_marks_shot")
 
 
 def run_group(p, names, secure, state=None, keep=None):  # noqa: C901

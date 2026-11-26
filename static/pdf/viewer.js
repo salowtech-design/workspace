@@ -795,7 +795,8 @@
   sigPad.addEventListener("pointerdown", function (e) {
     if (e.button > 0) return; e.preventDefault(); try { sigPad.setPointerCapture(e.pointerId); } catch (x) { /* best effort */ }
     if (sigDraft.length >= window.PdfMarks.MAX_STROKES) { $("pdf-sig-state").textContent = "That is the most lines a signature can have. Clear the box to start again."; return; }
-    sigCur = { id: e.pointerId, pts: [sigPt(e)] }; sigDraft.push(sigCur.pts); $("pdf-sig-state").textContent = ""; sigShow();
+    sigCur = { id: e.pointerId, pts: [sigPt(e)] }; sigDraft.push(sigCur.pts); sigShow();
+    if (sigStrokes) { sigStrokes = null; if (mTool === "sig") mSetTool("sig"); mControls(); $("pdf-sig-state").textContent = "The box changed, so choose Use this signature again before placing."; } else $("pdf-sig-state").textContent = "";
   });
   sigPad.addEventListener("pointermove", function (e) {
     if (!sigCur || e.pointerId !== sigCur.id) return;
