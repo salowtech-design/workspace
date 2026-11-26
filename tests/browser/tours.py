@@ -283,6 +283,7 @@ def register(g):
     register_subtask_delete(g, users)
     register_parent_delete(g, users)
     register_pdf_marks_tools(g)
+    register_pdf_pages(g)
     register_posts_more(g, users)
 
 
@@ -3484,3 +3485,71 @@ def register_pdf_marks_tools(g):
         run_tour(ctx, "60_pdf_marks_tools", body, notes="Device-local viewer on a generated 4-page PDF; secure-context test flag. Headless Chromium 390x844 emulated. The downloaded copies are saved off-camera and are not opened in this clip.", unshown=["opening the downloaded copies", "reorder", "merge", "form fields", "password PDF", "unreadable-marks discard"])
 
     g["DRILLS"]["tour_pdf_marks_tools"] = tour
+
+
+def register_pdf_pages(g):
+    APP = g["APP"]
+
+    def tour(ctx):
+        import os
+
+        def body(t, pg):
+            data = g["_n_page_pdf"](4, "Keep")
+            other = g["_n_page_pdf"](3, "Other")
+            pg.goto(APP + "/pdf/")
+            pg.evaluate("localStorage.clear()")
+            pg.goto(APP + "/pdf/")
+            pg.wait_for_timeout(500)
+            where = lambda: pg.inner_text("#pdf-where")
+            if not pg.evaluate("!!(navigator.locks && navigator.locks.request)"):
+                t.step("No secure context in this browser", expect=lambda: False)
+                return
+            pg.set_input_files("#pdf-open", files=[{"name": "demo.pdf", "mimeType": "application/pdf", "buffer": data}])
+            for _ in range(40):
+                if where().startswith("Page 1 of 4"):
+                    break
+                pg.wait_for_timeout(250)
+            os.makedirs("/tmp/vid/dl", exist_ok=True)
+
+            def show(sel):
+                pg.evaluate("s=>{document.querySelector(s).scrollIntoView({block:'center'})}", sel)
+
+            def grab(sel, name):
+                with pg.expect_download(timeout=15000) as d:
+                    pg.click(sel)
+                d.value.save_as("/tmp/vid/dl/" + name)
+
+            order = lambda: pg.evaluate("[...document.querySelectorAll('#pdf-orderlist li span')].map(s=>s.textContent.trim())")
+            pst = lambda: pg.inner_text("#pdf-pagesstatus").strip()
+            show("#pdf-orderstart")
+            t.step("The pages tools: List pages from the file is available", expect=lambda: not pg.is_disabled("#pdf-orderstart"), wait=2500)
+            pg.click("#pdf-orderstart")
+            pg.wait_for_timeout(400)
+            show("#pdf-orderlist")
+            t.step("List pages: the list reads Page 1, Page 2, Page 3, Page 4 and the pages box says 1-4", expect=lambda: order() == ["Page 1", "Page 2", "Page 3", "Page 4"] and pg.input_value("#pdf-range") == "1-4", wait=3000)
+            pg.locator("#pdf-orderlist li").nth(3).locator("button").nth(0).click()
+            pg.wait_for_timeout(400)
+            show("#pdf-orderlist")
+            t.step("Up on Page 4: the list now reads Page 1, Page 2, Page 4, Page 3", expect=lambda: order() == ["Page 1", "Page 2", "Page 4", "Page 3"], wait=3000)
+            pg.locator("#pdf-orderlist li").nth(0).locator("button").nth(2).click()
+            pg.wait_for_timeout(400)
+            show("#pdf-orderlist")
+            t.step("Third button on Page 1 (remove): the list now has 3 entries", expect=lambda: len(order()) == 3, wait=3000)
+            grab("#pdf-splitgo", "reordered.pdf")
+            show("#pdf-pagesstatus")
+            t.step("Download these pages as a new PDF: the status line says what was built", expect=lambda: bool(pst()), wait=3000)
+            pg.set_input_files("#pdf-mergeadd", files=[{"name": "other.pdf", "mimeType": "application/pdf", "buffer": other}])
+            pg.wait_for_timeout(1200)
+            show("#pdf-mergelist")
+            t.step("Add PDFs after this one: other.pdf is listed", expect=lambda: "other.pdf" in pg.inner_text("#pdf-mergelist"), wait=3000)
+            grab("#pdf-mergego", "merged.pdf")
+            show("#pdf-pagesstatus")
+            t.step("Download merged PDF: the status line says what was built", expect=lambda: bool(pst()), wait=3000)
+            pg.click("#pdf-mergeclear")
+            pg.wait_for_timeout(500)
+            show("#pdf-mergelist")
+            t.step("Clear added files: the added-files list is empty", expect=lambda: pg.locator("#pdf-mergelist li").count() == 0, wait=3000)
+
+        run_tour(ctx, "61_pdf_pages", body, notes="Device-local viewer on generated PDFs (4 pages and 3 pages); secure-context test flag. Headless Chromium 390x844 emulated. Downloaded files are saved off-camera and are not opened in this clip.", unshown=["opening the downloaded files", "form fields", "password PDF", "merge limits"])
+
+    g["DRILLS"]["tour_pdf_pages"] = tour
