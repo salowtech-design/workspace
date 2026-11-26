@@ -188,3 +188,41 @@ def test_project_names_are_found_by_members_only_and_not_after_removal_or_delete
     assert "Quokka launch" not in body(a)
     assert "Quokka private of b" in body(b) and hidden.pk
     assert "project names" in body(a, "zz")
+
+
+@pytest.mark.django_db
+def test_post_titles_are_found_only_by_people_the_posts_module_lets_see_them():
+    from apps.directory.models import Department, Team, TeamMembership
+    from apps.posts import services as ps
+
+    dept = Department.objects.create(code="sp", name="Search Posts")
+    mgr = _u("SP-MGR", role="manager")
+    team = Team.objects.create(code="sp-t", name="Search Team", department=dept, lead=mgr)
+    a, b, other = _u("SP-A"), _u("SP-B"), _u("SP-OTHER")
+    TeamMembership.objects.create(team=team, user=a)
+    TeamMembership.objects.create(team=team, user=b)
+    ps.create_post(author=a, title="Quokka standup notes", content="plain body one")
+    ps.create_post(author=b, title="Quokka other member", content="plain body two")
+    ps.create_post(author=other, title="Quokka outside team", content="plain body three")
+    ps.create_post(author=a, title="Plain title", content="the word quokka only in the body")
+    url = reverse("finder:search")
+
+    def found(u, **kw):
+        body = _c(u).get(url, {"q": "quokka", **kw}).content.decode()
+        return {t for t in ("Quokka standup notes", "Quokka other member", "Quokka outside team", "Plain title") if t in body}
+
+    # the posts module's rule: an employee sees own and own-team posts (not other teams); a content-only match is not a hit
+    assert found(a) == {"Quokka standup notes", "Quokka other member"}
+    assert found(other) == {"Quokka outside team"}
+    # the team lead finds the team's posts, and still not posts with no team
+    assert found(mgr) == {"Quokka standup notes", "Quokka other member"}
+    body = _c(a).get(url, {"q": "quokka", "in": "posts"}).content.decode()
+    assert "<h3>Work Logs &amp; Feed</h3>" in body and 'href="/posts/' in body
+    # a hit opens the post page for the person who found it
+    assert _c(a).get(_hit_url(body)).status_code == 200
+
+
+def _hit_url(body):
+    import re
+
+    return re.search(r'href="(/posts/\d+/)"', body).group(1)

@@ -105,6 +105,25 @@ def _project_policy(user, action, p):
     return action == "view" and can_view(user, p)
 
 
+def search_posts(user, query, limit):
+    """Work log and feed post titles. Visibility is the posts module's own rule (list_posts_for_user), the
+    same one the post page uses, applied inside the query."""
+    from django.urls import reverse
+
+    from apps.posts.selectors import list_posts_for_user
+
+    needle = query.upper()
+    qs = list_posts_for_user(user).annotate(_t=Upper("title")).filter(_t__contains=needle)[:limit]
+    for p in qs:
+        yield ("post", p, p.title, reverse("posts:detail", args=[p.pk]))
+
+
+def _post_policy(user, action, p):
+    from apps.posts.selectors import list_posts_for_user
+
+    return action == "view" and list_posts_for_user(user).filter(pk=p.pk).exists()
+
+
 def _event_policy(user, action, e):
     from apps.events.models import Event, Guest
 
@@ -127,7 +146,9 @@ def register_all():
     register_policy("project_task", _project_task_policy)
     register_policy("project", _project_policy)
     register_policy("event", _event_policy)
+    register_policy("post", _post_policy)
     register_policy(PERSON, _person_policy)
     register_searcher("tasks", search_tasks)
     register_searcher("calendar", search_events)
     register_searcher("people", search_people)
+    register_searcher("posts", search_posts)

@@ -11,7 +11,7 @@ from apps.core.foundation.throttle import throttled
 QUERY_MIN, QUERY_MAX = 2, 100
 SEARCH_LIMIT = 30  # searches per person per minute
 PER_MODULE = 20
-MODULES = {"drive": "Drive", "tasks": "Tasks", "calendar": "Calendar", "people": "People"}
+MODULES = {"drive": "Drive", "tasks": "Tasks", "calendar": "Calendar", "people": "People", "posts": "Work Logs & Feed"}
 EMPLOYEE_ID = re.compile(r"^[A-Za-z0-9_-]{1,32}$")
 
 

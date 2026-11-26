@@ -269,6 +269,7 @@ def register(g):
     register_drive_find(g, users)
     register_team_link(g, users)
     register_drive_nested(g, users)
+    register_post_search(g, users)
     register_posts_more(g, users)
 
 
@@ -2773,3 +2774,37 @@ def register_drive_nested(g, users):
         run_tour(ctx, "46_drive_nested_note", body, notes="Real Django on TiDB, headless Chromium 390x844 emulated. Fixture by script: Team box shared with ST-LIVE-2; Project box holds Contracts, shared with ST-LIVE-3.", unshown=["Move and share", "several nested shares"])
 
     g["DRILLS"]["tour_drive_nested"] = tour
+
+
+def register_post_search(g, users):
+    APP = g["APP"]
+
+    def tour(ctx):
+        import concurrent.futures
+
+        users(ctx)
+
+        def make():
+            from apps.accounts.models import CustomUser
+            from apps.posts import services as ps
+
+            one = CustomUser.objects.get(employee_id="ST-LIVE-1")
+            two = CustomUser.objects.get(employee_id="ST-LIVE-2")
+            ps.create_post(author=one, title="Quokka stand-up notes", content="Body text with nothing special")
+            ps.create_post(author=two, title="Quokka private of two", content="Another body")
+            ps.create_post(author=one, title="Plain title", content="The word quokka is only in this body")
+
+        with concurrent.futures.ThreadPoolExecutor(1) as ex:
+            ex.submit(make).result()
+
+        def body(t, pg):
+            txt = lambda: pg.inner_text("body")
+            pg.goto(APP + "/search/")
+            t.step("Search for quokka everywhere", lambda: (pg.fill("input[name=q]", "quokka"), pg.click("button:text-is('Search')")), expect=lambda: "Quokka stand-up notes" in txt(), wait=3000)
+            t.step("Result: a Work Logs & Feed group with only your own post title", lambda: pg.evaluate("[...document.querySelectorAll('h3')].find(x=>x.textContent.includes('Work Logs')).scrollIntoView({block:'center'})"), expect=lambda: "Quokka private of two" not in txt() and "Plain title" not in txt(), wait=4000)
+            t.step("Press the post title: its page opens", lambda: pg.click("a.cal-title:text-is('Quokka stand-up notes')"), expect=lambda: "Quokka stand-up notes" in txt() and "Body text with nothing special" in txt(), wait=3500)
+            t.note("Not shown: a team lead's wider results, which the unit test covers.", 3)
+
+        run_tour(ctx, "47_post_search", body, notes="Real Django on TiDB, headless Chromium 390x844 emulated. Fixture by script: three posts, two by ST-LIVE-1 and one by ST-LIVE-2 (no team, so not visible to ST-LIVE-1).", unshown=["team lead results"])
+
+    g["DRILLS"]["tour_post_search"] = tour
