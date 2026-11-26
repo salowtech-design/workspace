@@ -4657,6 +4657,189 @@ def pdf_rotate(ctx):  # noqa: C901
     )
 
 
+def pdf_notes_turn(ctx):  # noqa: C901
+    """PDF notes with a turned view (needs a secure context, so run this drill alone: the runner then treats the drill origin as secure for this browser only)."""
+    pg = fresh(ctx, "/pdf/")
+    pg.set_viewport_size({"width": 1280, "height": 720})
+    pg.reload()
+    if not pg.evaluate("!!(navigator.locks && navigator.locks.request)"):
+        check(
+            "notes turn: the browser offers a secure context (run this drill alone)",
+            False,
+            "navigator.locks missing",
+        )
+        return
+    data = _two_page_pdf()
+    prefix = pg.get_attribute("#pdf-notes", "data-prefix")
+
+    def opened():
+        pg.set_input_files(
+            "#pdf-open", files=[{"name": "two.pdf", "mimeType": "application/pdf", "buffer": data}]
+        )
+        for _ in range(50):
+            if pg.inner_text("#pdf-where").startswith("Page 1 of 2"):
+                break
+            pg.wait_for_timeout(300)
+        pg.wait_for_timeout(900)
+
+    def raw():
+        return pg.evaluate(
+            "(p=>{for(let i=0;i<localStorage.length;i++){const k=localStorage.key(i);if(k.indexOf(p)===0)return localStorage.getItem(k)}return null})(%s)"
+            % json.dumps(prefix)
+        )
+
+    def saved():
+        r = raw()
+        return json.loads(r) if r else None
+
+    def pins():
+        return pg.evaluate(
+            "[...document.querySelectorAll('#pdf-pins .pdf-pin')].map(b=>[b.style.left,b.style.top,b.textContent])"
+        )
+
+    def notemsg():
+        return pg.inner_text("#pdf-notestatus")
+
+    def where():
+        return pg.inner_text("#pdf-where")
+
+    def save_note(text):
+        pg.fill("#pdf-notetext", text)
+        pg.click("#pdf-noteform button[type=submit]")
+        pg.wait_for_timeout(700)
+
+    opened()
+    check(
+        "notes turn: notes are on in this secure test browser",
+        "No notes yet" in notemsg(),
+        notemsg(),
+    )
+    pg.click("#pdf-addnote")
+    r = pg.evaluate(
+        "(()=>{const r=document.getElementById('pdf-canvas').getBoundingClientRect();return [r.left,r.top,r.width,r.height]})()"
+    )
+    pg.click("#pdf-canvas", position={"x": r[2] * 0.25, "y": r[3] * 0.40})
+    pg.wait_for_timeout(300)
+    save_note("spot note")
+    s1 = saved()
+    pg.click("#pdf-addpagenote")
+    pg.wait_for_timeout(300)
+    save_note("page note")
+    raw_two = raw()
+    print("notes turn: stored shape:", raw_two[:300])
+    check(
+        "notes turn: a spot note and a page note are stored, the spot with its fraction",
+        raw_two.count("spot note") == 1 and raw_two.count("page note") == 1 and s1 is not None,
+        raw_two[:200],
+    )
+    p0 = pins()
+    check(
+        "notes turn: upright, one pin is shown near 25 percent and 40 percent",
+        len(p0) == 1
+        and abs(float(p0[0][0].rstrip("%")) - 25) < 1.5
+        and abs(float(p0[0][1].rstrip("%")) - 40) < 1.5,
+        str(p0),
+    )
+    pg.click("#pdf-rot")
+    pg.wait_for_timeout(900)
+    check(
+        "notes turn: turned, the pin is hidden and the saved notes are byte-identical",
+        pins() == [] and raw() == raw_two,
+        str(pins()),
+    )
+    pg.click("#pdf-addnote")
+    pg.wait_for_timeout(300)
+    check(
+        "notes turn: turned, placing a note on a spot is refused with a message and no form",
+        "cannot be placed" in notemsg()
+        and pg.evaluate("document.getElementById('pdf-noteform').hidden")
+        and pg.get_attribute("#pdf-addnote", "aria-pressed") == "false",
+        notemsg(),
+    )
+    pg.click("#pdf-addpagenote")
+    pg.wait_for_timeout(300)
+    save_note("page note while turned")
+    check(
+        "notes turn: a page note can still be added while turned and has no spot",
+        raw().count("page note while turned") == 1 and raw().count("spot note") == 1,
+        raw()[:200],
+    )
+    for _ in range(3):
+        pg.click("#pdf-rot")
+        pg.wait_for_timeout(500)
+    pg.wait_for_timeout(600)
+    p1 = pins()
+    check(
+        "notes turn: back to upright, the same pin returns at the same place (its number can change, it is the note's order)",
+        [x[:2] for x in p1] == [x[:2] for x in p0] and "turned" not in where(),
+        str((p0, p1)),
+    )
+    pg.click("#pdf-addnote")
+    check(
+        "notes turn: choosing a spot is pending",
+        pg.get_attribute("#pdf-addnote", "aria-pressed") == "true",
+        "",
+    )
+    before_rot = raw()
+    pg.click("#pdf-rot")
+    pg.wait_for_timeout(700)
+    check(
+        "notes turn: turning cancels a pending spot choice and says so",
+        pg.get_attribute("#pdf-addnote", "aria-pressed") == "false" and "cancelled" in notemsg(),
+        notemsg(),
+    )
+    r2 = pg.evaluate(
+        "(()=>{const r=document.getElementById('pdf-canvas').getBoundingClientRect();return [r.left,r.top,r.width,r.height]})()"
+    )
+    pg.click("#pdf-canvas", position={"x": r2[2] * 0.5, "y": r2[3] * 0.5})
+    pg.wait_for_timeout(400)
+    check(
+        "notes turn: a click on the turned page after the cancel opens no form and stores nothing",
+        pg.evaluate("document.getElementById('pdf-noteform').hidden") and raw() == before_rot,
+        "",
+    )
+    with pg.expect_download() as dl:
+        pg.click("#pdf-exportnotes")
+    txt = open(dl.value.path()).read()
+    check(
+        "notes turn: the notes text file made while turned lists all notes",
+        "spot note" in txt and "page note" in txt and "page note while turned" in txt,
+        txt[:200],
+    )
+    print("notes turn: notes text export head:", txt[:240].replace("\n", " | "))
+    with pg.expect_download() as d2:
+        pg.click("#pdf-exportcopy")
+    turned_copy = open(d2.value.path(), "rb").read()
+    for _ in range(3):
+        pg.click("#pdf-rot")
+        pg.wait_for_timeout(400)
+    with pg.expect_download() as d3:
+        pg.click("#pdf-exportcopy")
+    up_copy = open(d3.value.path(), "rb").read()
+    open(os.path.join(os.environ.get("DRILL_SHOTS", "./"), "notes-copy-turned.pdf"), "wb").write(
+        turned_copy
+    )
+    open(os.path.join(os.environ.get("DRILL_SHOTS", "./"), "notes-copy-upright.pdf"), "wb").write(
+        up_copy
+    )
+    print("notes turn: copy sizes turned/upright:", len(turned_copy), len(up_copy))
+    check(
+        "notes turn: the copy with notes is the same whether the view was turned or not (bytes)",
+        turned_copy == up_copy,
+        "%d vs %d" % (len(turned_copy), len(up_copy)),
+    )
+    pg.click("#pdf-rot")
+    pg.wait_for_timeout(800)
+    pg.click("#pdf-fitp")
+    pg.wait_for_timeout(900)
+    pg.set_viewport_size({"width": 390, "height": 800})
+    pg.wait_for_timeout(1200)
+    pg.screenshot(
+        path=os.path.join(os.environ.get("DRILL_SHOTS", "./"), "pdf-turned-fit-phone.png")
+    )
+    pg.set_viewport_size({"width": 1280, "height": 720})
+
+
 def _poll_logger(codes, k):
     def log(resp):
         if "/poll/" in resp.url:
@@ -4903,6 +5086,7 @@ DRILLS = {
     "chat_poll_real": chat_poll_real,
     "pdf_fit": pdf_fit,
     "pdf_rotate": pdf_rotate,
+    "pdf_notes_turn": pdf_notes_turn,
     "slides_style": slides_style,
     "sheets_tabs": sheets_tabs,
     "sheets_chart": sheets_chart,
@@ -4935,7 +5119,13 @@ def main():
             args=[
                 "--no-proxy-server",
                 "--host-resolver-rules=MAP app.salowtech.com 127.0.0.1, EXCLUDE localhost",
-            ],
+            ]
+            # Test browser only: one drill needs a secure context (navigator.locks) on the plain-HTTP drill origin. Not the app's policy.
+            + (
+                ["--unsafely-treat-insecure-origin-as-secure=" + APP.rstrip("/")]
+                if names == ["pdf_notes_turn"]
+                else []
+            ),
         )
         ctx = b.new_context(viewport={"width": 1100, "height": 900})
         ctx.set_default_timeout(8000)
