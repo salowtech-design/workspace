@@ -10,6 +10,7 @@ from apps.core.foundation.throttle import throttled
 from apps.tasks import projects as pj
 
 PROJECT_LIMIT = 10  # new projects per person per minute
+COMMENT_LIMIT = 30  # comments per person per minute
 
 
 @login_required
@@ -201,3 +202,34 @@ def task_milestone(request, task_id):
         raise Http404 from None
     _guarded(request, t.project, pj.set_milestone, t, mid)
     return redirect("tasks:project", project_id=t.project.public_id)
+
+
+@login_required
+@require_http_methods(["GET", "POST"])
+def task_comments(request, task_id):
+    t = pj.get_task(request.user, task_id)
+    back = reverse("tasks:project_comments", args=[t.public_id])
+    sent = ""
+    if request.method == "POST":
+        if throttled(request.user, "tasks-comment", COMMENT_LIMIT):
+            messages.error(request, "Too many comments in a minute. Wait and try again.")
+            return redirect(back)
+        try:
+            pj.add_comment(request.user, t, request.POST.get("body", ""))
+        except ValidationError as exc:
+            messages.error(request, " ".join(exc.messages))
+            sent = request.POST.get("body", "")[:4000]
+            status = 400
+        else:
+            messages.success(request, "Comment posted.")
+            return redirect(back)
+    else:
+        status = 200
+    rows, total = pj.comments_of(t)
+    return render(
+        request,
+        "tasks/comments.html",
+        {"task": t, "project": t.project, "comments": rows, "total": total,
+         "shown": pj.COMMENTS_SHOWN, "sent": sent, "tab": "projects"},
+        status=status,
+    )  # fmt: skip

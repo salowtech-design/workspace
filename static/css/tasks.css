@@ -35,3 +35,6 @@
 .tasks-board .task-card .btn{width:auto;align-self:flex-start}
 .tasks-board .task-card .task-title + .btn{display:inline-block}
 .tasks .tasks-col h3{margin:0 0 6px}
+.comment-body{white-space:pre-wrap;overflow-wrap:anywhere;margin:.25rem 0 0;flex-basis:100%}
+.comment{flex-wrap:wrap}
+.comment-form textarea{width:100%;box-sizing:border-box}

@@ -40,4 +40,9 @@ urlpatterns = [
         project_views.task_milestone,
         name="project_milestone",
     ),
+    path(
+        "projects/task/<uuid:task_id>/comments/",
+        project_views.task_comments,
+        name="project_comments",
+    ),
 ]

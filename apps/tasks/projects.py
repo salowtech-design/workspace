@@ -288,3 +288,35 @@ def milestones_of(project):
         )
         .order_by("due_date", "id")
     )
+
+
+COMMENTS_SHOWN = 100
+
+
+def comments_of(task):
+    """Oldest first; the newest COMMENTS_SHOWN when there are more. Returns (list, total)."""
+    from apps.tasks.models import TaskComment
+
+    qs = TaskComment.objects.filter(task=task)
+    total = qs.count()
+    rows = list(qs.select_related("author").order_by("-created_at", "-id")[:COMMENTS_SHOWN])
+    rows.reverse()
+    return rows, total
+
+
+@transaction.atomic
+def add_comment(user, task, body):
+    """Any current member may comment on a task they can see. Plain text, trimmed."""
+    from apps.tasks.models import COMMENT_MAX, TaskComment
+
+    body = (body or "").strip()
+    if not body:
+        raise ValidationError("Write something before posting.")
+    if len(body) > COMMENT_MAX:
+        raise ValidationError(f"Comments can be up to {COMMENT_MAX} characters.")
+    task = ProjectTask.objects.select_for_update().get(pk=task.pk)
+    if task.deleted_at is not None or not can_view(user, task.project):
+        raise Http404
+    c = TaskComment.objects.create(task=task, author=user, body=body)
+    audit(user, "tasks.project.comment", "project_task", task.pk, comment=c.pk)
+    return c

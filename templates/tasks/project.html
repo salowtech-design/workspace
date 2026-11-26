@@ -6,7 +6,7 @@
   <div class="tasks-head"><h2>{{ project.name }}</h2></div>
   {% include "tasks/_nav.html" %}
   <div class="tasks-board">{% for c, items in columns %}<div class="tasks-col"><h3>{{ c.name }}</h3>
-    {% for t in items %}<div class="task-card"><span class="task-title">{{ t.title }}</span>{% if is_lead %}<a class="btn btn-outline btn-small" href="{% url 'tasks:project_edit' t.public_id %}">Edit</a><a class="btn btn-outline btn-small" href="{% url 'tasks:project_delete' t.public_id %}">Delete</a>{% endif %}{% if t.due_date %}<span class="task-meta">Due {{ t.due_date|date:"j M Y" }}</span>{% endif %}
+    {% for t in items %}<div class="task-card"><span class="task-title">{{ t.title }}</span>{% if is_lead %}<a class="btn btn-outline btn-small" href="{% url 'tasks:project_edit' t.public_id %}">Edit</a><a class="btn btn-outline btn-small" href="{% url 'tasks:project_delete' t.public_id %}">Delete</a>{% endif %}<a class="btn btn-outline btn-small" href="{% url 'tasks:project_comments' t.public_id %}">Comments</a>{% if t.due_date %}<span class="task-meta">Due {{ t.due_date|date:"j M Y" }}</span>{% endif %}
       {% if t.milestone %}<span class="task-meta">Milestone: {{ t.milestone.name }}</span>{% endif %}
       {% if is_lead %}<form method="post" action="{% url 'tasks:project_milestone' t.public_id %}" class="tasks-inline">{% csrf_token %}
         <select name="milestone" aria-label="Milestone"><option value="">No milestone</option>{% for ms in milestones %}<option value="{{ ms.pk }}"{% if ms.pk == t.milestone_id %} selected{% endif %}>{{ ms.name }}</option>{% endfor %}</select>

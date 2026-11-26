@@ -567,3 +567,97 @@ def test_milestone_views_escape_and_bad_ids_404():
         ).status_code
         == 404
     )
+
+
+def _ptask(lead, title="T"):
+    p = pj.create_project(lead, "Cm")
+    t = pj.add_task(lead, p, p.columns.first().pk, title)
+    return p, t
+
+
+@pytest.mark.django_db
+def test_comment_members_post_plain_text_non_members_and_anonymous_get_nothing():
+    from apps.tasks.models import TaskComment
+
+    a, b = _u("CM-A"), _u("CM-B")
+    p, t = _ptask(a)
+    url = reverse("tasks:project_comments", args=[t.public_id])
+    ca = _c(a)
+    r = ca.post(url, {"body": "  <script>alert(1)</script> hi  "})
+    assert r.status_code == 302
+    c = TaskComment.objects.get()
+    assert (c.author_id, c.body) == (a.pk, "<script>alert(1)</script> hi")
+    page = ca.get(url).content.decode()
+    assert "&lt;script&gt;alert(1)&lt;/script&gt; hi" in page and "<script>alert(1)" not in page
+    # non-member: same 404 as missing, GET and POST, nothing written, nothing shown
+    cb = _c(b)
+    assert cb.get(url).status_code == 404
+    assert cb.post(url, {"body": "intruder"}).status_code == 404
+    assert TaskComment.objects.count() == 1
+    # anonymous: login redirect, nothing written
+    anon = Client()
+    for m in (anon.get, anon.post):
+        r = m(url, {"body": "x"})
+        assert r.status_code == 302 and "login" in r["Location"]
+    assert TaskComment.objects.count() == 1
+    # a removed member loses access
+    ProjectMember.objects.create(project=p, person=b, added_by=a)
+    assert cb.post(url, {"body": "member"}).status_code == 302
+    ProjectMember.objects.filter(person=b).update(removed_at=p.created_at)
+    assert cb.get(url).status_code == 404 and cb.post(url, {"body": "late"}).status_code == 404
+    assert TaskComment.objects.count() == 2
+
+
+@pytest.mark.django_db
+def test_comment_limits_empty_and_deleted_task_and_method():
+    from apps.tasks.models import COMMENT_MAX, TaskComment
+
+    a = _u("CM-C")
+    p, t = _ptask(a)
+    url = reverse("tasks:project_comments", args=[t.public_id])
+    ca = _c(a)
+    for bad in ("", "   \n ", "x" * (COMMENT_MAX + 1)):
+        r = ca.post(url, {"body": bad})
+        assert r.status_code == 400
+    assert TaskComment.objects.count() == 0
+    assert ca.post(url, {"body": "x" * COMMENT_MAX}).status_code == 302
+    assert ca.put(url).status_code == 405 and ca.delete(url).status_code == 405
+    pj.delete_task(a, t)
+    assert ca.get(url).status_code == 404 and ca.post(url, {"body": "z"}).status_code == 404
+    assert TaskComment.objects.count() == 1
+
+
+@pytest.mark.django_db
+def test_comments_are_oldest_first_and_cap_shows_newest():
+    a = _u("CM-D")
+    p, t = _ptask(a)
+    for i in range(pj.COMMENTS_SHOWN + 3):
+        pj.add_comment(a, t, f"c{i}")
+    rows, total = pj.comments_of(t)
+    assert total == pj.COMMENTS_SHOWN + 3 and len(rows) == pj.COMMENTS_SHOWN
+    assert rows[0].body == "c3" and rows[-1].body == f"c{pj.COMMENTS_SHOWN + 2}"
+    page = _c(a).get(reverse("tasks:project_comments", args=[t.public_id])).content.decode()
+    assert f"Showing the newest {pj.COMMENTS_SHOWN} of {pj.COMMENTS_SHOWN + 3}" in page
+    # the project board links to the thread only for tasks, and the card shows the link
+    board = _c(a).get(reverse("tasks:project", args=[p.public_id])).content.decode()
+    assert reverse("tasks:project_comments", args=[t.public_id]) in board
+
+
+@pytest.mark.django_db
+def test_comment_thread_page_query_count_does_not_grow_with_comments(django_assert_max_num_queries):
+    a = _u("CM-E")
+    p, t = _ptask(a)
+    url = reverse("tasks:project_comments", args=[t.public_id])
+    ca = _c(a)
+    for i in range(3):
+        pj.add_comment(a, t, f"c{i}")
+    from django.db import connection
+    from django.test.utils import CaptureQueriesContext
+
+    with CaptureQueriesContext(connection) as small:
+        ca.get(url)
+    for i in range(40):
+        pj.add_comment(a, t, f"d{i}")
+    with CaptureQueriesContext(connection) as big:
+        ca.get(url)
+    assert len(big) == len(small)

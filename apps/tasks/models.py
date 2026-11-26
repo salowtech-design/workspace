@@ -143,3 +143,22 @@ class ProjectTask(models.Model):
 
     class Meta:
         indexes = [models.Index(fields=["project", "column", "deleted_at", "position"])]
+
+
+COMMENT_MAX = 2000  # build default, not policy
+
+
+class TaskComment(models.Model):
+    """A plain-text note on a project task. Add and read only: editing, deleting and keeping
+    comments are unselected policy, so none are built."""
+
+    task = models.ForeignKey(ProjectTask, on_delete=models.PROTECT, related_name="comments")
+    author = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="+"
+    )
+    body = models.TextField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["created_at", "id"]
+        indexes = [models.Index(fields=["task", "created_at"])]
