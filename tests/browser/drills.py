@@ -4920,7 +4920,7 @@ def chat_two_users(ctx):  # noqa: C901
     p2.wait_for_timeout(12000)  # a full poll cycle of person two's own page
     check(
         "two users: after removal person one's new message is stored for person one but person two's poll, page fetch and screen never get it",
-        ok1 and poll == [404, False] and page_get[1] is False and "Private after removal." not in p2.inner_text("body"),
+        ok1 and poll == [404, False] and page_get[1] is False and page_get[0] in (404, 302, 403) and "Private after removal." not in p2.inner_text("body"),
         (ok1, poll, page_get),
     )
     p1.click("#m1 button[value=heart]")
@@ -4966,6 +4966,16 @@ def pdf_password(ctx):  # noqa: C901
         form_up() and "needs a password" in pg.inner_text("#pdf-status") and not pg.inner_text("#pdf-where").startswith("Page 1 of"),
         (form_up(), pg.inner_text("#pdf-status"), pg.inner_text("#pdf-where")),
     )
+    pg.fill("#pdf-pw", "typed-dots")
+    pg.evaluate("document.getElementById('pdf-pwform').scrollIntoView({block:'center'})")
+    shot(pg, "pdf_password_prompt_desktop")
+    pg.set_viewport_size({"width": 390, "height": 800})
+    pg.evaluate("document.getElementById('pdf-pwform').scrollIntoView({block:'center'})")
+    pg.wait_for_timeout(300)
+    shot(pg, "pdf_password_prompt_390")
+    wide = pg.evaluate("document.documentElement.scrollWidth")
+    pg.set_viewport_size({"width": 1100, "height": 900})
+    check("password: at 390 px the prompt does not make the page scroll sideways", wide <= 390, wide)
     pg.fill("#pdf-pw", "wrong password 1")
     pg.click("#pdf-pwgo")
     wait_for(lambda: "did not work" in pg.inner_text("#pdf-status"))
@@ -5059,6 +5069,7 @@ def pdf_password_secure(ctx):
         subprocess.run(["qpdf", "--encrypt", PW, "owner-" + PW, "256", "--", plain, enc], check=True)
         data = open(enc, "rb").read()
     pg = fresh(ctx, "/pdf/")
+    base_names = pg.evaluate("(async()=>{const o=[];if(indexedDB.databases){for(const d of await indexedDB.databases()){o.push('idb:'+d.name)}}if(window.caches){for(const k of await caches.keys()){o.push('cache:'+k)}}return o})()")
     pg.set_input_files("#pdf-open", files=[{"name": "locked.pdf", "mimeType": "application/pdf", "buffer": data}])
     t0 = time.time()
     while pg.evaluate("document.getElementById('pdf-pwform').hidden") and time.time() - t0 < 20:
@@ -5083,8 +5094,26 @@ def pdf_password_secure(ctx):
         "encrypted" in pg.inner_text("#pdf-notestatus") and not got,
         (pg.inner_text("#pdf-notestatus")[:140], len(got)),
     )
+    # split and merge of the encrypted file are refused too, nothing downloads
+    pg.fill("#pdf-range", "1")
+    pg.click("#pdf-splitgo")
+    pg.wait_for_timeout(1500)
+    split_msg = pg.inner_text("#pdf-pagesstatus")
+    check("password copy: Download these pages is refused for the encrypted file", "ncrypted" in split_msg and not got, (split_msg[:140], len(got)))
+    pg.click("#pdf-close")
+    pg.set_input_files("#pdf-open", files=[{"name": "plain.pdf", "mimeType": "application/pdf", "buffer": _n_page_pdf(1, "Plain")}])
+    t0 = time.time()
+    while pg.inner_text("#pdf-name") != "plain.pdf" and time.time() - t0 < 20:
+        pg.wait_for_timeout(250)
+    pg.set_input_files("#pdf-mergeadd", files=[{"name": "locked.pdf", "mimeType": "application/pdf", "buffer": data}])
+    pg.wait_for_timeout(1000)
+    pg.click("#pdf-mergego")
+    pg.wait_for_timeout(2500)
+    merge_msg = pg.inner_text("#pdf-pagesstatus") + " | " + pg.inner_text("#pdf-mergelist")
+    check("password copy: Download merged PDF with an encrypted file in it is refused, nothing downloaded", "ncrypted" in merge_msg and not got, (merge_msg[:200], len(got)))
     leaks = pg.evaluate("(()=>{const o=[];for(const s of [localStorage,sessionStorage]){for(let i=0;i<s.length;i++){o.push(s.key(i)+'='+s.getItem(s.key(i)))}}return o.join('|')})()")
-    check("password copy: the password is in no storage after notes were saved", "open sesame" not in leaks, len(leaks))
+    names = pg.evaluate("(async()=>{const o=[];if(indexedDB.databases){for(const d of await indexedDB.databases()){o.push('idb:'+d.name)}}if(window.caches){for(const k of await caches.keys()){o.push('cache:'+k)}}return o})()")
+    check("password copy: no password in storage, and no IndexedDB database or cache was created", "open sesame" not in leaks and names == base_names and not any("open sesame" in n for n in names), (base_names, names))
 
 
 def chat_poll_real(ctx):  # noqa: C901
