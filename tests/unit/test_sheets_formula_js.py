@@ -26,4 +26,4 @@ def test_model_table_passes_in_node():
         timeout=60,
     )
     assert r.returncode == 0, r.stdout + r.stderr
-    assert "106/106 model rows passed" in r.stdout
+    assert "109/109 model rows passed" in r.stdout

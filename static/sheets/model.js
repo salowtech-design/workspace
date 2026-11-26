@@ -68,18 +68,30 @@
   // character, because some programs ignore them before reading a formula. Fullwidth look-alikes are included.
   var SKIP = /^[\s\u0000-\u001f\u007f-\u009f\u00a0\u00ad\u200b-\u200f\u2028\u2029\u202a-\u202e\u2060\ufeff]*/;
   var RISKY = { test: function (t) { if (/^[\t\r]/.test(t)) return true; var r = t.replace(SKIP, ""); return /^[=+\-@\uff1d\uff0b\uff0d\uff20]/.test(r); } };
-  function csvField(v, isErr) {
+  // A half of an emoji (a lone surrogate, which LEFT, RIGHT and MID can leave) cannot be written as UTF-8. It is replaced by U+FFFD
+  // here, on purpose and counted, so the file never depends on the browser's silent choice and the status can say so.
+  function wellFormed(t) {
+    var out = "", n = 0, i, c, d;
+    for (i = 0; i < t.length; i++) {
+      c = t.charCodeAt(i);
+      if (c >= 0xd800 && c <= 0xdbff && i + 1 < t.length && (d = t.charCodeAt(i + 1)) >= 0xdc00 && d <= 0xdfff) { out += t.charAt(i) + t.charAt(i + 1); i++; }
+      else if (c >= 0xd800 && c <= 0xdfff) { out += "\ufffd"; n++; }
+      else out += t.charAt(i);
+    }
+    return { text: out, broken: n };
+  }
+  function csvField(v, isErr, tally) {
     var t;
     if (isErr(v)) t = String(v.code);
     else if (typeof v === "boolean") t = v ? "TRUE" : "FALSE";
     else if (typeof v === "number") t = Object.is(v, -0) ? "0" : String(v);
-    else { t = String(v); if (typeof v === "string" && RISKY.test(t)) t = "'" + t; }
+    else { t = String(v); var w = wellFormed(t); if (w.broken) { t = w.text; if (tally) tally.broken += w.broken; } if (typeof v === "string" && RISKY.test(t)) t = "'" + t; }
     return /[",\r\n]/.test(t) ? '"' + t.replace(/"/g, '""') + '"' : t;
   }
   // Addresses here are single letters A to Z (the engine rejects AA and beyond), so a wider cell is skipped, not mis-addressed.
   var CSV_COLS = 26, CSV_ROWS = 1000;
   function toCsv(cells, parseAddr, get, isErr) {
-    var maxC = 0, maxR = 0, any = false, guarded = 0;
+    var maxC = 0, maxR = 0, any = false, guarded = 0, tally = { broken: 0 };
     Object.keys(cells).forEach(function (k) { var p = parseAddr(k); if (!p || p.col > CSV_COLS || p.row > CSV_ROWS) return; any = true; if (p.col > maxC) maxC = p.col; if (p.row > maxR) maxR = p.row; });
     if (!any) return null;
     var lines = [];
@@ -87,12 +99,12 @@
       var row = [];
       for (var c = 1; c <= maxC; c++) {
         var a = String.fromCharCode(64 + c) + r, v = has(cells, a) ? get(a) : "";
-        var f = csvField(v, isErr); if (typeof v === "string" && RISKY.test(v)) guarded++;
+        var f = csvField(v, isErr, tally); if (typeof v === "string" && RISKY.test(v)) guarded++;
         row.push(f);
       }
       lines.push(row.join(","));
     }
-    return { text: lines.join("\r\n") + "\r\n", rows: maxR, cols: maxC, guarded: guarded };
+    return { text: lines.join("\r\n") + "\r\n", rows: maxR, cols: maxC, guarded: guarded, broken: tally.broken };
   }
 
   // ---- Sort and filter ----

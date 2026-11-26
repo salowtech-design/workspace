@@ -266,6 +266,52 @@ def sheets_lookup(ctx):
     pg.set_viewport_size({"width": 1100, "height": 900})
 
 
+def sheets_half_emoji(ctx):
+    """LEFT on an emoji leaves half of it. Proves what the grid shows, what JSON export and import keep, and what the CSV file holds."""
+    pg = fresh(ctx, "/sheets/")
+
+    def setc(a, v):
+        pg.click('input[data-addr="%s"]' % a)
+        pg.fill('input[data-addr="%s"]' % a, v)
+        pg.press('input[data-addr="%s"]' % a, "Tab")
+        pg.wait_for_timeout(80)
+
+    def val(a):
+        return pg.input_value('input[data-addr="%s"]' % a)
+
+    setc("A1", "\U0001F600x")
+    setc("B1", "=LEFT(A1,1)")
+    setc("C1", "=MID(A1,2,1)")
+    setc("D1", "=B1&C1")
+    check("half emoji: the grid holds the lone high half", val("B1") == "\ud83d", repr(val("B1")))
+    check("half emoji: the other half is a lone low surrogate", val("C1") == "\ude00", repr(val("C1")))
+    check("half emoji: joined halves show the whole emoji", val("D1") == "\U0001F600", repr(val("D1")))
+    pg.click('input[data-addr="A2"]')
+    shot(pg, "sheets_half_emoji_desktop")
+    with pg.expect_download() as dl:
+        pg.click("#sheet-export")
+    raw = open(dl.value.path(), "rb").read()
+    j = json.loads(raw.decode("utf-8"))
+    check("half emoji: JSON export holds the formulas, not the results", j.get("B1") == "=LEFT(A1,1)" and "\ud83d" not in raw.decode("utf-8"), str(j))
+    pg.click("#sheet-clear")
+    pg.wait_for_timeout(120)
+    pg.set_input_files("#sheet-import", dl.value.path())
+    pg.wait_for_timeout(300)
+    check("half emoji: import brings the same results back", val("B1") == "\ud83d" and val("D1") == "\U0001F600", repr((val("B1"), val("D1"))))
+    with pg.expect_download() as dl2:
+        pg.click("#sheet-csv")
+    b = open(dl2.value.path(), "rb").read()
+    check("half emoji: the CSV is valid UTF-8", bool(b.decode("utf-8")), "")
+    check(
+        "half emoji: the CSV holds the whole emoji, then U+FFFD for the half, and no lone surrogate bytes",
+        b.decode("utf-8").split("\r\n")[0] == "\U0001F600x,\ufffd,\ufffd,\U0001F600" and b"\xed\xa0" not in b and b"\xed\xb0" not in b,
+        b[:60],
+    )
+    st = pg.inner_text("#sheet-status")
+    check("half emoji: the status says two half characters were replaced", "2 half emoji character" in st, st)
+    shot(pg, "sheets_half_emoji_status_desktop")
+
+
 def sheets_sort_filter(ctx):
     pg = fresh(ctx, "/sheets/")
 
@@ -8189,6 +8235,7 @@ DRILLS = {
     "slides_pdf_theme": slides_pdf_theme,
     "sheets_sort_filter": sheets_sort_filter,
     "sheets_lookup": sheets_lookup,
+    "sheets_half_emoji": sheets_half_emoji,
     "sheets_fill": sheets_fill,
     "sheets_headers": sheets_headers,
     "slides_drag": slides_drag,

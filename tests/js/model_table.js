@@ -56,6 +56,9 @@ ok("keys: other keys do nothing", M.keyMove("a", false, true, true) === null);
   ok("csv: the engine rejects wider addresses, so none can be written under a wrong letter", F.parseAddr("AA1") === null && F.parseAddr("A1001") === null && csv({ AA1: "x", A1001: "y" }) === null);
   ok("csv: the largest sheet (A1 to Z1000) is written in full with the right row and column counts", (() => { const c = {}; for (let r = 1; r <= 1000; r++) for (let k = 1; k <= 26; k++) c[String.fromCharCode(64 + k) + r] = "v"; const t0 = Date.now(), r = csv(c); return r.rows === 1000 && r.cols === 26 && r.text.split("\r\n").length === 1001 && Date.now() - t0 < 5000; })());
   ok("csv: commas, quotes and newlines are quoted and escaped", csv({ A1: 'a,b', B1: 'say "hi"', C1: "l1\nl2" }).text === '"a,b","say ""hi""","l1\nl2"\r\n');
+  ok("csv: half an emoji from LEFT becomes U+FFFD and is counted, never a lone surrogate in the file", (() => { const r = csv({ A1: "\u{1F600}x", B1: "=LEFT(A1,1)" }); return r.text === "\u{1F600}x,\ufffd\r\n" && r.broken === 1 && !/[\ud800-\udfff](?![\udc00-\udfff])/.test(r.text.replace(/[\ud800-\udbff][\udc00-\udfff]/g, "")); })());
+  ok("csv: a whole emoji and both halves joined are kept, and nothing is counted", (() => { const r = csv({ A1: "\u{1F600}x", B1: "=LEFT(A1,1)&MID(A1,2,1)" }); return r.text === "\u{1F600}x,\u{1F600}\r\n" && r.broken === 0; })());
+  ok("csv: a half emoji and a formula-looking start both get their handling", (() => { const r = csv({ A1: "\u{1F600}", B1: "=\"=1\"&LEFT(A1,1)" }); return r.text === "\u{1F600},'=1\ufffd\r\n" && r.broken === 1 && r.guarded === 1; })());
   ok("csv: an error shows its code and is not guarded", (() => { const r = csv({ A1: "=1/0" }); return /^#[A-Z/0!]+\r\n$/.test(r.text) && r.guarded === 0; })());
   ok("csv: ordinary text is unchanged and booleans are TRUE or FALSE", csv({ A1: "hello", B1: "TRUE", C1: "=1=2" }).text === "hello,TRUE,FALSE\r\n");
 }

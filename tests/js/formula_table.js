@@ -224,7 +224,7 @@ const lim60 = heavyVals.filter((v) => v === "#LIMIT!").length, ok60 = heavyVals.
 const uni = { A1: "\u{1F600}x", Z1: "=LEFT(A1,1)", Z2: "=LEN(LEFT(A1,1))", Z3: "=MID(A1,2,1)", Z4: "=LEN(A1)" };
 const uniSheet = new Sheet(uni);
 const adv2 = [
-  ["work is one budget for the whole sheet: 60 moderate wildcard formulas, early ones finish and later ones hit #LIMIT!", ok60 >= 1 && lim60 >= 1 && ok60 + lim60 === 60],
+  ["work is one budget for the whole sheet (which formulas hit #LIMIT! depends on the order the cells are asked for; here C1 to C60 in order): 60 moderate wildcard formulas, early ones finish and later ones hit #LIMIT!", ok60 >= 1 && lim60 >= 1 && ok60 + lim60 === 60],
   ["SUBSTITUTE growing past 10000 characters is #VALUE!", (() => { const v = new Sheet({ A1: "a".repeat(5001), Z1: '=SUBSTITUTE(A1,"a","bb")' }).get("Z1"); return isErr(v) && v.code === "#VALUE!"; })()],
   ["SUBSTITUTE growing to exactly 10000 characters is allowed", new Sheet({ A1: "a".repeat(5000), Z1: '=LEN(SUBSTITUTE(A1,"a","bb"))' }).get("Z1") === 10000],
   ["LEFT counts UTF-16 units like LEN: an emoji is 2 and LEFT 1 leaves half of it (documented)", uniSheet.get("Z4") === 3 && uniSheet.get("Z2") === 1 && uniSheet.get("Z1") === "\ud83d"],
