@@ -227,6 +227,7 @@ def register(g):
     g["DRILLS"]["tour_drive"] = drive_tour
     register_tasks(g, users)
     register_calendar(g, users)
+    register_sheets(g)
 
 
 def register_tasks(g, users):
@@ -355,3 +356,69 @@ def register_calendar(g, users):
 
     g["DRILLS"]["tour_cal_a"] = lambda ctx: cal_tour(ctx, "A")
     g["DRILLS"]["tour_cal_b"] = lambda ctx: cal_tour(ctx, "B")
+
+
+def register_sheets(g):
+    APP = g["APP"]
+
+    def put(pg, cells):
+        for a, v in cells:
+            sel = 'input[data-addr="%s"]' % a
+            pg.click(sel)
+            pg.fill(sel, v)
+            pg.press(sel, "Tab")
+
+    DATA = [("A1", "Item"), ("B1", "Qty"), ("A2", "pens"), ("B2", "30"), ("A3", "paper"), ("B3", "12"), ("A4", "ink"), ("B4", "7"), ("A5", "pens"), ("B5", "20")]
+
+    def sheets_tour(ctx, which):
+        def start(pg):
+            pg.goto(APP + "/sheets/")
+            pg.evaluate("localStorage.clear()")
+            pg.goto(APP + "/sheets/")
+            pg.wait_for_timeout(500)
+
+        def val(pg, a):
+            return pg.input_value('input[data-addr="%s"]' % a)
+
+        def bodyA(t, pg):
+            start(pg)
+            t.step("Sheets: a blank sheet that stays in this browser", expect=lambda: pg.locator('input[data-addr="A1"]').count() == 1, wait=2000)
+            t.step("Type a small table: items and quantities", lambda: put(pg, DATA), expect=lambda: val(pg, "B2") == "30")
+            t.step("Type a formula: SUM of the quantities", lambda: put(pg, [("B6", "=SUM(B2:B5)")]), expect=lambda: "69" in pg.inner_text("#sheet-val") or val(pg, "B6") in ("69", "=SUM(B2:B5)"))
+            t.step("Select the formula cell: the bar shows the result", lambda: pg.click('input[data-addr="B6"]'), expect=lambda: "69" in pg.inner_text("#sheet-val"))
+            t.step("Undo the formula", lambda: pg.click("#sheet-undo"), expect=lambda: val(pg, "B6") == "")
+            t.step("Redo it", lambda: pg.click("#sheet-redo"), expect=lambda: val(pg, "B6") != "")
+            t.step("Sort the table by Qty, large to small", lambda: (pg.fill("#sort-range", "A1:B5"), pg.fill("#sort-col", "B"), pg.select_option("#sort-dir", "desc"), pg.click("#sort-go")), expect=lambda: val(pg, "A2") == "pens" and val(pg, "B2") == "30")
+            t.step("Filter: Qty is greater than 10", lambda: (pg.fill("#filter-col", "B"), pg.select_option("#filter-op", "gt"), pg.fill("#filter-val", "10"), pg.click("#filter-go")), expect=lambda: pg.inner_text("#filter-status").strip() != "")
+            t.step("Show all rows again", lambda: pg.click("#filter-clear"), expect=lambda: pg.is_disabled("#filter-clear"))
+            t.step("Copy first row down: C2 formula to C2:C5", lambda: (put(pg, [("C2", "=B2*2")]), pg.fill("#fill-range", "C2:C5"), pg.click("#fill-down")), expect=lambda: val(pg, "C5") != "")
+            t.step("Add a second tab, called Costs", lambda: (pg.click("#tab-add"), pg.fill("#tab-name", "Costs"), pg.click("#tab-rename")), expect=lambda: "Costs" in pg.inner_text("#sheet-tabs"))
+            t.step("Go back to the first tab: the data is still there", lambda: pg.locator("#sheet-tabs button, #sheet-tabs a").first.click(), expect=lambda: val(pg, "A1") == "Item")
+            t.note("Next clip: pivot, chart, colour rules, formats, validation, export.", 2.2)
+
+        def bodyB(t, pg):
+            start(pg)
+            t.step("Sheets again: a small table to work on", lambda: put(pg, DATA), expect=lambda: val(pg, "B5") == "20")
+            t.step("Build a pivot: total Qty for each item", lambda: (pg.fill("#pivot-range", "A1:B5"), pg.fill("#pivot-key", "A"), pg.fill("#pivot-val", "B"), pg.select_option("#pivot-agg", "sum"), pg.click("#pivot-build")), expect=lambda: "pens" in pg.inner_text("#pivot-out") and "50" in pg.inner_text("#pivot-out"))
+            t.step("Draw a bar chart of B2:B5", lambda: (pg.fill("#chart-range", "B2:B5"), pg.select_option("#chart-type", "bar"), pg.click("#chart-draw")), expect=lambda: pg.locator("#chart-out *").count() > 0)
+            t.step("Draw it as a pie", lambda: (pg.select_option("#chart-type", "pie"), pg.click("#chart-draw")), expect=lambda: pg.locator("#chart-out *").count() > 0)
+            t.step("Colour rule: red when above 25", lambda: (pg.fill("#cf-range", "B2:B5"), pg.select_option("#cf-kind", "greater"), pg.fill("#cf-value", "25"), pg.select_option("#cf-color", "red"), pg.click("#cf-add")), expect=lambda: pg.locator("#cf-list *").count() > 0)
+            t.step("Format rule: bold and 2 decimals", lambda: (pg.fill("#fmt-range", "B2:B5"), pg.select_option("#fmt-bold", "on"), pg.select_option("#fmt-nf", "dec2"), pg.click("#fmt-add")), expect=lambda: pg.locator("#fmt-list *").count() > 0)
+            t.step("Check the cells took the colour and format", lambda: pg.locator('input[data-addr="B2"]').scroll_into_view_if_needed(), expect=lambda: pg.locator('input[data-addr="B2"]').count() == 1, wait=2200)
+            t.step("Validation rule: C2:C5 must be a number from 0 to 100", lambda: (pg.fill("#val-range", "C2:C5"), pg.select_option("#val-kind", "number"), pg.fill("#val-min", "0"), pg.fill("#val-max", "100"), pg.click("#val-add")), expect=lambda: pg.locator("#val-list *").count() > 0)
+            t.step("Type 500 in C2: the rule refuses it", lambda: put(pg, [("C2", "500")]), expect=lambda: val(pg, "C2") != "500")
+            t.step("Export (.json) and the CSV download", lambda: (pg.click("#sheet-export"), pg.wait_for_timeout(500), pg.click("#sheet-csv")))
+            t.step("Clear sheet (undo until reload)", lambda: pg.click("#sheet-clear"), expect=lambda: val(pg, "A2") == "")
+            t.step("Undo the clear", lambda: pg.click("#sheet-undo"), expect=lambda: val(pg, "A2") == "pens")
+            t.note("Import was not shown (needs a file picker). Cells past Z or row 100 are not supported.", 3)
+
+        def val(pg, a):
+            return pg.input_value('input[data-addr="%s"]' % a)
+
+        if which == "A":
+            run_tour(ctx, "07_sheets_cells", bodyA, notes="Sheet content is device-local (browser). Real app served by Django on real TiDB, but no sheet data touches the server. Headless Chromium 390x844 emulation.", unshown=["Copy first column right", "delete tab and restore tab", "keyboard navigation", "paste from a spreadsheet", "Import", "tab rename error cases"])
+        else:
+            run_tour(ctx, "08_sheets_tools", bodyB, notes="Device-local sheet. Headless Chromium 390x844 emulation.", unshown=["list validation", "colour rules other than above-a-number", "other pivot totals (count, average, smallest, largest)", "line chart", "format align", "Import", "unreadable-rules download buttons", "remove of rules"])
+
+    g["DRILLS"]["tour_sheets_a"] = lambda ctx: sheets_tour(ctx, "A")
+    g["DRILLS"]["tour_sheets_b"] = lambda ctx: sheets_tour(ctx, "B")
