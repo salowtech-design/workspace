@@ -297,7 +297,50 @@
   }
   FNX = { INDEX: LOOKUP.INDEX, MATCH: LOOKUP.MATCH, VLOOKUP: LOOKUP.VLOOKUP,
     SUMIF: function (a) { return condAgg("SUMIF", a); }, COUNTIF: function (a) { return condAgg("COUNTIF", a); }, AVERAGEIF: function (a) { return condAgg("AVERAGEIF", a); } };
-  var ARITY = { INDEX: [2, 3], MATCH: [2, 3], VLOOKUP: [3, 4], SUMIF: [2, 3], COUNTIF: [2, 2], AVERAGEIF: [2, 3], SUM: [1, 99], AVERAGE: [1, 99], MIN: [1, 99], MAX: [1, 99], COUNT: [1, 99], ABS: [1, 1], ROUND: [1, 2], LEN: [1, 1], UPPER: [1, 1], LOWER: [1, 1], CONCAT: [1, 99], NOT: [1, 1], AND: [1, 99], OR: [1, 99], IF: [2, 3] };
+
+  /* ---- text functions (Google Sheets help semantics, not its engine) ----
+   * Counts are whole numbers of UTF-16 units, like LEN: an emoji counts 2. A count below 0 is #VALUE!; a
+   * fraction is cut toward 0. LEFT and RIGHT default to 1. MID start is 1-based, below 1 is #VALUE!, past the
+   * end gives "". TRIM removes leading and trailing spaces and collapses runs of spaces (only the space
+   * character). SUBSTITUTE is case-sensitive and does not use wildcards; an empty old text changes nothing; the
+   * optional instance picks the nth occurrence (below 1 is #VALUE!). FIND is case-sensitive, has no wildcards,
+   * start is 1-based, an empty search text gives start, and not found is #VALUE! (as in Sheets). */
+  function cnt(v, dflt) { if (v === undefined) return dflt; var n = num(sc2(v)); if (isErr(n)) return n; n = Math.trunc(n); return n < 0 ? new Err("#VALUE!") : n; }
+  function tx(v) { return text(sc2(v)); }
+  FNX.LEFT = function (a) { var s = tx(a[0]), n = cnt(a[1], 1); return isErr(s) ? s : isErr(n) ? n : s.slice(0, n); };
+  FNX.RIGHT = function (a) { var s = tx(a[0]), n = cnt(a[1], 1); return isErr(s) ? s : isErr(n) ? n : n === 0 ? "" : s.slice(-n); };
+  FNX.MID = function (a) {
+    var s = tx(a[0]), st = num(sc2(a[1])), n = cnt(a[2], 0);
+    if (isErr(s)) return s; if (isErr(st)) return st; if (isErr(n)) return n;
+    st = Math.trunc(st); if (st < 1) return new Err("#VALUE!");
+    return s.substr(st - 1, n);
+  };
+  FNX.TRIM = function (a) { var s = tx(a[0]); return isErr(s) ? s : s.replace(/ +/g, " ").replace(/^ | $/g, ""); };
+  FNX.SUBSTITUTE = function (a) {
+    var s = tx(a[0]), o = tx(a[1]), r = tx(a[2]);
+    if (isErr(s)) return s; if (isErr(o)) return o; if (isErr(r)) return r;
+    var inst = null;
+    if (a.length > 3) { inst = num(sc2(a[3])); if (isErr(inst)) return inst; inst = Math.trunc(inst); if (inst < 1) return new Err("#VALUE!"); }
+    if (o === "") return s;
+    var out = "", i = 0, k = 0, j;
+    while ((j = s.indexOf(o, i)) >= 0) {
+      k++;
+      if (inst === null || k === inst) { out += s.slice(i, j) + r; } else { out += s.slice(i, j + o.length); }
+      i = j + o.length;
+      if (inst !== null && k === inst) break;
+      if (out.length > MAX_STR) return new Err("#VALUE!");
+    }
+    out += s.slice(i);
+    return out.length > MAX_STR ? new Err("#VALUE!") : out;
+  };
+  FNX.FIND = function (a) {
+    var f = tx(a[0]), s = tx(a[1]), st = a.length > 2 ? num(sc2(a[2])) : 1;
+    if (isErr(f)) return f; if (isErr(s)) return s; if (isErr(st)) return st;
+    st = Math.trunc(st); if (st < 1 || st > s.length + 1) return new Err("#VALUE!");
+    var j = s.indexOf(f, st - 1);
+    return j < 0 ? new Err("#VALUE!") : j + 1;
+  };
+  var ARITY = { LEFT: [1, 2], RIGHT: [1, 2], MID: [3, 3], TRIM: [1, 1], SUBSTITUTE: [3, 4], FIND: [2, 3], INDEX: [2, 3], MATCH: [2, 3], VLOOKUP: [3, 4], SUMIF: [2, 3], COUNTIF: [2, 2], AVERAGEIF: [2, 3], SUM: [1, 99], AVERAGE: [1, 99], MIN: [1, 99], MAX: [1, 99], COUNT: [1, 99], ABS: [1, 1], ROUND: [1, 2], LEN: [1, 1], UPPER: [1, 1], LOWER: [1, 1], CONCAT: [1, 99], NOT: [1, 1], AND: [1, 99], OR: [1, 99], IF: [2, 3] };
   function truth(v) {
     if (isErr(v)) return v;
     if (typeof v === "boolean") return v;
