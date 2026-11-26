@@ -78,6 +78,15 @@ const done = (async () => {
   const wa = await P.PDFDocument.load((await M.build(P, E, withAnnot, m)).bytes);
   ok("existing annotations are kept and the new ones follow them", wa.getPage(0).node.lookup(P.PDFName.of("Annots")).size() === 3);
   const sg = fs.readFileSync(__dirname + "/fixtures/form_signed.pdf");
+  // Flattened copy: marks drawn into the page, no annotation added.
+  const flatMarks = M.addInk(M.addText(M.addHighlight([], 1, 0.1, 0.1, 0.4, 0.2, rnd).marks, 1, [[0.1, 0.3, 0.5, 0.4]], rnd).marks, 1, [[[0.1, 0.5], [0.3, 0.6]]], rnd).marks;
+  const flat = await M.build(P, E, await pdfWith(), flatMarks, { flat: true });
+  const flatDoc = await P.PDFDocument.load(flat.bytes), flatPg = flatDoc.getPage(0);
+  const flatXo = flatPg.node.Resources().lookup(P.PDFName.of("XObject"));
+  const flatContent = Buffer.from(flat.bytes).toString("latin1");
+  ok("a flat copy adds no annotation and draws each mark into the page as a form object", flat.added === 3 && (() => { const an = flatPg.node.lookup(P.PDFName.of("Annots")); return an === undefined || an.size() === 0; })() && !/\/Subtype\s*\/(Highlight|Ink)/.test(flatContent) && flatXo.keys().filter((k) => /^\/SalowFlat/.test(String(k))).length === 3);
+  ok("a flat copy of a signed input is refused with the signed code", await M.build(P, E, sg, flatMarks, { flat: true }).then(() => false, (e) => e.code === "signed"));
+  ok("the same marks on a signed input without the flat option still build (held by the viewer)", (await M.build(P, E, sg, flatMarks)).signed === true);
   ok("a signed input is reported as signed", (await M.build(P, E, sg, [])).signed === true && r.signed === false);
   ok("an XFA form is refused, not copied without its XFA data", (await code(() => M.build(P, E, fs.readFileSync(__dirname + "/fixtures/form_xfa.pdf"), m))) === "xfa");
   console.log((n - bad) + "/" + n + " pdf marks rows passed");

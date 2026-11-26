@@ -75,7 +75,8 @@
   }
   function fail(code, msg) { var e = new Error(msg); e.code = code; return e; }
   // A copy of the file with the marks as annotations. E is PdfNotesExport (for the page-box and rotation maths and the signed check).
-  function build(L, E, bytes, marks) {
+  function build(L, E, bytes, marks, opt) {
+    var flat = !!(opt && opt.flat);
     // pdf-lib drops XFA data when it saves; a copy that silently lost it would differ from the file, so such files are refused (the same rule as filled copies).
     return L.PDFDocument.load(bytes, { ignoreEncryption: false, updateMetadata: false, preserveXFA: true }).then(function (pdf) {
       try { var af = pdf.catalog.lookup(L.PDFName.of("AcroForm")); if (af instanceof L.PDFDict && af.get(L.PDFName.of("XFA")) !== undefined) throw fail("xfa", "xfa form"); } catch (e) { if (e && e.code === "xfa") throw e; }
@@ -87,6 +88,8 @@
         if (cur !== undefined && !(cur instanceof L.PDFArray)) throw fail("annots", "annotations list is not an array");
         targets.push([m, page]);
       });
+      // Flat copy: a signed file is refused (a rewrite would break the signature and flattening adds to it). Existing annotations and form fields are left exactly as they are.
+      if (flat && signed) throw fail("signed", "signed file");
       var gs = ctx.obj({ Type: "ExtGState", BM: "Multiply" });
       targets.forEach(function (t) {
         var m = t[0], page = t[1], box = E.shownBox(page), rot = page.getRotation().angle, annot, cur = page.node.lookup(N("Annots"));
@@ -112,6 +115,12 @@
           ops.push(L.popGraphicsState());
           var apI = ctx.formXObject(ops, { BBox: [bx0, by0, bx1, by1] });
           annot = ctx.obj({ Type: "Annot", Subtype: "Ink", Rect: [bx0, by0, bx1, by1], InkList: lists, BS: { W: W }, C: [0.85, 0.1, 0.1], F: 4, T: L.PDFHexString.fromText("Salow drawing"), AP: { N: ctx.register(apI) } });
+        }
+        if (flat) {
+          // The mark's appearance is drawn into the page content (its box is in page space, so it needs no matrix) and no annotation is added.
+          var apRef = annot.get(N("AP")).get(N("N")), xn = page.node.newXObject("SalowFlat" + done, apRef);
+          page.pushOperators(L.pushGraphicsState(), L.drawObject(xn), L.popGraphicsState());
+          done++; return;
         }
         var ref = ctx.register(annot);
         if (cur instanceof L.PDFArray) cur.push(ref); else page.node.set(N("Annots"), ctx.obj([ref]));

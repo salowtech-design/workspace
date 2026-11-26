@@ -597,7 +597,7 @@
   function mUsable() { return !!doc && !rot && drawn === page; }
   function mControls() {
     var on = !!doc && !rot && !mBusy; mNotesBox();
-    $("pdf-tool-hl").disabled = !on; $("pdf-tool-pen").disabled = !on; $("pdf-tool-tx").disabled = !on; $("pdf-markcopy").disabled = !on || !mMarks.length; $("pdf-markclear").disabled = !on || !mMarks.length;
+    $("pdf-tool-hl").disabled = !on; $("pdf-tool-pen").disabled = !on; $("pdf-tool-tx").disabled = !on; $("pdf-markcopy").disabled = !on || !mMarks.length; $("pdf-markclear").disabled = !on || !mMarks.length; $("pdf-markflat").disabled = !on || !mMarks.length;
     $("pdf-tool-hl").setAttribute("aria-pressed", mTool === "hl" ? "true" : "false"); $("pdf-tool-pen").setAttribute("aria-pressed", mTool === "pen" ? "true" : "false"); $("pdf-tool-tx").setAttribute("aria-pressed", mTool === "tx" ? "true" : "false");
     var svg = $("pdf-marks"); svg.classList.toggle("pdf-marks-on", mTool !== "off" && on);
     var showD = mBad && !!doc; $("pdf-markdiscard").hidden = !showD; $("pdf-markdiscard").style.display = showD ? "" : "none"; $("pdf-markdiscard").disabled = mBusy || mSaving;
@@ -812,6 +812,32 @@
       else if (c === "damaged") m = "This file could not be read again (it may be damaged). Nothing was downloaded.";
       else if (c === "annots") m = "A page in this file has an annotation list this page cannot add to. Nothing was downloaded.";
       else if (c === "xfa") m = "This file has an XFA form, which a copy made here would lose. Nothing was downloaded.";
+      mmsg(m);
+    }).then(function () { if (tok === mToken) { mBusy = false; mControls(); } });
+  });
+  // A flattened copy: the marks are drawn into the page content, so they cannot be removed or edited in the copy. It is a separate file; the opened file and the saved marks are not changed.
+  // Notes are not included. Signed files are refused. Existing annotations and form fields stay as they are.
+  $("pdf-markflat").addEventListener("click", function () {
+    if (!doc || mBusy || !mMarks.length) return;
+    var myDoc = doc, nameText = $("pdf-name").textContent || "PDF file", tok = ++mToken;
+    mHold = mClearHold(); mBusy = true; mControls(); mmsg("Building the flattened copy in this browser.");
+    var libs = window.PDFLib ? Promise.resolve() : loadScript(BASE + "pdf-lib.min.js").catch(function () { throw { stage: "load" }; });
+    libs.then(function () { return myDoc.getData().catch(function () { throw { stage: "read" }; }); }).then(function (bytes) {
+      return window.PdfMarks.build(window.PDFLib, window.PdfNotesExport, bytes, mMarks.slice(), { flat: true });
+    }).then(function (r) {
+      if (tok !== mToken || myDoc !== doc) return;
+      pSave(r, nameText, "-flat.pdf");
+      mmsg("Downloaded a flattened copy with " + r.added + " mark(s) fixed into the pages. They cannot be removed or edited in that copy. Your notes are not in it. The file you opened and your saved marks were not changed.");
+    }).catch(function (e) {
+      if (tok !== mToken || myDoc !== doc) return;
+      var c = e && (e.stage || e.code), m = "The flattened copy could not be made. Nothing was downloaded and the file you opened was not changed.";
+      if (c === "signed") m = "This file has a digital signature, so no flattened copy is made. Nothing was downloaded.";
+      else if (c === "xfa") m = "This file has an XFA form, which a copy made here would lose. Nothing was downloaded.";
+      else if (c === "size") m = "The copy would be over 20 MB. Nothing was downloaded.";
+      else if (c === "encrypted") m = "This file is encrypted, so it cannot be copied. Nothing was downloaded.";
+      else if (c === "load") m = "The part of this page that writes PDFs could not be loaded. Check the connection and try again.";
+      else if (c === "read") m = "This page could not read the open file's bytes again. Open the file again and retry.";
+      else if (c === "annots") m = "A page in this file has an annotation list this page cannot read. Nothing was downloaded.";
       mmsg(m);
     }).then(function () { if (tok === mToken) { mBusy = false; mControls(); } });
   });

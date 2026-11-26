@@ -6723,6 +6723,169 @@ def pdf_text_hl_rot(ctx):  # noqa: C901
     )
 
 
+def _yellow_red_boxes(pdf_bytes, shots, tag):
+    """Render page 1 with Poppler; return the yellow box as fractions and the count of red pen pixels."""
+    import subprocess
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as td:
+        open(td + "/c.pdf", "wb").write(pdf_bytes)
+        subprocess.run(
+            ["pdftoppm", "-r", "50", "-f", "1", "-l", "1", td + "/c.pdf", td + "/pg"],
+            check=True,
+            capture_output=True,
+        )  # noqa: S603, S607
+        subprocess.run(
+            [
+                "pdftoppm",
+                "-r",
+                "50",
+                "-png",
+                "-f",
+                "1",
+                "-l",
+                "1",
+                td + "/c.pdf",
+                os.path.join(shots, tag),
+            ],
+            check=True,
+            capture_output=True,
+        )  # noqa: S603, S607
+        ppm = open(td + "/pg-1.ppm", "rb").read()
+    toks, pos = [], 0
+    while len(toks) < 4:
+        while ppm[pos : pos + 1].isspace():
+            pos += 1
+        s0 = pos
+        while not ppm[pos : pos + 1].isspace():
+            pos += 1
+        toks.append(ppm[s0:pos])
+    pos += 1
+    pw, ph = int(toks[1]), int(toks[2])
+    xs, ys, red = [], [], 0
+    for yy in range(ph):
+        row = ppm[pos + yy * pw * 3 : pos + (yy + 1) * pw * 3]
+        for xx in range(pw):
+            r_, g_, b_ = row[xx * 3], row[xx * 3 + 1], row[xx * 3 + 2]
+            if r_ > 235 and g_ > 215 and b_ < 140:
+                xs.append(xx)
+                ys.append(yy)
+            elif r_ > 180 and g_ < 80 and b_ < 80:
+                red += 1
+    fr = [min(xs) / pw, min(ys) / ph, (max(xs) + 1) / pw, (max(ys) + 1) / ph] if xs else None
+    return fr, red
+
+
+def pdf_marks_flat(ctx):  # noqa: C901
+    """Flattened copy: marks are drawn into the page (no annotations), it matches the marks copy in a Poppler render, and a signed file is refused."""
+    import pathlib
+
+    shots = os.environ.get("DRILL_SHOTS", "/tmp")  # noqa: S108
+    pg = fresh(ctx, "/pdf/")
+    pg.set_viewport_size({"width": 1280, "height": 900})
+    pg.reload()
+
+    def open_pdf(name, data, pages):
+        pg.set_input_files(
+            "#pdf-open", files=[{"name": name, "mimeType": "application/pdf", "buffer": data}]
+        )
+        for _ in range(50):
+            if pg.inner_text("#pdf-where").startswith("Page 1 of %d" % pages) and pg.evaluate(
+                "document.getElementById('pdf-canvas').width > 1"
+            ):
+                break
+            pg.wait_for_timeout(250)
+        pg.wait_for_timeout(800)
+
+    open_pdf("flat.pdf", _n_page_pdf(2, "Flat"), 2)
+
+    def drag(a, b):
+        pg.evaluate("document.getElementById('pdf-marks').scrollIntoView({block: 'start'});0")
+        pg.wait_for_timeout(150)
+        x, y, w, h = pg.evaluate(
+            "(()=>{const r=document.getElementById('pdf-marks').getBoundingClientRect();return [r.left,r.top,r.width,r.height]})()"
+        )
+        pg.mouse.move(x + a[0] * w, y + a[1] * h)
+        pg.mouse.down()
+        pg.mouse.move(x + b[0] * w, y + b[1] * h, steps=5)
+        pg.mouse.up()
+        pg.wait_for_timeout(500)
+
+    pg.click("#pdf-tool-hl")
+    drag((0.2, 0.3), (0.7, 0.4))
+    pg.click("#pdf-tool-hl")
+    pg.click("#pdf-tool-pen")
+    drag((0.2, 0.6), (0.8, 0.7))
+    pg.click("#pdf-tool-pen")
+    got = []
+    pg.on("download", lambda d_: got.append(d_))
+    pg.click("#pdf-markcopy")
+    for _ in range(20):
+        if got:
+            break
+        pg.wait_for_timeout(300)
+    pg.click("#pdf-markflat")
+    for _ in range(20):
+        if len(got) > 1:
+            break
+        pg.wait_for_timeout(300)
+    check(
+        "flat: both copies download, the flat one named -flat",
+        len(got) == 2 and got[1].suggested_filename == "flat-flat.pdf",
+        [g.suggested_filename for g in got],
+    )
+    if len(got) < 2:
+        return
+    marks_pdf = open(got[0].path(), "rb").read()
+    flat_pdf = open(got[1].path(), "rb").read()
+    open(os.path.join(shots, "pdf-flat-copy.pdf"), "wb").write(flat_pdf)
+    check(
+        "flat: the marks copy has a Highlight and an Ink annotation, the flat copy has none",
+        len(re.findall(rb"/Subtype\s*/Highlight", marks_pdf)) == 1
+        and len(re.findall(rb"/Subtype\s*/Ink", marks_pdf)) == 1
+        and not re.findall(rb"/Subtype\s*/(Highlight|Ink)", flat_pdf),
+    )
+    fm, rm = _yellow_red_boxes(marks_pdf, shots, "pdf-flat-marks-render")
+    ff, rf = _yellow_red_boxes(flat_pdf, shots, "pdf-flat-flat-render")
+    check(
+        "flat: the flat copy renders the yellow box and the red pen like the marks copy (box within 0.015, pen pixels within 20%)",
+        bool(fm)
+        and bool(ff)
+        and all(abs(a_ - b_) < 0.015 for a_, b_ in zip(fm, ff, strict=True))
+        and rm > 20
+        and abs(rf - rm) <= 0.2 * rm,
+        (fm, ff, rm, rf),
+    )
+    check(
+        "flat: the status says the marks cannot be removed in that copy and notes are not in it",
+        "cannot be removed or edited" in pg.inner_text("#pdf-markstatus")
+        and "notes are not in it" in pg.inner_text("#pdf-markstatus"),
+    )
+    check(
+        "flat: the saved marks in the page are unchanged",
+        pg.locator("#pdf-marklist li").count() == 2,
+    )
+    signed = (
+        pathlib.Path(__file__).resolve().parents[1] / "js" / "fixtures" / "form_signed3.pdf"
+    ).read_bytes()
+    pg.set_input_files(
+        "#pdf-open", files=[{"name": "signed.pdf", "mimeType": "application/pdf", "buffer": signed}]
+    )
+    pg.wait_for_timeout(2500)
+    pg.click("#pdf-tool-hl")
+    drag((0.1, 0.1), (0.4, 0.2))
+    n0 = len(got)
+    pg.click("#pdf-markflat")
+    pg.wait_for_timeout(2000)
+    check(
+        "flat: a signed file is refused with a plain message and nothing downloads",
+        len(got) == n0
+        and "digital signature" in pg.inner_text("#pdf-markstatus")
+        and "no flattened copy" in pg.inner_text("#pdf-markstatus"),
+        pg.inner_text("#pdf-markstatus"),
+    )
+
+
 def pdf_order(ctx):  # noqa: C901
     """Reorder and remove pages from a list, then download that order."""
     shots = os.environ.get("DRILL_SHOTS", "/tmp")  # noqa: S108
@@ -7355,6 +7518,7 @@ DRILLS = {
     "pdf_marks_keep": pdf_marks_keep,
     "pdf_marks_shot": pdf_marks_shot,
     "pdf_text_hl": pdf_text_hl,
+    "pdf_marks_flat": pdf_marks_flat,
     "pdf_text_hl_rot": pdf_text_hl_rot,
     "slides_style": slides_style,
     "sheets_tabs": sheets_tabs,
