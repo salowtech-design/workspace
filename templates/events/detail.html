@@ -11,13 +11,13 @@
 {% if rule_text %}<p class="cal-meta">{{ rule_text }} The time above is the first occurrence. One answer from a guest covers the whole series. You can cancel one occurrence or the whole series; you cannot change a single occurrence.</p>{% endif %}
 <p class="cal-meta">Organiser: {{ e.organizer.employee_id }}</p>
 <h3>Guests</h3>
-{% for g in guests %}<div class="cal-row"><span class="cal-title">{{ g.person.employee_id }}</span><span class="cal-meta">{{ g.response }}</span></div>{% empty %}<p class="cal-meta">No guests.</p>{% endfor %}
+{% for g in guests %}<div class="cal-row"><span class="cal-title">{{ g.person.employee_id }}</span><span class="cal-meta">{{ g.response_label }}</span></div>{% empty %}<p class="cal-meta">No guests.</p>{% endfor %}
 {% if e.status != 'cancelled' %}
 {% if mine %}<div class="cal-actions">
 <form method="post" action="{% url 'events:respond' e.public_id %}">{% csrf_token %}<input type="hidden" name="response" value="accepted"><button class="btn btn-small" type="submit">Accept</button></form>
 <form method="post" action="{% url 'events:respond' e.public_id %}">{% csrf_token %}<input type="hidden" name="response" value="tentative"><button class="btn btn-outline btn-small" type="submit">Maybe</button></form>
 <form method="post" action="{% url 'events:respond' e.public_id %}">{% csrf_token %}<input type="hidden" name="response" value="declined"><button class="btn btn-outline btn-small" type="submit">Decline</button></form></div>
-<p class="cal-meta">Your answer: {{ mine.response }}</p>{% endif %}
+<p class="cal-meta">Your answer: {{ mine.response_label }}</p>{% endif %}
 {% if is_organizer %}<div class="cal-actions"><a class="btn btn-outline btn-small" href="{% url 'events:edit' e.public_id %}">Edit</a><a class="btn btn-outline btn-small" href="{% url 'events:cancel' e.public_id %}">{% if e.freq %}Cancel whole series{% else %}Cancel event{% endif %}</a></div>{% endif %}
 {% endif %}
 {% if rule_text and e.status != 'cancelled' %}<h3>Occurrences</h3>

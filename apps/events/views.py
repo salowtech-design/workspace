@@ -100,6 +100,7 @@ def home(request):
         mine = mine_by_event.get(e.pk)
         rows.append(
             {"e": e, "start": s, "end": f, "response": mine.response if mine else None,
+             "response_label": mine.response_label if mine else None,
              "repeats": bool(e.freq)}
         )  # fmt: skip
     return render(

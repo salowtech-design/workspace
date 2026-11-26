@@ -9,7 +9,7 @@
 <p class="cal-meta">Your events and invitations for the next {{ days }} days. Each time is in that event's own time zone, shown in brackets. Declined and cancelled events are not shown. Invitations only appear here; nobody is emailed or notified.</p>
 {% for r in rows %}<div class="cal-row"><span class="cal-when">{{ r.start|date:"D j M, H:i" }} to {{ r.end|date:"H:i" }} ({{ r.e.tz }})</span>{% if r.repeats %}<span class="cal-meta">Repeats</span>{% endif %}
 <a class="cal-title" href="{% url 'events:detail' r.e.public_id %}">{{ r.e.title }}</a>
-{% if r.response %}<span class="cal-meta">Your answer: {{ r.response }}</span>{% else %}<span class="cal-meta">You organise this</span>{% endif %}</div>
+{% if r.response %}<span class="cal-meta">Your answer: {{ r.response_label }}</span>{% else %}<span class="cal-meta">You organise this</span>{% endif %}</div>
 {% empty %}<p class="cal-meta">Nothing coming up.</p>{% endfor %}
 </div>
 {% endlocaltime %}

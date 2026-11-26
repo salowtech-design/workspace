@@ -56,6 +56,18 @@ class Guest(models.Model):
     )
     response = models.CharField(max_length=12, default=NEEDS_ACTION)
 
+    # Plain words for the pages. Only display: the stored value is unchanged.
+    LABELS = {
+        "needs_action": "Not answered yet",
+        "accepted": "Accepted",
+        "declined": "Declined",
+        "tentative": "Maybe",
+    }
+
+    @property
+    def response_label(self):
+        return self.LABELS.get(self.response, self.response)
+
     class Meta:
         constraints = [models.UniqueConstraint(fields=["event", "person"], name="event_guest_uniq")]
         indexes = [models.Index(fields=["person"])]

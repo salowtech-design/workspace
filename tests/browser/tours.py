@@ -2984,9 +2984,9 @@ def register_event_series_guest(g, users):
                 pg.evaluate("s => document.querySelector(s).scrollIntoView({block:'start'})", sel)
             pg.goto(APP + "/calendar/")
             t.step("Agenda: a weekly series that Second invited me to", expect=lambda: "Weekly sync" in txt(), wait=3000)
-            t.step("Open the series", lambda: (go("a.cal-title:has-text('Weekly sync')"), show(".cal-meta")), expect=lambda: "One answer from a guest covers the whole series" in txt() and "Your answer: needs_action" in txt(), wait=4500)
-            t.step("Accept: the answer covers the whole series", lambda: (go("button:text-is('Accept')"), show(".cal-actions")), expect=lambda: "Your answer: accepted" in txt(), wait=4000)
-            t.step("Decline: the answer changes for the whole series", lambda: (go("button:text-is('Decline')"), show(".cal-actions")), expect=lambda: "Your answer: declined" in txt(), wait=4000)
+            t.step("Open the series", lambda: (go("a.cal-title:has-text('Weekly sync')"), show(".cal-meta")), expect=lambda: "One answer from a guest covers the whole series" in txt() and "Your answer: Not answered yet" in txt(), wait=4500)
+            t.step("Accept: the answer covers the whole series", lambda: (go("button:text-is('Accept')"), show(".cal-actions")), expect=lambda: "Your answer: Accepted" in txt(), wait=4000)
+            t.step("Decline: the answer changes for the whole series", lambda: (go("button:text-is('Decline')"), show(".cal-actions")), expect=lambda: "Your answer: Declined" in txt(), wait=4000)
             t.step("Agenda: the declined series is no longer listed", lambda: go(".cal-tabs a:text-is('Agenda')"), expect=lambda: "Weekly sync" not in txt(), wait=4000)
             t.note("Not shown: a guest answering for one occurrence only. It is not built: one answer covers the series.", 3)
 

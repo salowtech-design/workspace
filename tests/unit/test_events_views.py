@@ -316,3 +316,28 @@ def test_chip_labels_both_urlconfs():
     for conf in ("config.urls", "config.urls_workspace"):
         for p in ("month/", "week/", "day/"):
             assert resolve("/calendar/" + p, urlconf=conf).view_name.startswith("events:")
+
+
+@pytest.mark.django_db
+def test_guest_answers_show_in_plain_words_and_the_stored_value_is_unchanged():
+    import datetime as dt
+
+    from apps.events import services as es
+
+    org, g = _u("V-LORG"), _u("V-LG")
+    start = dt.datetime.combine(dt.date.today() + dt.timedelta(days=1), dt.time(10, 0))
+    ev = es.create_event(org, "Label check", start, start + dt.timedelta(hours=1), "Asia/Kolkata", [g.pk])
+    cg, co = _c(g), _c(org)
+    url = reverse("events:detail", args=[ev.public_id])
+    expected = {"accepted": "Accepted", "tentative": "Maybe", "declined": "Declined"}
+    body = cg.get(url).content.decode()
+    assert "Your answer: Not answered yet" in body and "needs_action" not in body
+    assert "Your answer: Not answered yet" in cg.get(reverse("events:home")).content.decode()
+    for raw, label in expected.items():
+        cg.post(reverse("events:respond", args=[ev.public_id]), {"response": raw})
+        assert Guest.objects.get().response == raw  # stored state is the exact same value
+        page = cg.get(url).content.decode()
+        assert f"Your answer: {label}" in page and f"Your answer: {raw}" not in page
+        assert label in co.get(url).content.decode()  # the organiser's guest list
+        if raw != "declined":  # a declined event leaves the agenda
+            assert f"Your answer: {label}" in cg.get(reverse("events:home")).content.decode()
