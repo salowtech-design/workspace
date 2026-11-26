@@ -282,6 +282,7 @@ def register(g):
     register_directory_dept(g, users)
     register_subtask_delete(g, users)
     register_parent_delete(g, users)
+    register_pdf_marks_tools(g)
     register_posts_more(g, users)
 
 
@@ -3397,3 +3398,89 @@ def register_parent_delete(g, users):
         run_tour(ctx, "59_parent_delete", body, notes="Real Django on TiDB, headless Chromium 390x844 emulated. The list, parent, two children and another task were created by script.", unshown=["restore (not built)", "a sub-task added by someone else while the confirmation is open", "deleting a given-to task"])
 
     g["DRILLS"]["tour_parent_delete"] = tour
+
+
+def register_pdf_marks_tools(g):
+    APP = g["APP"]
+
+    def tour(ctx):
+        import os
+
+        def body(t, pg):
+            data = g["_n_page_pdf"](4, "Keep")
+            pg.goto(APP + "/pdf/")
+            pg.evaluate("localStorage.clear()")
+            pg.goto(APP + "/pdf/")
+            pg.wait_for_timeout(500)
+            where = lambda: pg.inner_text("#pdf-where")
+            if not pg.evaluate("!!(navigator.locks && navigator.locks.request)"):
+                t.step("No secure context in this browser", expect=lambda: False)
+                return
+
+            def opened():
+                pg.set_input_files("#pdf-open", files=[{"name": "demo.pdf", "mimeType": "application/pdf", "buffer": data}])
+                for _ in range(40):
+                    if where().startswith("Page 1 of 4") and pg.evaluate("document.getElementById('pdf-canvas').width > 1"):
+                        break
+                    pg.wait_for_timeout(250)
+
+            def show(sel):
+                pg.evaluate("s=>{document.querySelector(s).scrollIntoView({block:'center'})}", sel)
+
+            def drag(a, b):
+                show("#pdf-marks")
+                pg.wait_for_timeout(150)
+                x, y, w, h = pg.evaluate("(()=>{const r=document.getElementById('pdf-marks').getBoundingClientRect();return [r.left,r.top,r.width,r.height]})()")
+                pg.mouse.move(x + a[0] * w, y + a[1] * h)
+                pg.mouse.down()
+                for i in range(1, 7):
+                    pg.mouse.move(x + (a[0] + (b[0] - a[0]) * i / 6) * w, y + (a[1] + (b[1] - a[1]) * i / 6) * h)
+                pg.mouse.up()
+                pg.wait_for_timeout(300)
+
+            os.makedirs("/tmp/vid/dl", exist_ok=True)
+
+            def grab(sel, name):
+                with pg.expect_download(timeout=15000) as d:
+                    pg.click(sel)
+                d.value.save_as("/tmp/vid/dl/" + name)
+
+            marks = lambda: pg.locator("#pdf-marklist li").count()
+            status = lambda: pg.inner_text("#pdf-markstatus").strip()
+            t.step("Open a 4-page PDF", opened, expect=lambda: where().startswith("Page 1 of 4"), wait=1500)
+            drag_text = lambda: (pg.click("#pdf-tool-tx"), drag((0.05, 0.02), (0.95, 0.98)))
+            drag_text()
+            t.step("Highlight text lines: dragged over the page, the mark list shows an entry", expect=lambda: marks() >= 1, wait=2500)
+            show("#pdf-sigbox")
+            pg.evaluate("document.getElementById('pdf-sigbox').open = true")
+            show("#pdf-sigpad")
+            bx = pg.evaluate("(()=>{const r=document.getElementById('pdf-sigpad').getBoundingClientRect();return [r.left,r.top,r.width,r.height]})()")
+            pg.mouse.move(bx[0] + bx[2] * 0.1, bx[1] + bx[3] * 0.6)
+            pg.mouse.down()
+            for i in range(1, 9):
+                pg.mouse.move(bx[0] + bx[2] * (0.1 + 0.1 * i), bx[1] + bx[3] * (0.6 - 0.3 * ((i % 2))))
+            pg.mouse.up()
+            pg.wait_for_timeout(300)
+            t.step("Signature box: a signature is drawn in it", expect=lambda: pg.evaluate("document.getElementById('pdf-sigpad').children.length") > 0, wait=2500)
+            pg.click("#pdf-sig-use")
+            t.step("Use this signature: the state line shows it is ready", expect=lambda: bool(pg.inner_text("#pdf-sig-state").strip()), wait=2500)
+            n0 = marks()
+            pg.click("#pdf-tool-sig")
+            drag((0.4, 0.7), (0.4, 0.7))
+            t.step("Place signature: clicked on the page, one more mark in the list", expect=lambda: marks() == n0 + 1, wait=2500)
+            show("#pdf-marks")
+            t.step("The page with its marks on screen", expect=lambda: True, wait=2500)
+            t.step("Download a copy with marks: the status line says what was made", lambda: (show("#pdf-markcopy"), grab("#pdf-markcopy", "marks_copy.pdf")), expect=lambda: bool(status()), wait=2200)
+            t.step("Status line after the copy", lambda: show("#pdf-markstatus"), expect=lambda: True, wait=2800)
+            t.step("Download a copy with marks fixed in", lambda: (show("#pdf-markflat"), grab("#pdf-markflat", "marks_flat.pdf")), expect=lambda: bool(status()), wait=2200)
+            t.step("Status line after the fixed-in copy", lambda: show("#pdf-markstatus"), expect=lambda: True, wait=2800)
+            t.step("Remove all marks", lambda: (show("#pdf-markclear"), pg.click("#pdf-markclear")), expect=lambda: True, wait=2200)
+            pg.wait_for_timeout(500)
+            if marks() > 0:
+                pg.click("#pdf-markclear")
+                pg.wait_for_timeout(600)
+            t.step("Mark list after Remove all marks (empty if it is)", lambda: show("#pdf-marklist"), expect=lambda: marks() == 0, wait=2800)
+
+        run_tour(ctx, "60_pdf_marks_tools", body, notes="Device-local viewer on a generated 4-page PDF; secure-context test flag. Headless Chromium 390x844 emulated. The downloaded copies are saved off-camera and are not opened in this clip.", unshown=["opening the downloaded copies", "reorder", "merge", "form fields", "password PDF", "unreadable-marks discard"])
+
+    g["DRILLS"]["tour_pdf_marks_tools"] = tour
