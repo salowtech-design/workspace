@@ -233,6 +233,7 @@ def register(g):
     register_attendance(g)
     register_posts(g)
     register_certs(g)
+    register_automation(g)
 
 
 def register_tasks(g, users):
@@ -693,3 +694,48 @@ def register_certs(g):
         print("DESK shots written", out, flush=True)
 
     g["DRILLS"]["desk_shots"] = desk_shots
+
+
+def register_automation(g):
+    APP = g["APP"]
+
+    def auto_tour(ctx):
+        def body(t, pg):
+            _step = t.step
+            t.step = lambda text, fn=None, wait=800, expect=None: _step(text, fn, wait=min(wait, 900), expect=expect)
+            txt = lambda: pg.inner_text("body")
+            seen = {}
+            fits = "(()=>{const m=document.querySelector('main')||document.body;return [...m.querySelectorAll('input:not([type=hidden]),select,button,textarea')].every(e=>e.getBoundingClientRect().right<=window.innerWidth+1)})()"
+
+            def fill_step(i, kind, **kw):
+                pg.select_option("select[name=type%d]" % i, kind)
+                for k, v in kw.items():
+                    pg.fill("input[name=%s%d]" % (k, i), v)
+
+            pg.goto(APP + "/notifications/")
+            t.step("Notifications before anything: the empty message shows", expect=lambda: "No notifications" in txt(), wait=1600)
+            pg.goto(APP + "/automation/")
+            t.step("Automation home: no workflows yet", expect=lambda: "No workflows yet" in txt(), wait=1600)
+            t.step("New workflow form opens, every field fits the screen", lambda: pg.click("a:has-text('New workflow')"), expect=lambda: "New workflow" in txt() and pg.evaluate(fits), wait=1500)
+            t.step("Name it and add 3 steps: Set a value, Stop unless it equals 1, Notify me", lambda: (pg.fill("input[name=name]", "Tour workflow"), fill_step(0, "set_value", key="mode", value="1"), fill_step(1, "stop_unless_equals", key="mode", equals="1"), fill_step(2, "notify_owner", title="Tour workflow ran")), expect=lambda: pg.input_value("input[name=title2]") == "Tour workflow ran", wait=1500)
+            t.step("Save: it is saved switched off", lambda: pg.click("button:has-text('Save')"), expect=lambda: "switched off until you turn it on" in txt() and "Set mode to" in txt(), wait=2000)
+            t.step("Run now is not offered while it is off", expect=lambda: pg.locator("button:has-text('Run now')").count() == 0, wait=1500)
+            t.step("Switch it on", lambda: pg.click("button:has-text('Switch on')"), expect=lambda: "Switched on." in txt() and pg.locator("button:has-text('Run now')").count() == 1, wait=1800)
+            t.step("Run now: the run finishes as succeeded", lambda: pg.click("button:has-text('Run now')"), expect=lambda: "Run finished: succeeded." in txt(), wait=2200)
+            t.step("Recent runs lists the run", lambda: pg.evaluate("document.querySelector('h3').scrollIntoView({block:'start'});0"), expect=lambda: "succeeded" in txt().split("Recent runs")[-1], wait=1800)
+            t.step("Edit page: the step values are filled in, edit saves a new version", lambda: pg.click("a:has-text('Edit')"), expect=lambda: pg.input_value("input[name=value0]") == "1", wait=1500)
+            t.step("Change the Stop-unless value to 2 and save: version 2", lambda: (pg.fill("input[name=equals1]", "2"), pg.click("button:has-text('Save')")), expect=lambda: "Saved as a new version" in txt() and "Version 2" in txt(), wait=2200)
+            t.step("Run now again: the step stops, so no notification is added (run still shows a result)", lambda: pg.click("button:has-text('Run now')"), expect=lambda: "Run finished" in txt() or "Run failed" in txt(), wait=2200)
+            t.step("Recent runs now has two entries", lambda: pg.evaluate("document.querySelector('h3').scrollIntoView({block:'start'});0"), expect=lambda: len(txt().split("Recent runs")[-1].split("version")) >= 3, wait=1800)
+            t.step("Switch off", lambda: pg.click("button:has-text('Switch off')"), expect=lambda: "Switched off." in txt() and pg.locator("button:has-text('Run now')").count() == 0, wait=1800)
+            t.step("A bad save is refused: a Set-a-value step with no key", lambda: (pg.click("a:has-text('Edit')"), fill_step(3, "set_value", value="x"), pg.click("button:has-text('Save')")), expect=lambda: "Edit" in txt() and ("needs" in txt().lower() or "key" in txt().lower()), wait=2200)
+            t.step("Automation home lists the workflow with version and on/off", lambda: pg.goto(APP + "/automation/"), expect=lambda: "Tour workflow" in txt() and "version 2, off" in txt(), wait=1800)
+            t.step("Notifications now shows the line the first run added, with Mark all as read", lambda: pg.goto(APP + "/notifications/"), expect=lambda: "Tour workflow ran" in txt() and "unread" in txt(), wait=2200)
+            t.step("Mark all as read: the unread tag goes away", lambda: pg.click("button:has-text('Mark all as read')"), expect=lambda: "Marked" in txt() and "unread" not in txt().split("Mark all")[-1].replace("Marked 1 as read.", ""), wait=2200)
+            t.step("Pressing it again says nothing was unread", lambda: pg.click("button:has-text('Mark all as read')"), expect=lambda: "Nothing was unread" in txt(), wait=2000)
+            t.note("Not shown: event triggers, scheduled runs, delete, the 20-workflow cap, 10-run-per-minute limit, another person's workflow.", 3)
+
+        run_tour(ctx, "14_automation_notifications", body, notes="Real Django on TiDB, headless Chromium 390x844 emulated. Runs execute inside the web request. No fixtures.",
+                 unshown=["event triggers (not connected)", "scheduled runs (not built)", "delete workflow (not built)", "20 workflow cap", "10 runs per minute limit", "another person's workflow (404)", "10 steps maximum", "edit refusal for non-round-trip workflow"])
+
+    g["DRILLS"]["tour_auto"] = auto_tour
