@@ -2013,12 +2013,20 @@ def register_pdf_more(g):
             t.step("Reload and pick the file again", lambda: (pg.reload(), pg.wait_for_timeout(600), opened(), pg.wait_for_timeout(800)), expect=lambda: True, wait=900)
             t.step("Go to page 2: the highlight is back on the page", lambda: (pg.click("#pdf-next"), pg.wait_for_timeout(700), show("#pdf-marks")), expect=lambda: marks() >= 1 or where().startswith("Page 2"), wait=3000)
             t.step("The note for page 2 is back in the list", lambda: show("#pdf-notelist"), expect=lambda: "Page two note" in pg.inner_text("#pdf-notelist"), wait=2800)
-            t.step("Export notes", lambda: (show("#pdf-exportnotes"), pg.click("#pdf-exportnotes")), expect=lambda: bool(pg.inner_text("#pdf-notestatus").strip()), wait=1800)
+            import os
+            os.makedirs("/tmp/vid/dl", exist_ok=True)
+
+            def grab(sel, name):
+                with pg.expect_download(timeout=15000) as d:
+                    pg.click(sel)
+                d.value.save_as("/tmp/vid/dl/" + name)
+
+            t.step("Export notes", lambda: (show("#pdf-exportnotes"), grab("#pdf-exportnotes", "notes.txt")), expect=lambda: bool(pg.inner_text("#pdf-notestatus").strip()), wait=1800)
             t.step("Status line after export", lambda: show("#pdf-notestatus"), expect=lambda: True, wait=2500)
             t.step("Delete all notes: first press only asks to press again", lambda: (show("#pdf-clearnotes"), pg.click("#pdf-clearnotes")), expect=lambda: "again" in pg.inner_text("#pdf-notes"), wait=2800)
             t.step("Press it again: the notes are deleted", lambda: pg.click("#pdf-clearnotes"), expect=lambda: pg.locator("#pdf-notelist li").count() == 0, wait=1500)
             t.step("Notes list is empty now", lambda: show("#pdf-notelist"), expect=lambda: pg.locator("#pdf-notelist li").count() == 0, wait=2500)
-            t.step("Split pages: range 1-2", lambda: (show("#pdf-range"), pg.fill("#pdf-range", "1-2"), pg.click("#pdf-splitgo")), expect=lambda: bool(pg.inner_text("#pdf-pagesstatus").strip()), wait=1800)
+            t.step("Split pages: range 1-2", lambda: (show("#pdf-range"), pg.fill("#pdf-range", "1-2"), grab("#pdf-splitgo", "split.pdf")), expect=lambda: bool(pg.inner_text("#pdf-pagesstatus").strip()), wait=1800)
             t.step("Split status", lambda: show("#pdf-pagesstatus"), expect=lambda: True, wait=2800)
             t.note("Not shown: Text mark, Signature, flatten, copy with marks, reorder, merge, forms, password PDFs, thumbnails.", 3)
 
