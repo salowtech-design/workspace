@@ -4753,6 +4753,62 @@ def chat_poll_429(ctx):  # noqa: C901
     )
 
 
+def chat_threads(ctx):  # noqa: C901
+    """Chat threads in a real browser: reply link, reply form, reply shown in timeline marked as a reply, thread page, desktop and 390 px."""
+    import concurrent.futures
+
+    import django
+
+    django.setup()
+
+    def make():
+        from apps.accounts.models import CustomUser
+        from apps.chat import services as cs
+
+        me = CustomUser.objects.get(employee_id="ST-LIVE-1")
+        other, _ = CustomUser.objects.get_or_create(
+            employee_id="ST-LIVE-2",
+            defaults={
+                "full_name": "Second Synthetic",
+                "email": "live.two@salowtech.com",
+                "email_verified": True,
+                "role": CustomUser.Role.EMPLOYEE,
+                "status": CustomUser.Status.ACTIVE,
+                "is_active": True,
+            },
+        )
+        sp = cs.open_dm(me, other.pk)
+        cs.post_message(other, sp.public_id, "Who can review the Q4 rota?", "th-1")
+        cs.post_message(me, sp.public_id, "An unrelated message.", "th-2")
+        cs.post_message(other, sp.public_id, "I can look at it on Monday.", "th-3", 1)
+        return sp.public_id
+
+    with concurrent.futures.ThreadPoolExecutor(1) as ex:
+        space_id = ex.submit(make).result()
+    pg = ctx.pages[0]
+    url = APP + "/chat/space/%s/" % space_id
+    pg.goto(url)
+    pg.wait_for_timeout(500)
+    check("threads: the reply sits in the timeline in order, marked as a reply to the root", pg.inner_text("#m3").count("Reply to Second Synthetic") == 1 and pg.evaluate("[...document.querySelectorAll('.chat-msg')].map(e=>e.dataset.seq).join()") == "1,2,3", pg.inner_text("#m3"))
+    check("threads: the root shows its reply count and a Reply in thread link", "1 reply" in pg.inner_text("#m1") and "Reply in thread" in pg.inner_text("#m1"), pg.inner_text("#m1"))
+    pg.click("#m1 .chat-reply-link")
+    pg.wait_for_timeout(400)
+    check("threads: Reply in thread shows who the reply goes to and keeps the text box", "Replying in the thread" in pg.inner_text("#chat-reply") and pg.is_visible("textarea[name=body]"))
+    pg.fill("textarea[name=body]", "Sending this one as a reply to the rota question.")
+    shot(pg, "chat_threads_desktop")
+    pg.click(".chat-compose button[type=submit]")
+    pg.wait_for_timeout(500)
+    check("threads: the sent reply is in the timeline as message 4 with its marker", pg.is_visible("#m4") and "Reply to" in pg.inner_text("#m4"), pg.inner_text("body")[:200])
+    pg.click("#m1 .chat-thread-open")
+    pg.wait_for_timeout(400)
+    check("threads: the thread page shows the root and both replies", pg.locator(".chat-msg").count() == 3 and "Send reply" in pg.inner_text("body"), pg.locator(".chat-msg").count())
+    pg.set_viewport_size({"width": 390, "height": 800})
+    pg.wait_for_timeout(200)
+    shot(pg, "chat_threads_390")
+    check("threads: no sideways scroll at 390 px", pg.evaluate("document.documentElement.scrollWidth <= 390"), pg.evaluate("document.documentElement.scrollWidth"))
+    pg.set_viewport_size({"width": 1100, "height": 900})
+
+
 def chat_reactions(ctx):  # noqa: C901
     """Chat reactions in a real browser: press toggles, counts and pressed state survive reload, a second person's reaction is counted, desktop and 390 px."""
     import concurrent.futures
@@ -9390,6 +9446,7 @@ DRILLS = {
     "chat_poll_429": chat_poll_429,
     "chat_poll_real": chat_poll_real,
     "chat_reactions": chat_reactions,
+    "chat_threads": chat_threads,
     "chat_two_users": chat_two_users,
     "pdf_password": pdf_password,
     "pdf_password_secure": pdf_password_secure,
