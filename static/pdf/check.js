@@ -11,6 +11,8 @@
   }
   function pageIndex(cur, delta, count) { var n = cur + delta; return n < 1 ? 1 : n > count ? count : n; }
   function zoomStep(z, dir) { var l = [0.5, 0.75, 1, 1.25, 1.5, 2, 3], i = l.indexOf(z); if (i < 0) i = 2; i = Math.max(0, Math.min(l.length - 1, i + dir)); return l[i]; }
+  // From a fitted scale that is not on the list: the next list value above (dir 1) or below (dir -1), bounded; a list value steps as zoomStep does.
+  function zoomFrom(z, dir) { var l = [0.5, 0.75, 1, 1.25, 1.5, 2, 3], i, e = 1e-6; if (!(z > 0)) z = 1; if (dir > 0) { for (i = 0; i < l.length; i++) if (l[i] > z + e) return l[i]; return 3; } for (i = l.length - 1; i >= 0; i--) if (l[i] < z - e) return l[i]; return 0.5; }
   // items: pdf.js text items. Returns the page text with at most budget characters in total.
   function takeText(items, budget) {
     var out = [], used = 0, cut = false;
@@ -61,6 +63,6 @@
       (r.cut ? "The page had more text than the limit of " + EXPORT_BUDGET + " characters, so it stops early.\n" : "") + "\n";
     return h + r.text + "\n";
   }
-  var api = { textFile: textFile, EXPORT_BUDGET: EXPORT_BUDGET, splitMatches: splitMatches, normQuery: normQuery, countIn: countIn, pageOrder: pageOrder, MAX_SCAN: MAX_SCAN, takeText: takeText, Seq: Seq, MAX_BYTES: MAX_BYTES, check: check, pageIndex: pageIndex, zoomStep: zoomStep };
+  var api = { textFile: textFile, EXPORT_BUDGET: EXPORT_BUDGET, splitMatches: splitMatches, normQuery: normQuery, countIn: countIn, pageOrder: pageOrder, MAX_SCAN: MAX_SCAN, takeText: takeText, Seq: Seq, MAX_BYTES: MAX_BYTES, check: check, pageIndex: pageIndex, zoomStep: zoomStep, zoomFrom: zoomFrom };
   if (typeof module !== "undefined" && module.exports) module.exports = api; else root.SalowPdfCheck = api;
 })(typeof self !== "undefined" ? self : this);

@@ -3,7 +3,7 @@
   var N = window.SalowPdfNotes, C = window.SalowPdfCheck, $ = function (i) { return document.getElementById(i); };
   var status = $("pdf-status"), canvas = $("pdf-canvas"), ctx = canvas.getContext("2d");
   var BASE = "/static/pdf/vendor/";
-  var lib = null, doc = null, loadTask = null, seq = new C.Seq(), page = 1, zoom = 1, fitPage = false, task = null, token = 0, settle = Promise.resolve();
+  var lib = null, doc = null, loadTask = null, seq = new C.Seq(), page = 1, zoom = 1, fitPage = false, fitZoom = 1, task = null, token = 0, settle = Promise.resolve();
   var mark = ""; // the query whose matches are marked in the page text, set by a successful find
   var shown = "", shownCut = false;
   // Draws the current page text, marking matches of `mark` with real elements built from text nodes.
@@ -36,7 +36,7 @@
     $("pdf-prev").disabled = !on || page <= 1; $("pdf-next").disabled = !on || page >= doc.numPages;
     $("pdf-zin").disabled = !on || zoom >= 3; $("pdf-zout").disabled = !on || zoom <= 0.5;
     $("pdf-fitw").disabled = !on || (!fitPage && zoom === 1); $("pdf-fitp").disabled = !on || fitPage; $("pdf-close").disabled = !on; $("pdf-page").disabled = !on; $("pdf-q").disabled = !on; $("pdf-find").disabled = !on || finding; $("pdf-exporttext").disabled = !on || textBusy;
-    $("pdf-where").textContent = on ? "Page " + page + " of " + doc.numPages + ", " + (fitPage ? "fit to page" : "zoom " + Math.round(zoom * 100) + "%") : "No file open.";
+    $("pdf-where").textContent = on ? "Page " + page + " of " + doc.numPages + ", " + (fitPage ? "fit to page, " + Math.round(fitZoom * 100) + "%" : "zoom " + Math.round(zoom * 100) + "%") : "No file open.";
     if (on) $("pdf-page").value = page;
   }
   function draw() {
@@ -46,7 +46,9 @@
     settle.then(function () { return my === token ? doc.getPage(page) : null; }).then(function (pg) {
       if (!pg || my !== token) return;
       var wrap = $("pdf-stage").clientWidth || 600, v1 = pg.getViewport({ scale: 1 });
-      var css = fitPage ? Math.min(Math.min(wrap, 1600) / v1.width, Math.max(240, window.innerHeight * 0.8) / v1.height) : Math.min(wrap, 1600) / v1.width * zoom, dpr = Math.min(window.devicePixelRatio || 1, 2);
+      var css = fitPage ? Math.min(Math.min(wrap, 1600) / v1.width, Math.max(200, window.innerHeight - 40) / v1.height) : Math.min(wrap, 1600) / v1.width * zoom;
+      if (fitPage) { fitZoom = css * v1.width / Math.min(wrap, 1600); controls(); }
+      var dpr = Math.min(window.devicePixelRatio || 1, 2);
       var vp = pg.getViewport({ scale: css * dpr }), px = vp.width * vp.height;
       var shrink = Math.min(1, Math.sqrt(24e6 / px), 8192 / vp.width, 8192 / vp.height);
       if (shrink < 1) vp = pg.getViewport({ scale: css * dpr * shrink });
@@ -349,10 +351,13 @@
   $("pdf-prev").addEventListener("click", function () { go(page - 1); });
   $("pdf-next").addEventListener("click", function () { go(page + 1); });
   // Fit width is the 100 percent view. Fit page shrinks the page so a whole page is visible (the larger of width and height limits); zoom buttons leave it and step from 100 percent.
-  $("pdf-zin").addEventListener("click", function () { if (fitPage) { fitPage = false; zoom = 1; } zoom = C.zoomStep(zoom, 1); controls(); draw(); });
-  $("pdf-zout").addEventListener("click", function () { if (fitPage) { fitPage = false; zoom = 1; } zoom = C.zoomStep(zoom, -1); controls(); draw(); });
+  $("pdf-zin").addEventListener("click", function () { if (fitPage) { fitPage = false; zoom = C.zoomFrom(fitZoom, 1); } else zoom = C.zoomStep(zoom, 1); controls(); draw(); });
+  $("pdf-zout").addEventListener("click", function () { if (fitPage) { fitPage = false; zoom = C.zoomFrom(fitZoom, -1); } else zoom = C.zoomStep(zoom, -1); controls(); draw(); });
   $("pdf-fitw").addEventListener("click", function () { if (!doc) return; fitPage = false; zoom = 1; controls(); draw(); });
-  $("pdf-fitp").addEventListener("click", function () { if (!doc) return; fitPage = true; controls(); draw(); });
+  // Fit page: the stage is scrolled to the top of the window first, so the page height can use the whole window (less a small margin). Resizing refits.
+  $("pdf-fitp").addEventListener("click", function () { if (!doc) return; fitPage = true; $("pdf-stage").scrollIntoView({ block: "start" }); controls(); draw(); });
+  var rz = null;
+  window.addEventListener("resize", function () { clearTimeout(rz); rz = setTimeout(function () { if (doc) draw(); }, 200); });
   $("pdf-page").addEventListener("change", function () { var n = parseInt(this.value, 10); if (isNaN(n)) { controls(); return; } go(n); });
   $("pdf-close").addEventListener("click", function () { seq.begin(); closeDoc("File closed. Nothing was stored."); $("pdf-name").textContent = ""; });
   var rz = null; window.addEventListener("resize", function () { clearTimeout(rz); rz = setTimeout(function () { if (doc) draw(); }, 150); });

@@ -4424,6 +4424,11 @@ def pdf_fit(ctx):  # noqa: C901
             "(()=>{const c=document.getElementById('pdf-canvas');return [parseInt(c.style.width),parseInt(c.style.height),document.getElementById('pdf-stage').clientWidth,window.innerHeight]})()"
         )
 
+    def inview():
+        return pg.evaluate(
+            "(()=>{const r=document.getElementById('pdf-canvas').getBoundingClientRect();return [Math.round(r.top),Math.round(r.bottom),window.innerHeight]})()"
+        )
+
     def dis(i):
         return pg.evaluate("document.getElementById('%s').disabled" % i)
 
@@ -4450,10 +4455,27 @@ def pdf_fit(ctx):  # noqa: C901
         where(),
     )
     check(
-        "fit: a portrait page then fits the height limit (80% of the window) and the width",
-        h <= ih * 0.8 + 2 and w <= sw + 1 and h >= ih * 0.8 - 3,
+        "fit: a portrait page then fits the height limit (the window height less 40 px) and the width",
+        h <= ih - 40 + 2 and w <= sw + 1 and h >= ih - 40 - 3,
         str((w, h, sw, ih)),
     )
+    t, b, ih = inview()
+    check(
+        "fit: the whole fitted page is inside the window (scrolled into view)",
+        t >= -1 and b <= ih + 1,
+        str((t, b, ih)),
+    )
+    check("fit: the readout gives the fitted scale", "fit to page, 5" in where(), where())
+    pg.set_viewport_size({"width": 1280, "height": 600})
+    pg.wait_for_timeout(1200)
+    w5, h5, sw5, ih5 = box()
+    check(
+        "fit: resizing the window refits the page to the new height",
+        h5 <= ih5 - 40 + 2 and h5 >= ih5 - 40 - 3 and ih5 == 600,
+        str((w5, h5, ih5)),
+    )
+    pg.set_viewport_size({"width": 1280, "height": 720})
+    pg.wait_for_timeout(1200)
     pg.click("#pdf-next")
     pg.wait_for_timeout(900)
     w2, h2, sw, ih = box()
@@ -4462,7 +4484,7 @@ def pdf_fit(ctx):  # noqa: C901
         "Page 2 of 2" in where()
         and "fit to page" in where()
         and w2 <= sw + 1
-        and h2 <= ih * 0.8 + 2,
+        and h2 <= ih - 40 + 2,
         str((w2, h2, sw, ih)),
     )
     pg.click("#pdf-fitw")
@@ -4474,10 +4496,36 @@ def pdf_fit(ctx):  # noqa: C901
         str((w3, h3, sw)),
     )
     pg.click("#pdf-fitp")
-    pg.wait_for_timeout(600)
+    pg.wait_for_timeout(900)
     pg.click("#pdf-zin")
     pg.wait_for_timeout(600)
-    check("fit: Zoom in from Fit page steps from 100% to 125%", "zoom 125%" in where(), where())
+    check(
+        "fit: on landscape page 2 Fit page is about 96%, so Zoom in goes to 100%, not 125%",
+        "zoom 100%" in where(),
+        where(),
+    )
+    pg.click("#pdf-prev")
+    pg.wait_for_timeout(900)
+    pg.click("#pdf-fitp")
+    pg.wait_for_timeout(900)
+    pg.click("#pdf-zin")
+    pg.wait_for_timeout(600)
+    check(
+        "fit: Zoom in from portrait Fit page (about 57%) goes to the next step up, 75%",
+        "Page 1 of 2, zoom 75%" in where(),
+        where(),
+    )
+    pg.click("#pdf-fitp")
+    pg.wait_for_timeout(900)
+    wf, hf, _, _ = box()
+    pg.click("#pdf-zout")
+    pg.wait_for_timeout(900)
+    wz, hz, _, _ = box()
+    check(
+        "fit: Zoom out from portrait Fit page makes it smaller (50%), never larger",
+        "zoom 50%" in where() and wz < wf and hz < hf,
+        str((where(), wf, wz)),
+    )
     pg.click("#pdf-close")
     pg.wait_for_timeout(300)
     pg.click("#pdf-fitp") if not dis("pdf-fitp") else None
@@ -4494,9 +4542,15 @@ def pdf_fit(ctx):  # noqa: C901
     pg.wait_for_timeout(900)
     w4, h4, sw4, ih4 = box()
     check(
-        "fit: at phone width Fit page fits inside the stage width and 80% of the window height",
+        "fit: at phone width Fit page fits inside the stage width and the window height less 40 px height",
         w4 <= sw4 + 1 and h4 <= ih4 * 0.8 + 2,
         str((w4, h4, sw4, ih4)),
+    )
+    t4, b4, ih4b = inview()
+    check(
+        "fit: at phone width the whole fitted page is in the window",
+        t4 >= -1 and b4 <= ih4b + 1,
+        str((t4, b4, ih4b)),
     )
     pg.screenshot(path=os.path.join(os.environ.get("DRILL_SHOTS", "./"), "pdf-fit-phone.png"))
     pg.set_viewport_size({"width": 1280, "height": 720})
