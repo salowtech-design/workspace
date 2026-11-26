@@ -252,6 +252,7 @@ def register(g):
     register_chat_react(g)
     register_drive_editor(g)
     register_tasks_more(g)
+    register_cal_repeats(g)
 
 
 def register_tasks(g, users):
@@ -1860,3 +1861,53 @@ def register_tasks_more(g):
 
     g["DRILLS"]["tour_tasks_lists_more"] = lists_more
     g["DRILLS"]["tour_tasks_proj_more"] = proj_more
+
+
+def register_cal_repeats(g):
+    APP = g["APP"]
+
+    def tour(ctx):
+        import datetime as dt
+
+        start = dt.date.today() + dt.timedelta(days=3)
+        until = start + dt.timedelta(days=21)
+        d0 = start.isoformat()
+        names = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+
+        def body(t, pg):
+            def fill_base(title, tz=None, guests=None):
+                pg.goto(APP + "/calendar/new/")
+                pg.fill("input[name=title]", title)
+                pg.fill("input[name=start]", d0 + "T09:00")
+                pg.fill("input[name=end]", d0 + "T09:30")
+                if tz:
+                    pg.fill("input[name=tz]", tz)
+                if guests:
+                    pg.fill("textarea[name=guests]", guests)
+
+            occ = lambda: " ".join(pg.inner_text("body").split())
+            fill_base("Daily every 2 days")
+            t.step("New event: Daily, every 2, ends after 3 times", lambda: (pg.select_option("select[name=freq]", "daily"), pg.fill("input[name=interval]", "2"), pg.fill("input[name=count]", "3")), wait=2200)
+            t.step("Create: three occurrences, two days apart", lambda: pg.click("button:has-text('Create')"), expect=lambda: "Occurrences" in pg.inner_text("body") and pg.locator("form[action$='/skip/']").count() == 3, wait=3500)
+            fill_base("Weekly two days until")
+            def weekly():
+                pg.select_option("select[name=freq]", "weekly")
+                for lbl in (names[start.weekday()], names[(start.weekday() + 2) % 7]):
+                    pg.locator("label.cal-inline", has_text=lbl).first.locator("input").check()
+                pg.fill("input[name=until]", until.isoformat())
+            t.step("New event: Weekly, ticks the start day and two days later, ends on a date three weeks out", weekly, wait=2500)
+            t.step("Create: occurrences fall on ticked weekdays only and stop by the end date", lambda: pg.click("button:has-text('Create')"), expect=lambda: "Occurrences" in pg.inner_text("body") and pg.locator("form[action$='/skip/']").count() >= 3, wait=3500)
+            t.note("Occurrence count on that page: %d. First lines: %s" % (pg.locator("form[action$='/skip/']").count(), occ()[occ().find("Occurrences"):][:150]), 4)
+            fill_base("Monthly every month")
+            t.step("New event: Monthly, ends after 3 times", lambda: (pg.select_option("select[name=freq]", "monthly"), pg.fill("input[name=count]", "3")), wait=2200)
+            t.step("Create: three monthly occurrences", lambda: pg.click("button:has-text('Create')"), expect=lambda: pg.locator("form[action$='/skip/']").count() == 3, wait=3500)
+            fill_base("Zone event", tz="America/New_York")
+            t.step("New event with time zone America/New_York at 09:00", lambda: None, wait=1800)
+            t.step("Create: the event page shows the zone", lambda: pg.click("button:has-text('Create')"), expect=lambda: "New_York" in pg.inner_text("body") or "New York" in pg.inner_text("body"), wait=3500)
+            fill_base("Bad guest event", guests="ST-NOBODY-9")
+            t.step("New event with a guest ID that does not exist: it is refused with a message", lambda: pg.click("button:has-text('Create')"), expect=lambda: "guests could not be added" in pg.inner_text("body"), wait=3500)
+            t.note("Not shown: Earlier/Later occurrence paging, a guest's answer inside a series, edit conflict.", 3)
+
+        run_tour(ctx, "29_calendar_repeats", body, notes="Real Django on TiDB under uvicorn, headless Chromium 390x844 emulated. Dates are relative to the run date.", unshown=["paging of occurrences", "guest answers inside a series", "edit conflict"])
+
+    g["DRILLS"]["tour_cal_repeats"] = tour
