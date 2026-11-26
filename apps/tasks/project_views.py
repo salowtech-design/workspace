@@ -1,3 +1,5 @@
+import re
+
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied, ValidationError
@@ -206,7 +208,7 @@ def task_milestone(request, task_id):
 
 def _comment_page(request, t, status=200, sent=""):
     raw = request.GET.get("before", "")
-    before = int(raw) if raw.isdigit() and len(raw) < 19 else None
+    before = int(raw) if re.fullmatch(r"[0-9]{1,18}", raw) else None  # ASCII digits only
     rows, older = pj.comments_of(t, before)
     return render(
         request,

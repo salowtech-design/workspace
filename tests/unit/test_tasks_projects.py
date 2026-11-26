@@ -653,7 +653,8 @@ def test_comment_pages_reach_every_comment_oldest_first_with_no_gap_or_repeat():
     assert seen == [f"c{i}" for i in range(n)]
     board = ca.get(reverse("tasks:project", args=[p.public_id])).content.decode()
     assert f'aria-label="Comments on {t.title}"' in board
-    for junk in ("before=abc", "before=-1", "before=99999999999999999999", "before="):
+    for junk in ("before=abc", "before=-1", "before=99999999999999999999", "before=",
+                 "before=\u00b2", "before=\u0663", "before=\uff11", "before=1%20", "before=1e3"):
         assert ca.get(url + "?" + junk).status_code == 200
 
 
@@ -726,3 +727,36 @@ def test_comment_thread_page_query_count_does_not_grow_with_comments():
     with CaptureQueriesContext(connection) as big:
         ca.get(url)
     assert len(big) == len(small)
+
+
+@pytest.mark.django_db
+def test_comment_route_resolves_in_both_urlconfs_and_is_refused_on_the_iam_host():
+    from django.urls import resolve
+    from apps.tasks.models import TaskComment
+
+    a = _u("CM-I")
+    p, t = _ptask(a)
+    path = reverse("tasks:project_comments", args=[t.public_id])
+    for conf in ("config.urls", "config.urls_workspace"):
+        assert resolve(path, urlconf=conf).view_name == "tasks:project_comments"
+    ca = _c(a)
+    assert ca.post(path, {"body": "ok"}, HTTP_HOST="app.salowtech.com").status_code == 302
+    for client in (ca, Client()):
+        for m in (client.get, client.post):
+            r = m(path, {"body": "iam"}, HTTP_HOST="iam.salowtech.com")
+            assert r.status_code == 404, r.status_code
+    assert TaskComment.objects.count() == 1
+
+
+@pytest.mark.django_db
+def test_comment_view_sends_anonymous_users_to_login_even_with_a_post_body():
+    from apps.tasks.models import TaskComment
+
+    a = _u("CM-J")
+    p, t = _ptask(a)
+    path = reverse("tasks:project_comments", args=[t.public_id])
+    anon = Client(HTTP_HOST="app.salowtech.com")
+    for m in (anon.get, anon.post):
+        r = m(path, {"body": "anon"})
+        assert r.status_code == 302 and "login" in r["Location"]
+    assert TaskComment.objects.count() == 0

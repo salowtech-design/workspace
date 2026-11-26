@@ -7831,6 +7831,49 @@ def task_comments(ctx):
     pg.click(".comment-form button[type=submit]")
     pg.wait_for_load_state()
     check("task comments: 2001 characters is refused and the text stays in the box", "up to 2000" in pg.inner_text("body") and len(pg.input_value("textarea[name=body]")) == 2001 and pg.locator(".comment").count() == 2)
+    # seed up to 105 comments through the service (the view throttle is 30 a minute), then walk the pager
+    import django
+
+    django.setup()
+    from apps.accounts.models import CustomUser
+    from apps.tasks import projects as pj
+    from apps.tasks.models import ProjectTask, TaskComment
+
+    import concurrent.futures
+
+    def seed():
+        me = CustomUser.objects.get(employee_id="ST-LIVE-1")
+        task = ProjectTask.objects.get(title="Write the plan")
+        have = TaskComment.objects.filter(task=task).count()
+        for i in range(105 - have):
+            pj.add_comment(me, task, f"seeded {i}")
+
+    with concurrent.futures.ThreadPoolExecutor(1) as ex:
+        ex.submit(seed).result()
+    url = pg.url.split("?")[0]
+    pg.goto(url)
+    check("task comments: newest page shows 100 comments and an Older link", pg.locator(".comment").count() == 100 and pg.locator("a:has-text('Older comments')").count() == 1 and pg.locator("a:has-text('Newest comments')").count() == 0, str(pg.locator(".comment").count()))
+    pg.click("a:has-text('Older comments')")
+    pg.wait_for_load_state()
+    check("task comments: the older page holds the first 5, starts with the markup comment, offers Newest and no Older", pg.locator(".comment").count() == 5 and "First line" in pg.locator(".comment-body").first.inner_text() and pg.locator("a:has-text('Newest comments')").count() == 1 and pg.locator("a:has-text('Older comments')").count() == 0, str(pg.locator(".comment").count()))
+    pg.screenshot(path=os.path.join(shots, "task_comments_older_390.png"), full_page=True)
+    pg.click("a:has-text('Newest comments')")
+    pg.wait_for_load_state()
+    check("task comments: Newest returns to the page of 100", pg.locator(".comment").count() == 100 and "before=" not in pg.url, pg.url)
+    # post until the limit answers 429 (30 a minute) and check the typed text stays
+    status = 0
+    for i in range(40):
+        pg.fill("textarea[name=body]", f"burst {i}")
+        with pg.expect_response(lambda r: r.request.method == "POST") as ri:
+            pg.click(".comment-form button[type=submit]")
+        status = ri.value.status
+        pg.wait_for_load_state()
+        if status == 429:
+            break
+    check("task comments: the limit answers 429 after about 30 posts", status == 429 and 25 <= i <= 40, f"{status} at {i}")
+    check("task comments: after 429 the typed text is still in the box and the notice says so", pg.input_value("textarea[name=body]") == f"burst {i}" and "Wait and try again" in pg.inner_text("body"), pg.input_value("textarea[name=body]"))
+    pg.evaluate("document.querySelector('.comment-form').scrollIntoView()")
+    pg.screenshot(path=os.path.join(shots, "task_comments_429_390.png"))
     pg.set_viewport_size({"width": 1100, "height": 900})
 
 
