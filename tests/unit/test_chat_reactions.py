@@ -180,6 +180,11 @@ def test_reactions_refresh_endpoint_membership_window_and_privacy():
     from django.test import Client
 
     assert Client(HTTP_HOST="app.salowtech.com").get(url + "?first=1&last=2").status_code == 401
+    for huge in ("?first=99999999999999999999999&last=999999999999999999999999", "?first=1&last=99999999999999999999999"):
+        h = _c(a).get(url + huge)
+        assert h.status_code == 200, huge
+    assert _c(a).get(url + "?first=99999999999999999999999&last=999999999999999999999999").json() == {"reacts": {}}
+    assert _c(a).post(reverse("chat:react", args=[sp.public_id]), {"seq": "9" * 30, "kind": "heart"}).status_code == 404
     big = _c(a).get(url + "?first=1&last=100000")
     assert big.status_code == 200 and set(big.json()["reacts"]) == {"1", "2"}
 

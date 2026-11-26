@@ -2,7 +2,7 @@
   var list = document.getElementById("chat-list");
   if (!list) return;
   var status = document.getElementById("chat-status");
-  var pressing = 0;
+  var pressing = 0, gen = 0, pressId = 0, painted = {}; // gen changes at the start and end of every press; painted[seq] is the newest press answer shown for that message
   // Reactions: a press is sent in place (the compose box and the scroll position are untouched). The page asks for the
   // wanted state (the opposite of what it shows), so a stale tab cannot flip a reaction back. Without this script the form posts normally.
   function paint(seq, reacts) {
@@ -28,16 +28,20 @@
     var d = new FormData(b.form);
     d.set("kind", b.dataset.kind);
     d.set("want", b.getAttribute("aria-pressed") === "true" ? "0" : "1");
-    b.disabled = true; pressing += 1;
+    var mine = ++pressId; b.disabled = true; pressing += 1; gen += 1;
     fetch(b.form.action, { method: "POST", body: d, credentials: "same-origin", redirect: "manual", headers: { "X-Chat-Fetch": "1", Accept: "application/json" } })
       .then(function (r) {
         if (r.status === 429) { say("Too many reactions in a minute. Wait and try again."); return null; }
         if (r.status === 404) { say("This conversation is no longer available to you."); return null; }
         if (!r.ok) { say(r.type === "opaqueredirect" || r.status === 401 || r.status === 403 ? "Your session has ended. Reload the page to sign in again." : "The reaction was not saved."); return null; }
-        return r.json().then(function (j) { say(""); paint(j.seq, j.reacts); });
+        return r.json().then(function (j) {
+          say("");
+          if ((painted[j.seq] || 0) > mine) return; // a newer press on this message was already answered: this answer is older
+          painted[j.seq] = mine; paint(j.seq, j.reacts);
+        });
       })
       .catch(function () { say("The reaction was not saved."); })
-      .then(function () { b.disabled = false; pressing -= 1; });
+      .then(function () { b.disabled = false; pressing -= 1; gen += 1; });
   });
   if (!list.dataset.poll) return;
   var failures = 0, busy = false, timer = null, stopped = false, slow = 0, notBefore = 0;
@@ -64,12 +68,18 @@
   function refresh() {
     var first = parseInt(list.dataset.first, 10), last = parseInt(list.dataset.last, 10);
     if (!list.dataset.reactions || !first || !last || pressing) return null;
+    first = Math.max(first, last - 199); // the server covers at most 200 messages: the newest 200 on screen
+    var g = gen;
     return fetch(list.dataset.reactions + "?first=" + first + "&last=" + last, { credentials: "same-origin", redirect: "manual", headers: { Accept: "application/json" } })
       .then(function (r) {
         if (r.status === 429) { later(slowDown(r)); return null; }
         if (!r.ok) return null;
-        return r.json().then(function (j) { if (pressing) return; Object.keys(j.reacts).forEach(function (k) { paint(k, j.reacts[k]); }); });
-      });
+        return r.json().then(function (j) {
+          if (pressing || g !== gen) return; // a press started or finished while this was in flight: its answer may be older than the page
+          Object.keys(j.reacts).forEach(function (k) { paint(k, j.reacts[k]); });
+        });
+      })
+      .catch(function () { return null; }); // a failed refresh never counts toward pausing the message poll
   }
   function tick() {
     if (stopped || document.visibilityState !== "visible" || busy) { later(EVERY); return; } // hidden tabs neither fetch nor read

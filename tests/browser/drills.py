@@ -4695,6 +4695,78 @@ def chat_reactions(ctx):  # noqa: C901
         label(2, "thumbs_up") == "Thumbs up, 1, you reacted" and pressed(2, "thumbs_up") == "true",
         (label(2, "thumbs_up"), pressed(2, "thumbs_up")),
     )
+    # forced delays: an old answer arriving late must not undo what the page already shows
+    def real_answer(route):
+        """Send the request to the app now (the browser maps the host name to this machine, node cannot), keep the answer."""
+        import urllib.parse
+        import urllib.request
+
+        rq = route.request
+        u = urllib.parse.urlsplit(rq.url)
+        hdr = dict(rq.headers)
+        hdr["Host"] = u.netloc
+        data = rq.post_data_buffer if rq.method == "POST" else None
+        req = urllib.request.Request(
+            "http://127.0.0.1:%d%s" % (u.port, u.path + ("?" + u.query if u.query else "")),
+            data=data, headers=hdr, method=rq.method,
+        )
+        try:
+            r = urllib.request.urlopen(req, timeout=20)
+        except urllib.error.HTTPError as e:
+            r = e
+        return {"status": r.status, "body": r.read(), "headers": {"Content-Type": r.headers.get("Content-Type", "application/json")}}
+
+    held = []
+
+    def hold_refresh(route, request=None):
+        if not held:
+            held.append((route, real_answer(route)))  # the real answer, taken now (before my press), delivered late
+        else:
+            route.continue_()
+
+    pg.route(re.compile(r"/chat/space/[^/]+/reactions/\?"), hold_refresh)
+    t0 = time.time()
+    while not held and time.time() - t0 < 40:
+        pg.wait_for_timeout(300)
+    check("reactions: a refresh request was held for the delay check", bool(held), len(held))
+    pg.click("#m2 button[value=pray]")
+    pg.wait_for_timeout(800)
+    mid = label(2, "pray")
+    if held:
+        held[0][0].fulfill(**held[0][1])
+    pg.wait_for_timeout(800)
+    pg.unroute(re.compile(r"/chat/space/[^/]+/reactions/\?"))
+    check(
+        "reactions: a refresh answer that was taken before my press and arrives after it does not undo it",
+        mid == "Thanks, 1, you reacted" and label(2, "pray") == "Thanks, 1, you reacted" and pressed(2, "pray") == "true",
+        (mid, label(2, "pray"), pressed(2, "pray")),
+    )
+    held2, cnt = [], {"n": 0}
+
+    def hold_first_press(route, request=None):
+        cnt["n"] += 1
+        if cnt["n"] == 1:
+            held2.append((route, real_answer(route)))  # press 1 reaches the server first, its answer is delivered last
+        else:
+            route.continue_()
+
+    pat = re.compile(r"/chat/space/[^/]+/react/$")
+    pg.route(pat, hold_first_press)
+    pg.click("#m2 button[value=eyes]")
+    pg.wait_for_timeout(600)
+    pg.click("#m2 button[value=tada]")
+    pg.wait_for_timeout(800)
+    mid2 = (label(2, "eyes"), label(2, "tada"))
+    if held2:
+        held2[0][0].fulfill(**held2[0][1])
+    pg.wait_for_timeout(800)
+    pg.unroute(pat)
+    check(
+        "reactions: two presses on different reactions of one message answered out of order end on the newer state",
+        mid2 == ("Looking, 1, you reacted", "Celebrate, 1, you reacted") and label(2, "tada") == "Celebrate, 1, you reacted"
+        and label(2, "eyes") == "Looking, 1, you reacted" and label(2, "pray") == "Thanks, 1, you reacted",
+        (mid2, label(2, "eyes"), label(2, "tada"), label(2, "pray")),
+    )
     pg.set_viewport_size({"width": 390, "height": 800})
     pg.reload()
     pg.wait_for_timeout(500)

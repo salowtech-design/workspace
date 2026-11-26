@@ -275,6 +275,8 @@ def react(actor, public_id, seq, kind, want=None):
         mem = _member(sp, me.pk) if sp is not None and me is not None else None
         if mem is None:
             raise Http404
+        if seq < 1 or seq > sp.last_seq:
+            raise Http404  # also keeps a huge number away from the database query
         msg = Message.objects.filter(space=sp, seq=seq).first()
         if msg is None:
             raise Http404
@@ -318,8 +320,10 @@ REFRESH_MAX = 200  # most messages one refresh covers
 def reactions_in(actor, public_id, first, last):
     """{seq: [(kind, count, mine)...]} for messages first..last (at most REFRESH_MAX of them). 404 for a non-member."""
     sp, _ = _visible_space(actor, public_id)
-    first = max(1, int(first))
-    last = min(int(last), first + REFRESH_MAX - 1)
+    first = max(1, min(int(first), sp.last_seq + 1))  # never past the newest message, so no huge number reaches the query
+    last = min(int(last), sp.last_seq, first + REFRESH_MAX - 1)
+    if last < first:
+        return {}
     msgs = list(Message.objects.filter(space=sp, seq__gte=first, seq__lte=last))
     attach_reactions(msgs, actor)
     return {m.seq: [(k, n, mine) for k, _e, _l, n, mine in m.reacts] for m in msgs}
