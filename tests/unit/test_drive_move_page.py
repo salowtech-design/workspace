@@ -317,3 +317,22 @@ def test_a_folder_past_the_first_fifty_is_found_by_name_and_still_goes_through_c
     # the page is read-only and refuses an item the person cannot see
     assert _c(o).get(find, {"q": "Dest"}).status_code == 404
     assert one.parent_id is None
+
+
+@pytest.mark.django_db
+def test_confirmation_counts_shares_set_inside_the_moved_folder_and_leaves_them_alone():
+    a, v, w = _u("MV-NA"), _u("MV-NB"), _u("MV-NC")
+    dst = svc.create_folder(a, "Dst")
+    svc.share(a, dst, v, "viewer")
+    box = svc.create_folder(a, "Box")
+    inner = svc.create_folder(a, "Inner", parent=box)
+    svc.share(a, inner, w, "viewer")  # shared directly, inside the folder being moved
+    r = _move(_c(a), box, str(dst.public_id))
+    body = r.content.decode()
+    assert "Confirm move" in body and "1 item inside Box is shared directly with people" in body
+    plain = svc.create_folder(a, "Plain")
+    r = _move(_c(a), plain, str(dst.public_id))
+    assert "Confirm move" in r.content.decode() and "shared directly with people" not in r.content.decode()
+    _c(a).post(reverse("drive:move", args=["folder", box.public_id]), {"destination": str(dst.public_id), "confirm": "1", "digest": _digest(_move(_c(a), box, str(dst.public_id)))})
+    box.refresh_from_db()
+    assert box.parent_id == dst.pk and svc.nested_share_count(box) == 1  # the nested share is untouched

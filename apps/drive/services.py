@@ -577,6 +577,12 @@ def _best_roles(item, parent_folder):
     return out
 
 
+def nested_share_count(item):
+    """How many shares are set directly on things inside a folder (0 for a file). Read-only. A move does
+    not change them; the confirmation only says they exist, because its lists do not cover them."""
+    return len(_nested(item))
+
+
 def move_audience(item, destination):
     """Who would gain or lose access to `item` if it moved into `destination` (None = top level).
     Returns (gain, lose): gain is [(user, new role, old role or None)] for people who get access or a

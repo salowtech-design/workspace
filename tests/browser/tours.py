@@ -268,6 +268,7 @@ def register(g):
     register_drive_confirm(g, users)
     register_drive_find(g, users)
     register_team_link(g, users)
+    register_drive_nested(g, users)
     register_posts_more(g, users)
 
 
@@ -2731,3 +2732,41 @@ def register_team_link(g, users):
         run_tour(ctx, "45_team_link", body, notes="Real Django on TiDB, headless Chromium 390x844 emulated. Fixture by script: department Operations, team Field Team with ST-LIVE-1 and ST-LIVE-2.", unshown=["no-team profile", "role without team access"])
 
     g["DRILLS"]["tour_team_link"] = tour
+
+
+def register_drive_nested(g, users):
+    APP = g["APP"]
+
+    def tour(ctx):
+        import concurrent.futures
+
+        users(ctx)
+
+        def make():
+            from apps.accounts.models import CustomUser
+            from apps.drive import services as svc
+
+            me = CustomUser.objects.get(employee_id="ST-LIVE-1")
+            two = CustomUser.objects.get(employee_id="ST-LIVE-2")
+            three = CustomUser.objects.get(employee_id="ST-LIVE-3")
+            dst = svc.create_folder(me, "Team box")
+            svc.share(me, dst, two, "viewer")
+            box = svc.create_folder(me, "Project box")
+            inner = svc.create_folder(me, "Contracts", parent=box)
+            svc.share(me, inner, three, "viewer")
+
+        with concurrent.futures.ThreadPoolExecutor(1) as ex:
+            ex.submit(make).result()
+
+        def body(t, pg):
+            txt = lambda: pg.inner_text("body")
+            rowp = ".drive-row:has(a.drive-name:text-is('Project box'))"
+            pg.goto(APP + "/drive/")
+            t.step("Choose Team box (shared) on the Project box row", lambda: (pg.locator(rowp).scroll_into_view_if_needed(), pg.locator(rowp + " select[name=destination]").select_option(label="Team box (shared)")), expect=lambda: True, wait=3000)
+            t.step("Press Move: the confirmation opens", lambda: pg.locator(rowp + " button:text-is('Move')").click(), expect=lambda: "Confirm move" in txt(), wait=3000)
+            t.step("The note says 1 item inside Project box is shared directly and that does not change", lambda: pg.evaluate("[...document.querySelectorAll('p.drive-meta')].find(x=>x.textContent.includes('shared directly with people')).scrollIntoView({block:'center'})"), expect=lambda: "1 item inside Project box is shared directly with people" in txt(), wait=4500)
+            t.note("Not shown: Move and share, or a folder with several nested shares.", 3)
+
+        run_tour(ctx, "46_drive_nested_note", body, notes="Real Django on TiDB, headless Chromium 390x844 emulated. Fixture by script: Team box shared with ST-LIVE-2; Project box holds Contracts, shared with ST-LIVE-3.", unshown=["Move and share", "several nested shares"])
+
+    g["DRILLS"]["tour_drive_nested"] = tour
