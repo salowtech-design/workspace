@@ -929,7 +929,7 @@ def register_iam(g):
             seen = {}
             pg.goto(APP + "/auth/admin/iam/")
             t.step("Setup (test fixture): this account is Admin. The IAM console opens on the Overview tab", expect=lambda: "/admin/iam/" in pg.url and "Overview" in txt(), wait=2400)
-            t.step("The live-actions strip at the top: report what it actually shows", expect=lambda: print("LIVE", repr(pg.inner_text("main").split("Live Actions")[-1][:120]), "TABON", pg.locator(".tab-on").all_inner_texts(), flush=True) or "Live Actions" in txt(), wait=2500)
+            t.step("The live-actions strip at the top, after 9 seconds: it still says Reconnecting and shows no rows (its data and stream addresses return 404 on this host)", lambda: pg.wait_for_timeout(9000), expect=lambda: "Reconnecting" in pg.inner_text("#iam-live-events") and pg.evaluate("(async()=>{const e=document.getElementById('iam-live-events');const o=[];for(const k of ['url','streamUrl']){const r=await fetch(e.dataset[k],{credentials:'same-origin'});o.push(r.status)}return o.join()})()") == "404,404", wait=2500)
             for tab in TABS[1:]:
                 def go(tab=tab):
                     pg.goto(APP + "/auth/admin/iam/?tab=" + tab)
@@ -938,7 +938,7 @@ def register_iam(g):
                     pg.evaluate("document.querySelector('.tab-on')&&document.querySelector('.tab-on').scrollIntoView({inline:'center',block:'nearest'});0")
                     pg.evaluate("window.scrollTo(0, 360);0")
                 t.step("Tab: %s opens (active tab highlighted, page content loads)" % tab, go, expect=lambda tab=tab: pg.locator(".tab-on").count() == 1 and tab in pg.url and "Traceback" not in txt() and "Server Error" not in txt(), wait=1500)
-            t.step("The attendance admin link leads back to the Workspace Admin panel", lambda: (pg.goto(APP + "/auth/admin/iam/?tab=overview"), pg.locator("a:has-text('Attendance'):visible").last.click()), expect=lambda: "/attendance/" in pg.url, wait=1800)
+            t.step("The Attendance link in the top bar leaves the IAM console for the Attendance page", lambda: (pg.goto(APP + "/auth/admin/iam/?tab=overview"), pg.locator("a:has-text('Attendance'):visible").last.click()), expect=lambda: "/attendance/" in pg.url, wait=1800)
             t.note("Not shown: every create, change, revoke, reset and approval form inside the tabs; the separate IAM host login; Super Admin step-up; the live stream; Shield.", 3)
             ctx.iam_seen = seen
 
