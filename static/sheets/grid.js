@@ -312,6 +312,7 @@
     l.href = u; l.download = "unreadable-validation-rules.txt"; document.body.appendChild(l); l.click(); l.remove(); setTimeout(function () { URL.revokeObjectURL(u); }, 4000);
   });
   $("val-reset").addEventListener("click", function () {
+    if (heldMsg()) return;
     if (!rulesLocked || rulesRaw === null) return;
     var st = $("val-status"), MSG = "This tab or its rules were changed in another window, or the storage cannot be read, so nothing was changed. Reload this page.";
     function stale() { var lt = null, cur = null; try { lt = M.loadTabs(localStorage.getItem(KEY + ".tabs")); cur = localStorage.getItem(rulesKey(meta.active)); } catch (e) { return true; } return !lt || lt.unreadable || !lt.meta.tabs.some(function (t) { return t.id === meta.active; }) || cur !== rulesRaw; }
@@ -519,6 +520,7 @@
   });
   tabName.addEventListener("keydown", function (e) { if (e.key === "Enter") { e.preventDefault(); $("tab-rename").click(); } });
   $("tab-del").addEventListener("click", function () {
+    if (heldMsg()) { tabMsg.textContent = status.textContent; return; }
     var id = meta.active, n = Object.keys(H.cells).length, nm = meta.tabs.filter(function (t) { return t.id === id; })[0].name, bad = !!unreadableTabs[id];
     var r = M.deleteTab(meta, id); if (r.error) { tabMsg.textContent = r.error; return; }
     var q = "";
@@ -536,6 +538,7 @@
   });
   $("tab-restore").addEventListener("click", function () {
     if (!lastDeleted) return;
+    if (heldMsg()) { tabMsg.textContent = status.textContent; return; }
     var next = M.addTab(meta, keyUsed); if (!next) { tabMsg.textContent = "A file holds up to " + M.MAX_TABS + " tabs. The deleted tab is still kept until you reload."; return; }
     var nm = lastDeleted.name, rn = M.renameTab(next, next.active, nm); if (!rn.error) next = rn.meta;
     var key = tabKey(next.active);
