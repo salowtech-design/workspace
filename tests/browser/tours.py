@@ -287,6 +287,7 @@ def register(g):
     register_tasks_overdue(g)
     register_project_restore(g)
     register_subtask_edit(g)
+    register_task_reorder(g)
     register_attendance_csv(g)
     register_post_review_notice(g)
     register_notice_open(g)
@@ -2456,6 +2457,28 @@ def register_subtask_edit(g):
         run_tour(ctx, "subtask_edit", body, notes="Real Django on TiDB (unistore) under uvicorn, headless Chromium 390x844 emulated. One synthetic employee. Stages: set up, press Edit on a subtask and save changes, see the result. Not shown: stale forms or another person's view.", unshown=["stale forms", "another person's view"])
 
     g["DRILLS"]["tour_subtask_edit"] = tour
+
+
+def register_task_reorder(g):
+    APP = g["APP"]
+
+    def tour(ctx):
+        def body(t, pg):
+            txt = lambda: pg.inner_text("body")  # noqa: E731
+            titles = lambda: pg.eval_on_selector_all(".task-row:not(.sub) .task-title", "e=>e.map(x=>x.textContent.trim())")  # noqa: E731
+            top = lambda: (pg.wait_for_timeout(600), pg.evaluate("()=>window.scrollTo(0, document.querySelector('.task-row').getBoundingClientRect().top + window.scrollY - 40)"))  # noqa: E731
+            pg.goto(APP + "/tasks/")
+            pg.wait_for_timeout(500)
+            t.step("STAGE 1 SET UP: make a list called Order", lambda: (pg.fill("input[name=name]", "Order"), pg.click("button:has-text('Add list')")), expect=lambda: "Order" in txt())
+            for n in ("Alpha", "Bravo", "Charlie"):
+                t.step("STAGE 1 SET UP: add the task " + n, lambda n=n: (pg.fill("input[aria-label='Task title']", n), pg.click(".tasks-add button")), expect=lambda n=n: n in txt())
+            t.step("STAGE 2 REORDER: the order is Alpha, Bravo, Charlie. Scroll to Charlie's Up button", lambda: pg.locator("button[aria-label='Move Charlie up']").scroll_into_view_if_needed(), expect=lambda: titles() == ["Alpha", "Bravo", "Charlie"], wait=1500)
+            t.step("STAGE 2 REORDER: press Up on Charlie. Charlie moves above Bravo", lambda: (pg.click("button[aria-label='Move Charlie up']"), top()), expect=lambda: titles() == ["Alpha", "Charlie", "Bravo"], wait=1500)
+            t.step("STAGE 2 REORDER: press Down on Alpha. Alpha moves below Charlie", lambda: (pg.click("button[aria-label='Move Alpha down']"), top()), expect=lambda: titles() == ["Charlie", "Alpha", "Bravo"], wait=1500)
+            t.step("STAGE 3 RESULT: reload the page. The order Charlie, Alpha, Bravo is kept. The first row has no Up and the last has no Down", lambda: (pg.reload(), top()), expect=lambda: titles() == ["Charlie", "Alpha", "Bravo"] and pg.locator("button[aria-label='Move Charlie up']").count() == 0 and pg.locator("button[aria-label='Move Bravo down']").count() == 0, wait=1500)
+        run_tour(ctx, "task_reorder", body, notes="Real Django on TiDB (unistore) under uvicorn, headless Chromium 390x844 emulated. One synthetic employee. Stages: set up three tasks, move one up and one down, reload to see the order kept. Not shown: subtasks, stale forms or another person's view.", unshown=["subtasks", "stale forms", "another person's view"])
+
+    g["DRILLS"]["tour_task_reorder"] = tour
 
 
 def register_drive_device(g):

@@ -237,6 +237,33 @@ def assign(user, task, person):
 
 
 @transaction.atomic
+def reorder_task(user, task, expected_version, direction):
+    """The owner moves a task one place up or down among its siblings (top-level tasks of the list, or the subtasks of one parent), in the order
+    the page shows (position, then id). Positions can tie after a restore, so the siblings are renumbered 1..n as shown, and only rows whose
+    number changes are written. At the top or bottom nothing changes (no version bump, no audit). A changed version is refused as stale."""
+    if direction not in ("up", "down"):
+        raise ValidationError("Choose up or down.")
+    fresh = _locked_task(user, task, "edit")
+    if fresh.version != expected_version:
+        raise StaleVersion("This task changed while you were looking at it.")
+    sibs = list(Task.objects.filter(task_list=fresh.task_list, parent_id=fresh.parent_id, deleted_at__isnull=True).order_by("position", "id"))
+    i = next(n for n, t in enumerate(sibs) if t.pk == fresh.pk)
+    j = i - 1 if direction == "up" else i + 1
+    if j < 0 or j >= len(sibs):
+        return fresh
+    sibs[i], sibs[j] = sibs[j], sibs[i]
+    _pause()
+    now = timezone.now()
+    for n, t in enumerate(sibs, start=1):
+        if t.position != n:
+            extra = {"version": F("version") + 1} if t.pk == fresh.pk else {}
+            Task.objects.filter(pk=t.pk).update(position=n, updated_at=now, **extra)
+    audit(user, "tasks.task.reorder", "task", fresh.pk, direction=direction)
+    fresh.refresh_from_db()
+    return fresh
+
+
+@transaction.atomic
 def move_task(user, task, expected_version, target_list):
     """The owner moves a top-level task, with all its subtasks (deleted ones too, so a later restore still finds the parent in its own list), to
     the end of another list of their own. A subtask alone is refused: it must stay in its parent's list. An assigned task keeps its assignee, whose
