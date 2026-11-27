@@ -275,6 +275,7 @@ def register(g):
     register_sheets_refs(g)
     register_sheets_struct(g)
     register_sheets_struct_col(g)
+    register_sheets_struct_more(g)
     register_attendance_csv(g)
     register_post_review_notice(g)
     register_notice_open(g)
@@ -2021,6 +2022,88 @@ def register_sheets_struct_col(g):
                  unshown=["confirm dialogs (text asserted, not on screen)"])
 
     g["DRILLS"]["tour_sheets_struct_col"] = tour
+
+
+def register_sheets_struct_more(g):
+    APP = g["APP"]
+
+    def tour(ctx):
+        def put(pg, cells):
+            for a, v in cells:
+                sel = 'input[data-addr="%s"]' % a
+                pg.click(sel)
+                pg.fill(sel, v)
+                pg.press(sel, "Tab")
+
+        def val(pg, a):
+            return pg.input_value('input[data-addr="%s"]' % a)
+
+        def bar(pg, a):
+            pg.click('input[data-addr="%s"]' % a)
+            return pg.input_value("#sheet-bar")
+
+        def raw(pg):
+            return pg.evaluate("""() => { const k = document.getElementById('sheet-root').dataset.storeKey; return [k, k + '.rules', k + '.cf', k + '.fmt'].map(x => localStorage.getItem(x)); }""")
+
+        def stat(pg):
+            return pg.inner_text("#sheet-status")
+
+        def must(cond, info):
+            return cond or (_ for _ in ()).throw(Exception(info()))
+
+        def hidden(pg):  # which grid rows 1..6 are hidden by the filter
+            return pg.evaluate("() => { const r = document.querySelectorAll('#sheet-root tr'); return [1,2,3,4,5,6].map(i => !!r[i].hidden); }")
+
+        def body(t, pg):
+            seen = []
+            pg.on("dialog", lambda d: (seen.append(d.message), d.accept()))
+            pg.goto(APP + "/sheets/")
+            pg.evaluate("localStorage.clear()")
+            pg.goto(APP + "/sheets/")
+            pg.wait_for_timeout(500)
+            put(pg, [("A1", "1"), ("A2", "2"), ("A3", "3"), ("C1", "=A2")])
+            pg.evaluate("""() => { const k = document.getElementById('sheet-root').dataset.storeKey;
+              localStorage.setItem(k + '.rules', JSON.stringify({v:1, rules:[{range:'B1:B3', kind:'number', min:0, max:9}]}));
+              localStorage.setItem(k + '.cf', JSON.stringify({v:1, rules:[{range:'A1:A3', kind:'greater', color:'red', value:1}]}));
+              localStorage.setItem(k + '.fmt', JSON.stringify({v:1, rules:[{range:'A1:A3', bold:true}]})); }""")
+            pg.goto(APP + "/sheets/")
+            pg.wait_for_timeout(500)
+            orig = raw(pg)
+            t.step("A validation rule allows 0 to 9 in B1:B3. Typing 99 in B2 is refused", lambda: put(pg, [("B2", "99")]), expect=lambda: must("was not applied" in stat(pg) and '"B2"' not in raw(pg)[0], lambda: stat(pg)[:100]))
+            t.step("Insert a row above row 2: the rule moves to B1:B4 and =A2 follows to =A3", lambda: (pg.click('input[data-addr="A2"]'), pg.click("#row-ins")),
+                   expect=lambda: must('"B1:B4"' in raw(pg)[1] and bar(pg, "C1") == "=A3" and val(pg, "A3") == "2", lambda: stat(pg)[:100]))
+            after = raw(pg)
+            t.step("The rule is enforced at the new last row: 99 in B4 is refused", lambda: put(pg, [("B4", "99")]), expect=lambda: must("was not applied" in stat(pg) and '"B4"' not in raw(pg)[0], lambda: stat(pg)[:100]))
+            t.step("An ordinary edit, Undo it, then Undo the row insert: all four stored texts equal the original", lambda: (put(pg, [("D1", "q")]), pg.click("#sheet-undo"), pg.click("#sheet-undo")),
+                   expect=lambda: must(raw(pg) == orig and val(pg, "A2") == "2", lambda: "raw differs %s" % (raw(pg) == orig)))
+            t.step("Redo brings the insert back, byte equal to what it stored the first time", lambda: pg.click("#sheet-redo"), expect=lambda: must(raw(pg) == after and val(pg, "A3") == "2", lambda: stat(pg)[:100]))
+            t.step("A value outside the rule's new range is accepted: 99 in B5 saves", lambda: put(pg, [("B5", "99")]), expect=lambda: '"B5":"99"' in raw(pg)[0])
+            stored = raw(pg)
+            pg.goto(APP + "/sheets/")
+            pg.wait_for_timeout(500)
+            t.step("Reload the page: cells, formula and all three rule lists are as stored", expect=lambda: must(raw(pg) == stored and bar(pg, "C1") == "=A3" and val(pg, "A3") == "2" and val(pg, "B5") == "99", lambda: "reload differs"))
+            t.step("Insert another row above row 2 and filter column A for 2: only the row holding 2 shows", lambda: (pg.click('input[data-addr="A2"]'), pg.click("#row-ins"), pg.fill("#filter-val", "2"), pg.select_option("#filter-op", "contains"), pg.uncheck("#filter-header") if pg.is_checked("#filter-header") else None, pg.click("#filter-go")),
+                   expect=lambda: must(hidden(pg) == [True, True, True, False, True, True], lambda: str(hidden(pg))))
+            t.step("Undo the insert while the filter is on: the filter is applied to the moved cells (row 3 now holds 2)", lambda: pg.click("#sheet-undo"),
+                   expect=lambda: must(hidden(pg) == [True, True, False, True, True, False] and val(pg, "A3") == "2", lambda: str(hidden(pg))))
+            # held-page regression for tab delete and tab restore
+            pg.evaluate("document.getElementById('filter-clear').click()")
+            pg.click("#tab-add"); pg.wait_for_timeout(300); pg.click("#tab-add"); pg.wait_for_timeout(300)
+            pg.click("#tab-del"); pg.wait_for_timeout(300)
+            pg.locator("#sheet-tabs button").first.click(); pg.wait_for_timeout(400)
+            ntabs = pg.locator("#sheet-tabs button").count()
+            t.step("Two tabs and a deleted third one to restore, back on the first tab", expect=lambda: ntabs == 2 and not pg.is_disabled("#tab-restore") and not pg.is_disabled("#tab-del"))
+            pg.evaluate("""() => { window.__orig0 = localStorage.getItem(document.getElementById('sheet-root').dataset.storeKey); window.__o = Storage.prototype.setItem;
+              Storage.prototype.setItem = function (k, v) { if (k.endsWith('.cf') || v === window.__orig0) throw new Error('quota'); return window.__o.call(this, k, v); }; }""")
+            t.step("A failed insert leaves the notice (the restore of the cells also failed)", lambda: (pg.click('input[data-addr="A2"]'), pg.click("#row-ins")), expect=lambda: must(pg.is_visible("#struct-recovery") and "Not known to be as before: cells" in stat(pg), lambda: stat(pg)[:100]))
+            nseen = len(seen)
+            t.step("Delete tab is refused while the notice is up: no confirm, still two tabs", lambda: pg.click("#tab-del"), expect=lambda: must(len(seen) == nseen and pg.locator("#sheet-tabs button").count() == 2 and "Nothing can be edited" in pg.inner_text("#tab-status"), lambda: pg.inner_text("#tab-status")[:100]))
+            t.step("Restore deleted tab is refused too: still two tabs", lambda: pg.click("#tab-restore"), expect=lambda: must(pg.locator("#sheet-tabs button").count() == 2 and "Nothing can be edited" in pg.inner_text("#tab-status"), lambda: pg.inner_text("#tab-status")[:100]))
+
+        run_tour(ctx, "103_sheets_struct_checks", body, notes="Device-local sheet (browser only). Real Django on TiDB (unistore) under uvicorn, headless Chromium 390x844 emulated. Storage faults are injected in the page. The remove-unreadable-rules guard is source-checked only.",
+                 unshown=["confirm dialogs (text asserted)", "remove-unreadable-rules while held"])
+
+    g["DRILLS"]["tour_sheets_struct_more"] = tour
 
 
 def register_slides_bg(g):
