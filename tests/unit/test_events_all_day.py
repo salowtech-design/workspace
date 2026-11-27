@@ -173,3 +173,18 @@ def test_error_and_stale_rerenders_keep_the_typed_dates_and_do_not_add_a_day():
     # a new all-day form typed with date and time boxes (no script) is shown again as dates, and a bad one is not saved
     new_bad = c.post(reverse("events:new"), {**FORM, "title": "", "start": "2026-12-03T15:40", "end": "2026-12-05T02:10", "all_day": "on"}).content.decode()
     assert 'id="cal-start" value="2026-12-03"' in new_bad and 'id="cal-end" value="2026-12-05"' in new_bad and "15:40" not in new_bad
+
+
+@pytest.mark.django_db
+def test_an_error_rerender_keeps_guests_and_ticked_weekdays_and_edit_has_no_repeated_fields():
+    org, g = _u("AD-10"), _u("AD-11")
+    c = _c(org)
+    r = c.post(reverse("events:new"), {**FORM, "title": "", "guests": "AD-11, AD-12", "freq": "weekly", "weekday": ["0", "2"], "interval": "2", "count": "4"})
+    page = r.content.decode()
+    assert r.status_code == 400
+    assert ">AD-11, AD-12</textarea>" in page or ">\nAD-11, AD-12</textarea>" in page  # the guests box keeps what was typed
+    assert page.count('name="weekday"') == 7 and page.count(" checked>") == 2  # both ticks survive (weekday is the only repeated field)
+    assert 'value="2"' in page and 'value="4"' in page
+    ev = es.create_event(org, "E", D(2026, 12, 7, 10), D(2026, 12, 7, 11), IST, [g.pk])
+    edit = c.get(reverse("events:edit", args=[ev.public_id])).content.decode()
+    assert 'name="guests"' not in edit and 'name="weekday"' not in edit  # the edit form has no guest or weekday fields

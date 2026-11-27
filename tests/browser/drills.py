@@ -9097,6 +9097,11 @@ def cal_all_day(ctx):  # noqa: C901
     pg.wait_for_load_state()
     check("cal all-day: repeat plus all day is refused with a message", "cannot repeat" in pg.inner_text("body"), pg.inner_text("body")[:200])
     pg.set_viewport_size({"width": 390, "height": 800})
+    pg.goto(APP + "/calendar/month/?m=2026-12")
+    geo = pg.evaluate("()=>{const r=e=>e.getBoundingClientRect(),t=r(document.querySelector('.cal-month')),c=r(document.querySelector('.cal.card, .card.cal')),d=document.documentElement;"
+                      "return {vw:d.clientWidth,doc:d.scrollWidth,tableRight:Math.round(t.right),cardRight:Math.round(c.right),lastTd:Math.round(r(document.querySelector('.cal-month tr:nth-child(2) td:last-child')).right)}}")
+    print("   month geometry at 390:", geo, flush=True)
+    check("cal all-day: month grid at 390 px fits inside the card and the viewport", geo["tableRight"] <= geo["cardRight"] <= geo["vw"] and geo["lastTd"] <= geo["vw"] and geo["doc"] <= geo["vw"], str(geo))
     pg.goto(detail)
     check("cal all-day: detail has no sideways scroll at 390 px", not pg.evaluate("document.documentElement.scrollWidth > document.documentElement.clientWidth"))
     shot(pg, "cal_all_day_detail_390")
