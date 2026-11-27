@@ -327,6 +327,9 @@ ok("snap: after a snapped resize or move the existing clamps still apply (minimu
   ok("bg: master text that is unreadable on a slide's background is refused (master edit)", (() => {
     let d = mk("light", "Body").d; d = S.ops.setBackground(d, 0, "#e6eef7"); const m = S.ops.master_addElement(d, "text"); const bad = S.ops.master_updateElement(m.deck, m.id, { text: "Logo", fill: "#c28b1d" }); return !!m && bad === null; })());
   ok("bg: a slide added from a layout has no background; duplicating a slide copies it", (() => { const a = S.ops.addSlide(setL, 0, "title"); const dup = S.ops.duplicateSlide(setL, 0); return !("bg" in a.slides[1]) && dup.slides[1].bg === "#f4efe6"; })());
+  ok("bg: every op except the two bg ops is wrapped by the contrast check (guards against an op added later without it)", Object.keys(S.ops).every((k) => k === "setBackground" || k === "setThemeResetting" || /rejected = null/.test(S.ops[k].toString())) && Object.keys(S.ops).length >= 24);
+  ok("bg: a no-op setBackground after a refusal does not reuse the old reason", (() => { S.ops.setBackground(Dk.d, 0, "#ffffff"); const noop = S.ops.setBackground(L.d, 0, "theme"); return noop === null && S.takeReject() === null; })());
+  ok("bg: a refused op's reason is cleared by the next successful op", (() => { S.ops.setBackground(Dk.d, 0, "#ffffff"); const okr = S.ops.setBackground(L.d, 0, "#f4efe6"); return !!okr && S.takeReject() === null; })());
   // theme
   ok("bg: setTheme is refused when a slide's background would be unreadable, with a reason, deck untouched", (() => { const b = J(setL), r = S.ops.setTheme(setL, "dark"), why = S.takeReject(); return r === null && J(setL) === b && /slide 1/.test(why || ""); })());
   ok("bg: themeConflicts names the slides; setThemeResetting resets only those, switches the theme, one undo step brings back both", (() => {

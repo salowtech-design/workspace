@@ -63,7 +63,7 @@
   // After a refused change the controls show what the deck really holds (render() leaves the focused control alone).
   function syncProps() {
     var e = sel(); if (!e) return;
-    ["text", "size", "x", "y", "w", "h", "fill"].forEach(function (f) { $("sl-" + f).value = e[f]; });
+    ["text", "size", "x", "y", "w", "h", "fill"].forEach(function (f) { $("sl-" + f).value = e[f] == null ? "" : e[f]; });
     $("sl-bold").checked = !!e.b; $("sl-italic").checked = !!e.i; $("sl-align").value = e.al ? e.al : "default";
   }
   function apply(next, note) { if (!next) { var why = S.takeReject(); if (why) { render(); syncProps(); status.textContent = why; } return false; } if (!H.change(next, note)) return false; cur = Math.min(cur, H.deck.slides.length - 1); render(); return true; }

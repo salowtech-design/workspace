@@ -230,7 +230,7 @@
   var rejected = null;
   function takeReject() { var r = rejected; rejected = null; return r; }
   ops.setBackground = function (d, i, hex) {
-    var s = d.slides[i]; if (!s) return null;
+    rejected = null; var s = d.slides[i]; if (!s) return null;
     if (hex === "theme") { if (!s.bg) return null; var n0 = copy(d); delete n0.slides[i].bg; return normVersion(n0); }
     if (BG_HEX.indexOf(hex) < 0 || s.bg === hex) return null;
     if (!bgReadable(d, i, hex)) { rejected = "That background was not applied: text on this slide would be hard to read on it (contrast below 4.5). Change the text colour first, or pick another background."; return null; }
@@ -238,6 +238,7 @@
   };
   // Switching theme and, in the same step, putting the listed slides back to the theme background. One Undo step brings back both.
   ops.setThemeResetting = function (d, name) {
+    rejected = null;
     if (!has(THEMES, name) || d.theme === name) return null;
     var n = copy(d), c = themeConflicts(d, name); c.forEach(function (i) { delete n.slides[i].bg; }); n.theme = name; return normVersion(n);
   };
