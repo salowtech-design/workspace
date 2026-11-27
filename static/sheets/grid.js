@@ -169,7 +169,7 @@
   }
   var findStat = $("find-status");
   function findOpts(repl) { return { find: $("find-text").value, repl: repl, matchCase: $("find-case").checked, formulas: $("find-formulas").checked }; }
-  function findCtx(check) { var sh = new F.Sheet(cells); return { parseAddr: F.parseAddr, shown: function (a) { var v = sh.get(a); return F.isErr(v) ? v.code : String(v); }, check: check, maxCell: MAXCELL }; }
+  function findCtx(check) { var sh = new F.Sheet(cells); return { parseAddr: F.parseAddr, shown: function (a) { var v = sh.get(a); return F.isErr(v) ? v.code : String(v); }, check: check, maxCell: MAXCELL, badFormula: function (a, t) { var m = M.copy(cells); m[a] = t; var v = new F.Sheet(m).get(a); return F.isErr(v) && v.code === "#PARSE!"; } }; }
   $("find-next").addEventListener("click", function () {
     var r = M.findReplace(cells, findOpts(null), findCtx(null));
     if (r.error) { findStat.textContent = r.error; return; }
@@ -187,7 +187,7 @@
     if (rulesLocked) { findStat.textContent = "This tab's validation rules could not be read, so a replacement cannot be checked and nothing was replaced. The rules were left untouched."; return; }
     var r = M.findReplace(cells, findOpts($("find-repl").value), findCtx(function (addr, v) { return M.checkValue(rules, addr, v, F.parseAddr); }));
     if (r.error) { findStat.textContent = r.error; return; }
-    var bits = [r.changed + " cells changed"]; if (r.cleared) bits.push(r.cleared + " emptied"); if (r.resultOnly) bits.push(r.resultOnly + " formula results matched and left alone"); if (r.becameFormula) bits.push(r.becameFormula + " skipped (would become a formula)"); if (r.lostEquals) bits.push(r.lostEquals + " skipped (formula would lose its =)"); if (r.tooLong) bits.push(r.tooLong + " too long"); if (r.refused) bits.push(r.refused + " refused by validation rules");
+    var bits = [r.changed + " cells changed"]; if (r.cleared) bits.push(r.cleared + " emptied"); if (r.resultOnly) bits.push(r.resultOnly + " formula results matched and left alone"); if (r.becameFormula) bits.push(r.becameFormula + " skipped (would become a formula)"); if (r.lostEquals) bits.push(r.lostEquals + " skipped (formula would lose its =)"); if (r.badFormula) bits.push(r.badFormula + " skipped (formula would no longer parse)"); if (r.tooLong) bits.push(r.tooLong + " too long"); if (r.refused) bits.push(r.refused + " refused by validation rules");
     if (!r.changed && !r.cleared) { findStat.textContent = "Nothing changed: " + (r.matched ? bits.slice(1).join(", ") : "no match") + "."; return; }
     if (!change(r.cells, "Replaced in " + (r.changed + r.cleared) + " cells. Undo works.")) return;
     findStat.textContent = bits.join(", ") + ". Undo works."; if (cur) { orig = cells[cur] || ""; bar.value = orig; }
