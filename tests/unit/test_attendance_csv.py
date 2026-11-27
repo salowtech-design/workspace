@@ -36,7 +36,7 @@ def test_csv_is_my_own_month_matching_the_page_and_nothing_else():
     rows = _rows(r)
     assert rows[0][:2] == ["Date", "Check in (Asia/Kolkata)"] and len(rows) == 3  # header plus my 2 sessions
     assert rows[1][:4] == ["2026-10-14", "09:30", "17:45", "8.25"]
-    assert rows[2][0] == "2026-10-15" and rows[2][3] == ""
+    assert rows[2][0] == "2026-10-15" and rows[2][2] == "still open" and rows[2][3] == ""  # same wording as the page
     assert "AT-C2" not in r.content.decode() and "P AT-C" not in r.content.decode()
     # a user id in the query is ignored: still only my rows
     r2 = c.get("/attendance/history/download/", {"month": "2026-10", "user": other.pk, "user_id": other.pk})
@@ -62,9 +62,9 @@ def test_csv_refuses_bad_month_anonymous_inactive_and_neutralises_formulas():
     # the helper is pinned directly through a patched label
     from unittest import mock
 
-    with mock.patch.object(WorkSession, "get_verification_method_display", return_value="=cmd|x"):
+    with mock.patch.object(WorkSession, "get_verification_method_display", return_value="  =cmd|x"):
         body = c.get("/attendance/history/download/?month=2026-10").content.decode()
-    assert "'=cmd|x" in body and ",=cmd" not in body
+    assert "'  =cmd|x" in body and ",  =cmd" not in body
     me.status = "suspended"
     me.save()
     assert c.get("/attendance/history/download/").status_code in (302, 403, 404)

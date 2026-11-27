@@ -268,6 +268,7 @@ def register(g):
     register_due_soon(g)
     register_invite_notice(g)
     register_chat_badge(g)
+    register_attendance_csv(g)
     register_task_conflict(g)
     register_sessions_scroll(g, users)
     register_drive_move(g)
@@ -4560,3 +4561,59 @@ def register_chat_badge(g):
         run_tour(ctx, "78_chat_nav_badge", body, notes="Real Django on TiDB, headless Chromium 390x844 emulated. Fixture by script: three messages from a second synthetic account in a DM plus one reply of my own.", unshown=["99+ cap", "left spaces", "live update"])
 
     g["DRILLS"]["tour_chat_badge"] = tour
+
+
+def register_attendance_csv(g):
+    APP = g["APP"]
+
+    def tour(ctx):
+        import concurrent.futures
+        import datetime as dt
+        import django
+
+        django.setup()
+
+        def make():
+            from zoneinfo import ZoneInfo
+
+            from apps.accounts.models import CustomUser
+            from apps.attendance import services as at
+            from tests.unit.test_attendance_integrity import OK
+
+            me = CustomUser.objects.get(employee_id="ST-LIVE-1")
+            kol = ZoneInfo("Asia/Kolkata")
+            d1 = dt.datetime(2026, 11, 10, 9, 30, tzinfo=kol)
+            at.check_in(me, OK, instant=d1)
+            at.check_out(me, instant=d1 + dt.timedelta(hours=8, minutes=15))
+            d2 = dt.datetime(2026, 11, 11, 10, 0, tzinfo=kol)
+            at.check_in(me, OK, instant=d2)
+            at.check_out(me, instant=d2 + dt.timedelta(hours=6))
+
+        with concurrent.futures.ThreadPoolExecutor(1) as ex:
+            ex.submit(make).result()
+        got = {}
+
+        def body(t, pg):
+            import csv
+            import os
+
+            out = os.environ["DRILL_VIDEO"]
+            pg.goto(APP + "/attendance/history/?month=2026-11")
+            t.step("History page for November 2026 shows two sessions and the download link", expect=lambda: pg.inner_text("body").count(" to ") >= 2 and pg.is_visible("text=Download this month (CSV)"), wait=3500)
+
+            def click():
+                with pg.expect_download() as dl:
+                    pg.click("text=Download this month (CSV)")
+                got["name"] = dl.value.suggested_filename
+                dl.value.save_as(os.path.join(out, "79_my-attendance.csv"))
+
+            t.step("Click Download this month (CSV): the browser saves a file", click, expect=lambda: got.get("name") == "my-attendance-2026-11.csv", wait=2500)
+            rows = list(csv.reader(open(os.path.join(out, "79_my-attendance.csv"), encoding="utf-8")))
+            page = pg.inner_text("body")
+            got["rows"] = rows
+            t.step("The saved file has the same two sessions the page lists, in Asia/Kolkata time", expect=lambda: len(rows) == 3 and rows[1][:4] == ["2026-11-10", "09:30", "17:45", "8.25"] and rows[2][:4] == ["2026-11-11", "10:00", "16:00", "6.0"] and "09:30 to 17:45" in page and "10:00 to 16:00" in page, wait=3500)
+            t.note("Not shown: opening the file in a spreadsheet app.", 2.5)
+
+        run_tour(ctx, "79_attendance_csv", body, notes="Real Django on TiDB, headless Chromium 390x844 emulated. Two completed sessions seeded for the synthetic account.", unshown=["spreadsheet app"])
+
+    g["DRILLS"]["tour_attendance_csv"] = tour

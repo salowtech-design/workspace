@@ -202,8 +202,11 @@ def history_csv_view(request):
     h = get_month_history(request.user, year, month)
 
     def cell(v):
+        # Every cell goes through this. A cell whose first non-space, non-control character is = + - @ (or that
+        # starts with a tab or CR) gets a leading apostrophe, so a spreadsheet will not read it as a formula.
         v = "" if v is None else str(v)
-        return "'" + v if v[:1] in ("=", "+", "-", "@", "\t", "\r") else v
+        head = v.lstrip(" \t\r\n\x00\x0b\x0c")
+        return "'" + v if (head[:1] in ("=", "+", "-", "@") or v[:1] in ("\t", "\r")) else v
 
     resp = HttpResponse(content_type="text/csv; charset=utf-8")
     resp["Content-Disposition"] = f'attachment; filename="my-attendance-{year:04d}-{month:02d}.csv"'
@@ -211,7 +214,7 @@ def history_csv_view(request):
     w = csv.writer(resp)
     w.writerow(["Date", "Check in (Asia/Kolkata)", "Check out (Asia/Kolkata)", "Hours", "Method", "State"])
     for r in h["rows"]:
-        w.writerow([r["date"].isoformat(), r["check_in"], cell(r["check_out"]), cell(r["hours"]), cell(r["method"]), cell(r["state"])])
+        w.writerow([cell(x) for x in (r["date"].isoformat(), r["check_in"], r["check_out"] or "still open", r["hours"], r["method"], r["state"])])
     return resp
 
 
