@@ -313,11 +313,12 @@
   });
   $("val-reset").addEventListener("click", function () {
     if (!rulesLocked || rulesRaw === null) return;
-    var st = $("val-status"), lt = null, cur = null, ok = true;
-    try { lt = M.loadTabs(localStorage.getItem(KEY + ".tabs")); cur = localStorage.getItem(rulesKey(meta.active)); } catch (e) { ok = false; }
-    if (!ok || !lt || lt.unreadable || !lt.meta.tabs.some(function (t) { return t.id === meta.active; }) || cur !== rulesRaw) { st.textContent = "This tab or its rules were changed in another window, or the storage cannot be read, so nothing was changed. Reload this page."; return; }
-    if (!window.confirm("Remove this tab's unreadable validation rules? Only the rules are removed: your cells are not changed. A copy of the unreadable rules is kept in this browser under a backup key (use Download unreadable rules first if you want a file). Afterwards values typed in this tab are not checked until you add a rule.")) { st.textContent = "Cancelled. The unreadable rules were left untouched."; return; }
-    var bk = rulesKey(meta.active) + ".backup";
+    var st = $("val-status"), MSG = "This tab or its rules were changed in another window, or the storage cannot be read, so nothing was changed. Reload this page.";
+    function stale() { var lt = null, cur = null; try { lt = M.loadTabs(localStorage.getItem(KEY + ".tabs")); cur = localStorage.getItem(rulesKey(meta.active)); } catch (e) { return true; } return !lt || lt.unreadable || !lt.meta.tabs.some(function (t) { return t.id === meta.active; }) || cur !== rulesRaw; }
+    if (stale()) { st.textContent = MSG; return; }
+    var bk = rulesKey(meta.active) + ".backup", had = null; try { had = localStorage.getItem(bk); } catch (e) { had = null; }
+    if (!window.confirm("Remove this tab's unreadable validation rules? Only the rules are removed: your cells are not changed. A copy of the unreadable rules is kept in this browser under a backup key (use Download unreadable rules first if you want a file). " + (had !== null ? "A backup from an earlier removal on this tab already exists and WILL BE REPLACED by this copy. " : "") + "Afterwards values typed in this tab are not checked until you add a rule.")) { st.textContent = "Cancelled. The unreadable rules were left untouched."; return; }
+    if (stale()) { st.textContent = MSG; return; } // the confirm box can stay open while another window changes things: check again right after it
     try { localStorage.setItem(bk, rulesRaw); if (localStorage.getItem(bk) !== rulesRaw) throw new Error("backup differs"); } catch (e) { st.textContent = "This browser would not keep a backup of the unreadable rules, so nothing was removed."; return; }
     try { localStorage.removeItem(rulesKey(meta.active)); } catch (e) { st.textContent = "This browser would not remove the unreadable rules, so nothing was changed."; return; }
     rulesLocked = false; rulesRaw = null; rules = []; renderRules();

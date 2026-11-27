@@ -1330,6 +1330,7 @@ def sheets_rules_recovery(ctx):
 
     def on_dialog(d):
         mode["asked"] += 1
+        mode["msg"] = d.message
         d.accept() if mode["accept"] else d.dismiss()
 
     pg.on("dialog", on_dialog)
@@ -1370,7 +1371,45 @@ def sheets_rules_recovery(ctx):
     pg.evaluate("k=>localStorage.setItem(k+'.rules','{bad')", key)
     pg.reload()
     pg.wait_for_timeout(500)
+    # Another window rewrites the rules while the confirm question is open: nothing is removed or backed up.
+    # The question is replaced by one that first writes the rules, as another window would while the box is open, then answers yes.
+    pg.evaluate("k=>{window.__c=window.confirm;window.confirm=function(){localStorage.setItem(k+'.rules','{changed');return true;};}", key)
+    pg.click("#val-reset")
+    pg.wait_for_timeout(300)
+    pg.evaluate("()=>{window.confirm=window.__c;}")
+    check(
+        "recovery: rules rewritten in another window while the question is open are not removed or backed up",
+        get(key + ".rules") == "{changed" and get(key + ".rules.backup") is None and "changed in another window" in pg.inner_text("#val-status"),
+        "%r %r | %s" % (get(key + ".rules"), get(key + ".rules.backup"), pg.inner_text("#val-status")),
+    )
+    pg.evaluate("k=>localStorage.setItem(k+'.rules','{bad')", key)
+    pg.reload()
+    pg.wait_for_timeout(500)
+    # A write failure of the backup removes nothing (the setItem for the backup key is made to throw).
+    pg.evaluate("()=>{var o=Storage.prototype.setItem;window.__o=o;Storage.prototype.setItem=function(k,v){if(String(k).slice(-13)==='.rules.backup')throw new Error('quota');return o.call(this,k,v);};}")
     press_reset(True)
+    check(
+        "recovery: if the backup cannot be written nothing is removed and the status says so",
+        get(key + ".rules") == "{bad" and get(key + ".rules.backup") is None and pg.inner_text("#val-status").strip() == "This browser would not keep a backup of the unreadable rules, so nothing was removed." and pg.is_disabled("#val-add"),
+        pg.inner_text("#val-status"),
+    )
+    pg.evaluate("()=>{Storage.prototype.setItem=window.__o;}")
+    # A removal failure keeps the page locked and says so (the backup is already written; the rules key stays).
+    pg.evaluate("()=>{var o=Storage.prototype.removeItem;window.__r=o;Storage.prototype.removeItem=function(k){if(String(k).slice(-6)==='.rules')throw new Error('fail');return o.call(this,k);};}")
+    press_reset(True)
+    check(
+        "recovery: if the rules cannot be removed the page stays locked and says nothing was changed",
+        get(key + ".rules") == "{bad" and pg.inner_text("#val-status").strip() == "This browser would not remove the unreadable rules, so nothing was changed." and pg.is_disabled("#val-add") and get(key + ".rules.backup") == "{bad",
+        pg.inner_text("#val-status"),
+    )
+    pg.evaluate("()=>{Storage.prototype.removeItem=window.__r;}")
+    # An earlier backup is named in the question before the confirm (here the backup from the failed removal above exists).
+    press_reset(True)
+    check(
+        "recovery: when a backup already exists the confirm question says it will be replaced",
+        "WILL BE REPLACED" in mode["msg"],
+        mode["msg"],
+    )
     check(
         "recovery: confirm removes the rules key, keeps an exact backup and leaves the cells as they were",
         get(key + ".rules") is None and get(key + ".rules.backup") == "{bad" and get(key) == cells_before,
