@@ -482,6 +482,59 @@
     var r3 = lists(st.fmt, "format rule"); if (r3.error) return r3;
     return { cells: cells, rules: r1.list, cf: r2.list, fmt: r3.list, stats: stats };
   }
+  // ---- Writing a structural change to the four stored keys (cells, validation, colour, format). Not atomic, and it does not claim to be. ----
+  // st is a storage (getItem, setItem, removeItem). keys is the four key names, expect the raw text each held when this page loaded it (null: absent),
+  // next the raw text to store (null: remove). A recovery copy of expect and next goes under bakKey before the first write and is removed only when the
+  // result is known: all four keys read back as intended. Statuses: done (bakLeft: the copy could not be removed), refused (nothing written; reason
+  // recovery-exists, stale, storage, no-recovery-copy, recovery-stuck), failed-restored (every key read back as before), failed-unresolved (bad lists the
+  // keys that are not known to be as before; the recovery copy is kept). Another window can write between the checks and the writes; that is not preventable here.
+  function sRead(st, k) { try { var v = st.getItem(k); return { ok: true, v: v === undefined ? null : v }; } catch (e) { return { ok: false, v: null }; } }
+  function sWrite(st, k, v) { try { if (v === null) st.removeItem(k); else st.setItem(k, v); } catch (e) { return false; } var r = sRead(st, k); return r.ok && r.v === v; }
+  function sDrop(st, k) { try { st.removeItem(k); } catch (e) { /* checked below */ } var r = sRead(st, k); return r.ok && r.v === null; }
+  function structApply(st, keys, bakKey, expect, next) {
+    var e = sRead(st, bakKey), i, cur = [];
+    if (!e.ok) return { status: "refused", reason: "storage" };
+    if (e.v !== null) return { status: "refused", reason: "recovery-exists" };
+    for (i = 0; i < 4; i++) { var r = sRead(st, keys[i]); if (!r.ok) return { status: "refused", reason: "storage" }; if (r.v !== expect[i]) return { status: "refused", reason: "stale", key: keys[i] }; cur.push(r.v); }
+    if (next.every(function (x, k) { return x === expect[k]; })) return { status: "done", noop: true };
+    var bak = JSON.stringify({ v: 1, keys: keys, raw: expect, next: next });
+    if (!sWrite(st, bakKey, bak)) { return sDrop(st, bakKey) ? { status: "refused", reason: "no-recovery-copy" } : { status: "refused", reason: "recovery-stuck", bakKept: true }; }
+    var attempted = [], failed = false;
+    for (i = 0; i < 4; i++) { if (next[i] === expect[i]) continue; attempted.push(i); if (!sWrite(st, keys[i], next[i])) { failed = true; break; } }
+    if (!failed) for (i = 0; i < 4; i++) { var c = sRead(st, keys[i]); if (!c.ok || c.v !== next[i]) failed = true; }
+    if (!failed) return { status: "done", bakLeft: !sDrop(st, bakKey) };
+    var bad = [];
+    attempted.slice().reverse().forEach(function (j) {
+      var q = sRead(st, keys[j]);
+      if (!q.ok) { bad.push(keys[j]); return; }
+      if (q.v === expect[j]) return;
+      if (q.v === next[j]) { if (!sWrite(st, keys[j], expect[j])) bad.push(keys[j]); return; }
+      bad.push(keys[j]);   // neither what was there nor what was written: not overwritten
+    });
+    for (i = 0; i < 4; i++) { var z = sRead(st, keys[i]); if ((!z.ok || z.v !== expect[i]) && bad.indexOf(keys[i]) < 0) bad.push(keys[i]); }
+    if (bad.length) return { status: "failed-unresolved", bad: bad, bakKept: true };
+    return { status: "failed-restored", bakLeft: !sDrop(st, bakKey) };
+  }
+  function bakRead(st, bakKey) {
+    var r = sRead(st, bakKey); if (!r.ok) return { state: "storage" }; if (r.v === null) return { state: "none" };
+    var b = null; try { b = JSON.parse(r.v); } catch (e) { b = null; }
+    var arr = function (a, nullable) { return Array.isArray(a) && a.length === 4 && a.every(function (x) { return typeof x === "string" && (nullable || x !== "") || (nullable && x === null); }); };
+    if (!b || b.v !== 1 || !arr(b.keys, false) || !arr(b.raw, true) || !arr(b.next, true)) return { state: "unreadable" };
+    return { state: "found", keys: b.keys, raw: b.raw, next: b.next };
+  }
+  // Put the four keys back as the recovery copy recorded them. A key that holds neither the recorded original nor the recorded new text was changed by
+  // something else: without force it is left alone and the call returns conflict with nothing written; with force (the user said so) it is overwritten.
+  function structRecover(st, bakKey, force) {
+    var b = bakRead(st, bakKey); if (b.state !== "found") return { status: b.state === "none" ? "none" : b.state };
+    var todo = [], conflict = [], i;
+    for (i = 0; i < 4; i++) { var r = sRead(st, b.keys[i]); if (!r.ok) return { status: "storage" }; if (r.v === b.raw[i]) continue; if (r.v === b.next[i] || force) todo.push(i); else conflict.push(b.keys[i]); }
+    if (conflict.length) return { status: "conflict", keys: conflict };
+    var bad = []; todo.forEach(function (j) { if (!sWrite(st, b.keys[j], b.raw[j])) bad.push(b.keys[j]); });
+    for (i = 0; i < 4; i++) { var z = sRead(st, b.keys[i]); if ((!z.ok || z.v !== b.raw[i]) && bad.indexOf(b.keys[i]) < 0) bad.push(b.keys[i]); }
+    if (bad.length) return { status: "unresolved", bad: bad };
+    return { status: "restored", bakLeft: !sDrop(st, bakKey) };
+  }
+  function structRecovery(st, bakKey) { var b = bakRead(st, bakKey); return b.state; }
   // ---- Pivot: group rows of a range by one column and total another. Read only: it never writes to cells. ----
   var PIVOT_AGGS = ["count", "sum", "average", "min", "max"], MAX_GROUPS = 20;
   function colNo(t) { var m = /^\s*([A-Za-z])\s*$/.exec(String(t)); return m ? m[1].toUpperCase().charCodeAt(0) - 64 : null; }
@@ -523,6 +576,6 @@
     });
     return { groups: out, skipped: skipped, rows: rows };
   }
-  var api = { structEdit: structEdit, structRange: structRange, fillRange: fillRange, parseRange: parseRange, makeRule: makeRule, addRule: addRule, removeRule: removeRule, loadRules: loadRules, rulesJson: rulesJson, checkValue: checkValue, makePivot: makePivot, pivot: pivot, MAX_GROUPS: MAX_GROUPS, makeCf: makeCf, addCf: addCf, loadCf: loadCf, cfJson: cfJson, cfColor: cfColor, parsePaste: parsePaste, isBlock: isBlock, applyPaste: applyPaste, MAX_PASTE_CELLS: MAX_PASTE_CELLS, makeFmt: makeFmt, addFmt: addFmt, loadFmt: loadFmt, fmtJson: fmtJson, fmtFor: fmtFor, fmtText: fmtText, MAX_FMT: MAX_FMT, MAX_RULES: MAX_RULES, loadTabs: loadTabs, addTab: addTab, markFmt: markFmt, renameTab: renameTab, deleteTab: deleteTab, setActive: setActive, cleanName: cleanName, MAX_TABS: MAX_TABS, sortRange: sortRange, filterRows: filterRows, toNum: toNum, toCsv: toCsv, clean: clean, History: History, chartPoints: chartPoints, pieSlices: pieSlices, isComposing: isComposing, keyMove: keyMove, copy: copy, same: same };
+  var api = { structApply: structApply, structRecover: structRecover, structRecovery: structRecovery, structEdit: structEdit, structRange: structRange, fillRange: fillRange, parseRange: parseRange, makeRule: makeRule, addRule: addRule, removeRule: removeRule, loadRules: loadRules, rulesJson: rulesJson, checkValue: checkValue, makePivot: makePivot, pivot: pivot, MAX_GROUPS: MAX_GROUPS, makeCf: makeCf, addCf: addCf, loadCf: loadCf, cfJson: cfJson, cfColor: cfColor, parsePaste: parsePaste, isBlock: isBlock, applyPaste: applyPaste, MAX_PASTE_CELLS: MAX_PASTE_CELLS, makeFmt: makeFmt, addFmt: addFmt, loadFmt: loadFmt, fmtJson: fmtJson, fmtFor: fmtFor, fmtText: fmtText, MAX_FMT: MAX_FMT, MAX_RULES: MAX_RULES, loadTabs: loadTabs, addTab: addTab, markFmt: markFmt, renameTab: renameTab, deleteTab: deleteTab, setActive: setActive, cleanName: cleanName, MAX_TABS: MAX_TABS, sortRange: sortRange, filterRows: filterRows, toNum: toNum, toCsv: toCsv, clean: clean, History: History, chartPoints: chartPoints, pieSlices: pieSlices, isComposing: isComposing, keyMove: keyMove, copy: copy, same: same };
   if (typeof module !== "undefined" && module.exports) module.exports = api; else root.SalowSheetModel = api;
 })(typeof self !== "undefined" ? self : this);
