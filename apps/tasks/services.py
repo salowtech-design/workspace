@@ -237,17 +237,15 @@ def delete_list(user, task_list):
 
 
 def _same_deletion(row):
-    """Q for the rows removed by the same delete call as `row`. A batch id is exact. A row deleted before batch ids existed has none, so it falls
-    back to the shared moment, and only among rows that also have no batch: a newer delete can never pull it in, nor it a newer one."""
+    """Q for the rows removed by the same delete call as `row`: the batch id, exactly. A row deleted before batch ids existed has none, and old
+    groups cannot be told apart from separate deletions at the same instant, so such a row is restored alone and never pulls others in."""
     if row.delete_batch is not None:
         return Q(delete_batch=row.delete_batch)
-    return Q(delete_batch__isnull=True, deleted_at=row.deleted_at)
+    return Q(pk=row.pk)
 
 
 def _in_same_deletion(a, b):
-    if a.delete_batch is not None or b.delete_batch is not None:
-        return a.delete_batch == b.delete_batch
-    return a.deleted_at == b.deleted_at
+    return a.delete_batch is not None and a.delete_batch == b.delete_batch
 
 
 def trash_for(user):

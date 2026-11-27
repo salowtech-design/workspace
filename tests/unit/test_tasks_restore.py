@@ -7,7 +7,7 @@ from django.urls import reverse
 
 from apps.core.models import AuditLog
 from apps.tasks import services as svc
-from apps.tasks.models import Task
+from apps.tasks.models import Task, TaskList
 from tests.unit.test_tasks_services import _u
 
 
@@ -196,8 +196,8 @@ def test_equal_clock_values_never_revive_unrelated_deletions(setup, monkeypatch)
     assert Task.objects.get(pk=early.pk).deleted_at is not None
 
 
-def test_legacy_rows_without_a_batch_fall_back_to_the_moment_but_only_among_themselves(setup):
-    """Rows deleted before batch ids existed have none. They group by moment, and a batched row at the same moment is not pulled in."""
+def test_legacy_rows_without_a_batch_restore_alone_and_show_in_the_trash_one_by_one(setup):
+    """Rows deleted before batch ids existed cannot be grouped safely: each is restored alone, and each is listed on its own."""
     from django.utils import timezone
 
     a, b, tl = setup
@@ -207,9 +207,21 @@ def test_legacy_rows_without_a_batch_fall_back_to_the_moment_but_only_among_them
     moment = timezone.now()
     Task.objects.filter(pk__in=[p.pk, old.pk]).update(deleted_at=moment, delete_batch=None)
     Task.objects.filter(pk=new.pk).update(deleted_at=moment, delete_batch=uuid.uuid4())
+    assert {t.title for t in svc.trash_for(a)[1]} == {"Parent", "Legacy kid", "Batched kid"}
+    with pytest.raises(ValidationError, match="Restore its parent task first"):
+        svc.restore_task(a, Task.objects.get(pk=old.pk))  # a legacy child still waits for its parent
     svc.restore_task(a, Task.objects.get(pk=p.pk))
+    assert {t.title for t in svc.tasks_in(a, tl)} == {"Parent"}  # neither kid came back with it
+    svc.restore_task(a, Task.objects.get(pk=old.pk))
     assert {t.title for t in svc.tasks_in(a, tl)} == {"Parent", "Legacy kid"}
     assert Task.objects.get(pk=new.pk).deleted_at is not None
+    # a legacy deleted list comes back alone; its tasks then show in the Trash one by one
+    t1 = svc.create_task(a, tl, "Inside")
+    Task.objects.filter(pk=t1.pk).update(deleted_at=moment, delete_batch=None)
+    TaskList.objects.filter(pk=tl.pk).update(deleted_at=moment, delete_batch=None)
+    svc.restore_list(a, TaskList.objects.get(pk=tl.pk))
+    assert Task.objects.get(pk=t1.pk).deleted_at is not None
+    assert "Inside" in {t.title for t in svc.trash_for(a)[1]}
 
 
 def test_restore_keeps_the_nesting_rules_and_never_changes_content_or_list_uniqueness(setup):

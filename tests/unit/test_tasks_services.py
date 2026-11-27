@@ -245,10 +245,14 @@ def _race(monkeypatch, locked, parties, fns):
     from tests.unit.test_drive_services import _threads
 
     barrier = threading.Barrier(parties)
+    arrived = []
+    _race.arrived = arrived
+    wait = 1.5 if locked else 20  # with the lock removed nothing can keep a side out, so wait for the slow one instead of missing the overlap
 
     def pause():
+        arrived.append(threading.get_ident())
         try:
-            barrier.wait(timeout=1.5)
+            barrier.wait(timeout=wait)
         except threading.BrokenBarrierError:
             pass  # the lock kept the other side out, as it should
 
@@ -267,12 +271,14 @@ def test_race_assign_vs_new_subtask(monkeypatch, locked):
         a, b = _u(f"R1-A{i}{locked}"), _u(f"R1-B{i}{locked}")
         tl = svc.create_list(a, "L")
         top = svc.create_task(a, tl, "top")
-        _race(
+        out = _race(
             monkeypatch,
             locked,
             2,
             [lambda: svc.assign(a, top, b), lambda: svc.create_task(a, tl, "kid", parent=top)],
         )
+        if not locked:  # the control must show the overlap it claims: both sides paused together and neither errored
+            assert out == ["ok", "ok"] and len(_race.arrived) == 2, (out, _race.arrived)
         top.refresh_from_db()
         if top.assignee_id and top.subtasks.filter(deleted_at__isnull=True).exists():
             broken += 1
@@ -288,7 +294,7 @@ def test_race_complete_parent_vs_new_subtask(monkeypatch, locked):
         a = _u(f"R2-A{i}{locked}")
         tl = svc.create_list(a, "L")
         top = svc.create_task(a, tl, "top")
-        _race(
+        out = _race(
             monkeypatch,
             locked,
             2,
@@ -297,6 +303,8 @@ def test_race_complete_parent_vs_new_subtask(monkeypatch, locked):
                 lambda: svc.create_task(a, tl, "kid", parent=top),
             ],
         )
+        if not locked:  # the control must show the overlap it claims: both sides paused together and neither errored
+            assert out == ["ok", "ok"] and len(_race.arrived) == 2, (out, _race.arrived)
         top.refresh_from_db()
         if (
             top.status == "completed"
