@@ -7,16 +7,19 @@ invitation only appears on the guest's own calendar. Locking: the event row firs
 
 import datetime
 import itertools
+import logging
 import types
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from django.contrib.auth import get_user_model
 from django.core.exceptions import PermissionDenied, ValidationError
-from django.db import IntegrityError, transaction
+from django.db import DatabaseError, IntegrityError, transaction
 from django.db.models import Q
 from django.http import Http404
+from django.urls import reverse
 
 from apps.core.foundation.audit import audit
+from apps.core.foundation.notify import notify
 from apps.events import recurrence as rec
 from apps.events.models import TITLE_MAX, Event, EventException, Guest
 
@@ -46,6 +49,9 @@ class Occurrence:
 
 class StaleEvent(ValidationError):
     """The event changed since the form was loaded."""
+
+
+logger = logging.getLogger(__name__)
 
 
 def _tz(name):
@@ -179,6 +185,19 @@ def create_event(actor, title, local_start, local_end, tz_name, guest_ids=(), ru
         ev.save()
         Guest.objects.bulk_create([Guest(event=ev, person=g) for g in guests])
         audit(me, "events.create", "event", ev.pk, guests=len(guests), repeats=bool(fields))
+        # One notice per invited guest. The title carries the organizer's name only, never the event title; the
+        # link is the opaque event id and notify checks the guest may view it. A notice problem never undoes the event.
+        for g in guests:
+            try:
+                with transaction.atomic():
+                    notify(
+                        g, "events.invited", f"{me.full_name or me.employee_id} invited you to an event",
+                        reverse("events:detail", args=[ev.public_id]), check=("event", ev),
+                    )  # fmt: skip
+            except DatabaseError:
+                raise
+            except Exception:  # noqa: BLE001
+                logger.exception("event invitation notification skipped")
     return ev
 
 

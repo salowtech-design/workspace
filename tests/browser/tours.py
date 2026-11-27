@@ -266,6 +266,7 @@ def register(g):
     register_forbidden(g)
     register_trash_context(g)
     register_due_soon(g)
+    register_invite_notice(g)
     register_task_conflict(g)
     register_sessions_scroll(g, users)
     register_drive_move(g)
@@ -4479,3 +4480,39 @@ def register_due_soon(g):
         run_tour(ctx, "76_tasks_due_soon", body, notes="Real Django on TiDB, headless Chromium 390x844 emulated. Fixture by script: tasks due -2, 0, +5, +12 days, one finished task, one task a second account assigned to me, and one of that account's own tasks.", unshown=["project tasks on the page", "boundary days"])
 
     g["DRILLS"]["tour_due_soon"] = tour
+
+
+def register_invite_notice(g):
+    APP = g["APP"]
+
+    def tour(ctx):
+        import concurrent.futures
+        import datetime as dt
+
+        import django
+
+        django.setup()
+
+        def make():
+            from apps.accounts.models import CustomUser
+            from apps.events import services as es
+
+            me = CustomUser.objects.get(employee_id="ST-LIVE-1")
+            two = CustomUser.objects.get_or_create(employee_id="ST-LIVE-2", defaults={"full_name": "Second Synthetic", "email": "st-live-2@salowtech.com", "email_verified": True,
+                                                   "role": CustomUser.Role.EMPLOYEE, "status": CustomUser.Status.ACTIVE, "is_active": True})[0]
+            day = dt.datetime.now() + dt.timedelta(days=3)
+            es.create_event(two, "Quarterly planning", day.replace(hour=10, minute=0, second=0, microsecond=0), day.replace(hour=11, minute=0, second=0, microsecond=0), "Asia/Kolkata", [me.pk])
+
+        with concurrent.futures.ThreadPoolExecutor(1) as ex:
+            ex.submit(make).result()
+
+        def body(t, pg):
+            txt = lambda: pg.inner_text("body")
+            pg.goto(APP + "/notifications/")
+            t.step("Notifications: 'Second Synthetic invited you to an event', with no event title in the notice", expect=lambda: "Second Synthetic invited you to an event" in txt(), wait=4500)
+            t.step("Open the notice: the event page opens and shows the event", lambda: pg.click("a:has-text('invited you to an event')"), expect=lambda: "/calendar/event/" in pg.url and "Quarterly planning" in txt(), wait=3500)
+            t.note("Not shown: the organizer's own form (the notice is made by the same service the form calls, unit-tested), edits and cancels (no notices for those), email or push (not built).", 3)
+
+        run_tour(ctx, "77_calendar_invite_notice", body, notes="Real Django on TiDB, headless Chromium 390x844 emulated. Fixture by script: a second synthetic account creates an event and invites the signed-in account through the Calendar service.", unshown=["organizer form", "edit/cancel notices", "email/push"])
+
+    g["DRILLS"]["tour_invite_notice"] = tour
