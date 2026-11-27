@@ -315,30 +315,52 @@ def delete_list(user, task_list):
     audit(user, "tasks.list.delete", "task_list", tl.pk, tasks_deleted=n or None)
 
 
+def clear_plan(task_list):
+    """What Clear completed would move right now: a list of (head, included subtasks). A head is a completed task. It takes all of its live
+    subtasks with it, whatever their status (delete_task does the same). A completed subtask of an open task is its own head."""
+    done = list(Task.objects.filter(task_list=task_list, deleted_at__isnull=True, status=Task.DONE).order_by("parent_id", "id"))
+    heads = {t.pk for t in done}
+    plan = []
+    for row in done:
+        if row.parent_id in heads:
+            continue  # inside its completed parent's deletion
+        kids = list(Task.objects.filter(parent=row, deleted_at__isnull=True).order_by("position", "id"))
+        plan.append((row, kids))
+    return plan
+
+
+def plan_token(plan):
+    """A fingerprint of exactly the rows and versions the user was shown. Any edit, completion or reopening of one of them, or a different set,
+    changes it."""
+    import hashlib
+
+    raw = ",".join(f"{r.pk}:{r.version}" for head, kids in plan for r in (head, *kids))
+    return hashlib.sha256(raw.encode()).hexdigest()[:32]
+
+
 @transaction.atomic
-def clear_completed(user, task_list):
-    """Move every completed task of the list to the Trash. Same owner right as deleting a task, checked on each row. Each completed task goes
-    in its own deletion, exactly as delete_task does it (a completed task takes its subtasks with it), so each one is restored from the Trash
-    alone, with the established restore rules. A completed subtask of an open task goes too. Returns how many rows were moved."""
+def clear_completed(user, task_list, token):
+    """Move the reviewed completed tasks to the Trash. `token` is the fingerprint of the confirmation page the user saw. Under the list lock the
+    plan is built again: if the set or any version differs, nothing is deleted (StaleVersion, review again). Same owner right as deleting a task,
+    checked on each row. Each head goes in its own deletion as delete_task does it, so each restores alone. Returns (heads, included subtasks)."""
     tl = _lock_list(task_list)
     require(user, "delete", "task_list", tl)
-    done = list(Task.objects.filter(task_list=tl, deleted_at__isnull=True, status=Task.DONE).order_by("parent_id", "id"))
-    for row in done:
-        row.task_list = tl
-        require(user, "delete", "task", row)
-    if not done:
+    plan = clear_plan(tl)
+    if not plan:
         raise ValidationError("There are no completed tasks to clear.")
+    if not token or plan_token(plan) != token:
+        raise StaleVersion("The completed tasks changed since you looked. Review them again.")
+    for head, kids in plan:
+        head.task_list = tl
+        require(user, "delete", "task", head)
     now = timezone.now()
-    gone = set()
-    for row in done:
-        if row.pk in gone:
-            continue
-        kids = list(Task.objects.filter(parent=row, deleted_at__isnull=True).values_list("pk", flat=True))
-        ids = [row.pk, *kids]
-        Task.objects.filter(pk__in=ids).update(deleted_at=now, delete_batch=uuid.uuid4(), updated_at=now, version=F("version") + 1)
-        gone.update(ids)
-    audit(user, "tasks.list.clear_completed", "task_list", tl.pk, tasks_deleted=len(gone))
-    return len(gone)
+    for head, kids in plan:
+        Task.objects.filter(pk__in=[head.pk, *(k.pk for k in kids)]).update(
+            deleted_at=now, delete_batch=uuid.uuid4(), updated_at=now, version=F("version") + 1
+        )
+    n_kids = sum(len(k) for _, k in plan)
+    audit(user, "tasks.list.clear_completed", "task_list", tl.pk, tasks_deleted=len(plan), subtasks_deleted=n_kids or None)
+    return len(plan), n_kids
 
 
 def _same_deletion(row):

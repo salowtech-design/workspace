@@ -21,7 +21,7 @@
     <button class="btn btn-small" type="submit">Add</button></form>
   <div class="tasks-inline tasks-filter">
     {% if hide_done %}<a class="btn btn-outline btn-small" href="{% url 'tasks:list' tl.public_id %}">Show completed</a>{% else %}<a class="btn btn-outline btn-small" href="{% url 'tasks:list' tl.public_id %}?show=open">Hide completed</a>{% endif %}
-    {% if done_count %}<form method="post" action="{% url 'tasks:clear_completed' tl.public_id %}" class="tasks-inline">{% csrf_token %}<button class="btn btn-outline btn-small" type="submit">Clear completed ({{ done_count }})</button></form>{% endif %}
+    {% if done_count %}<a class="btn btn-outline btn-small" href="{% url 'tasks:clear_completed' tl.public_id %}">Clear completed ({{ done_count }})</a>{% endif %}
   </div>
   {% for t, subs in tree %}
   <div class="task-row{% if t.status == 'completed' %} done{% endif %}">

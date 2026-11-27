@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% block title %}Clear completed: Salow Tasks{% endblock %}
+{% block extra_head %}<link rel="stylesheet" href="/static/css/tasks.css">{% endblock %}
+{% block content %}
+<div class="card tasks">
+  <div class="tasks-head"><h2>Clear completed in {{ tl.name }}?</h2></div>
+  <p class="task-meta">These {{ plan|length }} completed {% if plan|length == 1 %}task{% else %}tasks{% endif %}{% if n_kids %}, with the {{ n_kids }} {% if n_kids == 1 %}subtask{% else %}subtasks{% endif %} under {% if plan|length == 1 %}it{% else %}them{% endif %} (marked "included"),{% endif %} will be removed from view for everyone, including anyone a task was given to. Nothing is permanently erased: each completed task can be restored on its own from the Trash tab. If any of them changes, or another task is completed, before you confirm, nothing is removed and you review the list again.</p>
+  {% for head, kids in plan %}<div class="task-row done"><strong>{{ head.title }}</strong>{% if head.parent_id %} <span class="task-meta">a completed subtask of an open task</span>{% endif %}
+    {% for k in kids %}<div class="task-row sub"><span class="task-title">{{ k.title }}</span> <span class="task-meta">included{% if k.status != "completed" %} (still open){% endif %}</span></div>{% endfor %}</div>{% endfor %}
+  <form method="post" action="{% url 'tasks:clear_completed' tl.public_id %}" class="tasks-inline">{% csrf_token %}<input type="hidden" name="token" value="{{ token }}">
+    <button class="btn btn-small" type="submit">Move to Trash</button>
+    <a class="btn btn-outline btn-small" href="{% url 'tasks:list' tl.public_id %}">Keep them</a></form>
+</div>
+{% endblock %}

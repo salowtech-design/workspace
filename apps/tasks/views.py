@@ -62,7 +62,7 @@ def list_view(request, list_id, rename_value=None):
     hide_done = request.GET.get("show") == "open"
     if hide_done:  # a view only: a completed task is hidden with its subtasks, a completed subtask of an open task is hidden alone
         rows = [t for t in rows if t.status != "completed"]
-    done_count = sum(1 for t in svc.tasks_in(request.user, tl) if t.status == "completed")
+    done_count = len(svc.clear_plan(tl))  # completed tasks Clear completed would move (included subtasks not counted)
     tops = [t for t in rows if t.parent_id is None]
     subs = {}
     for t in rows:
@@ -171,13 +171,31 @@ def move_task(request, task_id):
 
 
 @login_required
-@require_POST
 def clear_completed(request, list_id):
     tl = _list_or_404(request.user, list_id, "delete")
-    n = _run(request, svc.clear_completed, request.user, tl)
-    if n:
-        messages.success(request, f"Moved {n} completed {'task' if n == 1 else 'tasks'} to the Trash.")
-    return redirect("tasks:list", list_id=tl.public_id)
+    back = redirect("tasks:list", list_id=tl.public_id)
+    if request.method == "POST":
+        try:
+            heads, kids = svc.clear_completed(request.user, tl, request.POST.get("token", ""))
+        except svc.StaleVersion as exc:
+            messages.error(request, " ".join(exc.messages) if hasattr(exc, "messages") else str(exc))
+            return redirect("tasks:clear_completed", list_id=tl.public_id)
+        except ValidationError as exc:
+            messages.error(request, " ".join(exc.messages))
+            return back
+        except PermissionDenied:
+            messages.error(request, "You do not have permission to do that.")
+            return back
+        said = f"Moved {heads} completed {'task' if heads == 1 else 'tasks'}"
+        said += f" and {kids} included {'subtask' if kids == 1 else 'subtasks'}" if kids else ""
+        messages.success(request, said + " to the Trash.")
+        return back
+    plan = svc.clear_plan(tl)
+    if not plan:
+        messages.error(request, "There are no completed tasks to clear.")
+        return back
+    return render(request, "tasks/clear_completed.html", {"tl": tl, "plan": plan, "token": svc.plan_token(plan), "tab": "mine",
+                  "n_kids": sum(len(k) for _, k in plan)})
 
 
 @login_required
