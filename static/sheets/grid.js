@@ -160,9 +160,9 @@
     if (rg.c2 > COLS || rg.r2 > ROWS) { status.textContent = "A fill range must stay inside A1:Z100."; return; }
     if (filt) { status.textContent = "A filter is on, so nothing was filled (it would also fill rows you cannot see). Clear the filter first."; return; }
     if (rulesLocked) { status.textContent = "This tab's validation rules could not be read, so a fill cannot be checked and nothing was filled. The rules were left untouched."; return; }
-    var res = M.fillRange(cells, rg, dir, function (addr, v) { return M.checkValue(rules, addr, v, F.parseAddr); }, function (c, r) { return String.fromCharCode(64 + c) + r; }, MAXCELL);
+    var res = M.fillRange(cells, rg, dir, function (addr, v) { return M.checkValue(rules, addr, v, F.parseAddr); }, function (c, r) { return String.fromCharCode(64 + c) + r; }, MAXCELL, F.shiftFormula);
     if (res.error) { status.textContent = res.error; return; }
-    var bits = [res.set + " cells filled"]; if (res.cleared) bits.push(res.cleared + " cleared"); if (res.refused) bits.push(res.refused + " refused by validation rules"); if (res.tooLong) bits.push(res.tooLong + " too long"); if (res.formulas) bits.push(res.formulas + " formulas copied with their references unchanged");
+    var bits = [res.set + " cells filled"]; if (res.cleared) bits.push(res.cleared + " cleared"); if (res.refused) bits.push(res.refused + " refused by validation rules"); if (res.tooLong) bits.push(res.tooLong + " too long"); if (res.formulas) bits.push(res.formulas + " formulas copied with relative references adjusted (a $ pins a column or row)"); if (res.refErrs) bits.push(res.refErrs + " now show #REF! because a reference moved off the grid");
     if (!res.set && !res.cleared) { status.textContent = "Nothing changed: " + bits.slice(1).join(", ") + (bits.length > 1 ? "." : "the cells already match."); return; }
     if (!change(res.cells, "Copied " + (dir === "down" ? "the first row down" : "the first column right") + " in " + $("fill-range").value.trim().toUpperCase() + ": " + bits.join(", ") + ". Undo works.")) return;
     if (cur) { orig = cells[cur] || ""; bar.value = orig; }

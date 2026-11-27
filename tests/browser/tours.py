@@ -272,6 +272,7 @@ def register(g):
     register_cal_location(g)
     register_slides_dup_sheets_fx(g)
     register_slides_bg(g)
+    register_sheets_refs(g)
     register_attendance_csv(g)
     register_post_review_notice(g)
     register_notice_open(g)
@@ -1837,6 +1838,48 @@ def register_slides_dup_sheets_fx(g):
                  unshown=["Duplicate item on a picture or on the master", "the 30-item cap", "all other new functions (covered by node tests)"])
 
     g["DRILLS"]["tour_slides_dup_sheets_fx"] = tour
+
+
+def register_sheets_refs(g):
+    APP = g["APP"]
+
+    def tour(ctx):
+        def put(pg, cells):
+            for a, v in cells:
+                sel = 'input[data-addr="%s"]' % a
+                pg.click(sel)
+                pg.fill(sel, v)
+                pg.press(sel, "Tab")
+
+        def bar(pg, a):
+            pg.click('input[data-addr="%s"]' % a)
+            return pg.input_value("#sheet-bar")
+
+        def shown(pg, a):  # asserted from the result line, not a picture of it
+            pg.click('input[data-addr="%s"]' % a)
+            return pg.inner_text("#sheet-val").strip().replace("Result: ", "", 1)
+
+        def fill(pg, rng, d):
+            pg.fill("#fill-range", rng)
+            pg.click("#fill-" + d)
+
+        def body(t, pg):
+            pg.goto(APP + "/sheets/")
+            pg.evaluate("localStorage.clear()")
+            pg.goto(APP + "/sheets/")
+            pg.wait_for_timeout(500)
+            t.step("A small table: prices in A1:A3, a rate in C1, a formula with $C$1 in B1", lambda: put(pg, [("A1", "10"), ("A2", "20"), ("A3", "30"), ("C1", "2"), ("B1", "=A1*$C$1")]), expect=lambda: shown(pg, "B1") == "20")
+            t.step("Copy first row down over B1:B3: A moves, $C$1 stays", lambda: fill(pg, "B1:B3", "down"), expect=lambda: bar(pg, "B3") == "=A3*$C$1" and shown(pg, "B3") == "60" and shown(pg, "B2") == "40")
+            t.step("The status line says references were adjusted", expect=lambda: "relative references adjusted" in pg.inner_text("#sheet-status"))
+            t.step("Fill right over D1:E1: columns move, B$1 keeps its row", lambda: (put(pg, [("D1", "=A1+B$1")]), fill(pg, "D1:E1", "right")), expect=lambda: bar(pg, "E1") == "=B1+C$1")
+            t.step("A reference that moves off the grid becomes #REF!", lambda: (put(pg, [("G1", "=A1000+1")]), fill(pg, "G1:G2", "down")), expect=lambda: bar(pg, "G2") == "=#REF!+1" and shown(pg, "G2") == "#REF!" and "#REF!" in pg.inner_text("#sheet-status"))
+            t.step("One Undo takes the last fill back", lambda: pg.click("#sheet-undo"), expect=lambda: pg.input_value('input[data-addr="G2"]') == "")
+            t.step("A pinned reference can be typed: =$A$1+1", lambda: put(pg, [("H1", "=$A$1+1")]), expect=lambda: shown(pg, "H1") == "11")
+
+        run_tour(ctx, "100_sheets_references", body, notes="Device-local sheet (browser only). Real Django on TiDB (unistore) under uvicorn, headless Chromium 390x844 emulated. Results are asserted from the bar and result line, not shown as a picture.",
+                 unshown=["paste (keeps formulas as written; covered by node rows)", "ranges and quoted text (node rows)", "existing stored sheets (unchanged until a fill)"])
+
+    g["DRILLS"]["tour_sheets_refs"] = tour
 
 
 def register_slides_bg(g):

@@ -2439,13 +2439,13 @@ def sheets_fill(ctx):  # noqa: C901
     )
     pg.click('input[data-addr="C3"]')
     check(
-        "fill: a formula keeps its source (no shifting)",
-        pg.input_value("#sheet-bar") == "=B1*2",
+        "fill: a formula's relative reference moves with the row (C1 =B1*2 becomes =B3*2 in C3)",
+        pg.input_value("#sheet-bar") == "=B3*2",
         pg.input_value("#sheet-bar"),
     )
     check(
         "fill: the status line counts and mentions formulas",
-        "formulas copied with their references unchanged" in status(),
+        "formulas copied with relative references adjusted" in status(),
         status(),
     )
     pg.click("#sheet-undo")

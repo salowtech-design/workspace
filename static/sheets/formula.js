@@ -34,6 +34,8 @@
         if (j >= src.length) throw new Err("#PARSE!");
         t.push({ k: "str", v: s }); i = j + 1; continue;
       }
+      if ((m = /^\$?([A-Za-z]{1,3})\$?([0-9]+)(?![A-Za-z0-9_.(])/.exec(src.slice(i)))) { t.push({ k: "id", v: (m[1] + m[2]).toUpperCase() }); i += m[0].length; continue; }
+      if (src.substr(i, 5) === "#REF!") { t.push({ k: "id", v: "#REF!" }); i += 5; continue; }
       if ((m = /^[A-Za-z_][A-Za-z0-9_.]*/.exec(src.slice(i)))) { t.push({ k: "id", v: m[0].toUpperCase() }); i += m[0].length; continue; }
       if ((m = /^(<=|>=|<>|[-+*\/^&=<>(),:%])/.exec(src.slice(i)))) { t.push({ k: "op", v: m[0] }); i += m[0].length; continue; }
       throw new Err("#PARSE!");
@@ -75,6 +77,7 @@
           p++; depth--; return { n: "call", f: x.v, a: args };
         }
         if (x.v === "TRUE" || x.v === "FALSE") return { n: "lit", v: x.v === "TRUE" };
+        if (x.v === "#REF!") return { n: "ref_err" };
         var a = parseAddr(x.v);
         if (!a) {
           if (/^[A-Z]{1,3}[0-9]+$/.test(x.v)) return { n: "ref_err" };  // looks like a cell, out of range
@@ -709,6 +712,46 @@
     return { get: function (a) { var v = resolve(a); return v === null ? "" : v; }, raw: raw };
   }
 
-  var api = { Sheet: Sheet, parse: parse, Err: Err, isErr: isErr, parseAddr: parseAddr, MAX_LEN: MAX_LEN };
+
+  // Move the relative parts of every cell reference in formula text by (dc, dr), as Fill does. $ pins a column or a row.
+  // Text in "quotes" is left alone, and so are function names (LOG10(), numbers (1E5) and anything that is not a whole
+  // cell reference. A reference that would leave A1:Z1000 (the engine's grid) becomes #REF!; so does a whole range when
+  // either end leaves it. A reference that was already out of range is left as written (it already shows #REF!).
+  var REFRE = /^(\$?)([A-Za-z]{1,3})(\$?)([0-9]+)(?![A-Za-z0-9_.(])/;
+  function shiftFormula(src, dc, dr) {
+    if (typeof src !== "string" || src.charAt(0) !== "=") return src;
+    var out = "", i = 0, n = src.length;
+    function one(m) {
+      var up = m[2].toUpperCase(), a = parseAddr(up + m[4]);
+      if (!a) return { keep: true };
+      var c = m[1] ? a.col : a.col + dc, r = m[3] ? a.row : a.row + dr;
+      if (c < 1 || c > MAX_COL || r < 1 || r > MAX_ROW) return { bad: true };
+      return { text: (m[1] ? "$" : "") + String.fromCharCode(64 + c) + (m[3] ? "$" : "") + r };
+    }
+    while (i < n) {
+      var ch = src[i], m;
+      if (ch === '"') {
+        var j = i + 1;
+        while (j < n) { if (src[j] === '"') { if (src[j + 1] === '"') { j += 2; continue; } break; } j++; }
+        out += src.slice(i, Math.min(j + 1, n)); i = j + 1; continue;
+      }
+      var prev = i ? src[i - 1] : "";
+      if (!/[A-Za-z0-9_.$]/.test(prev) && (ch === "$" || /[A-Za-z]/.test(ch)) && (m = REFRE.exec(src.slice(i)))) {
+        var a = one(m), len = m[0].length, m2 = null, b = null;
+        if (src[i + len] === ":" && (m2 = REFRE.exec(src.slice(i + len + 1)))) b = one(m2);
+        if (m2) {
+          if (a.keep || b.keep) out += src.slice(i, i + len + 1 + m2[0].length);
+          else if (a.bad || b.bad) out += "#REF!";
+          else out += a.text + ":" + b.text;
+          i += len + 1 + m2[0].length; continue;
+        }
+        out += a.keep ? m[0] : a.bad ? "#REF!" : a.text; i += len; continue;
+      }
+      if (/[A-Za-z0-9_.$]/.test(ch)) { var w = /^[A-Za-z0-9_.$]+/.exec(src.slice(i))[0]; out += w; i += w.length; continue; }
+      out += ch; i++;
+    }
+    return out;
+  }
+  var api = { shiftFormula: shiftFormula, Sheet: Sheet, parse: parse, Err: Err, isErr: isErr, parseAddr: parseAddr, MAX_LEN: MAX_LEN };
   if (typeof module !== "undefined" && module.exports) module.exports = api; else root.SalowFormula = api;
 })(typeof self !== "undefined" ? self : this);
