@@ -176,6 +176,23 @@ def home(request):
     )
 
 
+@login_required
+def export_ics(request):
+    """Download the person's own upcoming events as an .ics file. A plain GET of their own data; no sharing."""
+    from django.http import HttpResponse
+
+    from apps.events import ics
+
+    try:
+        text, _n = ics.export_events(request.user, timezone.now())
+    except ValidationError as exc:
+        return HttpResponse(" ".join(exc.messages), status=400, content_type="text/plain; charset=utf-8")
+    resp = HttpResponse(text, content_type="text/calendar; charset=utf-8")
+    resp["Content-Disposition"] = 'attachment; filename="salow-calendar.ics"'
+    resp["Cache-Control"] = "private, no-store"
+    return resp
+
+
 MONTH_CAP = 3  # events named per day cell, the rest are counted
 
 

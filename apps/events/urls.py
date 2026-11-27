@@ -6,6 +6,7 @@ app_name = "events"
 
 urlpatterns = [
     path("", views.home, name="home"),
+    path("export.ics", views.export_ics, name="export"),
     path("month/", views.month_view, name="month"),
     path("week/", views.week_view, name="week"),
     path("day/", views.day_view, name="day"),
