@@ -377,11 +377,13 @@ def file_version(request, item_id):
     except ValueError:
         return JsonResponse({"ok": False, "error": "Invalid version or size."}, status=400)
     try:
-        svc.add_version(request.user, f, base, size, request.POST.get("sha256", ""))
+        v = svc.add_version(request.user, f, base, size, request.POST.get("sha256", ""))
     except svc.VersionConflict as exc:
         f.refresh_from_db()
         return JsonResponse({"ok": False, "error": " ".join(exc.messages), "current_version": f.current_version}, status=409)
     except (ValidationError, PermissionDenied) as exc:
         return _json_error(exc)
-    f.refresh_from_db()
-    return JsonResponse({"ok": True, "file": _file_json(f)})
+    # report exactly what THIS call committed (another writer may already have saved a newer version)
+    out = _file_json(f)
+    out.update(version=v.number, size=v.size)
+    return JsonResponse({"ok": True, "file": out})

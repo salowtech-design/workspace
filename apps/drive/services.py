@@ -47,6 +47,19 @@ def _clean_name(name):
     return name
 
 
+_MIME = re.compile(r"^[a-z0-9][a-z0-9!#$&^_.+-]{0,62}/[a-z0-9][a-z0-9!#$&^_.+-]{0,62}$")
+MAX_SIZE = 2**63 - 1  # the largest value the size column (PositiveBigIntegerField) can hold; not a product limit
+MAX_VERSION = 2**31 - 1  # the largest value the current_version column can hold
+
+
+def _clean_content_type(value):
+    """A client-claimed MIME type, recorded as a claim only: syntax checked, never verified against bytes."""
+    value = (value or "").strip().lower()
+    if value and not _MIME.match(value):
+        raise ValidationError("That file type is not valid.")
+    return value
+
+
 def _journal(user, item, action, subject=None):
     kind = "folder" if isinstance(item, Folder) else "file"
     DriveChange.objects.create(
@@ -387,6 +400,7 @@ def reconcile_user(user, fix=False):  # noqa: C901 (one linear scan then one loc
 def create_file(user, name, folder=None, content_type=""):
     """Create a file RECORD (no bytes yet, current_version 0). Bytes arrive through add_version."""
     name = _clean_name(name)
+    content_type = _clean_content_type(content_type)
     if folder is not None:
         _lock_tree(folder.owner_id)
         _fresh(folder)
@@ -430,12 +444,16 @@ def add_version(user, file, base_version, size, sha256):
         raise ValidationError("Restore the file before saving a new version.")
     if not _HEX64.match(sha256 or ""):
         raise ValidationError("Invalid checksum.")
-    if isinstance(size, bool) or not isinstance(size, int) or size < 0:
-        raise ValidationError("Invalid size.")
+    if isinstance(size, bool) or not isinstance(size, int) or not 0 <= size <= MAX_SIZE:
+        raise ValidationError("Invalid size.")  # 0 is allowed: an empty file is a real file
+    if isinstance(base_version, bool) or not isinstance(base_version, int) or base_version < 0:
+        raise ValidationError("Invalid version.")
     if base_version != file.current_version:
         raise VersionConflict(
             f"This file changed (now version {file.current_version}); you saved from {base_version}."
         )
+    if file.current_version >= MAX_VERSION:
+        raise ValidationError("This file has reached its version limit.")
     number = file.current_version + 1
     v = FileVersion.objects.create(
         file=file,
@@ -448,7 +466,7 @@ def add_version(user, file, base_version, size, sha256):
     DriveFile.objects.filter(pk=file.pk).update(current_version=number, size=size)
     _journal(user, file, "version")
     audit(user, "drive.file.version", FILE, file.pk, number=number, size=size)
-    file.refresh_from_db()
+    file.refresh_from_db()  # the caller's object only; the returned v is exactly what this call committed
     return v
 
 

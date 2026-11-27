@@ -89,3 +89,79 @@ def test_permissions_stranger_viewer_editor_and_duplicate_names():
     assert _new(ca, "doc.pdf", folder).status_code == 400
     assert _new(ca, "").status_code == 400
     assert _new(ca, "z.pdf", None).status_code == 201
+
+
+@pytest.mark.django_db
+def test_column_bounds_zero_size_negative_base_and_mime_claims():
+    a = _u("FR-F")
+    c = _c(a)
+    fid = _new(c).json()["file"]["id"]
+    assert _ver(c, fid, -1).status_code == 400
+    assert _ver(c, fid, 0, 2**63).status_code == 400 and _ver(c, fid, 0, 2**64).status_code == 400
+    r = _ver(c, fid, 0, 2**63 - 1)  # the largest the column holds is stored exactly
+    assert r.status_code == 200 and DriveFile.objects.get(public_id=fid).size == 2**63 - 1
+    r = _ver(c, fid, 1, 0)  # an empty file is a real version
+    assert r.status_code == 200 and r.json()["file"]["size"] == 0 and r.json()["file"]["version"] == 2
+    keys = list(FileVersion.objects.filter(file__public_id=fid).values_list("storage_key", flat=True))
+    assert len(keys) == 2 and len(set(keys)) == 2
+    # the claimed type is syntax checked only: no spaces, no control characters, no missing subtype
+    for bad in ("text/html; x", "nope", "a/b\nc", "text/ht ml", "/x", "x/"):
+        assert c.post(reverse("drive:file_new"), {"name": f"m{len(bad)}.x", "content_type": bad}).status_code == 400
+    ok = c.post(reverse("drive:file_new"), {"name": "ok.svg", "content_type": "Image/SVG+XML"})
+    assert ok.status_code == 201 and ok.json()["file"]["content_type"] == "image/svg+xml"
+    # names: control characters and over-long are refused
+    assert _new(c, "a\x00b").status_code == 400 and _new(c, "n" * 201).status_code == 400
+    assert _new(c, "n" * 200).status_code == 201
+
+
+@pytest.mark.django_db
+def test_returned_version_is_what_this_call_committed_and_trash_blocks_writes():
+    a = _u("FR-G")
+    c = _c(a)
+    fid = _new(c).json()["file"]["id"]
+    f = DriveFile.objects.get(public_id=fid)
+    # someone else's later save must not be reported as ours
+    real = svc.add_version
+    calls = []
+
+    def racing(user, file, base, size, sha):
+        v = real(user, file, base, size, sha)
+        calls.append(v.number)
+        DriveFile.objects.filter(pk=f.pk).update(current_version=5, size=999)  # a later writer
+        return v
+
+    import apps.drive.views as dv
+
+    dv.svc.add_version = racing
+    try:
+        r = _ver(c, fid, 0, 7)
+    finally:
+        dv.svc.add_version = real
+    assert r.json()["file"]["version"] == 1 and r.json()["file"]["size"] == 7 and calls == [1]
+    # a trashed file and a file in a trashed folder take no new version and no new file
+    DriveFile.objects.filter(pk=f.pk).update(current_version=1)
+    folder = svc.create_folder(a, "Gone")
+    inside = _new(c, "i.pdf", folder).json()["file"]["id"]
+    svc.trash(a, folder)
+    assert _ver(c, inside, 0).status_code == 403  # policy refuses edits in the trash, even for the owner
+    assert _new(c, "j.pdf", folder).status_code == 403
+    assert not FileVersion.objects.filter(file__public_id=inside).exists()
+    svc.trash(a, DriveFile.objects.get(pk=f.pk))
+    assert _ver(c, fid, 1).status_code == 403
+
+
+@pytest.mark.django_db
+def test_csrf_is_enforced_and_get_is_405():
+    a = _u("FR-H")
+    c = Client(enforce_csrf_checks=True)
+    c.force_login(a)
+    assert c.post(reverse("drive:file_new"), {"name": "x.pdf"}).status_code == 403  # no token
+    assert DriveFile.objects.filter(owner=a).count() == 0
+    c.get(reverse("drive:home"))  # sets the csrftoken cookie
+    tok = c.cookies["csrftoken"].value
+    r = c.post(reverse("drive:file_new"), {"name": "x.pdf"}, HTTP_X_CSRFTOKEN=tok)
+    assert r.status_code == 201
+    fid = r.json()["file"]["id"]
+    assert c.post(reverse("drive:file_version", args=[fid]), {"base_version": 0, "size": 1, "sha256": H}).status_code == 403
+    assert c.get(reverse("drive:file_new")).status_code == 405
+    assert c.get(reverse("drive:file_version", args=[fid])).status_code == 405
