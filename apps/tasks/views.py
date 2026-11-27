@@ -99,7 +99,7 @@ def new_list(request):
 @require_POST
 def rename_list(request, list_id):
     tl = _list_or_404(request.user, list_id, "edit")
-    entered = request.POST.get("name", "")
+    entered = request.POST.get("new_name", "")
     if _run(request, svc.rename_list, request.user, tl, entered, ok="List renamed.") is None:
         return list_view(request, list_id, rename_value=entered)  # keep what was typed, with the error shown
     return redirect("tasks:list", list_id=tl.public_id)

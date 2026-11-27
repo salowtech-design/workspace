@@ -53,11 +53,11 @@ def test_a_stranger_and_a_deleted_list_are_refused(setup):
 def test_view_renames_404s_for_a_stranger_and_keeps_the_typed_name_on_error(setup):
     a, b, tl = setup
     url = reverse("tasks:rename_list", args=[tl.public_id])
-    assert _c(b).post(url, {"name": "Nope"}).status_code == 404
+    assert _c(b).post(url, {"new_name": "Nope"}).status_code == 404
     assert _c(a).get(url).status_code == 405
-    r = _c(a).post(url, {"name": "x" * 121})
+    r = _c(a).post(url, {"new_name": "x" * 121})
     assert r.status_code == 200 and b"up to 120 characters" in r.content
     assert ("x" * 121).encode() in r.content  # what was typed is still in the box
     assert TaskList.objects.get(pk=tl.pk).name == "Work"
-    r = _c(a).post(url, {"name": "Home"}, follow=True)
+    r = _c(a).post(url, {"new_name": "Home"}, follow=True)
     assert b"List renamed." in r.content and TaskList.objects.get(pk=tl.pk).name == "Home"
