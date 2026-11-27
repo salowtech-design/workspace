@@ -175,3 +175,63 @@ def test_the_assigned_page_shows_the_giver_but_not_the_list_name(setup):
     svc.move_task(a, Task.objects.get(pk=t.pk), _v(t), secret)
     body = _c(b).get(reverse("tasks:assigned")).content
     assert b"Given" in body and b"Private list name" not in body
+
+
+@pytest.mark.django_db(transaction=True)
+def test_an_assign_blocked_on_the_old_list_lock_sees_the_committed_move_when_released(monkeypatch):
+    """Local TiDB 8.5.1 unistore evidence only. Move A takes both list locks and pauses before its write. Assign B, built from a view taken
+    before the move, starts and must block on the old list's lock. After A commits, B must see the task in its new list and refuse."""
+    import threading
+
+    from django.db import connection
+
+    if connection.vendor == "sqlite":
+        pytest.skip("row locks are only meaningful on the TiDB/MySQL backend")
+    a, b = _u("M-WAIT-A"), _u("M-WAIT-B")
+    one, two = svc.create_list(a, "One"), svc.create_list(a, "Two")
+    t = svc.create_task(a, one, "T")
+    stale = Task.objects.select_related("task_list").get(pk=t.pk)
+    held, release, b_done, ids, res = threading.Event(), threading.Event(), threading.Event(), {}, {}
+
+    def pause():
+        if threading.get_ident() == ids.get("a"):
+            held.set()
+            assert release.wait(timeout=30)
+
+    monkeypatch.setattr(svc, "_pause", pause)
+
+    def run_a():
+        ids["a"] = threading.get_ident()
+        try:
+            svc.move_task(a, Task.objects.get(pk=t.pk), stale.version, two)
+            res["a"] = "ok"
+        except Exception as exc:  # noqa: BLE001
+            res["a"] = f"error:{type(exc).__name__}:{exc}"
+        finally:
+            connection.close()
+
+    def run_b():
+        try:
+            svc.assign(a, stale, b)
+            res["b"] = "ok"
+        except Exception as exc:  # noqa: BLE001
+            res["b"] = f"{type(exc).__name__}:{exc}"
+        finally:
+            b_done.set()
+            connection.close()
+
+    ta = threading.Thread(target=run_a)
+    ta.start()
+    assert held.wait(timeout=30), res
+    tb = threading.Thread(target=run_b)
+    tb.start()
+    blocked = not b_done.wait(timeout=3)  # B must still be waiting on the old list's lock
+    release.set()
+    ta.join(timeout=30)
+    tb.join(timeout=30)
+    assert not ta.is_alive() and not tb.is_alive()
+    assert blocked, f"B finished while A held the lock: {res}"
+    assert res["a"] == "ok", res
+    assert res["b"].startswith("StaleVersion:") and "moved to another list" in res["b"], res
+    row = Task.objects.get(pk=t.pk)
+    assert row.task_list_id == two.pk and row.assignee_id is None
