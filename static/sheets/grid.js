@@ -99,7 +99,7 @@
     });
     return out;
   }
-  function sync() { cells = H.cells; reloadRules(); reloadCf(); reloadFmt(); if (typeof clearPivot === "function") clearPivot(); show(); refreshSelected(); buttons(); drawChart(); applyFilter(); if (typeof applyFreeze === "function") applyFreeze(); if (typeof renderVers === "function") renderVers(); status.textContent = H.note; }
+  function sync() { cells = H.cells; reloadRules(); reloadCf(); reloadFmt(); if (typeof clearPivot === "function") clearPivot(); show(); refreshSelected(); buttons(); drawChart(); applyFilter(); if (typeof reloadCw === "function") reloadCw(); if (typeof applyFreeze === "function") applyFreeze(); if (typeof renderVers === "function") renderVers(); status.textContent = H.note; }
   // After any whole-sheet change (import, undo, redo, fill, sort, clear, tab switch) the focused cell and the formula bar must show the new content, not what was there before. A focused cell is refreshed here too, so a later blur cannot write the old text back. The formula bar keeps what the user typed in it (barDirty) and is refreshed when untouched.
   var barDirty = false;
   function refreshSelected() {
@@ -624,6 +624,43 @@
     applyFreeze();
     fzStat.textContent = p.r || p.c ? "Frozen: the first " + p.r + " row(s) and " + p.c + " column(s) of this tab stay in view. Saved for this tab only, in this browser." : "Nothing is frozen on this tab.";
   });
+  // ---- Column widths (view only, per tab; model in model.js). A width belongs to a column position, so inserting or deleting a column does not move it.
+  // Stored in the tab's own ".cw" entry, carried by Delete and Restore deleted tab. Not in Export (.json), CSV or saved versions. ----
+  function cwKey(id) { return tabKey(id) + ".cw"; }
+  var cwMap = Object.create(null), cwLocked = false, cwReady = false, cwStat = $("cw-status");
+  function paintCw() {
+    for (var c = 1; c <= COLS; c++) {
+      var L = String.fromCharCode(64 + c), px = cwMap[L] ? cwMap[L] + "px" : "";
+      for (var r = 1; r <= ROWS; r++) inputs[L + r].style.width = px;
+    }
+  }
+  function reloadCw() {
+    var raw = null, ok = true; try { raw = localStorage.getItem(cwKey(meta.active)); } catch (e) { ok = false; }
+    var l = ok ? M.loadWidths(raw) : { w: Object.create(null), unreadable: true };
+    cwMap = l.w; cwLocked = l.unreadable; paintCw();
+    var sh = Object.keys(cwMap).sort().map(function (k) { return k + " " + cwMap[k]; }).join(", ");
+    $("cw-list").textContent = cwLocked ? "The stored column widths of this tab could not be read, so standard widths are shown and changes are off." : (sh ? "Custom widths on this tab: " + sh + " px." : "All columns have the standard width (" + M.DEFAULT_CW + " px).");
+  }
+  function writeCw(next) {
+    if (cwLocked) { cwStat.textContent = "The stored column widths could not be read, so they were left untouched and changes are off."; return; }
+    if (!tabStillListed(meta.active)) { cwStat.textContent = "This tab was changed in another window. Reload this page. Nothing changed."; return; }
+    var key = cwKey(meta.active), j = M.widthsJson(next), old = null;
+    try { old = localStorage.getItem(key); if (j === null) localStorage.removeItem(key); else localStorage.setItem(key, j); }
+    catch (e) { try { if (old === null) localStorage.removeItem(key); else localStorage.setItem(key, old); } catch (e2) { /* the read below shows what is stored */ } cwStat.textContent = "This browser would not store the width. Nothing changed."; reloadCw(); applyFreeze(); return; }
+    reloadCw(); applyFreeze();
+    return true;
+  }
+  $("cw-apply").addEventListener("click", function () {
+    var p = M.parseWidth($("cw-col").value, $("cw-px").value); if (p.error) { cwStat.textContent = p.error; return; }
+    var next = Object.assign(Object.create(null), cwMap); if (p.px === M.DEFAULT_CW) delete next[p.col]; else next[p.col] = p.px;
+    if (writeCw(next)) cwStat.textContent = "Column " + p.col + " is " + p.px + " px wide on this tab. Saved for this tab only, in this browser.";
+  });
+  $("cw-reset").addEventListener("click", function () {
+    if (!Object.keys(cwMap).length && !cwLocked) { cwStat.textContent = "Nothing to reset: every column has the standard width."; return; }
+    if (cwLocked) { cwStat.textContent = "The stored column widths could not be read, so they were left untouched and changes are off."; return; }
+    if (writeCw(Object.create(null))) cwStat.textContent = "All columns on this tab are back to the standard width.";
+  });
+  reloadCw();
   readFreeze(); applyFreeze();
 
   // ---- Tabs UI (model in model.js). Export, CSV, chart, sort and filter work on the tab you are on. ----
@@ -639,10 +676,10 @@
     if (!saveMeta(next)) { tabMsg.textContent = "This browser would not store the tab list, so nothing was changed."; return false; }
     meta = next; return true;
   }
-  var EXTRAS = [{ key: rulesKey, load: M.loadRules, label: "validation rules" }, { key: cfKey, load: M.loadCf, label: "colour rules" }, { key: fmtKey, load: M.loadFmt, label: "format rules" }, { key: verKey, load: M.loadVers, label: "saved versions" }];
+  var EXTRAS = [{ key: rulesKey, load: M.loadRules, label: "validation rules" }, { key: cfKey, load: M.loadCf, label: "colour rules" }, { key: fmtKey, load: M.loadFmt, label: "format rules" }, { key: verKey, load: M.loadVers, label: "saved versions" }, { key: cwKey, load: M.loadWidths, label: "column widths" }];
   // an id that still has a stored freeze entry (for example when removing it failed) is never handed out again, so a new tab cannot inherit it
   function freezeHas(id) { var raw = localStorage.getItem(fzKey); return raw !== null && raw.indexOf("\"" + id + "\":") >= 0; }
-  function keyUsed(id) { try { return localStorage.getItem(tabKey(id)) !== null || localStorage.getItem(rulesKey(id)) !== null || localStorage.getItem(cfKey(id)) !== null || localStorage.getItem(fmtKey(id)) !== null || localStorage.getItem(bakKeyOf(id)) !== null || freezeHas(id) || localStorage.getItem(verKey(id)) !== null; } catch (e) { return true; } }
+  function keyUsed(id) { try { return localStorage.getItem(tabKey(id)) !== null || localStorage.getItem(rulesKey(id)) !== null || localStorage.getItem(cfKey(id)) !== null || localStorage.getItem(fmtKey(id)) !== null || localStorage.getItem(bakKeyOf(id)) !== null || freezeHas(id) || localStorage.getItem(verKey(id)) !== null || localStorage.getItem(cwKey(id)) !== null; } catch (e) { return true; } }
   function renderTabs() {
     tabBar.textContent = "";
     meta.tabs.forEach(function (t) {

@@ -714,6 +714,33 @@
   }
   function dropVer(items, index) { if (index < 0 || index >= items.length) return null; return items.filter(function (v, i) { return i !== index; }).map(function (v) { return { n: v.n, k: v.k.slice() }; }); }
 
-  var api = { loadVers: loadVers, versJson: versJson, addVer: addVer, dropVer: dropVer, verName: verName, MAX_VERS: MAX_VERS, structApply: structApply, structRecover: structRecover, structRecovery: structRecovery, structRecoveryInfo: structRecoveryInfo, structEdit: structEdit, structRange: structRange, fillRange: fillRange, findReplace: findReplace, parseRange: parseRange, makeRule: makeRule, addRule: addRule, removeRule: removeRule, loadRules: loadRules, rulesJson: rulesJson, checkValue: checkValue, makePivot: makePivot, pivot: pivot, MAX_GROUPS: MAX_GROUPS, makeCf: makeCf, addCf: addCf, loadCf: loadCf, cfJson: cfJson, cfColor: cfColor, parsePaste: parsePaste, loadFreeze: loadFreeze, freezeJson: freezeJson, parseFreeze: parseFreeze, MAX_FREEZE: MAX_FREEZE, parseCsv: parseCsv, csvImport: csvImport, isBlock: isBlock, applyPaste: applyPaste, MAX_PASTE_CELLS: MAX_PASTE_CELLS, makeFmt: makeFmt, addFmt: addFmt, loadFmt: loadFmt, fmtJson: fmtJson, fmtFor: fmtFor, fmtText: fmtText, MAX_FMT: MAX_FMT, MAX_RULES: MAX_RULES, loadTabs: loadTabs, addTab: addTab, markFmt: markFmt, renameTab: renameTab, deleteTab: deleteTab, setActive: setActive, cleanName: cleanName, MAX_TABS: MAX_TABS, sortRange: sortRange, filterRows: filterRows, toNum: toNum, toCsv: toCsv, clean: clean, History: History, chartPoints: chartPoints, pieSlices: pieSlices, isComposing: isComposing, keyMove: keyMove, copy: copy, same: same };
+  // ---- Column widths (view only, per tab). A width belongs to a column position (A to Z), like a freeze: inserting or deleting a column does not move it.
+  // Stored in the tab's own ".cw" entry. Anything unreadable reads as "no custom widths" and the stored text is left alone. ----
+  var MIN_CW = 40, MAX_CW = 400, DEFAULT_CW = 144;
+  function loadWidths(raw) {
+    var none = { w: Object.create(null), unreadable: false };
+    if (raw === null || raw === undefined) return none;
+    var v; try { v = JSON.parse(raw); } catch (e) { return { w: Object.create(null), unreadable: true }; }
+    if (!v || typeof v !== "object" || v.v !== 1 || !v.w || typeof v.w !== "object" || Array.isArray(v.w)) return { w: Object.create(null), unreadable: true };
+    var out = Object.create(null), bad = false;
+    Object.keys(v.w).forEach(function (k) {
+      var n = v.w[k];
+      if (!/^[A-Z]$/.test(k) || typeof n !== "number" || n !== Math.floor(n) || n < MIN_CW || n > MAX_CW) { bad = true; return; }
+      if (n !== DEFAULT_CW) out[k] = n;
+    });
+    if (bad) return { w: Object.create(null), unreadable: true };
+    return { w: out, unreadable: false };
+  }
+  function widthsJson(w) {
+    var o = {}; Object.keys(w).sort().forEach(function (k) { if (w[k] !== DEFAULT_CW) o[k] = w[k]; });
+    return Object.keys(o).length ? JSON.stringify({ v: 1, w: o }) : null;
+  }
+  function parseWidth(col, text) {
+    var c = String(col == null ? "" : col).trim().toUpperCase(), t = String(text == null ? "" : text).trim();
+    if (!/^[A-Z]$/.test(c)) return { error: "Choose a column from A to Z." };
+    if (!/^[0-9]{1,4}$/.test(t) || Number(t) < MIN_CW || Number(t) > MAX_CW) return { error: "The width must be a whole number of pixels from " + MIN_CW + " to " + MAX_CW + " (the standard width is " + DEFAULT_CW + ")." };
+    return { col: c, px: Number(t) };
+  }
+  var api = { loadWidths: loadWidths, widthsJson: widthsJson, parseWidth: parseWidth, MIN_CW: MIN_CW, MAX_CW: MAX_CW, DEFAULT_CW: DEFAULT_CW, loadVers: loadVers, versJson: versJson, addVer: addVer, dropVer: dropVer, verName: verName, MAX_VERS: MAX_VERS, structApply: structApply, structRecover: structRecover, structRecovery: structRecovery, structRecoveryInfo: structRecoveryInfo, structEdit: structEdit, structRange: structRange, fillRange: fillRange, findReplace: findReplace, parseRange: parseRange, makeRule: makeRule, addRule: addRule, removeRule: removeRule, loadRules: loadRules, rulesJson: rulesJson, checkValue: checkValue, makePivot: makePivot, pivot: pivot, MAX_GROUPS: MAX_GROUPS, makeCf: makeCf, addCf: addCf, loadCf: loadCf, cfJson: cfJson, cfColor: cfColor, parsePaste: parsePaste, loadFreeze: loadFreeze, freezeJson: freezeJson, parseFreeze: parseFreeze, MAX_FREEZE: MAX_FREEZE, parseCsv: parseCsv, csvImport: csvImport, isBlock: isBlock, applyPaste: applyPaste, MAX_PASTE_CELLS: MAX_PASTE_CELLS, makeFmt: makeFmt, addFmt: addFmt, loadFmt: loadFmt, fmtJson: fmtJson, fmtFor: fmtFor, fmtText: fmtText, MAX_FMT: MAX_FMT, MAX_RULES: MAX_RULES, loadTabs: loadTabs, addTab: addTab, markFmt: markFmt, renameTab: renameTab, deleteTab: deleteTab, setActive: setActive, cleanName: cleanName, MAX_TABS: MAX_TABS, sortRange: sortRange, filterRows: filterRows, toNum: toNum, toCsv: toCsv, clean: clean, History: History, chartPoints: chartPoints, pieSlices: pieSlices, isComposing: isComposing, keyMove: keyMove, copy: copy, same: same };
   if (typeof module !== "undefined" && module.exports) module.exports = api; else root.SalowSheetModel = api;
 })(typeof self !== "undefined" ? self : this);

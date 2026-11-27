@@ -328,6 +328,7 @@ def register(g):
     register_sheets_freeze(g)
     register_sheets_versions(g)
     register_sheets_xtab(g)
+    register_sheets_widths(g)
     register_pdf_alltext_stop(g)
     register_pdf_roundtrip(g)
     register_slides_order_recovery(g)
@@ -5588,6 +5589,79 @@ def register_sheets_xtab(g):
         run_tour(ctx, "sheets_xtab", body, notes="Headless Chromium 390x844 emulated, one run. Not shown: a tab changed in another window, an unreadable tab (#TAB!), Export or CSV of cross-tab formulas.", unshown=["another window", "unreadable tab", "export and csv"])
 
     g["DRILLS"]["tour_sheets_xtab"] = tour
+
+
+def register_sheets_widths(g):
+    APP = g["APP"]
+
+    def tour(ctx):
+        cell = lambda a: 'input[data-addr="%s"]' % a
+        val = lambda pg, a: pg.input_value(cell(a))
+
+        def body(t, pg):
+            dlg = {"accept": True, "msgs": []}
+            pg.on("dialog", lambda d: (dlg["msgs"].append(d.message), d.accept() if dlg["accept"] else d.dismiss()))
+            pg.goto(APP + "/sheets/")
+            pg.evaluate("localStorage.clear()")
+            pg.goto(APP + "/sheets/")
+            pg.wait_for_timeout(500)
+            put = lambda a, v: (pg.click(cell(a)), pg.keyboard.type(v), pg.keyboard.press("Enter"))
+            grid = lambda: pg.evaluate("()=>{document.getElementById('sheet-root').scrollIntoView({block:'start'});scrollBy(0,-(document.getElementById('sheet-barrow').getBoundingClientRect().height+6))}")
+            ctl = lambda: pg.evaluate("document.getElementById('cw-apply').scrollIntoView({block:'center'})")
+            w = lambda a: round(pg.evaluate("a=>document.querySelector('input[data-addr=\"'+a+'\"]').getBoundingClientRect().width", a))
+            cws = lambda: pg.evaluate("Object.keys(localStorage).filter(k=>k.endsWith('.cw')).sort()")
+            def setw(col, px):
+                ctl(); pg.select_option("#cw-col", col); pg.fill("#cw-px", str(px)); pg.click("#cw-apply"); pg.wait_for_timeout(300)
+            cs = lambda: pg.inner_text("#cw-status")
+            put("A1", "Name"); put("B1", "A much longer piece of text in B"); put("C1", "Third")
+            t.step("Start: A1 Name, B1 a long text, C1 Third. All columns standard width (144 px)", lambda: grid(), expect=lambda: w("A1") == 144 and w("B1") == 144 and w("C1") == 144, wait=2500)
+            setw("B", 260)
+            t.step("Set column B to 260 px: B is 260 wide, A and C stay 144, and the status says it is saved for this tab only", lambda: grid(), expect=lambda: w("B1") == 260 and w("A1") == 144 and w("C1") == 144 and "260 px" in cs() and len(cws()) == 1, wait=2500)
+            setw("A", 39)
+            m1 = cs(); setw("A", 401); m2 = cs(); ctl()
+            t.step("Widths 39 and 401 are refused with the 40 to 400 message and nothing changes (A stays 144)", expect=lambda: "40 to 400" in m1 and "40 to 400" in m2 and w("A1") == 144, wait=3000)
+            setw("A", 60)
+            t.step("Set column A to 60 px (the minimum useful narrow width): A is 60 wide", lambda: grid(), expect=lambda: w("A1") == 60, wait=2500)
+            pg.fill("#frz-cols", "2"); pg.click("#frz-apply"); pg.wait_for_timeout(400)
+            def pinned():
+                return pg.evaluate("""()=>{const t=document.querySelector('#sheet-root table'),rh=t.rows[1].cells[0].offsetWidth,a=t.rows[1].cells[1].offsetWidth;
+                  const th2=t.rows[0].cells[2], td2=t.rows[1].cells[2], r=document.getElementById('sheet-root').getBoundingClientRect();
+                  const b=document.querySelector('input[data-addr=B1]').getBoundingClientRect(), x=b.left+Math.min(20,b.width/2), y=b.top+b.height/2;
+                  const top=document.elementFromPoint(x,y);
+                  return {left:parseFloat(td2.style.left), want:rh+a, th:parseFloat(th2.style.left), hit: top && top.getAttribute && top.getAttribute('data-addr')};}""")
+            grid(); pg.evaluate("document.getElementById('sheet-root').scrollLeft = 400"); pg.wait_for_timeout(300)
+            pn = pinned()
+            t.step("Freeze 2 columns, then scroll the grid sideways by 400: the pinned B column sits at the measured offset of the narrow A column, and the topmost element at B1's left part is the B1 input", expect=lambda: abs(pn["left"] - pn["want"]) < 1.5 and abs(pn["th"] - pn["want"]) < 1.5 and pn["hit"] == "B1", wait=2500)
+            setw("A", 200)
+            grid(); pg.evaluate("document.getElementById('sheet-root').scrollLeft = 500"); pg.wait_for_timeout(300)
+            pn2 = pinned()
+            t.step("Change A to 200 px with the freeze still on: the pinned offset is measured again (now larger), B1 is still the topmost element", expect=lambda: abs(pn2["left"] - pn2["want"]) < 1.5 and pn2["want"] > pn["want"] + 100 and pn2["hit"] == "B1", wait=2500)
+            pg.evaluate("document.getElementById('sheet-root').scrollLeft = 0")
+            pg.reload(); pg.wait_for_timeout(700); pg.evaluate("document.getElementById('sheet-root').scrollLeft = 500"); pg.wait_for_timeout(300)
+            pn3 = pinned()
+            t.step("After a reload A is 200, B is 260 and the freeze is still measured correctly", lambda: grid(), expect=lambda: w("A1") == 200 and w("B1") == 260 and abs(pn3["left"] - pn3["want"]) < 1.5 and pn3["hit"] == "B1", wait=3000)
+            pg.evaluate("document.getElementById('sheet-root').scrollLeft = 0")
+            pg.click("#tab-add"); pg.wait_for_timeout(500)
+            t.step("A new tab has standard widths and no stored width entry of its own", lambda: grid(), expect=lambda: w("A1") == 144 and w("B1") == 144 and len(cws()) == 1, wait=3000)
+            pg.locator("#sheet-tabs button", has_text="Sheet 1").first.click(); pg.wait_for_timeout(500)
+            pg.evaluate("document.querySelector('input[data-addr=B1]').focus()"); pg.evaluate("document.getElementById('col-ins').scrollIntoView({block:'center'})"); pg.click("#col-ins"); pg.wait_for_timeout(600)
+            t.step("Insert a column at B: the text from B1 moves to C1 but the widths stay with the positions (A 200, B 260, C 144)", lambda: grid(), expect=lambda: val(pg, "C1").startswith("A much longer") and w("A1") == 200 and w("B1") == 260 and w("C1") == 144, wait=3000)
+            pg.locator("#sheet-tabs button", has_text="Sheet 2").first.click(); pg.wait_for_timeout(400)
+            pg.locator("#sheet-tabs button", has_text="Sheet 1").first.click(); pg.wait_for_timeout(400)
+            pg.evaluate("document.getElementById('tab-del').scrollIntoView({block:'center'})"); pg.click("#tab-del"); pg.wait_for_timeout(600)
+            gone = len(cws()) == 0
+            pg.click("#tab-restore"); pg.wait_for_timeout(700)
+            pg.locator("#sheet-tabs button", has_text="Sheet 1").first.click(); pg.wait_for_timeout(500)
+            t.step("Delete Sheet 1 (its width entry goes with it), then Restore deleted tab: widths A 200 and B 260 are back", lambda: grid(), expect=lambda: gone and len(cws()) == 1 and w("A1") == 200 and w("B1") == 260, wait=3000)
+            ctl(); pg.click("#cw-reset"); pg.wait_for_timeout(400)
+            t.step("Reset all widths: every column is 144 again, the stored entry is removed, and the freeze offset is measured again", lambda: grid(), expect=lambda: w("A1") == 144 and w("B1") == 144 and len(cws()) == 0 and "standard width" in cs(), wait=3000)
+            real = None
+            setw("C", 100); k = cws()[0]; pg.evaluate("a=>localStorage.setItem(a, '{bad')", k)
+            pg.reload(); pg.wait_for_timeout(700); ctl(); pg.select_option("#cw-col", "D"); pg.fill("#cw-px", "90"); pg.click("#cw-apply"); pg.wait_for_timeout(300)
+            t.step("A damaged stored width entry reads as standard widths, the page says so, changing is refused and the stored text is left exactly as it was", expect=lambda: "could not be read" in pg.inner_text("#cw-list") and w("C1") == 144 and pg.evaluate("a=>localStorage.getItem(a)", k) == "{bad" and "changes are off" in cs(), wait=3000)
+        run_tour(ctx, "sheets_widths", body, notes="Headless Chromium 390x844 emulated, one run. Not shown: dragging a column edge (there is no drag handle, widths are set with the control), a real full browser store, another window changing the entry.", unshown=["drag resize", "real quota", "another window"])
+
+    g["DRILLS"]["tour_sheets_widths"] = tour
 
 
 def register_sheets_versions(g):
