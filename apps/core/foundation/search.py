@@ -10,10 +10,37 @@ returns only id, title and url, so no module can leak object content through sea
 from dataclasses import dataclass
 from typing import Any, Callable, Iterable, Optional
 
+from django.db.models import Case, IntegerField, Value, When
+
 from apps.core.foundation.permissions import can
 
 Searcher = Callable[[Any, str, int], Iterable[tuple[str, Any, str, str]]]
 _SEARCHERS: dict[str, Searcher] = {}
+
+
+def relevance(name: str, needle: str, *, also_exact: str = ""):
+    """Ordering expression for a searcher query: 0 the whole text equals the search, 1 it starts with it,
+    2 it starts a later word, 3 it is somewhere inside. name is an Upper() annotation, needle is upper case.
+    Sorting by this BEFORE the row cap keeps the best matches from being cut by newest-first or id order.
+    also_exact is a second annotation (an ID) whose exact match also counts as 0."""
+    first = When(**{name: needle}, then=Value(0))
+    whens = [When(**{also_exact: needle}, then=Value(0))] if also_exact else []
+    return Case(
+        first, *whens,
+        When(**{name + "__startswith": needle}, then=Value(1)),
+        When(**{name + "__contains": " " + needle}, then=Value(2)),
+        default=Value(3), output_field=IntegerField(),
+    )  # fmt: skip
+
+
+def rank_text(text: str, query: str) -> int:
+    """The same four classes in Python, for merging several queries inside one searcher."""
+    t, q = (text or "").upper(), query.upper()
+    if t == q:
+        return 0
+    if t.startswith(q):
+        return 1
+    return 2 if (" " + q) in t else 3
 
 
 @dataclass(frozen=True)
@@ -64,10 +91,16 @@ def search_grouped(
         if wanted and name not in wanted:
             continue
         hits: list[SearchHit] = []
-        for rtype, obj, title, url in fn(user, query, (per_module + 1) * 3):
+        pool = (per_module + 1) * 3
+        raw = 0
+        broke = False
+        for rtype, obj, title, url in fn(user, query, pool):
+            raw += 1
             if can(user, "view", rtype, obj):
                 hits.append(SearchHit(rtype, str(getattr(obj, "pk", "")), title, url))
                 if len(hits) > per_module:
+                    broke = True
                     break
-        out[name] = (hits[:per_module], len(hits) > per_module)
+        # A refused hit can leave fewer than per_module shown while the pool was full: say there may be more.
+        out[name] = (hits[:per_module], broke or raw >= pool)
     return out

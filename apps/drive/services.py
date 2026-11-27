@@ -837,6 +837,8 @@ def search_items(user, query, limit):
     from django.db.models import Q
     from django.db.models.functions import Upper
 
+    from apps.core.foundation.search import relevance
+
     needle = query.upper()  # icontains is case-sensitive on TiDB's binary collation
 
     reach = _reachable_folder_ids(user)
@@ -844,14 +846,16 @@ def search_items(user, query, limit):
         Folder.objects.annotate(_n=Upper("name"))
         .filter(trashed_at__isnull=True, _n__contains=needle)
         .filter(Q(owner=user) | Q(pk__in=reach))
-        .order_by("name")[:limit]
+        .annotate(_rk=relevance("_n", needle))
+        .order_by("_rk", "name")[:limit]
     )
     files = (
         DriveFile.objects.annotate(_n=Upper("name"))
         .filter(trashed_at__isnull=True, _n__contains=needle)
         .filter(Q(owner=user) | Q(folder_id__in=reach) | Q(shares__user=user))
+        .annotate(_rk=relevance("_n", needle))
         .distinct()
-        .order_by("name")[:limit]
+        .order_by("_rk", "name")[:limit]
     )
     for f in folders:
         yield (FOLDER, f, f.name, f"/drive/folder/{f.public_id}/")

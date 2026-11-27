@@ -9,6 +9,7 @@ from django.db.models.functions import Upper
 from apps.accounts.models import CustomUser
 from apps.accounts.permissions import has_permission
 from apps.core.foundation.permissions import register_policy
+from apps.core.foundation.search import rank_text, relevance
 
 PERSON = "person"
 
@@ -26,13 +27,15 @@ def search_tasks(user, query, limit):
         .filter(_t__contains=needle, deleted_at__isnull=True, task_list__deleted_at__isnull=True)
         .filter(Q(task_list__owner=user) | Q(assignee=user))
         .select_related("task_list")
-        .order_by("-id")[:limit]
+        .annotate(_rk=relevance("_t", needle))
+        .order_by("_rk", "-id")[:limit]
     )
+    found = []
     for t in mine:
         if t.task_list.owner_id == user.pk:
-            yield ("task", t, t.title, f"/tasks/list/{t.task_list.public_id}/")
+            found.append(("task", t, t.title, f"/tasks/list/{t.task_list.public_id}/"))
         else:
-            yield ("task", t, t.title, "/tasks/assigned/")
+            found.append(("task", t, t.title, "/tasks/assigned/"))
     proj = (
         ProjectTask.objects.annotate(_t=Upper("title"))
         .filter(_t__contains=needle, deleted_at__isnull=True, project__deleted_at__isnull=True)
@@ -41,22 +44,26 @@ def search_tasks(user, query, limit):
             project__members__removed_at__isnull=True,
         )
         .select_related("project")
+        .annotate(_rk=relevance("_t", needle))
         .distinct()
-        .order_by("-id")[:limit]
+        .order_by("_rk", "-id")[:limit]
     )
     for t in proj:
-        yield ("project_task", t, t.title, f"/tasks/projects/{t.project.public_id}/")
+        found.append(("project_task", t, t.title, f"/tasks/projects/{t.project.public_id}/"))
     from apps.tasks.models import Project
 
     named = (
         Project.objects.annotate(_n=Upper("name"))
         .filter(_n__contains=needle, deleted_at__isnull=True)
         .filter(members__person=user, members__removed_at__isnull=True)
+        .annotate(_rk=relevance("_n", needle))
         .distinct()
-        .order_by("-id")[:limit]
+        .order_by("_rk", "-id")[:limit]
     )
     for p in named:
-        yield ("project", p, p.name, f"/tasks/projects/{p.public_id}/")
+        found.append(("project", p, p.name, f"/tasks/projects/{p.public_id}/"))
+    found.sort(key=lambda h: rank_text(h[2], query))  # stable: equal rank keeps the order above
+    yield from found
 
 
 def search_events(user, query, limit):
@@ -66,7 +73,8 @@ def search_events(user, query, limit):
         Event.objects.annotate(_t=Upper("title"))
         .filter(_t__contains=query.upper(), status=Event.CONFIRMED)
         .filter(Q(organizer=user) | Q(pk__in=Guest.objects.filter(person=user).values("event_id")))
-        .order_by("-start_utc")[:limit]
+        .annotate(_rk=relevance("_t", query.upper()))
+        .order_by("_rk", "-start_utc")[:limit]
     )
     for e in rows:
         yield ("event", e, e.title, f"/calendar/event/{e.public_id}/")
@@ -82,7 +90,8 @@ def search_people(user, query, limit):
         CustomUser.objects.annotate(_n=Upper("full_name"), _i=Upper("employee_id"))
         .filter(Q(_n__contains=needle) | Q(_i__contains=needle))
         .filter(status__in=[CustomUser.Status.ACTIVE, CustomUser.Status.ONBOARDING])
-        .order_by("employee_id")[:limit]
+        .annotate(_rk=relevance("_n", needle, also_exact="_i"))
+        .order_by("_rk", "employee_id")[:limit]
     )
     for p in rows:
         yield (
@@ -113,7 +122,13 @@ def search_posts(user, query, limit):
     from apps.posts.selectors import list_posts_for_user
 
     needle = query.upper()
-    qs = list_posts_for_user(user).annotate(_t=Upper("title")).filter(_t__contains=needle)[:limit]
+    qs = (
+        list_posts_for_user(user)
+        .annotate(_t=Upper("title"))
+        .filter(_t__contains=needle)
+        .annotate(_rk=relevance("_t", needle))
+        .order_by("_rk", "-id")[:limit]
+    )
     for p in qs:
         yield ("post", p, p.title, reverse("posts:detail", args=[p.pk]))
 
@@ -160,7 +175,8 @@ def search_chat(user, query, limit):
         Message.objects.annotate(_b=Upper("body"))
         .filter(_b__contains=needle, space_id__in=mine)
         .select_related("space")
-        .order_by("-id")[:limit]
+        .annotate(_rk=relevance("_b", needle))
+        .order_by("_rk", "-id")[:limit]
     )
     for m in rows:
         sp = m.space
