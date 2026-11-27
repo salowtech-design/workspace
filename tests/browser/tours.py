@@ -240,6 +240,7 @@ def register(g):
     register_automation(g)
     register_find(g)
     register_manager_assign(g)
+    register_manager_blank(g)
     register_security(g)
     register_admin(g)
     register_iam(g)
@@ -884,6 +885,41 @@ def register_manager_assign(g):
         run_tour(ctx, "manager_assign", body, notes="Real Django on TiDB (unistore) under uvicorn, headless Chromium 390x844 emulated. Fixtures (ORM, not product features): ST-LIVE-1 is given the Admin role, plus two other people. Stages: before, set a manager, a loop is refused, org chart. Not shown: a non-administrator's view (no form, refusal in unit tests), inactive people.", unshown=["a non-administrator's view", "inactive people"])
 
     g["DRILLS"]["tour_manager_assign"] = tour
+
+
+def register_manager_blank(g):
+    APP = g["APP"]
+
+    def tour(ctx):
+        import concurrent.futures
+
+        import django
+
+        django.setup()
+
+        def mk():
+            from apps.accounts.models import CustomUser
+
+            for eid, nm in (("ST-LIVE-2", "Second Synthetic"), ("ST-LIVE-3", "Third Synthetic")):
+                CustomUser.objects.get_or_create(
+                    employee_id=eid,
+                    defaults={"full_name": nm, "email": eid.lower() + "@salowtech.com", "email_verified": True,
+                              "role": CustomUser.Role.EMPLOYEE, "status": CustomUser.Status.ACTIVE, "is_active": True})
+            CustomUser.objects.filter(employee_id="ST-LIVE-1").update(role=CustomUser.Role.ADMIN)
+
+        with concurrent.futures.ThreadPoolExecutor(1) as ex:
+            ex.submit(mk).result()
+
+        def body(t, pg):
+            txt = lambda: pg.inner_text("body")  # noqa: E731
+            sel = "select[name=manager]"
+            pg.goto(APP + "/directory/profile/ST-LIVE-2/")
+            pg.wait_for_timeout(500)
+            t.step("The list starts on Choose a person. Nobody is preselected", lambda: pg.locator(sel).scroll_into_view_if_needed(), expect=lambda: pg.input_value(sel) == "" and "No manager set" in txt(), wait=2200)
+            t.step("Press Set manager without choosing. The page says Choose a person from the list. and still No manager set", lambda: (pg.click("button:has-text('Set manager')"), pg.wait_for_timeout(300), pg.evaluate("window.scrollTo(0, 0)")), expect=lambda: "Choose a person from the list." in txt() and "No manager set" in txt(), wait=2400)
+        run_tour(ctx, "manager_blank", body, notes="Real Django on TiDB (unistore) under uvicorn, headless Chromium 390x844 emulated. Fixtures (ORM, not product features): ST-LIVE-1 is given the Admin role, plus two other people. Two steps: the list has no preselection, and pressing Set manager untouched changes nothing. Not shown: a non-administrator's view (no form, refusal in unit tests), inactive people.", unshown=["a non-administrator's view", "inactive people"])
+
+    g["DRILLS"]["tour_manager_blank"] = tour
 
 
 def register_find(g):

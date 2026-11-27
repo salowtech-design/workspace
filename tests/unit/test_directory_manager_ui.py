@@ -72,6 +72,19 @@ def test_self_loop_inactive_unknown_and_get_are_refused(people):
     assert _c(admin).post(reverse("directory:assign_manager", args=["NOBODY"]), {"manager": "MG-ADM"}).status_code == 404
 
 
+def test_a_suspended_person_profile_does_not_reveal_their_manager(people):
+    admin, boss, emp, gone = people
+    ReportingRelationship.objects.create(manager=boss, subordinate=gone)
+    page = _c(admin).get(reverse("directory:profile", args=[gone.employee_id])).content.decode()
+    assert "Boss Person (MG-BOSS)</a>" not in page and "No manager set" in page  # (the name still appears as a choice in the admin's list) the org chart does not list a suspended person either
+    from apps.directory.selectors import org_tree
+
+    def names(nodes):
+        return [n["user"].employee_id for n in nodes] + [x for n in nodes for x in names(n["reports"])]
+
+    assert "MG-GONE" not in names(org_tree(admin)[0])
+
+
 def test_a_suspended_manager_is_not_shown_as_the_manager(people):
     admin, boss, emp, gone = people
     ReportingRelationship.objects.create(manager=gone, subordinate=emp)

@@ -68,7 +68,12 @@ def employee_profile_view(request, employee_id: str):
     )
     is_admin = request.user.role in (CustomUser.Role.SUPER_ADMIN, CustomUser.Role.ADMIN)
     live = (CustomUser.Status.ACTIVE, CustomUser.Status.ONBOARDING)
-    rel = ReportingRelationship.objects.filter(subordinate=target_user, manager__status__in=live).select_related("manager").first()
+    # shown only for a person the org chart lists (active or onboarding) with a manager it lists: a suspended person's reporting line stays unseen
+    rel = (
+        ReportingRelationship.objects.filter(subordinate=target_user, manager__status__in=live).select_related("manager").first()
+        if target_user.status in live
+        else None
+    )
     return render(
         request,
         "directory/profile.html",
