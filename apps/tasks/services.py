@@ -1,9 +1,10 @@
 import datetime
 import logging
+import uuid
 
 from django.core.exceptions import ValidationError
 from django.db import DatabaseError, transaction
-from django.db.models import F, Max
+from django.db.models import F, Max, Q
 from django.utils import timezone
 
 from apps.accounts.models import CustomUser
@@ -218,7 +219,7 @@ def delete_task(user, task):
     now = timezone.now()
     kids = list(task.subtasks.filter(deleted_at__isnull=True).values_list("pk", flat=True))
     Task.objects.filter(pk__in=[task.pk, *kids]).update(
-        deleted_at=now, updated_at=now, version=F("version") + 1
+        deleted_at=now, delete_batch=uuid.uuid4(), updated_at=now, version=F("version") + 1
     )
     audit(user, "tasks.task.delete", "task", task.pk, subtasks_deleted=len(kids) or None)
 
@@ -228,10 +229,25 @@ def delete_list(user, task_list):
     tl = _lock_list(task_list)
     require(user, "delete", "task_list", tl)
     now = timezone.now()
-    n = Task.objects.filter(task_list=tl, deleted_at__isnull=True).update(deleted_at=now)
-    tl.deleted_at = now
-    tl.save(update_fields=["deleted_at"])
+    batch = uuid.uuid4()
+    n = Task.objects.filter(task_list=tl, deleted_at__isnull=True).update(deleted_at=now, delete_batch=batch)
+    tl.deleted_at, tl.delete_batch = now, batch
+    tl.save(update_fields=["deleted_at", "delete_batch"])
     audit(user, "tasks.list.delete", "task_list", tl.pk, tasks_deleted=n or None)
+
+
+def _same_deletion(row):
+    """Q for the rows removed by the same delete call as `row`. A batch id is exact. A row deleted before batch ids existed has none, so it falls
+    back to the shared moment, and only among rows that also have no batch: a newer delete can never pull it in, nor it a newer one."""
+    if row.delete_batch is not None:
+        return Q(delete_batch=row.delete_batch)
+    return Q(delete_batch__isnull=True, deleted_at=row.deleted_at)
+
+
+def _in_same_deletion(a, b):
+    if a.delete_batch is not None or b.delete_batch is not None:
+        return a.delete_batch == b.delete_batch
+    return a.deleted_at == b.deleted_at
 
 
 def trash_for(user):
@@ -242,7 +258,7 @@ def trash_for(user):
     tasks = [
         t for t in Task.objects.filter(task_list__owner=user, task_list__deleted_at__isnull=True, deleted_at__isnull=False)
         .select_related("task_list", "parent").order_by("-deleted_at", "id")
-        if t.parent is None or t.parent.deleted_at is None or t.parent.deleted_at != t.deleted_at
+        if t.parent is None or t.parent.deleted_at is None or not _in_same_deletion(t.parent, t)
     ]
     return lists, tasks
 
@@ -255,7 +271,6 @@ def restore_task(user, task):
     fresh = _fresh(task)
     fresh.task_list = tl
     require(user, "restore", "task", fresh)
-    batch = fresh.deleted_at
     if fresh.parent_id is not None:
         parent = Task.objects.get(pk=fresh.parent_id)
         if parent.deleted_at is not None:
@@ -263,8 +278,8 @@ def restore_task(user, task):
         if parent.assignee_id:  # the same rule as adding a subtask: a task given to someone cannot hold subtasks
             raise ValidationError("A subtask must sit directly under a task of your own in the same list.")
     now = timezone.now()
-    ids = [fresh.pk, *Task.objects.filter(parent=fresh, deleted_at=batch).values_list("pk", flat=True)]
-    Task.objects.filter(pk__in=ids).update(deleted_at=None, updated_at=now, version=F("version") + 1)
+    ids = [fresh.pk, *Task.objects.filter(_same_deletion(fresh), parent=fresh, deleted_at__isnull=False).values_list("pk", flat=True)]
+    Task.objects.filter(pk__in=ids).update(deleted_at=None, delete_batch=None, updated_at=now, version=F("version") + 1)
     if fresh.parent_id is not None and fresh.status != Task.DONE:
         # the same build default as adding a subtask: a completed task never holds an open subtask
         Task.objects.filter(pk=fresh.parent_id, status=Task.DONE).update(
@@ -278,11 +293,12 @@ def restore_list(user, task_list):
     """Undo one list deletion: the list and the tasks deleted with it (the same moment) come back. Tasks deleted earlier stay in the trash."""
     tl = _lock_list(task_list)
     require(user, "restore", "task_list", tl)
-    batch = tl.deleted_at
     now = timezone.now()
-    n = Task.objects.filter(task_list=tl, deleted_at=batch).update(deleted_at=None, updated_at=now, version=F("version") + 1)
-    tl.deleted_at = None
-    tl.save(update_fields=["deleted_at"])
+    n = Task.objects.filter(_same_deletion(tl), task_list=tl, deleted_at__isnull=False).update(
+        deleted_at=None, delete_batch=None, updated_at=now, version=F("version") + 1
+    )
+    tl.deleted_at = tl.delete_batch = None
+    tl.save(update_fields=["deleted_at", "delete_batch"])
     audit(user, "tasks.list.restore", "task_list", tl.pk, tasks_restored=n or None)
 
 

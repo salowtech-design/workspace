@@ -15,6 +15,7 @@ class TaskList(models.Model):
     name = models.CharField(max_length=120)
     created_at = models.DateTimeField(auto_now_add=True)
     deleted_at = models.DateTimeField(null=True, blank=True)
+    delete_batch = models.UUIDField(null=True, blank=True)  # one value per delete call: what a restore undoes. Empty on rows deleted before restore existed.
 
     class Meta:
         indexes = [models.Index(fields=["owner", "deleted_at"])]
@@ -49,6 +50,7 @@ class Task(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     deleted_at = models.DateTimeField(null=True, blank=True)
+    delete_batch = models.UUIDField(null=True, blank=True)  # one value per delete call (see TaskList.delete_batch)
 
     class Meta:
         indexes = [

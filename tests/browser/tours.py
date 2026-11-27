@@ -281,6 +281,7 @@ def register(g):
     register_overlap(g)
     register_drive_device(g)
     register_cal_all_day(g)
+    register_tasks_restore(g)
     register_attendance_csv(g)
     register_post_review_notice(g)
     register_notice_open(g)
@@ -2332,6 +2333,28 @@ def register_cal_all_day(g):
         run_tour(ctx, "cal_all_day", body, notes="Real Django on TiDB (unistore) under uvicorn, headless Chromium 390x844 emulated. One synthetic employee. Stage 1 (create) and Stage 2 (edit) are different moments: the event is first 3 to 5 Dec, then moved to 8 Dec. Not shown: another time zone, guests, the clock-change cases (covered by unit tests only).", unshown=["another person's calendar", "clock-change days", "guests"])
 
     g["DRILLS"]["tour_cal_all_day"] = tour
+
+
+def register_tasks_restore(g):
+    APP = g["APP"]
+
+    def tour(ctx):
+        def body(t, pg):
+            txt = lambda: pg.inner_text("body")  # noqa: E731
+            pg.goto(APP + "/tasks/")
+            pg.wait_for_timeout(500)
+            t.step("STAGE 1 SET UP: make a list called Sprint", lambda: (pg.fill("input[name=name]", "Sprint"), pg.click("button:has-text('Add list')")), expect=lambda: "Sprint" in txt())
+            t.step("STAGE 1 SET UP: add the task Ship report", lambda: (pg.fill("input[aria-label='Task title']", "Ship report"), pg.click(".tasks-add button")), expect=lambda: "Ship report" in txt())
+            t.step("STAGE 1 SET UP: add the subtask Draft under it", lambda: (pg.fill("input[aria-label='Subtask title']", "Draft"), pg.click(".task-sub-add button")), expect=lambda: "Draft" in txt())
+            t.step("STAGE 2 DELETE: Delete the task. The page says it can be restored from the Trash tab", lambda: pg.click("a:has-text('Delete'):near(:text('Ship report'))"), expect=lambda: "restore it from the Trash tab" in txt())
+            t.step("STAGE 2 DELETE: confirm. The list no longer shows the task or its subtask", lambda: pg.click("button:has-text('Delete')"), expect=lambda: "Ship report" not in txt() and "Draft" not in txt())
+            t.step("STAGE 3 RESTORE: open Trash. Ship report is listed once, with a Restore button (its subtask goes back with it)", lambda: pg.click(".tasks-tabs a:has-text('Trash')"), expect=lambda: "Ship report" in txt() and "Draft" not in txt() and pg.locator("button:has-text('Restore')").count() == 1)
+            t.step("STAGE 3 RESTORE: press Restore, then open the list. The task and its subtask are back", lambda: (pg.click("button:has-text('Restore')"), pg.click(".tasks-tabs a:has-text('My lists')")), expect=lambda: "Ship report" in txt() and "Draft" in txt(), wait=1800)
+            t.step("STAGE 4 LIST: Delete this list and confirm", lambda: (pg.click("a:has-text('Delete this list')"), pg.click("button:has-text('Delete')")), expect=lambda: "Sprint" not in pg.locator(".tasks-tabs").inner_text())
+            t.step("STAGE 4 LIST: Trash shows the list Sprint. Restore it and the tasks come back", lambda: (pg.click(".tasks-tabs a:has-text('Trash')"), pg.click("button:has-text('Restore')"), pg.click(".tasks-tabs a:has-text('My lists')")), expect=lambda: "Sprint" in txt() and "Ship report" in txt() and "Draft" in txt(), wait=1800)
+        run_tour(ctx, "tasks_restore", body, notes="Real Django on TiDB (unistore) under uvicorn, headless Chromium 390x844 emulated. One synthetic employee. Stages are separate moments: set up, delete, restore the task, delete and restore the list. Not shown: another person's view, an assigned task, or the refusals (unit tests cover them).", unshown=["an assignee's view", "stale forms", "refusals"])
+
+    g["DRILLS"]["tour_tasks_restore"] = tour
 
 
 def register_drive_device(g):

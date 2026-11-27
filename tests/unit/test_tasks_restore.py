@@ -1,5 +1,7 @@
+import uuid
+
 import pytest
-from django.core.exceptions import ValidationError
+from django.core.exceptions import PermissionDenied, ValidationError
 from django.test import Client
 from django.urls import reverse
 
@@ -48,15 +50,15 @@ def test_only_the_owner_restores_and_a_live_task_or_a_deleted_list_refuses(setup
     a, b, tl = setup
     t = svc.create_task(a, tl, "T")
     svc.assign(a, t, b)
-    with pytest.raises(Exception):
+    with pytest.raises(PermissionDenied):
         svc.restore_task(a, t)  # not deleted
     svc.delete_task(a, t)
     t = Task.objects.get(pk=t.pk)
-    with pytest.raises(Exception):
+    with pytest.raises(PermissionDenied):
         svc.restore_task(b, t)  # the assignee has no right, deleted or not
     assert Task.objects.get(pk=t.pk).deleted_at is not None
     svc.delete_list(a, tl)
-    with pytest.raises(Exception):
+    with pytest.raises(PermissionDenied):
         svc.restore_task(a, Task.objects.get(pk=t.pk))  # its list is deleted: restore the list
     assert svc.trash_for(a)[1] == []  # tasks of a deleted list are not listed by themselves
 
@@ -84,14 +86,14 @@ def test_restore_a_list_brings_back_only_the_tasks_deleted_with_it(setup):
     svc.delete_list(a, tl)
     lists, tasks = svc.trash_for(a)
     assert [x.name for x in lists] == ["Work"] and tasks == []
-    with pytest.raises(Exception):
+    with pytest.raises(PermissionDenied):
         svc.restore_list(b, tl)  # not the owner
     svc.restore_list(a, tl)
     assert [x.name for x in svc.lists_for(a)] == ["Work"]
     assert {t.title for t in svc.tasks_in(a, tl)} == {"Keep"}
     assert [t.title for t in svc.trash_for(a)[1]] == ["Gone earlier"]
     assert Task.objects.get(pk=keep.pk).deleted_at is None
-    with pytest.raises(Exception):
+    with pytest.raises(PermissionDenied):
         svc.restore_list(a, tl)  # a live list is not in the trash
 
 
@@ -138,9 +140,9 @@ def test_a_form_opened_before_the_delete_is_stale_after_restore_and_a_deleted_ta
     t = svc.create_task(a, tl, "Old form")
     seen = Task.objects.get(pk=t.pk).version  # the version an edit form was opened at
     svc.delete_task(a, t)
-    with pytest.raises(Exception):
+    with pytest.raises(PermissionDenied):
         svc.assign(a, Task.objects.get(pk=t.pk), b)  # deleted: no assigning, no editing
-    with pytest.raises(Exception):
+    with pytest.raises(PermissionDenied):
         svc.update_task(a, Task.objects.get(pk=t.pk), seen, title="x")
     svc.restore_task(a, Task.objects.get(pk=t.pk))
     with pytest.raises(svc.StaleVersion):
@@ -161,3 +163,74 @@ def test_deletions_in_separate_calls_have_separate_moments(setup):
     svc.delete_task(a, p)
     svc.restore_task(a, Task.objects.get(pk=p.pk))
     assert [t.title for t in svc.tasks_in(a, tl)] == ["P"]  # none of the earlier three revived
+
+
+def test_equal_clock_values_never_revive_unrelated_deletions(setup, monkeypatch):
+    """Every delete happens at one frozen instant. Restore must still bring back only its own delete call."""
+    from django.utils import timezone
+
+    a, b, tl = setup
+    frozen = timezone.now()
+    monkeypatch.setattr(timezone, "now", lambda: frozen)
+    p = svc.create_task(a, tl, "Parent")
+    k1 = svc.create_task(a, tl, "Kid one", parent=p)
+    k2 = svc.create_task(a, tl, "Kid two", parent=p)
+    svc.delete_task(a, k1)  # separate deletion, same clock value as everything below
+    svc.delete_task(a, p)  # takes k2 with it
+    assert len({x.deleted_at for x in Task.objects.filter(pk__in=[p.pk, k1.pk, k2.pk])}) == 1  # the collision is real
+    assert Task.objects.get(pk=k1.pk).delete_batch != Task.objects.get(pk=p.pk).delete_batch
+    assert Task.objects.get(pk=k2.pk).delete_batch == Task.objects.get(pk=p.pk).delete_batch
+    assert {t.title for t in svc.trash_for(a)[1]} == {"Parent", "Kid one"}  # k2 is not a separate entry
+    svc.restore_task(a, Task.objects.get(pk=p.pk))
+    live = {t.title for t in svc.tasks_in(a, tl)}
+    assert live == {"Parent", "Kid two"}  # Kid one stays deleted
+    assert Task.objects.get(pk=k1.pk).deleted_at is not None
+    assert Task.objects.get(pk=p.pk).delete_batch is None  # cleared on restore
+
+    # the same for a list: a task deleted earlier at the same instant stays deleted
+    early = svc.create_task(a, tl, "Early")
+    svc.delete_task(a, early)
+    svc.delete_list(a, tl)
+    svc.restore_list(a, tl)
+    assert {t.title for t in svc.tasks_in(a, tl)} == {"Parent", "Kid two"}
+    assert Task.objects.get(pk=early.pk).deleted_at is not None
+
+
+def test_legacy_rows_without_a_batch_fall_back_to_the_moment_but_only_among_themselves(setup):
+    """Rows deleted before batch ids existed have none. They group by moment, and a batched row at the same moment is not pulled in."""
+    from django.utils import timezone
+
+    a, b, tl = setup
+    p = svc.create_task(a, tl, "Parent")
+    old = svc.create_task(a, tl, "Legacy kid", parent=p)
+    new = svc.create_task(a, tl, "Batched kid", parent=p)
+    moment = timezone.now()
+    Task.objects.filter(pk__in=[p.pk, old.pk]).update(deleted_at=moment, delete_batch=None)
+    Task.objects.filter(pk=new.pk).update(deleted_at=moment, delete_batch=uuid.uuid4())
+    svc.restore_task(a, Task.objects.get(pk=p.pk))
+    assert {t.title for t in svc.tasks_in(a, tl)} == {"Parent", "Legacy kid"}
+    assert Task.objects.get(pk=new.pk).deleted_at is not None
+
+
+def test_restore_keeps_the_nesting_rules_and_never_changes_content_or_list_uniqueness(setup):
+    a, b, tl = setup
+    p = svc.create_task(a, tl, "Parent")
+    kid = svc.create_task(a, tl, "Kid", parent=p)
+    svc.delete_task(a, kid)
+    svc.assign(a, Task.objects.get(pk=p.pk), b)
+    with pytest.raises(ValidationError, match="directly under a task of your own"):
+        svc.restore_task(a, Task.objects.get(pk=kid.pk))  # its parent was given away meanwhile
+    assert Task.objects.get(pk=kid.pk).deleted_at is not None
+    # restoring a list never renames or merges: two lists with the same name stay two lists
+    svc.delete_list(a, tl)
+    twin = svc.create_list(a, "Work")
+    svc.restore_list(a, tl)
+    assert sorted(x.pk for x in svc.lists_for(a)) == sorted([tl.pk, twin.pk])
+    assert {x.name for x in svc.lists_for(a)} == {"Work"}
+    # a subtask restored under a deleted parent is refused with its own message
+    q = svc.create_task(a, tl, "Q")
+    k = svc.create_task(a, tl, "K", parent=q)
+    svc.delete_task(a, k)
+    svc.delete_task(a, q)
+    with pytest.raises(ValidationError, match="Restore its parent task first"):
+        svc.restore_task(a, Task.objects.get(pk=k.pk))
