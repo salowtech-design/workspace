@@ -276,6 +276,7 @@ def register(g):
     register_sheets_struct(g)
     register_sheets_struct_col(g)
     register_sheets_struct_more(g)
+    register_sheets_find(g)
     register_attendance_csv(g)
     register_post_review_notice(g)
     register_notice_open(g)
@@ -2104,6 +2105,87 @@ def register_sheets_struct_more(g):
                  unshown=["confirm dialogs (text asserted)", "remove-unreadable-rules while held"])
 
     g["DRILLS"]["tour_sheets_struct_more"] = tour
+
+
+def register_sheets_find(g):
+    APP = g["APP"]
+
+    def tour(ctx):
+        import json as _json
+
+        def put(pg, cells):
+            for a, v in cells:
+                sel = 'input[data-addr="%s"]' % a
+                pg.click(sel)
+                pg.fill(sel, v)
+                pg.press(sel, "Tab")
+
+        def val(pg, a):
+            return pg.input_value('input[data-addr="%s"]' % a)
+
+        def cj(pg):
+            k = pg.evaluate("document.getElementById('sheet-root').dataset.storeKey")
+            return _json.loads(pg.evaluate("k => localStorage.getItem(k)", k))
+
+        def fstat(pg):
+            return pg.inner_text("#find-status")
+
+        def find(pg, text, repl="", case=False, formulas=False):
+            pg.fill("#find-text", text)
+            pg.fill("#find-repl", repl)
+            pg.set_checked("#find-case", case)
+            pg.set_checked("#find-formulas", formulas)
+
+        def focused(pg):
+            return pg.evaluate("document.activeElement && document.activeElement.dataset ? document.activeElement.dataset.addr : null")
+
+        def body(t, pg):
+            pg.on("dialog", lambda d: d.accept())
+            pg.goto(APP + "/sheets/")
+            pg.evaluate("localStorage.clear()")
+            pg.goto(APP + "/sheets/")
+            pg.wait_for_timeout(500)
+            put(pg, [("A1", "Apple"), ("A2", "apple pie"), ("A3", "=UPPER(A1)"), ("B1", "5"), ("C1", "n5")])
+            pg.evaluate("""() => { const k = document.getElementById('sheet-root').dataset.storeKey;
+              localStorage.setItem(k + '.rules', JSON.stringify({v:1, rules:[{range:'C1:C1', kind:'number', min:0, max:9}]})); }""")
+            pg.goto(APP + "/sheets/")
+            pg.wait_for_timeout(500)
+            orig = cj(pg)
+            t.step("Find apple (any case): A1, A2 and the formula A3, whose shown result is APPLE, all match", lambda: (find(pg, "apple"), pg.click("#find-next")),
+                   expect=lambda: focused(pg) == "A1" and "1 of 3" in fstat(pg) and "1 of them in formula results" in fstat(pg))
+            t.step("Find next moves A1, then A2, then the formula result A3, then wraps to A1", lambda: [pg.click("#find-next") for _ in range(1)],
+                   expect=lambda: focused(pg) == "A2")
+            pg.click("#find-next")
+            ok3 = focused(pg) == "A3"
+            pg.click("#find-next")
+            t.step("Third Find next lands on A3, the fourth wraps back to A1", expect=lambda: ok3 and focused(pg) == "A1")
+            t.step("Match case on: only A2 matches", lambda: (find(pg, "apple", case=True), pg.click("#find-next")), expect=lambda: focused(pg) == "A2" and "1 of 1" in fstat(pg))
+            t.step("Replace all apple with fig: A1 and A2 change, the formula A3 stays and its result is only counted", lambda: (find(pg, "apple", "fig"), pg.click("#find-all")),
+                   expect=lambda: cj(pg)["A1"] == "fig" and cj(pg)["A2"] == "fig pie" and cj(pg)["A3"] == "=UPPER(A1)" and "2 cells changed" in fstat(pg) and "1 formula results matched and left alone" in fstat(pg) and val(pg, "A3") == "FIG")
+            t.step("One Undo puts every cell back, byte for byte", lambda: pg.click("#sheet-undo"), expect=lambda: cj(pg) == orig and val(pg, "A3") == "APPLE")
+            t.step("Formulas ticked: change A1 to B1 inside the formula text only", lambda: (find(pg, "A1", "B1", formulas=True), pg.click("#find-all")),
+                   expect=lambda: cj(pg)["A3"] == "=UPPER(B1)" and cj(pg)["A1"] == "Apple" and val(pg, "A3") == "5")
+            pg.click("#sheet-undo")
+            t.step("Replacing text with a formula is skipped: apple pie to =1 changes nothing", lambda: (find(pg, "apple pie", "=1"), pg.click("#find-all")),
+                   expect=lambda: cj(pg) == orig and "would become a formula" in fstat(pg) and "Nothing changed" in fstat(pg))
+            t.step("A replacement the validation rule refuses is skipped: C1 stays n5", lambda: (find(pg, "n", "9"), pg.click("#find-all")),
+                   expect=lambda: cj(pg)["C1"] == "n5" and "refused by validation rules" in fstat(pg))
+            t.step("Control: n replaced by nothing leaves 5, which the rule accepts, so C1 changes", lambda: (find(pg, "n", ""), pg.click("#find-all")),
+                   expect=lambda: cj(pg)["C1"] == "5" and "1 cells changed" in fstat(pg))
+            pg.click("#sheet-undo")
+            pg.fill("#filter-val", "apple"); pg.select_option("#filter-op", "contains"); pg.click("#filter-go")
+            t.step("With a filter on, Replace all is refused and nothing changes", lambda: (find(pg, "apple", "fig"), pg.click("#find-all")),
+                   expect=lambda: cj(pg) == orig and "filter is on" in fstat(pg))
+            pg.click("#filter-clear")
+            t.step("Replace all, then reload the page: the replaced cells are what is stored", lambda: (find(pg, "pie", "tart"), pg.click("#find-all")), expect=lambda: cj(pg)["A2"] == "apple tart")
+            pg.goto(APP + "/sheets/")
+            pg.wait_for_timeout(500)
+            t.step("After the reload A2 shows apple tart and A3 still shows APPLE", expect=lambda: val(pg, "A2") == "apple tart" and val(pg, "A3") == "APPLE")
+
+        run_tour(ctx, "104_sheets_find_replace", body, notes="Device-local sheet (browser only). Real Django on TiDB (unistore) under uvicorn, headless Chromium 390x844 emulated.",
+                 unshown=["status lines are mostly below the frame"])
+
+    g["DRILLS"]["tour_sheets_find"] = tour
 
 
 def register_slides_bg(g):

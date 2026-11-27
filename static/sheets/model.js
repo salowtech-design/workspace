@@ -434,6 +434,37 @@
   }
   // Copy the first row of a range down over the rest (dir "down") or its first column right over the rest ("right").
   // Text is copied as written, except that with a shift function a formula's relative references move with the fill ($ pins). Empty source cells clear the targets.
+
+  /* Find and replace over one tab's cells. Plain text only (no patterns), so "a.b" and "$1" mean what they say.
+   * Search: a typed (constant) cell is searched by its text. A formula cell is searched by its shown result by default; that match is
+   * listed but the formula is never changed. With o.formulas on, a formula cell is searched and replaced by its formula text instead
+   * (its shown result is then not searched). Replace: every occurrence in the cells that are searched in that way. A replacement is
+   * skipped, and counted, when it would turn typed text into a formula, would leave a formula without its leading "=", is too long,
+   * or is refused by a validation rule. Emptying a cell removes it. o: { find, repl (null = find only), matchCase, formulas }.
+   * ctx: { parseAddr, shown(addr) -> display text of a formula cell, check(addr, v) -> null | message, maxCell }. */
+  function findReplace(cells, o, ctx) {
+    var find = String(o.find == null ? "" : o.find);
+    if (!find) return { error: "Type the text to find." };
+    var flags = o.matchCase ? "g" : "gi", re = new RegExp(find.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), flags);
+    var addrs = Object.keys(cells).filter(function (a) { return ctx.parseAddr(a); }).sort(function (x, y) { var p = ctx.parseAddr(x), q = ctx.parseAddr(y); return p.row - q.row || p.col - q.col; });
+    var out = copy(cells), res = { hits: [], matched: 0, changed: 0, cleared: 0, resultOnly: 0, becameFormula: 0, lostEquals: 0, tooLong: 0, refused: 0 };
+    var doRepl = o.repl !== null && o.repl !== undefined, repl = String(doRepl ? o.repl : "");
+    addrs.forEach(function (a) {
+      var raw = cells[a], isF = raw.charAt(0) === "=", text;
+      if (isF && !o.formulas) { text = ctx.shown(a); text = text == null ? "" : String(text); if (text.search(re) < 0) return; re.lastIndex = 0; res.hits.push(a); res.matched++; res.resultOnly++; return; }
+      re.lastIndex = 0; if (raw.search(re) < 0) return; re.lastIndex = 0;
+      res.hits.push(a); res.matched++;
+      if (!doRepl) return;
+      var nv = raw.replace(re, function () { return repl; });
+      if (nv === raw) return;
+      if (!isF && nv.charAt(0) === "=") { res.becameFormula++; return; }
+      if (isF && nv.charAt(0) !== "=") { res.lostEquals++; return; }
+      if (nv.length > ctx.maxCell) { res.tooLong++; return; }
+      if (nv !== "") { var why = ctx.check ? ctx.check(a, nv) : null; if (why) { res.refused++; return; } delete out[a]; out[a] = nv; res.changed++; }
+      else { delete out[a]; res.cleared++; }
+    });
+    res.cells = out; return res;
+  }
   function fillRange(cells, rg, dir, check, addrOf, maxCell, shift) {
     var n = copy(cells), refErrs = 0, adjusted = 0, set = 0, cleared = 0, refused = 0, tooLong = 0, formulas = 0, down = dir === "down";
     var rows = rg.r2 - rg.r1 + 1, cols = rg.c2 - rg.c1 + 1;
@@ -584,6 +615,6 @@
     });
     return { groups: out, skipped: skipped, rows: rows };
   }
-  var api = { structApply: structApply, structRecover: structRecover, structRecovery: structRecovery, structRecoveryInfo: structRecoveryInfo, structEdit: structEdit, structRange: structRange, fillRange: fillRange, parseRange: parseRange, makeRule: makeRule, addRule: addRule, removeRule: removeRule, loadRules: loadRules, rulesJson: rulesJson, checkValue: checkValue, makePivot: makePivot, pivot: pivot, MAX_GROUPS: MAX_GROUPS, makeCf: makeCf, addCf: addCf, loadCf: loadCf, cfJson: cfJson, cfColor: cfColor, parsePaste: parsePaste, isBlock: isBlock, applyPaste: applyPaste, MAX_PASTE_CELLS: MAX_PASTE_CELLS, makeFmt: makeFmt, addFmt: addFmt, loadFmt: loadFmt, fmtJson: fmtJson, fmtFor: fmtFor, fmtText: fmtText, MAX_FMT: MAX_FMT, MAX_RULES: MAX_RULES, loadTabs: loadTabs, addTab: addTab, markFmt: markFmt, renameTab: renameTab, deleteTab: deleteTab, setActive: setActive, cleanName: cleanName, MAX_TABS: MAX_TABS, sortRange: sortRange, filterRows: filterRows, toNum: toNum, toCsv: toCsv, clean: clean, History: History, chartPoints: chartPoints, pieSlices: pieSlices, isComposing: isComposing, keyMove: keyMove, copy: copy, same: same };
+  var api = { structApply: structApply, structRecover: structRecover, structRecovery: structRecovery, structRecoveryInfo: structRecoveryInfo, structEdit: structEdit, structRange: structRange, fillRange: fillRange, findReplace: findReplace, parseRange: parseRange, makeRule: makeRule, addRule: addRule, removeRule: removeRule, loadRules: loadRules, rulesJson: rulesJson, checkValue: checkValue, makePivot: makePivot, pivot: pivot, MAX_GROUPS: MAX_GROUPS, makeCf: makeCf, addCf: addCf, loadCf: loadCf, cfJson: cfJson, cfColor: cfColor, parsePaste: parsePaste, isBlock: isBlock, applyPaste: applyPaste, MAX_PASTE_CELLS: MAX_PASTE_CELLS, makeFmt: makeFmt, addFmt: addFmt, loadFmt: loadFmt, fmtJson: fmtJson, fmtFor: fmtFor, fmtText: fmtText, MAX_FMT: MAX_FMT, MAX_RULES: MAX_RULES, loadTabs: loadTabs, addTab: addTab, markFmt: markFmt, renameTab: renameTab, deleteTab: deleteTab, setActive: setActive, cleanName: cleanName, MAX_TABS: MAX_TABS, sortRange: sortRange, filterRows: filterRows, toNum: toNum, toCsv: toCsv, clean: clean, History: History, chartPoints: chartPoints, pieSlices: pieSlices, isComposing: isComposing, keyMove: keyMove, copy: copy, same: same };
   if (typeof module !== "undefined" && module.exports) module.exports = api; else root.SalowSheetModel = api;
 })(typeof self !== "undefined" ? self : this);
