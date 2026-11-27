@@ -5,7 +5,7 @@ from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db.models.functions import Upper
-from django.http import Http404, HttpResponse
+from django.http import Http404, HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.views.decorators.http import require_POST
 
@@ -323,3 +323,65 @@ def unshare_item(request, kind, item_id):
     else:
         messages.success(request, "Access removed.")  # same outcome as a person who had no share
     return _back(item) if kind == "file" else redirect("drive:folder", folder_id=item.public_id)
+
+
+# ---- file records (metadata only) --------------------------------------------------------------
+# The file bytes never reach the server: the browser keeps them on the person's device and sends only
+# the name, size and SHA-256. These endpoints say nothing about whether any device holds the bytes.
+
+def _json_error(exc):
+    if isinstance(exc, PermissionDenied):
+        return JsonResponse({"ok": False, "error": "You do not have permission to do that."}, status=403)
+    return JsonResponse({"ok": False, "error": " ".join(exc.messages)}, status=400)
+
+
+def _file_json(f):
+    return {
+        "id": str(f.public_id),
+        "name": f.name,
+        "version": f.current_version,
+        "size": f.size,
+        "content_type": f.content_type,
+    }
+
+
+@login_required
+@require_POST
+def file_new(request):
+    """Create a file RECORD (version 0, no bytes recorded) in a folder the person may edit, or in My Drive."""
+    folder = None
+    fid = request.POST.get("folder")
+    if fid:
+        try:
+            folder = Folder.objects.filter(public_id=uuid.UUID(fid)).first()
+        except ValueError:
+            folder = None
+        if folder is None:
+            raise Http404
+        _visible_or_404(request.user, folder)
+    try:
+        f = svc.create_file(request.user, request.POST.get("name", ""), folder, request.POST.get("content_type", ""))
+    except (ValidationError, PermissionDenied) as exc:
+        return _json_error(exc)
+    return JsonResponse({"ok": True, "file": _file_json(f)}, status=201)
+
+
+@login_required
+@require_POST
+def file_version(request, item_id):
+    """Record that a new version (size and SHA-256 the browser computed) exists. 409 when someone saved first."""
+    f = _visible_or_404(request.user, get_object_or_404(DriveFile, public_id=item_id))
+    try:
+        base = int(request.POST.get("base_version", ""))
+        size = int(request.POST.get("size", ""))
+    except ValueError:
+        return JsonResponse({"ok": False, "error": "Invalid version or size."}, status=400)
+    try:
+        svc.add_version(request.user, f, base, size, request.POST.get("sha256", ""))
+    except svc.VersionConflict as exc:
+        f.refresh_from_db()
+        return JsonResponse({"ok": False, "error": " ".join(exc.messages), "current_version": f.current_version}, status=409)
+    except (ValidationError, PermissionDenied) as exc:
+        return _json_error(exc)
+    f.refresh_from_db()
+    return JsonResponse({"ok": True, "file": _file_json(f)})
