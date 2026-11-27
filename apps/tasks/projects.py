@@ -322,6 +322,26 @@ def create_milestone(user, project, name, due=None):
 
 
 @transaction.atomic
+def edit_milestone(user, project, milestone_id, name, due=None):
+    """A lead changes a milestone's name and due date (an empty date clears it). Same rules as creating one. The milestone must be a live one of
+    this project, judged under the project lock. There is no version on a milestone, so two leads saving at once means the last save wins."""
+    p = _lock_as_lead(user, project)
+    name = (name or "").strip()
+    if not name or len(name) > 120:
+        raise ValidationError("A milestone needs a name of up to 120 characters.")
+    if due is not None and not isinstance(due, datetime.date):
+        raise ValidationError("Use a date like 2026-12-31.")
+    ms = Milestone.objects.filter(pk=milestone_id, project=p, deleted_at__isnull=True).first()
+    if ms is None:
+        raise Http404
+    if (ms.name, ms.due_date) != (name, due):
+        Milestone.objects.filter(pk=ms.pk).update(name=name, due_date=due)
+        audit(user, "tasks.milestone.edit", "milestone", ms.pk, project=p.pk)
+    ms.refresh_from_db()
+    return ms
+
+
+@transaction.atomic
 def set_milestone(user, task, milestone_id, expected_version=None):
     """Point a task at a milestone of its own project, or clear it (empty id)."""
     p = _lock_as_lead(user, task.project)

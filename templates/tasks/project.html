@@ -33,7 +33,9 @@
       <input type="text" name="title" maxlength="1024" placeholder="Add a task" required><button class="btn btn-outline btn-small" type="submit">Add</button></form>{% endif %}
   </div>{% endfor %}</div>
   <h3>Milestones</h3>
-  {% for ms in milestones %}<div class="task-row"><span class="task-title">{{ ms.name }}</span><span class="task-meta">{% if ms.due_date %}Due {{ ms.due_date|date:"j M Y" }} · {% endif %}{{ ms.in_done }} of {{ ms.total }} in Done</span></div>
+  {% for ms in milestones %}<div class="task-row"><span class="task-title">{{ ms.name }}</span><span class="task-meta">{% if ms.due_date %}Due {{ ms.due_date|date:"j M Y" }} · {% endif %}{{ ms.in_done }} of {{ ms.total }} in Done</span>
+    {% if is_lead %}<form method="post" action="{% url 'tasks:milestone_edit' project.public_id ms.pk %}" class="tasks-inline">{% csrf_token %}
+      <input type="text" name="name" maxlength="120" value="{{ ms.name }}" aria-label="Milestone name for {{ ms.name }}" required><input type="date" name="due" value="{{ ms.due_date|date:'Y-m-d' }}" aria-label="Milestone due date for {{ ms.name }}"><button class="btn btn-outline btn-small" type="submit">Save</button></form>{% endif %}</div>
   {% empty %}<p class="task-meta">No milestones yet.</p>{% endfor %}
   {% if is_lead %}<form method="post" action="{% url 'tasks:milestone_add' project.public_id %}" class="tasks-inline">{% csrf_token %}
     <input type="text" name="name" maxlength="120" placeholder="New milestone" required><input type="date" name="due"><button class="btn btn-outline btn-small" type="submit">Add milestone</button></form>{% endif %}

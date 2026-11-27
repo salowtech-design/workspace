@@ -264,6 +264,28 @@ def add_milestone(request, project_id):
 
 @login_required
 @require_POST
+def edit_milestone(request, project_id, milestone_id):
+    import datetime
+
+    p = pj.get_project(request.user, project_id)
+    raw = (request.POST.get("due") or "").strip()
+    try:
+        due = datetime.date.fromisoformat(raw) if raw else None
+    except ValueError:
+        messages.error(request, "Use a date like 2026-12-31.")
+        return redirect("tasks:project", project_id=p.public_id)
+    try:
+        pj.edit_milestone(request.user, p, milestone_id, request.POST.get("name", ""), due)
+        messages.success(request, "Milestone saved.")
+    except ValidationError as exc:
+        messages.error(request, " ".join(exc.messages))
+    except PermissionDenied:
+        messages.error(request, "Only a project lead can change milestones.")
+    return redirect("tasks:project", project_id=p.public_id)
+
+
+@login_required
+@require_POST
 def task_milestone(request, task_id):
     t = pj.get_task(request.user, task_id)
     raw = request.POST.get("milestone", "")

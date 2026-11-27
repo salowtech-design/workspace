@@ -46,6 +46,7 @@ urlpatterns = [
         project_views.add_milestone,
         name="milestone_add",
     ),
+    path("projects/<uuid:project_id>/milestones/<int:milestone_id>/edit/", project_views.edit_milestone, name="milestone_edit"),
     path(
         "projects/task/<uuid:task_id>/milestone/",
         project_views.task_milestone,

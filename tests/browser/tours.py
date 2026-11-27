@@ -287,6 +287,7 @@ def register(g):
     register_tasks_overdue(g)
     register_project_restore(g)
     register_project_rename(g)
+    register_milestone_edit(g)
     register_subtask_edit(g)
     register_task_reorder(g)
     register_clear_completed(g)
@@ -2458,6 +2459,26 @@ def register_project_rename(g):
         run_tour(ctx, "project_rename", body, notes="Real Django on TiDB (unistore) under uvicorn, headless Chromium 390x844 emulated. One synthetic employee who leads the project. Stages: set up, rename, see the new name, refuse a blank name (the page's required attribute removed so the server rule is what answers). Not shown: a plain member's view (hidden form, refusal in unit tests), another person's view.", unshown=["a member's view", "another person's view"])
 
     g["DRILLS"]["tour_project_rename"] = tour
+
+
+def register_milestone_edit(g):
+    APP = g["APP"]
+
+    def tour(ctx):
+        def body(t, pg):
+            txt = lambda: pg.inner_text("body")  # noqa: E731
+            row = lambda: pg.locator(".task-row:has(input[aria-label^='Milestone name'])")  # noqa: E731
+            pg.goto(APP + "/tasks/projects/")
+            pg.wait_for_timeout(500)
+            t.step("STAGE 1 SET UP: make a project called Launch", lambda: (pg.fill("input[name=name]", "Launch"), pg.click("button:has-text('Add project')")), expect=lambda: pg.inner_text(".tasks-head h2") == "Launch")
+            t.step("STAGE 1 SET UP: add the milestone Alpha due 2026-12-01", lambda: (pg.fill("form[action$='/milestones/new/'] input[name=name]", "Alpha"), pg.fill("form[action$='/milestones/new/'] input[name=due]", "2026-12-01"), pg.click("button:has-text('Add milestone')")), expect=lambda: "Milestone added." in txt() and "Due 1 Dec 2026" in txt())
+            t.step("STAGE 2 EDIT: scroll to the milestone row. Its box shows Alpha and 2026-12-01", lambda: row().scroll_into_view_if_needed(), expect=lambda: pg.input_value("input[aria-label='Milestone name for Alpha']") == "Alpha", wait=1500)
+            t.step("STAGE 2 EDIT: type the name Beta and the date 2027-02-03. Not saved yet", lambda: (pg.fill("input[aria-label='Milestone name for Alpha']", "Beta"), pg.fill("input[aria-label='Milestone due date for Alpha']", "2027-02-03")), expect=lambda: "Due 1 Dec 2026" in txt(), wait=1800)
+            t.step("STAGE 2 EDIT: press Save. The banner says Milestone saved. and the row reads Beta, Due 3 Feb 2027", lambda: (pg.click("button:has-text('Save')"), pg.wait_for_timeout(300), row().scroll_into_view_if_needed()), expect=lambda: "Milestone saved." in txt() and "Due 3 Feb 2027" in row().inner_text() and "Beta" in row().inner_text(), wait=2200)
+            t.step("STAGE 3 CLEAR DATE: empty the date box and press Save. The row shows no due date", lambda: (pg.fill("input[aria-label='Milestone due date for Beta']", ""), pg.click("button:has-text('Save')"), pg.wait_for_timeout(300), row().scroll_into_view_if_needed()), expect=lambda: "Due " not in row().inner_text() and "Beta" in row().inner_text(), wait=2200)
+        run_tour(ctx, "milestone_edit", body, notes="Real Django on TiDB (unistore) under uvicorn, headless Chromium 390x844 emulated. One synthetic employee who leads the project. Stages: set up a milestone, change its name and due date, clear the date. Not shown: a plain member's view (hidden form, refusal in unit tests), another person's view, two leads saving at once (last save wins).", unshown=["a member's view", "another person's view", "two leads saving at once"])
+
+    g["DRILLS"]["tour_milestone_edit"] = tour
 
 
 def register_subtask_edit(g):
