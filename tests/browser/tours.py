@@ -273,6 +273,7 @@ def register(g):
     register_slides_dup_sheets_fx(g)
     register_slides_bg(g)
     register_sheets_refs(g)
+    register_sheets_struct(g)
     register_attendance_csv(g)
     register_post_review_notice(g)
     register_notice_open(g)
@@ -1880,6 +1881,77 @@ def register_sheets_refs(g):
                  unshown=["paste (keeps formulas as written; covered by node rows)", "ranges and quoted text (node rows)", "existing stored sheets (unchanged until a fill)"])
 
     g["DRILLS"]["tour_sheets_refs"] = tour
+
+
+def register_sheets_struct(g):
+    APP = g["APP"]
+
+    def tour(ctx):
+        def put(pg, cells):
+            for a, v in cells:
+                sel = 'input[data-addr="%s"]' % a
+                pg.click(sel)
+                pg.fill(sel, v)
+                pg.press(sel, "Tab")
+
+        def val(pg, a):
+            return pg.input_value('input[data-addr="%s"]' % a)
+
+        def bar(pg, a):
+            pg.click('input[data-addr="%s"]' % a)
+            return pg.input_value("#sheet-bar")
+
+        def raw(pg):  # the four stored texts of the first tab
+            return pg.evaluate("""() => { const k = document.getElementById('sheet-root').dataset.storeKey; return [k, k + '.rules', k + '.cf', k + '.fmt'].map(x => localStorage.getItem(x)); }""")
+
+        def stat(pg):
+            return pg.inner_text("#sheet-status")
+
+        def body(t, pg):
+            seen = []
+            pg.on("dialog", lambda d: (seen.append(d.message), d.accept()))
+            pg.goto(APP + "/sheets/")
+            pg.evaluate("localStorage.clear()")
+            pg.goto(APP + "/sheets/")
+            pg.wait_for_timeout(500)
+            t.step("A small sheet: numbers in A1:A3, formulas in B3 and C1", lambda: put(pg, [("A1", "1"), ("A2", "2"), ("A3", "3"), ("B3", "=SUM(A1:A3)"), ("C1", "=A2")]), expect=lambda: val(pg, "B3") != "")
+            # a validation, a colour and a format rule, stored as the page stores them, then reload so the page reads them
+            pg.evaluate("""() => { const k = document.getElementById('sheet-root').dataset.storeKey;
+              localStorage.setItem(k + '.rules', JSON.stringify({v:1, rules:[{range:'A2:A3', kind:'number', min:0, max:9}]}));
+              localStorage.setItem(k + '.cf', JSON.stringify({v:1, rules:[{range:'A1:A3', kind:'greater', color:'red', value:1}]}));
+              localStorage.setItem(k + '.fmt', JSON.stringify({v:1, rules:[{range:'B1:B3', bold:true}]})); }""")
+            pg.goto(APP + "/sheets/")
+            pg.wait_for_timeout(500)
+            orig = raw(pg)
+            t.step("Rules on the sheet: a validation rule on A2:A3, a colour rule on A1:A3, a bold format on B1:B3", expect=lambda: pg.locator("#val-list li").count() == 1)
+            t.step("Select A2 and Insert row above: the SUM range grows and the rules move with their rows", lambda: (pg.click('input[data-addr="A2"]'), pg.click("#row-ins")),
+                   expect=lambda: bar(pg, "B4") == "=SUM(A1:A4)" and val(pg, "A2") == "" and val(pg, "A3") == "2" and '"A3:A4"' in raw(pg)[1] and '"A1:A4"' in raw(pg)[2] and '"B1:B4"' in raw(pg)[3] and "Inserted" in stat(pg))
+            t.step("Undo: the sheet and all three rule lists are back exactly as stored before", lambda: pg.click("#sheet-undo"), expect=lambda: raw(pg) == orig and val(pg, "A2") == "2" and "Undone" in stat(pg))
+            t.step("Select A2 and Delete row: the confirm names what it removes; the formula that pointed at A2 shows #REF!", lambda: (pg.click('input[data-addr="A2"]'), pg.click("#row-del")),
+                   expect=lambda: bar(pg, "C1") == "=#REF!" and bar(pg, "B2") == "=SUM(A1:A2)" and any("Delete row 2" in m and "filled cells" in m for m in seen) and '"A2:A2"' in raw(pg)[1])
+            t.step("Undo brings the row, the formula and the rules back", lambda: pg.click("#sheet-undo"), expect=lambda: raw(pg) == orig and bar(pg, "C1") == "=A2")
+            t.step("Redo is available. Another window changes a rule now", lambda: pg.evaluate("""() => { const k = document.getElementById('sheet-root').dataset.storeKey; localStorage.setItem(k + '.rules', JSON.stringify({v:1, rules:[{range:'A2:A3', kind:'number', min:0, max:5}]})); }"""), expect=lambda: not pg.is_disabled("#sheet-redo"))
+            changed = raw(pg)
+            t.step("Redo of the row delete refuses and changes nothing", lambda: pg.click("#sheet-redo"), expect=lambda: raw(pg) == changed and "cannot be redone safely" in stat(pg) and bar(pg, "C1") == "=A2")
+            pg.goto(APP + "/sheets/")
+            pg.wait_for_timeout(500)
+            t.step("Failure test: the colour rule write throws partway. The page reads every key back as before and says so", lambda: (
+                pg.evaluate("""() => { window.__o = Storage.prototype.setItem; Storage.prototype.setItem = function (k, v) { if (k.endsWith('.cf')) throw new Error('quota'); return window.__o.call(this, k, v); }; }"""),
+                pg.click('input[data-addr="A2"]'), pg.click("#row-ins")),
+                expect=lambda: raw(pg) == changed and "read back as it was before" in stat(pg) and val(pg, "A2") == "2" and not pg.is_visible("#struct-recovery"))
+            t.step("Failure test: the restore also fails, so the sheet is left unfinished: a Restore notice appears", lambda: (
+                pg.evaluate("""() => { Storage.prototype.setItem = function (k, v) { if (k.endsWith('.cf') || (k === document.getElementById('sheet-root').dataset.storeKey && v.indexOf('"A2":"2"') >= 0)) throw new Error('quota'); return window.__o.call(this, k, v); }; }"""),
+                pg.click('input[data-addr="A2"]'), pg.click("#row-ins")),
+                expect=lambda: pg.is_visible("#struct-recovery") and "did not finish" in pg.inner_text("#struct-recovery") and pg.locator("#struct-restore").count() == 1 and "Not known to be as before: cells" in stat(pg))
+            t.step("While the notice is up, typing a value is refused and nothing is saved", lambda: put(pg, [("D1", "x")]), expect=lambda: "Nothing can be edited" in stat(pg) and '"D1"' not in (raw(pg)[0] or ""))
+            t.step("The storage works again: Restore puts all four items back and editing resumes", lambda: (pg.evaluate("() => { Storage.prototype.setItem = window.__o; }"), pg.click("#struct-restore")),
+                   expect=lambda: (not pg.is_visible("#struct-recovery") and raw(pg) == changed and "Restored the tab" in stat(pg)) or (_ for _ in ()).throw(Exception(stat(pg)[:110] + " | vis=%s same=%s" % (pg.is_visible("#struct-recovery"), raw(pg) == changed))))
+            t.step("Editing works again", lambda: put(pg, [("D1", "y")]), expect=lambda: val(pg, "D1") == "y" and '"D1":"y"' in raw(pg)[0])
+
+        run_tour(ctx, "101_sheets_row_column", body, notes="Device-local sheet (browser only). Real Django on TiDB (unistore) under uvicorn, headless Chromium 390x844 emulated. Storage faults are injected in the page.",
+                 unshown=["column insert and delete (node rows)", "unreadable recovery copy"])
+
+    g["DRILLS"]["tour_sheets_struct"] = tour
 
 
 def register_slides_bg(g):

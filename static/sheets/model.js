@@ -15,20 +15,27 @@
 
   // store: { save(cells) -> true | false }. The failure text stays visible until a save works.
   function History(initial, store, limit) {
-    var h = this; h.cells = initial; h.past = []; h.future = []; h.limit = limit || 100; h.store = store; h.saveFailed = false; h.note = "";
+    var h = this; h.cells = initial; h.past = []; h.future = []; h.pm = []; h.fm = []; h.limit = limit || 100; h.store = store; h.saveFailed = false; h.note = "";
+    // pm and fm run alongside past and future: null for an ordinary step, or { before, after } (the four raw stored texts) for a structural one.
     h.persist = function (note) {
       var ok = false; try { ok = h.store.save(h.cells) !== false; } catch (e) { ok = false; }
       h.saveFailed = !ok;
       h.note = ok ? (note || "Saved on this device.") : "This browser would not store the sheet, so these changes are on screen only and will be lost on reload." + (note ? " " + note : "");
       return ok;
     };
+    function push(meta) { h.past.push(copy(h.cells)); h.pm.push(meta); if (h.past.length > h.limit) { h.past.shift(); h.pm.shift(); } h.future = []; h.fm = []; }
     h.change = function (next, note) {
       if (same(h.cells, next)) return false;
-      h.past.push(copy(h.cells)); if (h.past.length > h.limit) h.past.shift(); h.future = [];
-      h.cells = next; h.persist(note); return true;
+      push(null); h.cells = next; h.persist(note); return true;
     };
-    h.undo = function () { if (!h.past.length) return false; h.future.push(copy(h.cells)); h.cells = h.past.pop(); h.persist("Undone."); return true; };
-    h.redo = function () { if (!h.future.length) return false; h.past.push(copy(h.cells)); h.cells = h.future.pop(); h.persist("Redone."); return true; };
+    // A structural step was already written to storage by the caller (all four keys); this only records it.
+    h.recordExternal = function (next, meta, note) { push(meta); h.cells = next; h.saveFailed = false; h.note = note || ""; };
+    h.topMeta = function (redo) { var a = redo ? h.fm : h.pm; return a.length ? a[a.length - 1] : null; };
+    h.undo = function () { if (!h.past.length || h.topMeta(false)) return false; h.future.push(copy(h.cells)); h.fm.push(null); h.cells = h.past.pop(); h.pm.pop(); h.persist("Undone."); return true; };
+    h.redo = function () { if (!h.future.length || h.topMeta(true)) return false; h.past.push(copy(h.cells)); h.pm.push(null); h.cells = h.future.pop(); h.fm.pop(); h.persist("Redone."); return true; };
+    // Undo or redo of a structural step, after the caller wrote the four keys: moves the cells exactly as undo and redo do, without saving them again.
+    h.undoExternal = function () { var m = h.pm.pop(); h.future.push(copy(h.cells)); h.fm.push(m); h.cells = h.past.pop(); h.saveFailed = false; h.note = "Undone."; };
+    h.redoExternal = function () { var m = h.fm.pop(); h.past.push(copy(h.cells)); h.pm.push(m); h.cells = h.future.pop(); h.saveFailed = false; h.note = "Redone."; };
   }
 
   // values: array of {a, v}; returns bars relative to a zero axis. A value of 0 has no bar.
@@ -496,7 +503,7 @@
     if (!e.ok) return { status: "refused", reason: "storage" };
     if (e.v !== null) return { status: "refused", reason: "recovery-exists" };
     for (i = 0; i < 4; i++) { var r = sRead(st, keys[i]); if (!r.ok) return { status: "refused", reason: "storage" }; if (r.v !== expect[i]) return { status: "refused", reason: "stale", key: keys[i] }; cur.push(r.v); }
-    if (next.every(function (x, k) { return x === expect[k]; })) return { status: "done", noop: true };
+    if (next.every(function (x, k) { return x === expect[k]; })) return { status: "refused", reason: "no-change" };
     var bak = JSON.stringify({ v: 1, keys: keys, raw: expect, next: next });
     if (!sWrite(st, bakKey, bak)) { return sDrop(st, bakKey) ? { status: "refused", reason: "no-recovery-copy" } : { status: "refused", reason: "recovery-stuck", bakKept: true }; }
     var attempted = [], failed = false;
@@ -515,17 +522,17 @@
     if (bad.length) return { status: "failed-unresolved", bad: bad, bakKept: true };
     return { status: "failed-restored", bakLeft: !sDrop(st, bakKey) };
   }
-  function bakRead(st, bakKey) {
+  function bakRead(st, bakKey, keys) {
     var r = sRead(st, bakKey); if (!r.ok) return { state: "storage" }; if (r.v === null) return { state: "none" };
     var b = null; try { b = JSON.parse(r.v); } catch (e) { b = null; }
     var arr = function (a, nullable) { return Array.isArray(a) && a.length === 4 && a.every(function (x) { return typeof x === "string" && (nullable || x !== "") || (nullable && x === null); }); };
-    if (!b || b.v !== 1 || !arr(b.keys, false) || !arr(b.raw, true) || !arr(b.next, true)) return { state: "unreadable" };
+    if (!b || b.v !== 1 || !arr(b.keys, false) || b.keys.join("\n") !== keys.join("\n") || !arr(b.raw, true) || !arr(b.next, true)) return { state: "unreadable" };
     return { state: "found", keys: b.keys, raw: b.raw, next: b.next };
   }
   // Put the four keys back as the recovery copy recorded them. A key that holds neither the recorded original nor the recorded new text was changed by
   // something else: without force it is left alone and the call returns conflict with nothing written; with force (the user said so) it is overwritten.
-  function structRecover(st, bakKey, force) {
-    var b = bakRead(st, bakKey); if (b.state !== "found") return { status: b.state === "none" ? "none" : b.state };
+  function structRecover(st, bakKey, keys, force) {
+    var b = bakRead(st, bakKey, keys); if (b.state !== "found") return { status: b.state === "none" ? "none" : b.state };
     var todo = [], conflict = [], i;
     for (i = 0; i < 4; i++) { var r = sRead(st, b.keys[i]); if (!r.ok) return { status: "storage" }; if (r.v === b.raw[i]) continue; if (r.v === b.next[i] || force) todo.push(i); else conflict.push(b.keys[i]); }
     if (conflict.length) return { status: "conflict", keys: conflict };
@@ -534,7 +541,8 @@
     if (bad.length) return { status: "unresolved", bad: bad };
     return { status: "restored", bakLeft: !sDrop(st, bakKey) };
   }
-  function structRecovery(st, bakKey) { var b = bakRead(st, bakKey); return b.state; }
+  function structRecovery(st, bakKey, keys) { return bakRead(st, bakKey, keys).state; }
+  function structRecoveryInfo(st, bakKey, keys) { return bakRead(st, bakKey, keys); }
   // ---- Pivot: group rows of a range by one column and total another. Read only: it never writes to cells. ----
   var PIVOT_AGGS = ["count", "sum", "average", "min", "max"], MAX_GROUPS = 20;
   function colNo(t) { var m = /^\s*([A-Za-z])\s*$/.exec(String(t)); return m ? m[1].toUpperCase().charCodeAt(0) - 64 : null; }
@@ -576,6 +584,6 @@
     });
     return { groups: out, skipped: skipped, rows: rows };
   }
-  var api = { structApply: structApply, structRecover: structRecover, structRecovery: structRecovery, structEdit: structEdit, structRange: structRange, fillRange: fillRange, parseRange: parseRange, makeRule: makeRule, addRule: addRule, removeRule: removeRule, loadRules: loadRules, rulesJson: rulesJson, checkValue: checkValue, makePivot: makePivot, pivot: pivot, MAX_GROUPS: MAX_GROUPS, makeCf: makeCf, addCf: addCf, loadCf: loadCf, cfJson: cfJson, cfColor: cfColor, parsePaste: parsePaste, isBlock: isBlock, applyPaste: applyPaste, MAX_PASTE_CELLS: MAX_PASTE_CELLS, makeFmt: makeFmt, addFmt: addFmt, loadFmt: loadFmt, fmtJson: fmtJson, fmtFor: fmtFor, fmtText: fmtText, MAX_FMT: MAX_FMT, MAX_RULES: MAX_RULES, loadTabs: loadTabs, addTab: addTab, markFmt: markFmt, renameTab: renameTab, deleteTab: deleteTab, setActive: setActive, cleanName: cleanName, MAX_TABS: MAX_TABS, sortRange: sortRange, filterRows: filterRows, toNum: toNum, toCsv: toCsv, clean: clean, History: History, chartPoints: chartPoints, pieSlices: pieSlices, isComposing: isComposing, keyMove: keyMove, copy: copy, same: same };
+  var api = { structApply: structApply, structRecover: structRecover, structRecovery: structRecovery, structRecoveryInfo: structRecoveryInfo, structEdit: structEdit, structRange: structRange, fillRange: fillRange, parseRange: parseRange, makeRule: makeRule, addRule: addRule, removeRule: removeRule, loadRules: loadRules, rulesJson: rulesJson, checkValue: checkValue, makePivot: makePivot, pivot: pivot, MAX_GROUPS: MAX_GROUPS, makeCf: makeCf, addCf: addCf, loadCf: loadCf, cfJson: cfJson, cfColor: cfColor, parsePaste: parsePaste, isBlock: isBlock, applyPaste: applyPaste, MAX_PASTE_CELLS: MAX_PASTE_CELLS, makeFmt: makeFmt, addFmt: addFmt, loadFmt: loadFmt, fmtJson: fmtJson, fmtFor: fmtFor, fmtText: fmtText, MAX_FMT: MAX_FMT, MAX_RULES: MAX_RULES, loadTabs: loadTabs, addTab: addTab, markFmt: markFmt, renameTab: renameTab, deleteTab: deleteTab, setActive: setActive, cleanName: cleanName, MAX_TABS: MAX_TABS, sortRange: sortRange, filterRows: filterRows, toNum: toNum, toCsv: toCsv, clean: clean, History: History, chartPoints: chartPoints, pieSlices: pieSlices, isComposing: isComposing, keyMove: keyMove, copy: copy, same: same };
   if (typeof module !== "undefined" && module.exports) module.exports = api; else root.SalowSheetModel = api;
 })(typeof self !== "undefined" ? self : this);

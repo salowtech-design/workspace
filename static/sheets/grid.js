@@ -83,9 +83,9 @@
     orig = cells[cur] || ""; bar.value = orig; barDirty = false;
   }
   function buttons() { undoBtn.disabled = !H.past.length; redoBtn.disabled = !H.future.length; }
-  function change(next, note) { if (!H.change(next, note)) return false; sync(); return true; }
-  function undo() { if (H.undo()) sync(); }
-  function redo() { if (H.redo()) sync(); }
+  function change(next, note) { if (heldMsg()) return false; if (!H.change(next, note)) return false; sync(); return true; }
+  function undo() { if (heldMsg()) return; var m = H.topMeta(false); if (m) { structStep(false, m); return; } if (H.undo()) sync(); }
+  function redo() { if (heldMsg()) return; var m = H.topMeta(true); if (m) { structStep(true, m); return; } if (H.redo()) sync(); }
   undoBtn.addEventListener("click", undo); redoBtn.addEventListener("click", redo);
 
   var table = document.createElement("table"), inputs = Object.create(null), cur = null, orig = "";
@@ -291,7 +291,7 @@
     if (rulesLocked) $("val-status").textContent = "This tab's validation rules could not be read, so they are not checked and cannot be changed. They were left untouched.";
   }
   function saveRules(next, msg) {
-    if (rulesLocked || !next) return;
+    if (rulesLocked || !next || heldMsg()) return;
     var lt = null; try { lt = M.loadTabs(localStorage.getItem(KEY + ".tabs")); } catch (e) { lt = null; }
     if (!lt || lt.unreadable || !lt.meta.tabs.some(function (t) { return t.id === meta.active; })) { $("val-status").textContent = "This tab was deleted or changed in another window, or the tab list cannot be read, so the rules were not changed. Reload this page."; return; }
     try { if (next.length) localStorage.setItem(rulesKey(meta.active), M.rulesJson(next)); else localStorage.removeItem(rulesKey(meta.active)); }
@@ -339,7 +339,7 @@
     if (typeof show === "function") show();
   }
   function saveCf(next, msg) {
-    if (cfLocked || !next) return;
+    if (cfLocked || !next || heldMsg()) return;
     var lt = null; try { lt = M.loadTabs(localStorage.getItem(KEY + ".tabs")); } catch (e) { lt = null; }
     if (!lt || lt.unreadable || !lt.meta.tabs.some(function (t) { return t.id === meta.active; })) { $("cf-status").textContent = "This tab was deleted or changed in another window, or the tab list cannot be read, so the colour rules were not changed. Reload this page."; return; }
     try { if (next.length) localStorage.setItem(cfKey(meta.active), M.cfJson(next)); else localStorage.removeItem(cfKey(meta.active)); }
@@ -371,7 +371,7 @@
     if (fmtLocked) $("fmt-status").textContent = "This tab's format rules could not be read, so no formats are applied and the rules cannot be changed. They were left untouched.";
   }
   function saveFmt(next, msg) {
-    if (fmtLocked || !next) return;
+    if (fmtLocked || !next || heldMsg()) return;
     var lt = null; try { lt = M.loadTabs(localStorage.getItem(KEY + ".tabs")); } catch (e) { lt = null; }
     if (!lt || lt.unreadable || !lt.meta.tabs.some(function (t) { return t.id === meta.active; })) { $("fmt-status").textContent = "This tab was deleted or changed in another window, or the tab list cannot be read, so the format rules were not changed. Reload this page."; return; }
     // First use: mark the tab list (version 2) before any format rule is stored, so a failure here leaves no format rule behind.
@@ -470,6 +470,7 @@
   var tabBar = $("sheet-tabs"), tabName = $("tab-name"), tabMsg = $("tab-status");
   function saveMeta(m) { try { localStorage.setItem(KEY + ".tabs", JSON.stringify(m)); return true; } catch (e) { return false; } }
   function commitMeta(next) {
+    if (heldMsg()) { tabMsg.textContent = status.textContent; return false; }
     if (tabsLocked) { tabMsg.textContent = "The stored tab list could not be read, so tab changes are off. Your cells were not touched."; return false; }
     var curRaw = null, readOk = true; try { curRaw = localStorage.getItem(KEY + ".tabs"); } catch (e) { readOk = false; }
     var other = readOk ? M.loadTabs(curRaw) : null;
@@ -479,7 +480,7 @@
     meta = next; return true;
   }
   var EXTRAS = [{ key: rulesKey, load: M.loadRules, label: "validation rules" }, { key: cfKey, load: M.loadCf, label: "colour rules" }, { key: fmtKey, load: M.loadFmt, label: "format rules" }];
-  function keyUsed(id) { try { return localStorage.getItem(tabKey(id)) !== null || localStorage.getItem(rulesKey(id)) !== null || localStorage.getItem(cfKey(id)) !== null || localStorage.getItem(fmtKey(id)) !== null; } catch (e) { return true; } }
+  function keyUsed(id) { try { return localStorage.getItem(tabKey(id)) !== null || localStorage.getItem(rulesKey(id)) !== null || localStorage.getItem(cfKey(id)) !== null || localStorage.getItem(fmtKey(id)) !== null || localStorage.getItem(bakKeyOf(id)) !== null; } catch (e) { return true; } }
   function renderTabs() {
     tabBar.textContent = "";
     meta.tabs.forEach(function (t) {
@@ -552,7 +553,117 @@
     chartRange = null; out.textContent = ""; cur = null; filt = null; sync(); renderTabs();
     tabMsg.textContent = "Restored the tab" + (rn.error ? " under a new name, because " + nm + " is in use." : " " + nm + ".") + (left ? " Its validation, colour or format rules were unreadable or could not be removed, so they were not restored." : "");
   });
+
+  // ---- Insert and delete a row or column. Four stored keys change together, with a recovery copy; see model.js structApply for what is and is not guaranteed. ----
+  var SNAMES = ["cells", "validation rules", "colour rules", "format rules"];
+  function structKeys(id) { return [tabKey(id), rulesKey(id), cfKey(id), fmtKey(id)]; }
+  function bakKeyOf(id) { return tabKey(id) + ".structbak"; }
+  var recTab = null;
+  // A recovery copy on any tab means a structural change may have left the stored tab partly changed: nothing is saved until it is restored.
+  function heldTab() { for (var i = 0; i < meta.tabs.length; i++) { var st = "storage"; try { st = M.structRecovery(localStorage, bakKeyOf(meta.tabs[i].id), structKeys(meta.tabs[i].id)); } catch (e) { st = "storage"; } if (st !== "none") return meta.tabs[i].id; } return null; }
+  function heldMsg() {
+    var id = heldTab(); if (id === null) return false;
+    status.textContent = "A change to rows or columns did not finish, so the stored sheet may be partly changed. Nothing can be edited or saved until you use Restore in the notice above."; renderRecovery(false); return true;
+  }
+  function tabName2(id) { var t = meta.tabs.filter(function (x) { return x.id === id; })[0]; return t ? t.name : id; }
+  var recSig = null;
+  // heldMsg runs on every refused edit, including the blur that precedes a click on the Restore button: keep the notice as it is then, or the click would land on a replaced button.
+  function renderRecovery(rebuild) {
+    var box = $("struct-recovery"); if (!box) return; var id = heldTab(), sig = id === null ? "none" : id; recTab = id;
+    if (rebuild === false && sig === recSig && (id === null || box.firstChild)) return; recSig = sig; box.textContent = "";
+    if (id === null) { box.hidden = true; return; }
+    var info = null; try { info = M.structRecoveryInfo(localStorage, bakKeyOf(id), structKeys(id)); } catch (e) { info = { state: "storage" }; }
+    var p = document.createElement("p"); p.className = "cal-meta"; box.hidden = false;
+    var b1 = document.createElement("button"); b1.type = "button"; b1.className = "btn"; b1.id = "struct-restore";
+    if (info.state === "found") {
+      p.textContent = "A row or column change on the tab " + tabName2(id) + " did not finish, and the stored sheet may be partly changed. Editing and saving are off until it is restored. A copy of the stored text from before the change is kept in this browser. Restore puts these back as they were before the change: " + SNAMES.join(", ") + ".";
+      b1.textContent = "Restore this tab from the recovery copy"; b1.addEventListener("click", function () { doRestore(false); }); box.appendChild(p); box.appendChild(b1);
+    } else {
+      p.textContent = info.state === "unreadable" ? "A recovery copy exists for the tab " + tabName2(id) + " but it cannot be read or does not match this tab, so it cannot be restored here. Editing and saving stay off. Download it first if you want a copy, then discard it." : "This browser would not let the page read the recovery copy for the tab " + tabName2(id) + ", so editing and saving stay off. Reload the page to try again.";
+      box.appendChild(p);
+      if (info.state === "unreadable") {
+        var d1 = document.createElement("button"); d1.type = "button"; d1.className = "btn"; d1.id = "struct-dl"; d1.textContent = "Download the recovery copy (.txt)";
+        d1.addEventListener("click", function () { var raw = null; try { raw = localStorage.getItem(bakKeyOf(id)); } catch (e) { raw = null; } if (raw === null) return; var u = URL.createObjectURL(new Blob([raw], { type: "text/plain" })), l = document.createElement("a"); l.href = u; l.download = "unreadable-recovery-copy.txt"; document.body.appendChild(l); l.click(); l.remove(); setTimeout(function () { URL.revokeObjectURL(u); }, 4000); });
+        var d2 = document.createElement("button"); d2.type = "button"; d2.className = "btn"; d2.id = "struct-discard"; d2.textContent = "Discard the unreadable recovery copy";
+        d2.addEventListener("click", function () { if (!window.confirm("Discard the unreadable recovery copy for " + tabName2(id) + "? The stored cells and rules stay as they are now, which may be partly changed.")) return; try { localStorage.removeItem(bakKeyOf(id)); } catch (e) { /* checked on the next render */ } renderRecovery(); status.textContent = heldTab() === null ? "Discarded the recovery copy. The stored sheet was not changed by this." : "This browser would not remove the recovery copy."; });
+        box.appendChild(d1); box.appendChild(d2);
+      }
+    }
+  }
+  function backToStorage(id) { delete hist[id]; if (id === meta.active) { H = histFor(id); chartRange = null; out.textContent = ""; cur = null; filt = null; sync(); } }
+  function doRestore(force) {
+    var id = recTab; if (id === null) return;
+    if (force) {
+      var info = M.structRecoveryInfo(localStorage, bakKeyOf(id), structKeys(id));
+      var names = (force.keys || []).join(", ");
+      if (!window.confirm("These stored items hold changes made after the failed change: " + names + ". Restoring replaces them with the older text from the recovery copy, and those later changes will be lost. Continue?")) { status.textContent = "Restore cancelled. Nothing was changed."; return; }
+    }
+    var r = M.structRecover(localStorage, bakKeyOf(id), structKeys(id), !!force);
+    if (r.status === "restored") { backToStorage(id); renderRecovery(); status.textContent = "Restored the tab " + tabName2(id) + " to how it was before the unfinished change." + (r.bakLeft ? " The recovery copy could not be removed and is still there." : ""); if (r.bakLeft) renderRecovery(); return; }
+    if (r.status === "conflict") {
+      var box = $("struct-recovery"), keyNames = r.keys.map(function (k) { return SNAMES[structKeys(id).indexOf(k)]; });
+      status.textContent = "Nothing was restored: " + keyNames.join(", ") + " hold text that is neither the old nor the new text from the unfinished change, so something else changed them. Restoring anyway would replace those later changes.";
+      var fb = $("struct-force"); if (!fb) { fb = document.createElement("button"); fb.type = "button"; fb.className = "btn"; fb.id = "struct-force"; box.appendChild(fb); }
+      fb.textContent = "Restore anyway, replacing: " + keyNames.join(", "); fb.onclick = function () { doRestore({ keys: keyNames }); }; return;
+    }
+    if (r.status === "unresolved") { status.textContent = "Not everything could be restored. Not as before: " + r.bad.map(function (k) { return SNAMES[structKeys(id).indexOf(k)]; }).join(", ") + ". The recovery copy was kept. Editing stays off."; renderRecovery(); return; }
+    status.textContent = "The recovery copy could not be used (" + r.status + "). Nothing was changed."; renderRecovery();
+  }
+  function sameCells(a, b) { var ka = Object.keys(a), kb = Object.keys(b); return ka.length === kb.length && ka.every(function (k) { return has(b, k) && a[k] === b[k]; }); }
+  function tabStillListed(id) { var lt = null; try { lt = M.loadTabs(localStorage.getItem(KEY + ".tabs")); } catch (e) { lt = null; } return !!lt && !lt.unreadable && lt.meta.tabs.some(function (t) { return t.id === id; }); }
+  var STRUCT_WHY = { "recovery-exists": "an earlier row or column change left a recovery copy", stale: "the stored sheet was changed in another window or changed since this page showed it", storage: "this browser would not read the stored sheet", "no-recovery-copy": "this browser would not keep a recovery copy first", "recovery-stuck": "a recovery copy could not be cleaned up", "no-change": "it would not change anything" };
+  function structFail(r, what) {
+    if (r.status === "refused") { status.textContent = "Nothing was changed: " + (STRUCT_WHY[r.reason] || r.reason) + (r.reason === "stale" ? " (" + SNAMES[0 + structKeysIndex(r.key)] + ")" : "") + ". " + (r.reason === "stale" ? "Reload this page to see what is stored." : ""); renderRecovery(); return; }
+    if (r.status === "failed-restored") { status.textContent = "The " + what + " could not be saved. Every stored item was read back as it was before, so nothing was changed."; return; }
+    status.textContent = "The " + what + " could not be completed and the stored sheet may be partly changed. Not known to be as before: " + r.bad.map(function (k) { return SNAMES[structKeysIndex(k)]; }).join(", ") + ". A recovery copy was kept. Editing is off until you use Restore in the notice above."; renderRecovery();
+  }
+  function structKeysIndex(k) { return structKeys(meta.active).indexOf(k); }
+  function structGo(axis, kind) {
+    var id = meta.active, row = axis === "row";
+    if (heldMsg()) return;
+    if (!cur) { status.textContent = "Select a cell first. The row or column of the selected cell is used."; return; }
+    if (tabsLocked || unreadableTabs[id]) { status.textContent = "The stored cells or tab list could not be read, so nothing was changed."; return; }
+    if (rulesLocked || cfLocked || fmtLocked) { status.textContent = "This tab's validation, colour or format rules could not be read, so nothing was changed. The rules were left untouched."; return; }
+    if (filt) { status.textContent = "A filter is on, so nothing was changed (it would also change rows you cannot see). Clear the filter first."; return; }
+    if (!tabStillListed(id)) { status.textContent = "This tab was deleted or changed in another window, so nothing was changed. Reload this page."; return; }
+    var a = F.parseAddr(cur); if (!a) return; var at = row ? a.row : a.col;
+    var seen = JSON.stringify([rules, cfRules, fmtRules]); reloadRules(); reloadCf(); reloadFmt();
+    if (rulesLocked || cfLocked || fmtLocked || JSON.stringify([rules, cfRules, fmtRules]) !== seen) { status.textContent = "The rules for this tab were changed in another window or could not be read, so nothing was changed. Reload this page."; return; }
+    var rc = null; try { rc = localStorage.getItem(tabKey(id)); } catch (e) { rc = undefined; }
+    if (rc === undefined) { status.textContent = "This browser would not read the stored cells, so nothing was changed."; return; }
+    var okCells = rc === null ? !Object.keys(H.cells).length : (function () { try { var st0 = clean(JSON.parse(rc)); return !!st0 && sameCells(st0.cells, H.cells); } catch (e) { return false; } })();
+    if (!okCells) { status.textContent = "The stored cells differ from what this page shows (not saved, or changed in another window), so nothing was changed."; return; }
+    var res = M.structEdit({ cells: H.cells, rules: rules, cf: cfRules, fmt: fmtRules }, { axis: axis, kind: kind, at: at }, F.parseAddr, F.structFormula, { rows: ROWS, cols: COLS }, MAXCELL);
+    if (res.error) { status.textContent = res.error; return; }
+    var line = (row ? "row " + at : "column " + String.fromCharCode(64 + at)), st = res.stats, bits = [];
+    if (kind === "delete") bits.push(st.removed + " filled cells in it are removed");
+    if (st.formulas) bits.push(st.formulas + " formulas change" + (st.refErrs ? ", " + st.refErrs + " will show #REF!" : ""));
+    if (st.dropped) bits.push(st.dropped + " rules lose their whole range and are removed");
+    if (st.resized) bits.push(st.resized + " rule ranges are resized");
+    if (kind === "delete" && !window.confirm("Delete " + line + "? " + bits.join("; ") + ". Undo brings it back until you reload this page.")) { status.textContent = "Delete cancelled. Nothing was changed."; return; }
+    var next = [JSON.stringify(res.cells), res.rules.length ? M.rulesJson(res.rules) : null, res.cf.length ? M.cfJson(res.cf) : null, res.fmt.length ? M.fmtJson(res.fmt) : null];
+    var expect = [rc, rulesRaw, cfRaw, fmtRaw];
+    var r = M.structApply(localStorage, structKeys(id), bakKeyOf(id), expect, next);
+    if (r.status !== "done") { structFail(r, (kind === "insert" ? "insert" : "delete")); return; }
+    H.recordExternal(res.cells, { before: expect, after: next }, "");
+    chartRange = null; out.textContent = ""; sync();
+    status.textContent = (kind === "insert" ? "Inserted a new " + (row ? "row above row " : "column left of column ") + (row ? at : String.fromCharCode(64 + at)) : "Deleted " + line) + (bits.length && kind === "insert" ? ": " + bits.join("; ") : kind === "delete" ? ": " + bits.join("; ") : "") + ". The chart and pivot were cleared. Undo works until you reload this page." + (r.bakLeft ? " The recovery copy could not be removed and is still there." : "");
+    if (r.bakLeft) renderRecovery();
+  }
+  // Undo or redo of a structural step: it applies only if all four stored items are exactly what that step left (or undid).
+  function structStep(redo, m) {
+    var id = meta.active, what = redo ? "redo" : "undo";
+    if (!tabStillListed(id)) { status.textContent = "This tab was deleted or changed in another window, so nothing was changed. Reload this page."; return; }
+    var r = M.structApply(localStorage, structKeys(id), bakKeyOf(id), redo ? m.before : m.after, redo ? m.after : m.before);
+    if (r.status === "refused" && r.reason === "stale") { status.textContent = "Nothing was changed: the cells or rules were changed after the row or column step (" + SNAMES[structKeysIndex(r.key)] + "), so it cannot be " + (redo ? "redone" : "undone") + " safely. Reload the page to see what is stored."; return; }
+    if (r.status !== "done") { structFail(r, what); return; }
+    if (redo) H.redoExternal(); else H.undoExternal();
+    chartRange = null; out.textContent = ""; sync(); status.textContent = (redo ? "Redone" : "Undone") + ". The chart and pivot were cleared." + (r.bakLeft ? " The recovery copy could not be removed and is still there." : ""); if (r.bakLeft) renderRecovery();
+  }
+  ["row-ins", "row-del", "col-ins", "col-del"].forEach(function (id) { var b = $(id); if (b) b.addEventListener("click", function () { structGo(id.slice(0, 3) === "row" ? "row" : "col", id.slice(4) === "ins" ? "insert" : "delete"); }); });
+  renderRecovery();
   status.textContent = H.note;
+  if (heldTab() !== null) status.textContent = "A change to rows or columns did not finish. See the notice above.";
   if (tabsLocked) tabMsg.textContent = "The stored tab list could not be read, so tab changes are off. Your cells were not touched.";
   renderTabs();
   show(); buttons();
