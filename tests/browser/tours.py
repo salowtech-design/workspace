@@ -302,6 +302,8 @@ def register(g):
     register_second_person_views(g, users)
     register_sheets_rules_after(g)
     register_chat_live(g, users)
+    register_iam_exit_session(g)
+    register_pdf_password(g)
     register_pdf_forms(g)
     register_pdf_view_buttons(g)
     register_sheets_tabs_rules(g)
@@ -5267,3 +5269,229 @@ def register_chat_live(g, users):
             pass
 
     g["DRILLS"]["tour_chat_live_updates"] = tour
+
+
+def register_iam_exit_session(g):
+    APP = g["APP"]
+
+    def tour(ctx):
+        import concurrent.futures
+        import secrets as _s
+        import time as _t
+
+        import django
+        import pyotp
+
+        django.setup()
+        box = {"last": 0}
+        secret = {}
+
+        def run(fn):
+            with concurrent.futures.ThreadPoolExecutor(1) as ex:
+                return ex.submit(fn).result()
+
+        def mk():
+            from django.conf import settings
+            from django.contrib.auth.hashers import make_password
+
+            from apps.accounts.auth.crypto import encrypt_totp_secret
+            from apps.accounts.models import CustomUser as CU
+            from apps.accounts.models import IAMAdminIdentity, UserSession
+
+            CU.objects.filter(employee_id="ST-LIVE-1").update(role=CU.Role.ADMIN)
+            u = CU.objects.get(employee_id="ST-LIVE-1")
+            secret["pw"] = _s.token_urlsafe(18) + "aA1!"
+            secret["totp"] = pyotp.random_base32(length=32)
+            ct, nonce, kid = encrypt_totp_secret(secret["totp"])
+            adm = IAMAdminIdentity.objects.create(admin_id="IAM-FIXTURE-2", user=u, password_hash=make_password(secret["pw"]), role="admin",
+                                                  status="active", encrypted_totp_secret=ct, totp_nonce=nonce, totp_key_id=kid)
+            for eid, nm in (("ST-LIVE-9", "Target Nine"), ("ST-LIVE-7", "Target Seven")):
+                t9, _c = CU.objects.get_or_create(employee_id=eid, defaults={"full_name": nm + " Synthetic", "email": eid.lower() + "@salowtech.com", "email_verified": True,
+                                                  "role": CU.Role.EMPLOYEE, "status": CU.Status.ACTIVE, "is_active": True})
+                keys = []
+                for i in range(2):
+                    k = _s.token_hex(20)
+                    keys.append(k)
+                    UserSession.objects.create(user=t9, session_key=k, ip_address="127.0.0.1", user_agent="fixture device %s-%d" % (eid, i), mfa_verified=True)
+                box["keys_" + eid] = keys
+            CU.objects.get_or_create(employee_id="ST-LIVE-8", defaults={"full_name": "Super Synthetic", "email": "st-live-8@salowtech.com", "email_verified": True,
+                                                                         "role": CU.Role.SUPER_ADMIN, "status": CU.Status.ACTIVE, "is_active": True})
+            box["adm_id"] = adm.pk
+            box["cookie"] = getattr(settings, "IAM_SESSION_COOKIE_NAME", "salow_iam_session")
+
+        def new_session():
+            from apps.accounts.auth.iam_auth import create_iam_session
+            from apps.accounts.models import IAMAdminIdentity
+
+            class R:
+                META = {"REMOTE_ADDR": "127.0.0.1", "HTTP_USER_AGENT": "drill"}
+                client_ip = "127.0.0.1"
+
+            r = R()
+            create_iam_session(IAMAdminIdentity.objects.get(pk=box["adm_id"]), r, assurance_level=1)
+            return {"name": box["cookie"], "value": r.session_key_iam, "domain": "iam.salowtech.com", "path": "/", "httpOnly": True, "sameSite": "Lax"}
+
+        run(mk)
+        IAM = "http://iam.salowtech.com:" + APP.rsplit(":", 1)[1]
+
+        def state(eid):
+            def f():
+                from apps.accounts.models import CustomUser as CU
+                from apps.accounts.models import UserSession
+
+                u = CU.objects.get(employee_id=eid)
+                return {"status": u.status, "active": u.is_active, "sessions": UserSession.objects.filter(user=u).count(), "keys": set(UserSession.objects.filter(user=u).values_list("session_key", flat=True))}
+            return run(f)
+
+        def helper(pg):
+            def stepup_off_camera():
+                cur = [c for c in pg.context.cookies() if c["name"] == box["cookie"]][0]
+                c2 = pg.context.browser.new_context(viewport={"width": 390, "height": 844})
+                ok = False
+                try:
+                    c2.add_cookies([cur])
+                    q = c2.new_page()
+                    q.goto(pg.url)
+                    cs = int(_t.time() // 30)
+                    while cs <= box["last"]:
+                        _t.sleep(1.0)
+                        cs = int(_t.time() // 30)
+                    left = 30 - (_t.time() % 30)
+                    if left < 6:
+                        _t.sleep(left + 0.5)
+                    q.fill("input[name=password]", secret["pw"])
+                    q.fill("input[name=totp_code]", pyotp.TOTP(secret["totp"]).now())
+                    box["last"] = int(_t.time() // 30)
+                    q.locator("form button[type=submit]").first.click()
+                    q.wait_for_load_state()
+                    q.wait_for_timeout(800)
+                    ok = "Step-up authentication verified" in q.inner_text("body")
+                    new = [c for c in c2.cookies() if c["name"] == box["cookie"]]
+                    if new:
+                        pg.context.add_cookies([new[0]])
+                finally:
+                    c2.close()
+                box["stepup_ok"] = ok
+            return stepup_off_camera
+
+        def exit_body(t, pg):
+            txt = lambda: pg.inner_text("body")
+            stepup_off_camera = helper(pg)
+            f = lambda: pg.locator("form", has=pg.locator("input[name=action][value=exit_account]")).first
+
+            def submit(eid):
+                def go():
+                    pg.goto(IAM + "/dashboard/?tab=lifecycle")
+                    f().scroll_into_view_if_needed()
+                    f().locator("input[name=target_employee_id]").fill(eid)
+                    pg.wait_for_timeout(700)
+                    f().locator("button[type=submit]").click()
+                return go
+            pg.goto(IAM + "/dashboard/?tab=lifecycle")
+            t.note("Fixture: IAM administrator session at the basic level, made off camera; the password and authenticator secret exist only in this run's throwaway database. Targets are synthetic accounts.", 3)
+            t.step("Mark my own account exited: refused with the exact message", submit("ST-LIVE-1"), expect=lambda: "You cannot mark your own account as exited." in txt(), wait=3000)
+            t.step("Mark an unknown ID exited: refused", submit("ST-NONE-1"), expect=lambda: "User ST-NONE-1 not found." in txt(), wait=3000)
+            t.step("Mark a Super Admin account exited as an Admin: refused", submit("ST-LIVE-8"), expect=lambda: "Only Super Admins can transition a Super Admin account." in txt() and state("ST-LIVE-8")["status"] == "active", wait=3000)
+            t.step("Mark ST-LIVE-9 exited at the basic level: it redirects to the step-up page and nothing changed yet", submit("ST-LIVE-9"), expect=lambda: "/iam/stepup" in pg.url and state("ST-LIVE-9")["status"] == "active" and state("ST-LIVE-9")["sessions"] == 2, wait=3500)
+            t.step("Step-up done off camera (fixture password and a fresh code, script only, never printed)", stepup_off_camera, expect=lambda: box.get("stepup_ok"), wait=800)
+            t.step("Back on the console: submit again with the step-up in place", submit("ST-LIVE-9"), expect=lambda: "Account ST-LIVE-9 marked as EXITED. All active sessions terminated." in txt(), wait=4500)
+            t.step("Checked by script: ST-LIVE-9 is exited, inactive, with 0 sessions; the other synthetic account (ST-LIVE-7) is untouched by this exit (still active, with the 1 session left after clip 91)", expect=lambda: (lambda a, b: a["status"] == "exited" and a["active"] is False and a["sessions"] == 0 and b["keys"] == {box["keys_ST-LIVE-7"][1]} and b["status"] == "active")(state("ST-LIVE-9"), state("ST-LIVE-7")), wait=500)
+
+        def session_body(t, pg):
+            txt = lambda: pg.inner_text("body")
+            stepup_off_camera = helper(pg)
+            k0, k1 = box["keys_ST-LIVE-7"]
+            form = lambda k: pg.locator("form", has=pg.locator('input[name=session_key][value="%s"]' % k)).first
+
+            def submit():
+                pg.goto(IAM + "/dashboard/?tab=sessions")
+                form(k0).scroll_into_view_if_needed()
+                pg.wait_for_timeout(700)
+                form(k0).locator("button[type=submit]").click()
+            pg.goto(IAM + "/dashboard/?tab=sessions")
+            t.step("Sessions tab: both fixture sessions of ST-LIVE-7 are listed, each with its own Revoke button", lambda: form(k0).scroll_into_view_if_needed(), expect=lambda: form(k0).count() == 1 and form(k1).count() == 1, wait=2500)
+            t.step("Revoke the first session at the basic level: it redirects to the step-up page and the session is still there", submit, expect=lambda: "/iam/stepup" in pg.url and state("ST-LIVE-7")["sessions"] == 2, wait=3500)
+            t.step("Step-up done off camera (fixture password and a fresh code, script only, never printed)", stepup_off_camera, expect=lambda: box.get("stepup_ok"), wait=800)
+            t.step("Back on the console: submit again. The exact message names the first 8 characters of that session", submit, expect=lambda: ("Session %s... terminated." % k0[:8]) in txt(), wait=4500)
+            t.step("Checked by script: only the first session is gone; the second one is still there", expect=lambda: state("ST-LIVE-7")["keys"] == {k1}, wait=500)
+            t.step("The Sessions tab no longer lists the first session and still lists the second", lambda: pg.goto(IAM + "/dashboard/?tab=sessions"), expect=lambda: form(k0).count() == 0 and form(k1).count() == 1, wait=2500)
+
+        run_tour(ctx, "91_iam_revoke_session", session_body, extra_cookies=[run(new_session)],
+                 notes="Real Django on TiDB under uvicorn, headless Chromium 390x844 emulated, IAM host mapped locally. Fixture IAM session at the basic level; step-up done on the real page in an unrecorded context with a fixture password and code that never appear. Synthetic accounts only; no email or outside delivery.",
+                 unshown=["a Super Admin target", "revoking another admin's session at level 3", "recovery and L3 dual approvals (held)"])
+        run_tour(ctx, "90_iam_exit_account", exit_body, extra_cookies=[run(new_session)],
+                 notes="Real Django on TiDB under uvicorn, headless Chromium 390x844 emulated, IAM host mapped locally. Fixture IAM session at the basic level; step-up done on the real page in an unrecorded context with a fixture password and code that never appear. Synthetic accounts only. The last-active-Super-Admin refusal and a Super Admin acting on a Super Admin were not exercised.",
+                 unshown=["last active Super Admin refusal", "a Super Admin doing the exit", "recovery and L3 dual approvals (held)"])
+
+    g["DRILLS"]["tour_iam_exit_session"] = tour
+
+
+def register_pdf_password(g):
+    APP = g["APP"]
+
+    def tour(ctx):
+        import os
+        import secrets as _s
+        import subprocess
+        import tempfile
+
+        pw = _s.token_urlsafe(12) + "xQ7"
+        wrong = _s.token_urlsafe(9) + "zZ3"
+        with tempfile.TemporaryDirectory() as td:
+            plain, enc = os.path.join(td, "p.pdf"), os.path.join(td, "e.pdf")
+            open(plain, "wb").write(g["_n_page_pdf"](3, "Locked"))
+            subprocess.run(["qpdf", "--encrypt", pw, pw + "o", "256", "--", plain, enc], check=True)
+            data = open(enc, "rb").read()
+        res = {}
+
+        def body(t, pg):
+            def wait_prompt(q):
+                for _ in range(80):
+                    if not q.evaluate("document.getElementById('pdf-pwform').hidden"):
+                        return True
+                    q.wait_for_timeout(250)
+                return False
+
+            def fresh_page(q):
+                q.goto(APP + "/pdf/")
+                q.evaluate("localStorage.clear()")
+                q.goto(APP + "/pdf/")
+                q.wait_for_timeout(500)
+
+            def pick(q):
+                q.set_input_files("#pdf-open", files=[{"name": "locked.pdf", "mimeType": "application/pdf", "buffer": data}])
+
+            def off_camera():
+                c2 = pg.context.browser.new_context(viewport={"width": 390, "height": 844}, service_workers="block")
+                try:
+                    q = c2.new_page()
+                    fresh_page(q)
+                    pick(q)
+                    res["prompt2"] = wait_prompt(q)
+                    q.fill("#pdf-pw", wrong)
+                    q.click("#pdf-pwgo")
+                    q.wait_for_function("document.getElementById('pdf-status').textContent.indexOf('did not work') >= 0", timeout=20000)
+                    res["wrong_msg"] = q.inner_text("#pdf-status")
+                    res["wrong_box_empty"] = q.input_value("#pdf-pw") == ""
+                    q.fill("#pdf-pw", pw)
+                    q.click("#pdf-pwgo")
+                    q.wait_for_function("document.getElementById('pdf-where').textContent.indexOf('Page 1 of') === 0", timeout=20000)
+                    res["where"] = q.inner_text("#pdf-where")
+                    res["box_empty"] = q.input_value("#pdf-pw") == ""
+                    res["leak"] = q.evaluate("(()=>{const o=[];for(const s of [localStorage,sessionStorage]){for(let i=0;i<s.length;i++){o.push(s.key(i)+'='+s.getItem(s.key(i)))}}return o.join('|')})()")
+                    res["url"] = q.url
+                finally:
+                    c2.close()
+
+            fresh_page(pg)
+            t.note("The password for this throwaway encrypted file is generated for this run and typed only in a separate unrecorded browser window. It is not in this clip, a caption or a file name.", 3)
+            t.step("Open the encrypted file here: the page asks for a password", lambda: pick(pg), expect=lambda: wait_prompt(pg) and "needs a password" in pg.inner_text("#pdf-status"), wait=2500)
+            t.step("Press Cancel: nothing opens and the page says so", lambda: pg.click("#pdf-pwcancel"), expect=lambda: pg.inner_text("#pdf-status").startswith("Not opened.") and pg.evaluate("document.getElementById('pdf-pwform').hidden"), wait=2500)
+            t.step("A wrong password and then the right one are entered in the unrecorded window (script only). The run finished", off_camera, expect=lambda: "where" in res, wait=500)
+            t.step("Unrecorded window, wrong password: the page said 'That password did not work.' and the box was emptied", expect=lambda: res.get("prompt2") and "That password did not work" in res.get("wrong_msg", "") and res.get("wrong_box_empty"), wait=2500)
+            t.step("Unrecorded window, right password: the file opened at Page 1 of 3 and the box was emptied", expect=lambda: res.get("where", "").startswith("Page 1 of 3") and res.get("box_empty"), wait=2500)
+            t.step("Checked by script: no password in local or session storage or in the page address", expect=lambda: "leak" in res and pw not in res["leak"] and wrong not in res["leak"] and pw not in res.get("url", "") and wrong not in res.get("url", ""), wait=2500)
+
+        run_tour(ctx, "92_pdf_password", body, notes="Device-local viewer, secure-context test flag. Headless Chromium 390x844 emulated. Throwaway PDF encrypted with qpdf (AES-256) using a generated password; entry was done in a separate unrecorded browser context, so the recording shows only the prompt, Cancel and the checked results.", unshown=["typing a password (off camera by design)", "the opened pages in the unrecorded window", "copy, split or merge of an encrypted file (covered by a drill, not filmed)"])
+
+    g["DRILLS"]["tour_pdf_password"] = tour
