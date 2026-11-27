@@ -2,7 +2,7 @@
 {% block title %}Drive: Salow Workspace{% endblock %}
 {% block extra_head %}<link rel="stylesheet" href="/static/css/drive.css">{% endblock %}
 {% block content %}
-<div class="card drive">
+<div class="card drive" id="drive-root" data-user="{{ request.user.pk }}" data-csrf="{{ csrf_token }}" data-new="{% url 'drive:file_new' %}" data-version-tpl="{% url 'drive:file_version' '00000000-0000-0000-0000-000000000000' %}" data-folder="{% if folder %}{{ folder.public_id }}{% endif %}">
   <div class="drive-head"><h2>Drive</h2></div>
   {% include "drive/_nav.html" with tab="mine" %}
   <div class="crumbs">
@@ -17,6 +17,12 @@
     <button type="submit" class="btn btn-primary btn-small">Create folder</button>
   </form>
   {% endif %}
+  {% if can_edit %}
+  <div class="drive-upload">
+    <label>Add a file from this device <input type="file" id="drive-pick" multiple></label>
+    <div id="drive-upload-status" class="drive-meta" role="status" aria-live="polite">The file stays in this browser on this device. Drive records only its name, size and a checksum. Browsers can clear stored files, they are not encrypted here, and a power cut while saving can lose a file, so keep another copy of anything important.</div>
+  </div>
+  {% endif %}
   {% if move_targets and folders or move_targets and files %}<details class="drive-meta"><summary>How moving changes who can open an item</summary>Moving an item changes who can open it: it takes on the sharing of the folder you move it into and stops using the sharing of the one it leaves. Folders marked (shared) are shared with someone, or sit inside a shared folder. Sharing set directly on the item stays. If a move would give more people access, you are asked to confirm it first.{% if move_more %} The Move lists show only the first 50 folders by name. Use Find folder beside Move to search by name.{% endif %}</details>{% endif %}
   {% for f in folders %}
   <div class="drive-row">
@@ -30,9 +36,12 @@
   </div>
   {% endfor %}
   {% for f in files %}
-  <div class="drive-row">
+  <div class="drive-row drive-file" data-id="{{ f.public_id }}" data-name="{{ f.name }}" data-version="{{ f.current_version }}" data-sha="{{ f.device_sha }}">
     <span class="drive-name">{{ f.name }}</span>
     <span class="drive-meta">File</span>
+    <span class="drive-meta drive-local">{% if f.current_version %}Looking on this device...{% else %}No file saved yet{% endif %}</span>
+    {% if f.current_version %}<button type="button" class="btn btn-secondary btn-small drive-open" disabled>Open from this device</button>{% endif %}
+    {% if can_edit %}<label class="drive-meta">{% if f.current_version %}New version{% else %}Add the file{% endif %} <input type="file" class="drive-newver"></label>{% endif %}
     {% if can_edit %}
     <form method="post" action="{% url 'drive:rename' 'file' f.public_id %}" class="drive-inline">{% csrf_token %}<input type="text" name="name" class="form-input" value="{{ f.name }}" maxlength="200" aria-label="New name"><button class="btn btn-secondary btn-small" type="submit">Rename</button></form>
     {% if move_targets %}<form method="post" action="{% url 'drive:move' 'file' f.public_id %}" class="drive-inline">{% csrf_token %}<select name="destination" class="form-input" aria-label="Move to"><option value="">Top level</option>{% for t in move_targets %}<option value="{{ t.public_id }}">{{ t.name }}{% if t.shared %} (shared){% endif %}</option>{% endfor %}</select><button class="btn btn-secondary btn-small" type="submit">Move</button> <a class="drive-meta" href="{% url 'drive:move_find' 'file' f.public_id %}">Find folder</a></form>{% endif %}
@@ -60,4 +69,7 @@
   </div>
   {% endif %}
 </div>
+<script src="/static/slides/images.js"></script>
+<script src="/static/drive/device.js"></script>
+<script src="/static/drive/page.js"></script>
 {% endblock %}

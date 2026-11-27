@@ -12,7 +12,7 @@ from django.views.decorators.http import require_POST
 from apps.accounts.models import CustomUser
 from apps.core.foundation.permissions import can
 from apps.drive import services as svc
-from apps.drive.models import DriveFile, Folder, Share
+from apps.drive.models import DriveFile, FileVersion, Folder, Share
 
 
 def _item(kind, item_id):
@@ -62,9 +62,22 @@ def _run(request, fn, *args, ok=""):
         messages.error(request, "You do not have permission to do that.")
 
 
+def _with_hashes(files):
+    """Attach the current version's SHA-256 to each file (one query). 0 versions have none: no bytes recorded."""
+    ids = [f.pk for f in files if f.current_version]
+    have = {}
+    if ids:
+        for v in FileVersion.objects.filter(file_id__in=ids).values("file_id", "number", "sha256"):
+            have[(v["file_id"], v["number"])] = v["sha256"]
+    for f in files:
+        f.device_sha = have.get((f.pk, f.current_version), "")
+    return files
+
+
 @login_required
 def drive_home(request):
     folders, files = svc.list_folder(request.user, None)
+    _with_hashes(files)
     return render(
         request,
         "drive/browse.html",
@@ -76,6 +89,7 @@ def drive_home(request):
 def folder_view(request, folder_id):
     folder = _visible_or_404(request.user, get_object_or_404(Folder, public_id=folder_id))
     folders, files = svc.list_folder(request.user, folder)
+    _with_hashes(files)
     owner = folder.owner_id == request.user.pk
     shares = list(folder.shares.select_related("user")) if owner else []
     return render(

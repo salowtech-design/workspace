@@ -165,3 +165,18 @@ def test_csrf_is_enforced_and_get_is_405():
     assert c.post(reverse("drive:file_version", args=[fid]), {"base_version": 0, "size": 1, "sha256": H}).status_code == 403
     assert c.get(reverse("drive:file_new")).status_code == 405
     assert c.get(reverse("drive:file_version", args=[fid])).status_code == 405
+
+
+@pytest.mark.django_db
+def test_page_carries_the_checksum_only_for_saved_versions_escapes_names_and_names_the_store_after_the_person():
+    a = _u("FR-P")
+    c = _c(a)
+    f0 = _new(c, 'zero"><b>x.pdf').json()["file"]
+    f1 = _new(c, "one.pdf").json()["file"]
+    _ver(c, f1["id"], 0, 5)
+    html = c.get(reverse("drive:home")).content.decode()
+    assert f'data-user="{a.pk}"' in html and "salow-drive" not in html.split("<script")[0]
+    assert 'data-sha="' + H + '"' in html and html.count('data-sha=""') == 1  # version 0 has no checksum
+    assert "No file saved yet" in html and "<b>x" not in html and "&lt;b&gt;x" in html
+    other = _u("FR-Q")
+    assert H not in _c(other).get(reverse("drive:home")).content.decode()

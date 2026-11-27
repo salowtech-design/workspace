@@ -279,6 +279,7 @@ def register(g):
     register_sheets_find(g)
     register_palette(g)
     register_overlap(g)
+    register_drive_device(g)
     register_attendance_csv(g)
     register_post_review_notice(g)
     register_notice_open(g)
@@ -2292,6 +2293,66 @@ def register_overlap(g):
         run_tour(ctx, "106_calendar_overlap_warning", body, notes="Real Django on TiDB (unistore) under uvicorn, headless Chromium 390x844 emulated. The warning appears after the save and does not block it.", unshown=["edit flow (covered by a pytest, not this tour)"])
 
     g["DRILLS"]["tour_overlap"] = tour
+
+
+def register_drive_device(g):
+    APP = g["APP"]
+
+    def tour(ctx):
+        def body(t, pg):
+            st = lambda: pg.inner_text("#drive-upload-status")
+            row = lambda name: pg.locator(".drive-file", has_text=name)
+            dbname = lambda: pg.evaluate("()=>'salow-drive-'+document.getElementById('drive-root').dataset.user")
+            pg.goto(APP + "/drive/")
+            pg.wait_for_timeout(500)
+            t.step("Add notes.txt from this device", lambda: pg.set_input_files("#drive-pick", {"name": "notes.txt", "mimeType": "text/plain", "buffer": b"quarterly notes\n"}),
+                   expect=lambda: "1 of 1 saved to Drive" in st() and "on this device" in st(), wait=6000)
+            print("   status:", st()[:200], flush=True)
+            t.step("Reload: the file row says On this device (checked when opened)", lambda: pg.reload(), expect=lambda: "On this device" in row("notes.txt").inner_text() and row("notes.txt").locator(".drive-open").is_enabled(), wait=2000)
+            t.step("Add an empty file: a real file, saved with size 0", lambda: pg.set_input_files("#drive-pick", {"name": "empty.txt", "mimeType": "text/plain", "buffer": b""}),
+                   expect=lambda: "1 of 1 saved to Drive" in st(), wait=6000)
+            res = {}
+            def opened():
+                pg.reload(); pg.wait_for_timeout(1200)
+                with pg.expect_download() as d:
+                    row("notes.txt").locator(".drive-open").click()
+                dl = d.value
+                res["ok"] = dl.suggested_filename == "notes.txt" and open(dl.path(), "rb").read() == b"quarterly notes\n"
+            t.step("Open notes.txt: it downloads as an attachment with the same bytes", opened, expect=lambda: res.get("ok") is True, wait=800)
+            # damaged copy in REAL IndexedDB, then repaired by adding the same bytes again
+            corrupt = """async (name)=>{const db=await new Promise((r,j)=>{const q=indexedDB.open(name,1);q.onsuccess=()=>r(q.result);q.onerror=()=>j()});
+              const keys=await new Promise(r=>{const q=db.transaction('blob').objectStore('blob').getAllKeys();q.onsuccess=()=>r(q.result)});
+              const k=keys.find(x=>x!=='e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855');
+              await new Promise(r=>{const t=db.transaction('blob','readwrite');t.objectStore('blob').put({sha256:k,size:3,bytes:new Uint8Array([1,2,3]).buffer});t.oncomplete=r});db.close();return k}"""
+            def damage():
+                pg.evaluate(corrupt, dbname()); pg.reload(); pg.wait_for_timeout(800)
+                row("notes.txt").locator(".drive-open").click(); pg.wait_for_timeout(800)
+            t.step("Damage the stored bytes in the real browser store: Open refuses and says the copy is damaged", damage, expect=lambda: "damaged" in row("notes.txt").inner_text(), wait=800)
+            t.step("Add notes.txt again (same bytes): the damaged copy is repaired", lambda: pg.set_input_files("#drive-pick", {"name": "notes2.txt", "mimeType": "text/plain", "buffer": b"quarterly notes\n"}), expect=lambda: "on this device" in st(), wait=6000)
+            def reopen():
+                pg.reload(); pg.wait_for_timeout(1200)
+                with pg.expect_download() as d:
+                    row("notes.txt").locator(".drive-open").click()
+                res["ok2"] = open(d.value.path(), "rb").read() == b"quarterly notes\n"
+            t.step("Open notes.txt again: the repaired copy downloads with the right bytes", reopen, expect=lambda: res.get("ok2") is True, wait=800)
+            # same bytes saved three times at once, and two namespaces, in real IndexedDB
+            conc = """async ()=>{const D=window.SalowDriveDevice, b=new TextEncoder().encode('concurrent bytes');
+              const s=new D.Store('probe-same-'+Date.now()); const r=await Promise.all([s.save(b),s.save(b),s.save(b)]);
+              const st=await s.state(r[0].sha256); const o1=new D.Store('probe-a-'+Date.now()), o2=new D.Store('probe-b-'+Date.now());
+              await o1.save(b); return {hows:r.map(x=>x.how), same:r.every(x=>x.sha256===r[0].sha256), healthy:st.state, a:await o1.has(r[0].sha256), b:await o2.has(r[0].sha256)}}"""
+            out = {}
+            t.step("Three saves of the same bytes at once in real IndexedDB, and a second namespace", lambda: out.update(r=pg.evaluate(conc)),
+                   expect=lambda: out["r"]["same"] and out["r"]["healthy"] == "on-device" and out["r"]["a"] is True and out["r"]["b"] is False, wait=500)
+            print("   concurrent:", out.get("r"), flush=True)
+            fail = """async ()=>{const D=window.SalowDriveDevice; const real=indexedDB; const bad={open(n){const q=real.open(n,1);q.addEventListener('success',()=>{});return q}};
+              const s=new D.Store('probe-fail-'+Date.now()); await s.open(); const t0=s.db.transaction.bind(s.db);
+              s.db.transaction=()=>{throw new Error('injected')}; let msg=''; try{await s.save(new Uint8Array([1,2,3]))}catch(e){msg=e.message} return msg}"""
+            t.step("INJECTED storage failure (not a real quota): the save is refused with a plain message", lambda: out.update(f=pg.evaluate(fail)), expect=lambda: "would not use its file storage" in out["f"], wait=500)
+            t.step("Clear this browser's stored files and reload: the row says Not on this device and Open is disabled", lambda: (pg.evaluate("(n)=>new Promise(r=>{const q=indexedDB.deleteDatabase(n);q.onsuccess=q.onerror=q.onblocked=()=>r()})", dbname()), pg.reload()),
+                   expect=lambda: "Not on this device" in row("notes.txt").inner_text() and row("notes.txt").locator(".drive-open").is_disabled(), wait=2000)
+        run_tour(ctx, "107_drive_device_files", body, notes="Real Django on TiDB (unistore) under uvicorn, headless Chromium 390x844 emulated, real IndexedDB. Bytes stay in the browser; the server gets name, size and checksum. One synthetic employee: the two-namespace check uses two store names in the same browser, not two signed-in accounts. The storage failure is injected, not a real quota. Not offline proof.", unshown=["real quota exhaustion", "sign-in expiry", "another person's device or account", "no-network reload"])
+
+    g["DRILLS"]["tour_drive_device"] = tour
 
 
 def register_slides_bg(g):

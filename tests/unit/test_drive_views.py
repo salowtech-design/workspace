@@ -33,7 +33,7 @@ def test_pages_render_and_nothing_leaks_between_people():
     top = svc.create_folder(a, "Secret plans")
     r = ca.get(reverse("drive:home"))
     assert r.status_code == 200 and b"Secret plans" in r.content
-    assert b"file storage is not set up" in r.content
+    assert b"Sending a file to someone else" in r.content
     # the other person sees neither the list entry nor the folder page
     assert b"Secret plans" not in cb.get(reverse("drive:home")).content
     assert cb.get(reverse("drive:folder", args=[top.public_id])).status_code == 404
