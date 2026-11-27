@@ -496,7 +496,78 @@
     }
     return c;
   };
-  var ARITY = { MEDIAN: [1, 99], STDEV: [1, 99], COUNTA: [1, 99], COUNTBLANK: [1, 99], MOD: [2, 2], POWER: [2, 2], SQRT: [1, 1], INT: [1, 1], FLOOR: [1, 2], CEILING: [1, 2], DATE: [3, 3], YEAR: [1, 1], MONTH: [1, 1], DAY: [1, 1], WEEKDAY: [1, 2], LEFT: [1, 2], RIGHT: [1, 2], MID: [3, 3], TRIM: [1, 1], SUBSTITUTE: [3, 4], FIND: [2, 3], INDEX: [2, 3], MATCH: [2, 3], VLOOKUP: [3, 4], SUMIF: [2, 3], COUNTIF: [2, 2], AVERAGEIF: [2, 3], SUM: [1, 99], AVERAGE: [1, 99], MIN: [1, 99], MAX: [1, 99], COUNT: [1, 99], ABS: [1, 1], ROUND: [1, 2], LEN: [1, 1], UPPER: [1, 1], LOWER: [1, 1], CONCAT: [1, 99], NOT: [1, 1], AND: [1, 99], OR: [1, 99], IF: [2, 3] };
+  /* ---- multi-criteria aggregates, rounding direction, sign, rank and type tests, IFERROR ----
+   * SUMIFS(sum_range, range1, criterion1, ...), AVERAGEIFS the same, COUNTIFS(range1, criterion1, ...): every pair must
+   * match, all ranges must be the same size (else #VALUE!), criteria use the same rules as COUNTIF (operators, wildcards,
+   * 255 limit); cells holding an error never match. At most 10 pairs. ROUNDUP and ROUNDDOWN go away from and toward 0 on the
+   * decimal digits as written (1.1 to 1 place stays 1.1); TRUNC is ROUNDDOWN. SIGN is -1, 0 or 1. PRODUCT multiplies numbers in
+   * ranges (text and blanks ignored; no numbers gives 0). LARGE and SMALL take k as a whole number from 1; k past the count of
+   * numbers is #NUM!. ISNUMBER, ISTEXT, ISBLANK, ISERROR look at one value (a multi-cell range is #VALUE!). ISBLANK is true only
+   * for an empty cell; "" typed as a formula result counts as blank here as the cell value is empty text. IFERROR is evaluated
+   * lazily like IF: the second argument (default "") runs only when the first is an error. */
+  function multiCrit(name, a) {
+    var first = name === "COUNTIFS" ? 0 : 1;
+    if ((a.length - first) % 2 !== 0 || a.length - first < 2 || (a.length - first) / 2 > 10) return new Err("#VALUE!");
+    var sg = null, g0 = null, preds = [], grids = [], i;
+    if (first) { if (isErr(a[0])) return a[0]; sg = grid(a[0]); }
+    for (i = first; i < a.length; i += 2) {
+      if (isErr(a[i])) return a[i];
+      var g = grid(a[i]); if (!g0) g0 = g;
+      if (g.rows !== g0.rows || g.cols !== g0.cols) return new Err("#VALUE!");
+      var pr = criterion(a[i + 1]); if (isErr(pr)) return pr;
+      preds.push(pr); grids.push(g);
+    }
+    if (sg && (sg.rows !== g0.rows || sg.cols !== g0.cols)) return new Err("#VALUE!");
+    var count = 0, sum = 0;
+    for (i = 0; i < g0.v.length; i++) {
+      var ok = true;
+      for (var k = 0; k < preds.length; k++) { var x = grids[k].v[i]; if (isErr(x) || !preds[k](x)) { ok = false; break; } }
+      if (!ok) continue;
+      if (!sg) { count++; continue; }
+      var y = sg.v[i]; if (isErr(y)) return y;
+      if (typeof y === "number") { sum += y; count++; }
+    }
+    if (name === "COUNTIFS") return count;
+    if (name === "SUMIFS") return sum;
+    return count ? sum / count : new Err("#DIV/0!");
+  }
+  FNX.SUMIFS = function (a) { return multiCrit("SUMIFS", a); };
+  FNX.COUNTIFS = function (a) { return multiCrit("COUNTIFS", a); };
+  FNX.AVERAGEIFS = function (a) { return multiCrit("AVERAGEIFS", a); };
+  function roundDir(a, up) {
+    var x = num(sc2(a[0])), d = a.length > 1 ? num(sc2(a[1])) : 0;
+    if (isErr(x)) return x; if (isErr(d)) return d;
+    d = Math.max(-15, Math.min(15, Math.trunc(d)));
+    var ax = Math.abs(x), str = String(ax);
+    if (str.indexOf("e") >= 0) return x;
+    var sc = Number(str + "e" + d);
+    if (!isFinite(sc)) return x;
+    var r = up ? Math.ceil(sc) : Math.floor(sc);
+    var out = Number(r + "e" + (-d));
+    if (!isFinite(out)) return x;
+    return x < 0 ? -out : out;
+  }
+  FNX.ROUNDUP = function (a) { return roundDir(a, true); };
+  FNX.ROUNDDOWN = function (a) { return roundDir(a, false); };
+  FNX.TRUNC = function (a) { return roundDir(a, false); };
+  FNX.SIGN = function (a) { var x = num(sc2(a[0])); return isErr(x) ? x : x > 0 ? 1 : x < 0 ? -1 : 0; };
+  FNX.PRODUCT = function (a) { var n = flatten(a); return isErr(n) ? n : n.length ? n.reduce(function (s, x) { return s * x; }, 1) : 0; };
+  function nth(a, big) {
+    if (isErr(a[0])) return a[0];
+    var k = pos(a[1]); if (isErr(k)) return k;
+    var n = flatten([a[0]]); if (isErr(n)) return n;
+    if (k > n.length) return new Err("#NUM!");
+    n.sort(function (p, q) { return big ? q - p : p - q; });
+    return n[k - 1];
+  }
+  FNX.LARGE = function (a) { return nth(a, true); };
+  FNX.SMALL = function (a) { return nth(a, false); };
+  function one(v) { return Array.isArray(v) ? (v.length === 1 ? v[0] : undefined) : v; }
+  FNX.ISNUMBER = function (a) { var v = one(a[0]); return v === undefined ? new Err("#VALUE!") : typeof v === "number"; };
+  FNX.ISTEXT = function (a) { var v = one(a[0]); return v === undefined ? new Err("#VALUE!") : typeof v === "string" && v !== ""; };
+  FNX.ISBLANK = function (a) { var v = one(a[0]); return v === undefined ? new Err("#VALUE!") : v === null || v === ""; };
+  FNX.ISERROR = function (a) { var v = one(a[0]); return v === undefined ? new Err("#VALUE!") : isErr(v); };
+  var ARITY = { SUMIFS: [3, 21], COUNTIFS: [2, 20], AVERAGEIFS: [3, 21], ROUNDUP: [1, 2], ROUNDDOWN: [1, 2], TRUNC: [1, 2], SIGN: [1, 1], PRODUCT: [1, 99], LARGE: [2, 2], SMALL: [2, 2], ISNUMBER: [1, 1], ISTEXT: [1, 1], ISBLANK: [1, 1], ISERROR: [1, 1], IFERROR: [1, 2], MEDIAN: [1, 99], STDEV: [1, 99], COUNTA: [1, 99], COUNTBLANK: [1, 99], MOD: [2, 2], POWER: [2, 2], SQRT: [1, 1], INT: [1, 1], FLOOR: [1, 2], CEILING: [1, 2], DATE: [3, 3], YEAR: [1, 1], MONTH: [1, 1], DAY: [1, 1], WEEKDAY: [1, 2], LEFT: [1, 2], RIGHT: [1, 2], MID: [3, 3], TRIM: [1, 1], SUBSTITUTE: [3, 4], FIND: [2, 3], INDEX: [2, 3], MATCH: [2, 3], VLOOKUP: [3, 4], SUMIF: [2, 3], COUNTIF: [2, 2], AVERAGEIF: [2, 3], SUM: [1, 99], AVERAGE: [1, 99], MIN: [1, 99], MAX: [1, 99], COUNT: [1, 99], ABS: [1, 1], ROUND: [1, 2], LEN: [1, 1], UPPER: [1, 1], LOWER: [1, 1], CONCAT: [1, 99], NOT: [1, 1], AND: [1, 99], OR: [1, 99], IF: [2, 3] };
   function truth(v) {
     if (isErr(v)) return v;
     if (typeof v === "boolean") return v;
@@ -583,6 +654,11 @@
             var cnd = truth(sc(ev(n.a[0]))); if (isErr(cnd)) return cnd;
             if (cnd) return sc(ev(n.a[1]));
             return n.a.length > 2 ? sc(ev(n.a[2])) : false;
+          }
+          if (n.f === "IFERROR") {  // lazy: the fallback runs only when the first argument is an error
+            var fv = sc(ev(n.a[0]));
+            if (!isErr(fv)) return fv;
+            return n.a.length > 1 ? sc(ev(n.a[1])) : "";
           }
           var agg = n.f === "MEDIAN" || n.f === "STDEV" || n.f === "COUNTA" || n.f === "COUNTBLANK" || !OWN.call(FNX, n.f) && (n.f === "SUM" || n.f === "AVERAGE" || n.f === "MIN" || n.f === "MAX" || n.f === "COUNT");
           // a direct cell reference counts as a reference (text and blanks ignored), like a one-cell range
