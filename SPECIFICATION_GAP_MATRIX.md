@@ -1,7 +1,7 @@
 # SPECIFICATION GAP & COMPLIANCE MATRIX
 **Project**: Salow Workspace & Identity Platform (IAM v6.0)  
 **Organization**: Salow Tech  
-**Baseline Commit**: `b520687` on `main`  
+**Baseline Commit**: `b520687` on `main` (five rows re-read from source later, see below)  
 **Auditor**: Independent Forensic Investigation Specialist (Stage 0)  
 **Deliverable**: Deliverable H — Requirement-by-Requirement Comparison Against Phase 1 v4.0 & IAM v6.0
 
@@ -26,24 +26,17 @@
 | **SecOps Alerting (9 Cats)** | IAM v6.0 (Sec 13) | `apps/accounts/auth/audit.py` | **VERIFIED** | Real `SecurityAlert` records created across all 9 high-severity categories. |
 | **Independent SecOps Reviewer**| IAM v6.0 (Sec 13)| `apps/accounts/views/security_operations.py` | **VERIFIED** | `security_reviewer` role has read-only access to triage and live event streams. |
 | **Employee ID Role Marker** | IAM v6.0 (Sec 6) | `apps/accounts/auth/employee_id.py` | **CONFLICTING** | Syntax parsed, but role consistency check locks out promoted employees permanently. |
-| **Biometric Face Capture** | Phase 1 v4.0 (Sec 17)| `templates/attendance/panel.html`| **PARTIALLY VERIFIED**| Encryption and protocol verified, but check-in UI lacks camera element and sends hardcoded empty frames. |
-| **Geolocation Enforcement**| Phase 1 v4.0 (Sec 17)| `apps/core/middleware.py` | **CONFLICTING** | `Permissions-Policy: geolocation=()` blocks browser geolocation requests. |
-| **HTMX Polling** | IAM v6.0 (Sec 13) | `templates/base.html` | **NOT IMPLEMENTED** | Templates use `hx-get`, but `htmx.min.js` is not loaded in `base.html`. |
+| **Biometric Face Capture** | Phase 1 v4.0 (Sec 17)| `templates/attendance/panel.html`| **PARTIALLY VERIFIED**| Re-read from source (not run here): the panel has a camera `<video>` element, a `getUserMedia` request, and copies the current frame into the form as a JPEG data URL before submit (the earlier "no camera, hardcoded empty frames" claim is out of date). Encryption and protocol rows above were not re-checked. Matching still uses the stub engine, see the Real Biometric Models row. |
+| **Geolocation Enforcement**| Phase 1 v4.0 (Sec 17)| `apps/core/middleware.py` | **UNVERIFIED (changed)** | Re-read from source: the middleware now sets `Permissions-Policy: camera=(self), microphone=(), geolocation=(self)`, so the old claim that it blocks geolocation is out of date. A docstring at the top of that file still lists `geolocation=()`. Whether geolocation is actually enforced at check-in was not tested. |
+| **HTMX Polling** | IAM v6.0 (Sec 13) | `templates/base.html` | **UNVERIFIED (changed)** | Re-read from source: `base.html` now loads `/static/htmx.min.js` (the file exists in `static/`). The earlier "not loaded" claim is out of date. Polling behaviour was not tested. |
 | **Live Stream (SSE)** | IAM v6.0 (Sec 13) | `apps/accounts/views/admin_iam.py` | **CONFLICTING** | Stream emits a finite slice and closes immediately; client reconnects every 3s via error handling. |
-| **1,000-User Capacity** | IAM v6.0 (Sec 23) | `scripts/load_test_1000_users.py` | **NOT VERIFIED** | In-process SQLite test with `force_login` and 25 threads; real HTTP/TiDB capacity unverified. |
-| **Real Biometric Models** | Phase 1 v4.0 (Sec 17)| `apps/face/engine/` | **REQUIRES HUMAN DECISION**| YuNet/SFace ONNX models require external licensing and human consent approval before inclusion. |
+| **1,000-User Capacity** | IAM v6.0 (Sec 23) | `scripts/load_test_1000_users.py`, `tests/browser/load_http.py` | **NOT VERIFIED** | The old script is an in-process SQLite test. `tests/browser/load_http.py` is a bounded diagnostic over real HTTP on a throwaway TiDB 8.5.1 unistore, run at 10, 50 and 100 simulated users on one shared 1 CPU box with stored sessions. It is not a capacity test and says nothing about 1,000 users, TiDB Cloud or a multi-worker deploy. It also surfaced an open TiDB 8133 read error on chat space under concurrent inserts (unistore only so far). |
+| **Real Biometric Models** | Phase 1 v4.0 (Sec 17)| `apps/face/engine/` | **REQUIRES HUMAN DECISION**| Re-read from source: no `.onnx` model files in the repo, and the engine folder has a `stub.py`. Model choice, licensing and consent for real models remain open. |
 
 ---
 
-## 2. Quantitative Compliance Summary
+## 2. Note on the original counts
 
-- **Total Assessed Requirements**: 21 core architectural requirements.
-- **VERIFIED**: 14 (66.7%)
-- **PARTIALLY VERIFIED**: 2 (9.5%)
-- **CONFLICTING**: 3 (14.3%)
-- **NOT IMPLEMENTED**: 1 (4.8%)
-- **NOT VERIFIED**: 1 (4.8%)
-- **REQUIRES HUMAN DECISION**: 1 (4.8%)
-
----
-*Deliverable H complete. Gap matrix accurately identifies every compliance point and architectural discrepancy.*
+The percentage table and the closing line from the baseline audit were removed. The counts are not valid for the rows re-read above, and
+the other rows were not re-checked in this pass. Only the five rows named above were re-read, from source, without running them.
+This file makes no claim that the product is complete or production ready.

@@ -295,7 +295,11 @@ def test_day_and_week_list_everything_and_month_more_links_to_the_day():
     per = {d["date"].isoformat(): [x["e"].title for x in d["items"]] for d in wk.context["days"]}
     assert len(per["2026-12-15"]) == 6 and "Span" in per["2026-12-14"] and "Span" in per["2026-12-16"]
     assert "Span" not in per["2026-12-17"]
-    assert "E0" not in _c(out).get(reverse("events:day"), {"d": "2026-12-15"}).content.decode()
+    # The outsider's day page lists none of these events. Asserted on the event titles in the view context, not on a raw
+    # substring of the HTML (random CSRF text can contain "E0" and made this test flaky).
+    out_day = _c(out).get(reverse("events:day"), {"d": "2026-12-15"})
+    out_titles = [x["e"].title for d in out_day.context["days"] for x in d["items"]]
+    assert out_day.status_code == 200 and out_titles == []
     for name in ("day", "week"):
         for bad in ("2026-12", "x", "1999-12-01", "2026-02-30"):
             assert c.get(reverse(f"events:{name}"), {"d": bad}).status_code == 400
