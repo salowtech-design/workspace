@@ -75,11 +75,19 @@ def _fresh(task):
     return Task.objects.select_related("task_list").get(pk=task.pk)
 
 
+def _refuse_if_moved(fresh, locked_list):
+    """A move may have committed while this call waited on the list lock it took from a stale view of the task. The task then sits in another
+    list that this call does not hold: refuse, so the right and the write are never judged under the wrong list's lock."""
+    if fresh.task_list_id != locked_list.pk:
+        raise StaleVersion("This task was moved to another list. Reload and try again.")
+
+
 def _locked_task(user, task, action):
     """Lock the list, re-read the task under the lock, then check permission on the fresh
     rows. A task or list deleted or reassigned a moment ago is refused, not acted on."""
     tl = _lock_list(task.task_list)  # list first, always
     fresh = _fresh(task)
+    _refuse_if_moved(fresh, tl)
     fresh.task_list = tl
     require(user, action, "task", fresh)
     return fresh
@@ -311,6 +319,7 @@ def restore_task(user, task):
     parent is still deleted is refused (restore the parent first). Versions move so an old form is stale."""
     tl = _lock_list(task.task_list)
     fresh = _fresh(task)
+    _refuse_if_moved(fresh, tl)
     fresh.task_list = tl
     require(user, "restore", "task", fresh)
     if fresh.parent_id is not None:

@@ -129,3 +129,49 @@ def test_view_moves_with_the_version_and_404s_for_strangers_and_foreign_targets(
     assert b"changed while you were working" in r.content and Task.objects.get(pk=t.pk).task_list_id == one.pk
     r = _c(a).post(url, {"to": str(two.public_id), "version": _v(t)}, follow=True)
     assert b"Task moved." in r.content and Task.objects.get(pk=t.pk).task_list_id == two.pk
+
+
+def test_calls_that_took_the_old_list_lock_refuse_once_the_task_has_moved(setup):
+    """The state a waiting call wakes up in: it holds the OLD list from its stale view, the task already committed into another list.
+    Each single-list mutation must refuse and change nothing."""
+    a, b, one, two = setup
+    t = svc.create_task(a, one, "T")
+    stale = Task.objects.select_related("task_list").get(pk=t.pk)  # the view the waiting call started from: list One
+    svc.move_task(a, t, _v(t), two)
+    before = Task.objects.get(pk=t.pk)
+    for call in (
+        lambda: svc.update_task(a, stale, stale.version, title="X"),
+        lambda: svc.set_status(a, stale, True),
+        lambda: svc.assign(a, stale, b),
+        lambda: svc.delete_task(a, stale),
+    ):
+        with pytest.raises(svc.StaleVersion, match="moved to another list"):
+            call()
+    after = Task.objects.get(pk=t.pk)
+    assert (after.title, after.status, after.assignee_id, after.deleted_at, after.version, after.task_list_id) == (
+        before.title, before.status, before.assignee_id, before.deleted_at, before.version, two.pk)
+    # the same call with a fresh view of the task works under the new list
+    svc.assign(a, Task.objects.get(pk=t.pk), b)
+    assert Task.objects.get(pk=t.pk).assignee_id == b.pk
+
+
+def test_a_subtask_added_under_a_parent_that_has_moved_is_refused_and_one_added_after_goes_to_the_new_list(setup):
+    a, b, one, two = setup
+    p = svc.create_task(a, one, "P")
+    stale_parent = Task.objects.get(pk=p.pk)
+    svc.move_task(a, p, _v(p), two)
+    with pytest.raises(ValidationError, match="same list"):
+        svc.create_task(a, one, "Kid", parent=stale_parent)  # the caller still holds list One
+    assert Task.objects.filter(parent=p).count() == 0
+    k = svc.create_task(a, two, "Kid", parent=Task.objects.get(pk=p.pk))
+    assert k.task_list_id == two.pk
+
+
+def test_the_assigned_page_shows_the_giver_but_not_the_list_name(setup):
+    a, b, one, two = setup
+    secret = svc.create_list(a, "Private list name")
+    t = svc.create_task(a, one, "Given")
+    svc.assign(a, t, b)
+    svc.move_task(a, Task.objects.get(pk=t.pk), _v(t), secret)
+    body = _c(b).get(reverse("tasks:assigned")).content
+    assert b"Given" in body and b"Private list name" not in body
