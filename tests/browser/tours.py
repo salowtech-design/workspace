@@ -324,6 +324,7 @@ def register(g):
     register_pdf_marks_tools(g)
     register_pdf_pages(g)
     register_pdf_alltext(g)
+    register_sheets_csv_import(g)
     register_pdf_alltext_stop(g)
     register_pdf_roundtrip(g)
     register_slides_order_recovery(g)
@@ -5353,6 +5354,53 @@ def register_slides_pointer_anim(g):
         run_tour(ctx, "68_slides_pointer_anim", body, notes="Device-local deck; secure-context test flag. Headless Chromium 390x844 emulated. The drags use a mouse pointer, not a finger on a touch screen.", unshown=["finger drag on a real touch screen", "unreadable-deck recovery"])
 
     g["DRILLS"]["tour_slides_pointer_anim"] = tour
+
+
+def register_sheets_csv_import(g):
+    APP = g["APP"]
+
+    def tour(ctx):
+        import os as _os
+
+        _os.makedirs("/tmp/vid/dl", exist_ok=True)
+        csv_text = 'item,qty,note\r\napple,3,"red, sweet"\r\npear,4,"say ""hi"""\r\n=SUM(B2:B3),7,formula text\r\n'
+        val = lambda pg, a: pg.input_value('input[data-addr="%s"]' % a)
+
+        def sc(pg, sel):
+            pg.evaluate("s=>{var e=document.querySelector(s);if(e)e.scrollIntoView({block:'center'})}", sel)
+
+        def body(t, pg):
+            seen = []
+            pg.on("dialog", lambda d: (seen.append(d.message), d.accept()))
+            pg.goto(APP + "/sheets/")
+            pg.evaluate("localStorage.clear()")
+            pg.goto(APP + "/sheets/")
+            pg.wait_for_timeout(500)
+            st = lambda: pg.inner_text("#sheet-status")
+            pg.click('input[data-addr="E5"]')
+            pg.keyboard.type("old")
+            pg.keyboard.press("Enter")
+            pg.wait_for_timeout(300)
+            sc(pg, "#sheet-import-csv")
+            t.cap("Next: Import CSV, choosing a 4 line file with a comma inside quotes, a doubled quote and a cell that starts with =")
+            pg.set_input_files("#sheet-import-csv", files=[{"name": "demo.csv", "mimeType": "text/csv", "buffer": csv_text.encode()}])
+            pg.wait_for_timeout(900)
+            sc(pg, 'input[data-addr="A1"]')
+            t.step("The cells hold the file: A1 item, C2 'red, sweet' with its comma, C3 say \"hi\" with its quotes", expect=lambda: val(pg, "A1") == "item" and val(pg, "C2") == "red, sweet" and val(pg, "C3") == 'say "hi"' and val(pg, "B3") == "4", wait=3200)
+            t.step("A4 holds the typed =SUM(B2:B3) as text with a leading apostrophe and was not calculated; the old cell E5 is gone", expect=lambda: val(pg, "A4") == "'=SUM(B2:B3)" and val(pg, "E5") == "", wait=3200)
+            sc(pg, "#sheet-status")
+            t.step("The status counts 12 cells, says 1 started with = and was kept as text, and says it replaced the tab", expect=lambda: "12 cells imported from 4 rows by 3 columns" in st() and "1 cells started with =" in st() and "replaced the tab" in st() and any("Replace the 1 cells" in m for m in seen), wait=3200)
+            pg.click("#sheet-undo")
+            pg.wait_for_timeout(500)
+            sc(pg, 'input[data-addr="E5"]')
+            t.step("Undo brings the old sheet back: E5 holds old and A1 is empty", expect=lambda: val(pg, "E5") == "old" and val(pg, "A1") == "", wait=3200)
+            pg.set_input_files("#sheet-import-csv", files=[{"name": "bad.csv", "mimeType": "text/csv", "buffer": b'a,"unclosed\nb,c\n'}])
+            pg.wait_for_timeout(700)
+            sc(pg, "#sheet-status")
+            t.step("A file with a quote that never closes is refused and the sheet is unchanged", expect=lambda: "quoted cell that does not close" in st() and "was not imported" in st() or "not changed" in st() and val(pg, "E5") == "old", wait=3200)
+        run_tour(ctx, "sheets_csv_import", body, notes="Headless Chromium 390x844 emulated, one run. Hand-made CSV files only, not files from Google Sheets or Excel. The confirm dialog is auto-accepted off camera and its text is checked. Not shown: the 5,000 row limit, validation-rule refusal, import while a filter is on, switching tabs while a file loads.", unshown=["limits", "validation refusal", "filter on", "tab switch while loading"])
+
+    g["DRILLS"]["tour_sheets_csv_import"] = tour
 
 
 def register_sheets_io_keys(g):

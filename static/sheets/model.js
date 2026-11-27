@@ -432,6 +432,43 @@
     }
     return { cells: n, set: set, cleared: cleared, clipped: clipped, refused: refused, tooLong: tooLong, formulas: formulas, breaks: breaks };
   }
+  // ---- CSV import. Comma separated, quoted fields may hold commas, quotes ("") and line breaks. Nothing is guessed: every value stays text.
+  // A field that starts with = is kept as literal text with a leading apostrophe (the same mark the CSV download adds), never run as a formula.
+  var MAX_CSV_CHARS = 1000000, MAX_CSV_ROWS = 5000, MAX_CSV_COLS = 200;
+  function parseCsv(text) {
+    if (text.charAt(0) === "\uFEFF") text = text.slice(1);
+    var rows = [], row = [], f = "", i = 0, q = false, n = text.length, c, any = false;
+    while (i < n) {
+      c = text.charAt(i);
+      if (q) {
+        if (c === '"') {
+          if (text.charAt(i + 1) === '"') { f += '"'; i += 2; continue; }
+          var nx = text.charAt(i + 1);
+          if (nx !== "" && nx !== "," && nx !== "\r" && nx !== "\n") return null;
+          q = false; i++; continue;
+        }
+        f += c; i++; continue;
+      }
+      if (c === '"' && f === "") { q = true; any = true; i++; continue; }
+      if (c === ",") { row.push(f); f = ""; any = true; i++; continue; }
+      if (c === "\r" || c === "\n") { row.push(f); rows.push(row); row = []; f = ""; any = false; if (c === "\r" && text.charAt(i + 1) === "\n") i++; i++; continue; }
+      f += c; any = true; i++;
+    }
+    if (q) return null;
+    if (f !== "" || row.length || any) { row.push(f); rows.push(row); }
+    return rows;
+  }
+  function csvImport(text, check, addrOf, maxCol, maxRow, maxCell) {
+    if (typeof text !== "string" || !text.length) return { error: "That file is empty. Your sheet was not changed." };
+    if (text.length > MAX_CSV_CHARS) return { error: "That file is more than " + MAX_CSV_CHARS + " characters. Your sheet was not changed." };
+    var rows = parseCsv(text); if (!rows) return { error: "The file has a quoted cell that does not close or is followed by more text, so it was not imported. Your sheet was not changed." };
+    var cols = rows.reduce(function (m, r) { return Math.max(m, r.length); }, 0);
+    if (rows.length > MAX_CSV_ROWS || cols > MAX_CSV_COLS) return { error: "That file has more than " + MAX_CSV_ROWS + " rows or " + MAX_CSV_COLS + " columns. Your sheet was not changed." };
+    var literal = 0;
+    var items = rows.map(function (r) { return r.map(function (v) { if (v.charAt(0) === "=") { literal++; return "'" + v; } return v; }); });
+    var res = applyPaste(Object.create(null), { rows: rows.length, cols: cols, items: items }, 1, 1, maxCol, maxRow, maxCell, check, addrOf);
+    res.rows = rows.length; res.cols = cols; res.literal = literal; return res;
+  }
   // Copy the first row of a range down over the rest (dir "down") or its first column right over the rest ("right").
   // Text is copied as written, except that with a shift function a formula's relative references move with the fill ($ pins). Empty source cells clear the targets.
 
@@ -617,6 +654,6 @@
     });
     return { groups: out, skipped: skipped, rows: rows };
   }
-  var api = { structApply: structApply, structRecover: structRecover, structRecovery: structRecovery, structRecoveryInfo: structRecoveryInfo, structEdit: structEdit, structRange: structRange, fillRange: fillRange, findReplace: findReplace, parseRange: parseRange, makeRule: makeRule, addRule: addRule, removeRule: removeRule, loadRules: loadRules, rulesJson: rulesJson, checkValue: checkValue, makePivot: makePivot, pivot: pivot, MAX_GROUPS: MAX_GROUPS, makeCf: makeCf, addCf: addCf, loadCf: loadCf, cfJson: cfJson, cfColor: cfColor, parsePaste: parsePaste, isBlock: isBlock, applyPaste: applyPaste, MAX_PASTE_CELLS: MAX_PASTE_CELLS, makeFmt: makeFmt, addFmt: addFmt, loadFmt: loadFmt, fmtJson: fmtJson, fmtFor: fmtFor, fmtText: fmtText, MAX_FMT: MAX_FMT, MAX_RULES: MAX_RULES, loadTabs: loadTabs, addTab: addTab, markFmt: markFmt, renameTab: renameTab, deleteTab: deleteTab, setActive: setActive, cleanName: cleanName, MAX_TABS: MAX_TABS, sortRange: sortRange, filterRows: filterRows, toNum: toNum, toCsv: toCsv, clean: clean, History: History, chartPoints: chartPoints, pieSlices: pieSlices, isComposing: isComposing, keyMove: keyMove, copy: copy, same: same };
+  var api = { structApply: structApply, structRecover: structRecover, structRecovery: structRecovery, structRecoveryInfo: structRecoveryInfo, structEdit: structEdit, structRange: structRange, fillRange: fillRange, findReplace: findReplace, parseRange: parseRange, makeRule: makeRule, addRule: addRule, removeRule: removeRule, loadRules: loadRules, rulesJson: rulesJson, checkValue: checkValue, makePivot: makePivot, pivot: pivot, MAX_GROUPS: MAX_GROUPS, makeCf: makeCf, addCf: addCf, loadCf: loadCf, cfJson: cfJson, cfColor: cfColor, parsePaste: parsePaste, parseCsv: parseCsv, csvImport: csvImport, isBlock: isBlock, applyPaste: applyPaste, MAX_PASTE_CELLS: MAX_PASTE_CELLS, makeFmt: makeFmt, addFmt: addFmt, loadFmt: loadFmt, fmtJson: fmtJson, fmtFor: fmtFor, fmtText: fmtText, MAX_FMT: MAX_FMT, MAX_RULES: MAX_RULES, loadTabs: loadTabs, addTab: addTab, markFmt: markFmt, renameTab: renameTab, deleteTab: deleteTab, setActive: setActive, cleanName: cleanName, MAX_TABS: MAX_TABS, sortRange: sortRange, filterRows: filterRows, toNum: toNum, toCsv: toCsv, clean: clean, History: History, chartPoints: chartPoints, pieSlices: pieSlices, isComposing: isComposing, keyMove: keyMove, copy: copy, same: same };
   if (typeof module !== "undefined" && module.exports) module.exports = api; else root.SalowSheetModel = api;
 })(typeof self !== "undefined" ? self : this);

@@ -63,3 +63,15 @@ def test_structure_storage_table_passes_in_node():
     )
     assert r.returncode == 0, r.stdout + r.stderr
     assert "33/33 structure storage rows passed" in r.stdout
+
+
+def test_csv_import_table_passes_in_node():
+    assert shutil.which("node"), "node is required to run the CSV import table"
+    r = subprocess.run(  # noqa: S603 - fixed argv, repo-owned script
+        [shutil.which("node"), str(ROOT / "tests/js/sheets_csv_import.js")],
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert "23/23 csv import rows passed" in r.stdout

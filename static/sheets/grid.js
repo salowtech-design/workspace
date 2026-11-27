@@ -245,6 +245,25 @@
     rd.readAsText(f); e.target.value = "";
   });
 
+  document.getElementById("sheet-import-csv").addEventListener("change", function (e) {
+    var f = e.target.files[0]; if (!f) return;
+    var impTab = meta.active, impH = H;
+    if (f.size > 1000000) { status.textContent = "That file is too large. Your sheet was not changed."; e.target.value = ""; return; }
+    var rd = new FileReader();
+    rd.onload = function () {
+      if (H !== impH || meta.active !== impTab) { status.textContent = "You switched tabs while the file was loading, so the import was cancelled. Nothing was changed."; return; }
+      if (filt) { status.textContent = "A filter is on, so nothing was imported. Clear the filter first. Your sheet was not changed."; return; }
+      if (rulesLocked) { status.textContent = "This tab's validation rules could not be read, so the file cannot be checked and was not imported. Your sheet was not changed."; return; }
+      var r = M.csvImport(String(rd.result), function (addr, v) { return M.checkValue(rules, addr, v, F.parseAddr); }, function (c, rr) { return String.fromCharCode(64 + c) + rr; }, COLS, ROWS, MAXCELL);
+      if (r.error) { status.textContent = r.error; return; }
+      if (!r.set) { status.textContent = "That file has no cells to import. Your sheet was not changed."; return; }
+      if (Object.keys(cells).length && !window.confirm("Replace the " + Object.keys(cells).length + " cells in this tab with the " + r.set + " cells in this CSV file? You can undo it afterwards.")) { status.textContent = "Import cancelled. Your sheet was not changed."; return; }
+      var bits = [r.set + " cells imported from " + r.rows + " rows by " + r.cols + " columns"]; if (r.clipped) bits.push(r.clipped + " outside Z100 left out"); if (r.refused) bits.push(r.refused + " refused by validation rules"); if (r.tooLong) bits.push(r.tooLong + " too long (over " + MAXCELL + " characters) left out"); if (r.breaks) bits.push(r.breaks + " line breaks inside cells became spaces"); if (r.literal) bits.push(r.literal + " cells started with = and were kept as text with a leading apostrophe, not run as formulas");
+      change(r.cells, bits.join(", ") + ". Everything is text as written in the file, numbers are not converted. This replaced the tab's cells. Undo works.");
+    };
+    rd.readAsText(f); e.target.value = "";
+  });
+
   // Chart: bars from one row or column of the sheet, computed here from the same formula engine.
   var out = document.getElementById("chart-out"), NS = "http://www.w3.org/2000/svg";
   function el(n, at, tx) { var x = document.createElementNS(NS, n); Object.keys(at || {}).forEach(function (k) { x.setAttribute(k, at[k]); }); if (tx !== undefined) x.textContent = tx; return x; }
