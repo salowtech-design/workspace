@@ -103,6 +103,20 @@ def _guarded(request, project, fn, *args, ok=""):
 
 @login_required
 @require_POST
+def rename_project(request, project_id):
+    p = pj.get_project(request.user, project_id)
+    try:
+        pj.rename_project(request.user, p, request.POST.get("new_name", ""))
+        messages.success(request, "Project renamed.")
+    except ValidationError as exc:
+        messages.error(request, " ".join(exc.messages))
+    except PermissionDenied:
+        messages.error(request, "Only a project lead can rename the project.")
+    return redirect("tasks:project", project_id=p.public_id)
+
+
+@login_required
+@require_POST
 def add_project_task(request, project_id):
     p = pj.get_project(request.user, project_id)
     due = (request.POST.get("due") or "").strip() or None

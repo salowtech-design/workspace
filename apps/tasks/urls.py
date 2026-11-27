@@ -26,6 +26,7 @@ urlpatterns = [
     path("projects/", project_views.projects_home, name="projects"),
     path("projects/new/", project_views.new_project, name="new_project"),
     path("projects/<uuid:project_id>/", project_views.project_view, name="project"),
+    path("projects/<uuid:project_id>/rename/", project_views.rename_project, name="project_rename"),
     path("projects/<uuid:project_id>/add/", project_views.add_project_task, name="project_add"),
     path(
         "projects/task/<uuid:task_id>/move/", project_views.move_project_task, name="project_move"

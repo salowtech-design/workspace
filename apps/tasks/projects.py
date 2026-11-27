@@ -42,6 +42,21 @@ def create_project(user, name):
     return p
 
 
+@transaction.atomic
+def rename_project(user, project, name):
+    """A lead renames the project. Same name rule as creating one, no uniqueness rule (there is none for creating). Judged on fresh data under
+    the project lock, like every lead change. Every member sees the new name; nobody is notified (communication stays a user choice)."""
+    name = (name or "").strip()
+    if not name or len(name) > 120:
+        raise ValidationError("A project needs a name of up to 120 characters.")
+    p = _lock_as_lead(user, project)
+    if p.name != name:
+        Project.objects.filter(pk=p.pk).update(name=name)
+        audit(user, "tasks.project.rename", "project", p.pk)
+    p.refresh_from_db()
+    return p
+
+
 def projects_for(user):
     return Project.objects.filter(
         deleted_at__isnull=True,
