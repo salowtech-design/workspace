@@ -699,7 +699,7 @@
   function heldTab() { for (var i = 0; i < meta.tabs.length; i++) { var st = "storage"; try { st = M.structRecovery(localStorage, bakKeyOf(meta.tabs[i].id), structKeys(meta.tabs[i].id)); } catch (e) { st = "storage"; } if (st !== "none") return meta.tabs[i].id; } return null; }
   function heldMsg() {
     var id = heldTab(); if (id === null) return false;
-    status.textContent = "A change to rows or columns did not finish, so the stored sheet may be partly changed. Nothing can be edited or saved until you use Restore in the notice above."; renderRecovery(false); return true;
+    status.textContent = "A row or column change or a version restore did not finish, so the stored sheet may be partly changed. Nothing can be edited or saved until you use Restore in the notice above."; renderRecovery(false); return true;
   }
   function tabName2(id) { var t = meta.tabs.filter(function (x) { return x.id === id; })[0]; return t ? t.name : id; }
   var recSig = null;
@@ -712,7 +712,7 @@
     var p = document.createElement("p"); p.className = "cal-meta"; box.hidden = false;
     var b1 = document.createElement("button"); b1.type = "button"; b1.className = "btn"; b1.id = "struct-restore";
     if (info.state === "found") {
-      p.textContent = "A row or column change on the tab " + tabName2(id) + " did not finish, and the stored sheet may be partly changed. Editing and saving are off until it is restored. A copy of the stored text from before the change is kept in this browser. Restore puts these back as they were before the change: " + SNAMES.join(", ") + ".";
+      p.textContent = "A row or column change or a version restore on the tab " + tabName2(id) + " did not finish, and the stored sheet may be partly changed. Editing and saving are off until it is restored. A copy of the stored text from before the change is kept in this browser. Restore puts these back as they were before the change: " + SNAMES.join(", ") + ".";
       b1.textContent = "Restore this tab from the recovery copy"; b1.addEventListener("click", function () { doRestore(false); }); box.appendChild(p); box.appendChild(b1);
     } else {
       p.textContent = info.state === "unreadable" ? "A recovery copy exists for the tab " + tabName2(id) + " but it cannot be read or does not match this tab, so it cannot be restored here. Editing and saving stay off. Download it first if you want a copy, then discard it." : "This browser would not let the page read the recovery copy for the tab " + tabName2(id) + ", so editing and saving stay off. Reload the page to try again.";
@@ -747,7 +747,7 @@
   }
   function sameCells(a, b) { var ka = Object.keys(a), kb = Object.keys(b); return ka.length === kb.length && ka.every(function (k) { return has(b, k) && a[k] === b[k]; }); }
   function tabStillListed(id) { var lt = null; try { lt = M.loadTabs(localStorage.getItem(KEY + ".tabs")); } catch (e) { lt = null; } return !!lt && !lt.unreadable && lt.meta.tabs.some(function (t) { return t.id === id; }); }
-  var STRUCT_WHY = { "recovery-exists": "an earlier row or column change left a recovery copy", stale: "the stored sheet was changed in another window or changed since this page showed it", storage: "this browser would not read the stored sheet", "no-recovery-copy": "this browser would not keep a recovery copy first", "recovery-stuck": "a recovery copy could not be cleaned up", "no-change": "it would not change anything" };
+  var STRUCT_WHY = { "recovery-exists": "an earlier row or column change or version restore left a recovery copy", stale: "the stored sheet was changed in another window or changed since this page showed it", storage: "this browser would not read the stored sheet", "no-recovery-copy": "this browser would not keep a recovery copy first", "recovery-stuck": "a recovery copy could not be cleaned up", "no-change": "it would not change anything" };
   function structFail(r, what) {
     if (r.status === "refused") { status.textContent = "Nothing was changed: " + (STRUCT_WHY[r.reason] || r.reason) + (r.reason === "stale" ? " (" + SNAMES[0 + structKeysIndex(r.key)] + ")" : "") + ". " + (r.reason === "stale" ? "Reload this page to see what is stored." : ""); renderRecovery(); return; }
     if (r.status === "failed-restored") { status.textContent = "The " + what + " could not be saved. Every stored item was read back as it was before, so nothing was changed."; return; }
@@ -791,7 +791,7 @@
     var id = meta.active, what = redo ? "redo" : "undo";
     if (!tabStillListed(id)) { status.textContent = "This tab was deleted or changed in another window, so nothing was changed. Reload this page."; return; }
     var r = M.structApply(localStorage, structKeys(id), bakKeyOf(id), redo ? m.before : m.after, redo ? m.after : m.before);
-    if (r.status === "refused" && r.reason === "stale") { status.textContent = "Nothing was changed: the cells or rules were changed after the row or column step (" + SNAMES[structKeysIndex(r.key)] + "), so it cannot be " + (redo ? "redone" : "undone") + " safely. Reload the page to see what is stored."; return; }
+    if (r.status === "refused" && r.reason === "stale") { status.textContent = "Nothing was changed: the cells or rules were changed after the row, column or restore step (" + SNAMES[structKeysIndex(r.key)] + "), so it cannot be " + (redo ? "redone" : "undone") + " safely. Reload the page to see what is stored."; return; }
     if (r.status !== "done") { structFail(r, what); return; }
     if (redo) H.redoExternal(); else H.undoExternal();
     chartRange = null; out.textContent = ""; sync(); status.textContent = (redo ? "Redone" : "Undone") + ". The chart and pivot were cleared." + (r.bakLeft ? " The recovery copy could not be removed and is still there." : ""); if (r.bakLeft) renderRecovery();
@@ -892,7 +892,7 @@
 
   renderRecovery();
   status.textContent = H.note;
-  if (heldTab() !== null) status.textContent = "A change to rows or columns did not finish. See the notice above.";
+  if (heldTab() !== null) status.textContent = "A row or column change or a version restore did not finish. See the notice above.";
   if (tabsLocked) tabMsg.textContent = "The stored tab list could not be read, so tab changes are off. Your cells were not touched.";
   renderTabs();
   show(); buttons();
