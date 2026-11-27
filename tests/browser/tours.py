@@ -299,6 +299,7 @@ def register(g):
     register_pdf_roundtrip(g)
     register_slides_order_recovery(g)
     register_sheets_import_recovery(g)
+    register_second_person_views(g, users)
     register_pdf_forms(g)
     register_pdf_view_buttons(g)
     register_sheets_tabs_rules(g)
@@ -4987,3 +4988,121 @@ def register_sheets_import_recovery(g):
         run_tour(ctx, "86_sheets_import_recovery", body, notes="Device-local sheet; nothing stored on the server. Headless Chromium 390x844 emulated. The import files are filled in by the test (no real file picker window); the replace question is answered by the test. The damaged rules are a test-written string in browser storage.", unshown=["the native file picker window", "a file over 1 MB", "damaged rules from a newer app version"])
 
     g["DRILLS"]["tour_sheets_import_recovery"] = tour
+
+
+def register_second_person_views(g, users):
+    APP = g["APP"]
+
+    def tour(ctx):
+        import concurrent.futures
+        import datetime as dt
+        import secrets as _secrets
+        import time as _time
+
+        import pyotp
+
+        users(ctx)
+        pw2 = _secrets.token_urlsafe(18) + "aA1!"
+        sec2 = pyotp.random_base32(length=32)
+        box = {}
+
+        def make():
+            from django.contrib.auth.hashers import make_password
+            from django.utils import timezone
+
+            from apps.accounts.auth.mfa_totp import encrypt_secret, get_auth_key_ring
+            from apps.accounts.models import CustomUser, TOTPCredential
+            from apps.events import services as es
+            from apps.tasks import services as ts
+
+            two = CustomUser.objects.get(employee_id="ST-LIVE-2")
+            me = CustomUser.objects.get(employee_id="ST-LIVE-1")
+            two.password = make_password(pw2)
+            two.save(update_fields=["password"])
+            ct, nonce, key_id = encrypt_secret(sec2, get_auth_key_ring())
+            TOTPCredential.objects.create(user=two, encrypted_secret=ct, nonce=nonce, key_id=key_id, confirmed_at=timezone.now())
+            base = dt.datetime.combine(dt.date.today() + dt.timedelta(days=1), dt.time(16, 0))
+            ev = es.create_event(two, "Team sync (series by Second)", base, base + dt.timedelta(minutes=30), "Asia/Kolkata", [me.pk], rule={"freq": "weekly", "count": 6})
+            box["ev"] = str(ev.public_id)
+            lst = ts.create_list(two, "Second list")
+            tk = ts.create_task(two, lst, "Review the handbook")
+            ts.assign(two, tk, me)
+            box["task"] = str(tk.public_id)
+            box["list"] = str(lst.public_id)
+
+        with concurrent.futures.ThreadPoolExecutor(1) as ex:
+            ex.submit(make).result()
+
+        # off camera: sign in as the second synthetic account in a separate, unrecorded window
+        errs, remote, guard = ctx.salow_hooks
+        c2 = ctx.browser.new_context(viewport={"width": 390, "height": 844})
+        c2.route("**/*", guard)
+        q = c2.new_page()
+        q.goto(APP + "/sign-in/")
+        q.wait_for_timeout(800)
+        q.click("#btn-signin")
+        q.wait_for_timeout(500)
+        q.fill("#employee_id", "ST-LIVE-2")
+        q.fill("#password", pw2)
+        tt = pyotp.TOTP(sec2)
+        left = tt.interval - (_time.time() % tt.interval)
+        if left < 5:
+            _time.sleep(left + 0.5)
+        q.fill("#totp_code", tt.now())
+        q.click("#confirm-btn")
+        q.wait_for_load_state()
+        q.wait_for_timeout(1500)
+        signed_in = "/sign-in" not in q.url
+        cookies2 = c2.cookies()
+        c2.close()
+
+        def body(t, pg):
+            txt = lambda: pg.inner_text("body")
+            cookies1 = pg.context.cookies()
+
+            def go(sel):
+                with pg.expect_navigation():
+                    pg.click(sel)
+
+            def show(sel):
+                pg.evaluate("s => document.querySelector(s).scrollIntoView({block:'start'})", sel)
+
+            pg.goto(APP + "/tasks/assigned/")
+            t.step("First account (ST-LIVE-1), Assigned to me: the task from Second is listed, open", expect=lambda: pg.locator(".task-row .task-title", has_text="Review the handbook").count() == 1 and pg.locator(".task-row.done").count() == 0 and "From Second Synthetic" in txt(), wait=3200)
+            pg.goto(APP + "/tasks/")
+            t.step("My lists does not show Second's list", expect=lambda: "Second list" not in txt(), wait=3000)
+            pg.goto(APP + "/calendar/event/%s/" % box["ev"])
+            t.step("The series from Second: my answer is Not answered yet", lambda: show(".cal-meta"), expect=lambda: "Your answer: Not answered yet" in txt(), wait=3600)
+            t.step("Accept: Your answer: Accepted", lambda: (go("button:text-is('Accept')"), show(".cal-actions")), expect=lambda: "Your answer: Accepted" in txt(), wait=3600)
+            t.cap("Next: switch to the second account (its sign-in was done off camera)")
+            pg.context.clear_cookies()
+            pg.context.add_cookies(cookies2)
+            pg.goto(APP + "/calendar/event/%s/" % box["ev"])
+            t.step("As Second (the host): the guest list shows ST-LIVE-1 with their answer Accepted", lambda: show(".cal-row"), expect=lambda: signed_in and pg.locator(".cal-row", has_text="ST-LIVE-1").count() == 1 and "Accepted" in pg.locator(".cal-row", has_text="ST-LIVE-1").inner_text(), wait=3600)
+            pg.goto(APP + "/tasks/task/%s/edit/" % box["task"])
+            t.step("As Second: open Edit on the task Review the handbook and type a new title, not saved yet", lambda: pg.fill("input[name=title]", "Review the handbook, chapters 1 to 3"), expect=lambda: "chapters 1 to 3" in pg.input_value("input[name=title]"), wait=2600)
+
+            def other_person():
+                c3 = ctx.browser.new_context(viewport={"width": 390, "height": 844})
+                c3.route("**/*", guard)
+                c3.add_cookies(cookies1)
+                p3 = c3.new_page()
+                p3.goto(APP + "/tasks/assigned/")
+                p3.click(".task-check")
+                p3.wait_for_load_state()
+                p3.wait_for_timeout(500)
+                box["done_seen"] = p3.locator(".task-row.done").count() == 1
+                c3.close()
+            t.step("Meanwhile ST-LIVE-1, in a second browser window off camera, marks the task done", other_person, expect=lambda: box.get("done_seen") is True, wait=1500)
+
+            def save():
+                with pg.expect_navigation():
+                    pg.click("form.tasks-form button[type=submit]")
+                pg.evaluate("window.scrollTo(0,0)")
+            t.step("Second presses Save: refused, my text stays in the form", save, expect=lambda: "were not saved" in txt() and pg.input_value("input[name=title]") == "Review the handbook, chapters 1 to 3", wait=4500)
+            pg.goto(APP + "/tasks/list/%s/" % box["list"])
+            t.step("Second's list: the task is shown as done (the other person's change is what was saved) and still has its old title", expect=lambda: pg.locator(".task-row.done .task-title", has_text="Review the handbook").count() == 1 and "chapters 1 to 3" not in txt(), wait=3600)
+
+        run_tour(ctx, "87_second_person_views", body, notes="Real Django on TiDB, headless Chromium 390x844 emulated. Two real signed-in synthetic accounts; the second sign-in is done in a separate unrecorded window and only its session is swapped into the recorded window, and the other person's task click happens in a second real browser window off camera. Nothing secret is typed on camera.", unshown=["a conflict on a repeating series from a second person", "a guest answering for one occurrence only (not built)", "a project task conflict"])
+
+    g["DRILLS"]["tour_second_person_views"] = tour
