@@ -51,7 +51,7 @@
         {% if is_admin %}
         <form method="post" action="{% url 'directory:assign_manager' profile_user.employee_id %}" class="tasks-inline">{% csrf_token %}
             <label for="mgr">Reporting manager</label>
-            <select name="manager" id="mgr">{% for u in manager_choices %}<option value="{{ u.employee_id }}"{% if manager and u.pk == manager.pk %} selected{% endif %}>{{ u.full_name }} ({{ u.employee_id }})</option>{% endfor %}</select>
+            <select name="manager" id="mgr">{% if not manager %}<option value="">Choose a person</option>{% endif %}{% for u in manager_choices %}<option value="{{ u.employee_id }}"{% if manager and u.pk == manager.pk %} selected{% endif %}>{{ u.full_name }} ({{ u.employee_id }})</option>{% endfor %}</select>
             <button class="btn btn-small" type="submit">Set manager</button></form>
         {% endif %}
 

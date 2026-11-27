@@ -37,7 +37,10 @@ def _url(u):
 def test_admin_sets_and_changes_manager_and_the_profile_shows_it(people):
     admin, boss, emp, gone = people
     page_url = reverse("directory:profile", args=[emp.employee_id])
-    assert "No manager set" in _c(admin).get(page_url).content.decode()
+    first = _c(admin).get(page_url).content.decode()
+    assert "No manager set" in first and '<option value="">Choose a person</option>' in first  # no one is preselected
+    r = _c(admin).post(_url(emp), {"manager": ""}, follow=True)
+    assert b"Choose a person from the list." in r.content and _rel(emp) is None  # pressing Set manager untouched changes nothing
     r = _c(admin).post(_url(emp), {"manager": "mg-boss"}, follow=True)
     assert b"Worker Person now reports to Boss Person." in r.content and _rel(emp) == "MG-BOSS"
     page = _c(admin).get(page_url).content.decode()

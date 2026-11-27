@@ -239,6 +239,7 @@ def register(g):
     register_certs(g)
     register_automation(g)
     register_find(g)
+    register_manager_assign(g)
     register_security(g)
     register_admin(g)
     register_iam(g)
@@ -843,6 +844,46 @@ def register_automation(g):
                  unshown=["event triggers (not connected)", "scheduled runs (not built)", "delete workflow (not built)", "20 workflow cap", "10 runs per minute limit", "another person's workflow (404)", "10 steps maximum", "edit refusal for non-round-trip workflow"])
 
     g["DRILLS"]["tour_auto"] = auto_tour
+
+
+def register_manager_assign(g):
+    APP = g["APP"]
+
+    def tour(ctx):
+        import concurrent.futures
+
+        import django
+
+        django.setup()
+
+        def mk():
+            from apps.accounts.models import CustomUser
+
+            for eid, nm in (("ST-LIVE-2", "Second Synthetic"), ("ST-LIVE-3", "Third Synthetic")):
+                CustomUser.objects.get_or_create(
+                    employee_id=eid,
+                    defaults={"full_name": nm, "email": eid.lower() + "@salowtech.com", "email_verified": True,
+                              "role": CustomUser.Role.EMPLOYEE, "status": CustomUser.Status.ACTIVE, "is_active": True})
+            CustomUser.objects.filter(employee_id="ST-LIVE-1").update(role=CustomUser.Role.ADMIN)
+
+        with concurrent.futures.ThreadPoolExecutor(1) as ex:
+            ex.submit(mk).result()
+
+        def body(t, pg):
+            txt = lambda: pg.inner_text("body")  # noqa: E731
+            sel = "select[name=manager]"
+            pg.goto(APP + "/directory/profile/ST-LIVE-2/")
+            pg.wait_for_timeout(500)
+            t.step("STAGE 1 BEFORE: the profile of Second Synthetic says Reports to: No manager set", lambda: pg.locator(sel).scroll_into_view_if_needed(), expect=lambda: "No manager set" in txt(), wait=1800)
+            t.step("STAGE 2 SET: the administrator picks Third Synthetic in the Reporting manager list. Not saved yet", lambda: pg.select_option(sel, "ST-LIVE-3"), expect=lambda: pg.input_value(sel) == "ST-LIVE-3" and "No manager set" in txt(), wait=1800)
+            t.step("STAGE 2 SET: press Set manager. The banner says Second Synthetic now reports to Third Synthetic", lambda: (pg.click("button:has-text('Set manager')"), pg.wait_for_timeout(300), pg.evaluate("window.scrollTo(0, 0)")), expect=lambda: "now reports to Third Synthetic" in txt(), wait=2200)
+            t.step("STAGE 2 SET: the page reads Reports to: Third Synthetic (ST-LIVE-3)", lambda: pg.locator("span:text-is('Reports to:')").scroll_into_view_if_needed(), expect=lambda: "Third Synthetic (ST-LIVE-3)" in txt() and "No manager set" not in txt(), wait=1800)
+            t.step("STAGE 3 LOOP: open Third Synthetic and try to make Second Synthetic their manager", lambda: (pg.goto(APP + "/directory/profile/ST-LIVE-3/"), pg.select_option(sel, "ST-LIVE-2")), expect=lambda: pg.input_value(sel) == "ST-LIVE-2", wait=1800)
+            t.step("STAGE 3 LOOP: press Set manager. The page refuses with Reporting cycle detected and nothing changes", lambda: (pg.click("button:has-text('Set manager')"), pg.wait_for_timeout(300), pg.evaluate("window.scrollTo(0, 0)")), expect=lambda: "Reporting cycle detected" in txt() and "No manager set" in txt(), wait=2400)
+            t.step("STAGE 4 ORG CHART: the org chart lists Second Synthetic under Third Synthetic", lambda: pg.goto(APP + "/directory/org/"), expect=lambda: "ST-LIVE-2" in txt() and "ST-LIVE-3" in txt(), wait=2200)
+        run_tour(ctx, "manager_assign", body, notes="Real Django on TiDB (unistore) under uvicorn, headless Chromium 390x844 emulated. Fixtures (ORM, not product features): ST-LIVE-1 is given the Admin role, plus two other people. Stages: before, set a manager, a loop is refused, org chart. Not shown: a non-administrator's view (no form, refusal in unit tests), inactive people.", unshown=["a non-administrator's view", "inactive people"])
+
+    g["DRILLS"]["tour_manager_assign"] = tour
 
 
 def register_find(g):
