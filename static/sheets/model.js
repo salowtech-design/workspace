@@ -441,16 +441,17 @@
    * (its shown result is then not searched). Replace: every occurrence in the cells that are searched in that way. A replacement is
    * skipped, and counted, when it would turn typed text into a formula, would leave a formula without its leading "=", is too long,
    * is refused by a validation rule, or (formula text) no longer reads as a formula (ctx.badFormula(addr, text) true, a #PARSE! result; a formula that reads but gives another error such as #REF! or #NAME? is still written and shows that error, undo restores it). Emptying a cell removes it. o: { find, repl (null = find only), matchCase, formulas }.
-   * ctx: { parseAddr, shown(addr) -> display text of a formula cell, check(addr, v) -> null | message, maxCell }. */
+   * ctx: { cols, rows (the searched grid; cells beyond it are never matched, listed or changed, only counted in outside), parseAddr, shown(addr) -> display text of a formula cell, check(addr, v) -> null | message, maxCell }. */
   function findReplace(cells, o, ctx) {
     var find = String(o.find == null ? "" : o.find);
     if (!find) return { error: "Type the text to find." };
     var flags = o.matchCase ? "g" : "gi", re = new RegExp(find.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), flags);
     var addrs = Object.keys(cells).filter(function (a) { return ctx.parseAddr(a); }).sort(function (x, y) { var p = ctx.parseAddr(x), q = ctx.parseAddr(y); return p.row - q.row || p.col - q.col; });
-    var out = copy(cells), res = { hits: [], matched: 0, changed: 0, cleared: 0, resultOnly: 0, becameFormula: 0, lostEquals: 0, tooLong: 0, refused: 0, badFormula: 0 };
+    var out = copy(cells), res = { hits: [], matched: 0, changed: 0, cleared: 0, resultOnly: 0, becameFormula: 0, lostEquals: 0, tooLong: 0, refused: 0, badFormula: 0, outside: 0 };
     var doRepl = o.repl !== null && o.repl !== undefined, repl = String(doRepl ? o.repl : "");
     addrs.forEach(function (a) {
-      var raw = cells[a], isF = raw.charAt(0) === "=", text;
+      var raw = cells[a], isF = raw.charAt(0) === "=", text, pa = ctx.parseAddr(a);
+      if (ctx.cols && (pa.col > ctx.cols || pa.row > ctx.rows)) { re.lastIndex = 0; if (!isF || o.formulas) { if (raw.search(re) >= 0) res.outside++; } re.lastIndex = 0; return; }
       if (isF && !o.formulas) { text = ctx.shown(a); text = text == null ? "" : String(text); if (text.search(re) < 0) return; re.lastIndex = 0; res.hits.push(a); res.matched++; res.resultOnly++; return; }
       re.lastIndex = 0; if (raw.search(re) < 0) return; re.lastIndex = 0;
       res.hits.push(a); res.matched++;
