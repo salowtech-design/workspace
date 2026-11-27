@@ -10,7 +10,7 @@
     <form method="post" action="{% url 'tasks:toggle' t.public_id %}" class="tasks-inline">{% csrf_token %}
       <button class="task-check" type="submit" aria-label="{% if t.status == 'completed' %}Mark open{% else %}Mark done{% endif %}">{% if t.status == 'completed' %}&#10003;{% else %}&#9675;{% endif %}</button></form>
     <span class="task-title">{{ t.title }}</span>
-    {% if t.due_date %}<span class="task-meta">Due {{ t.due_date|date:"j M Y" }}</span>{% endif %}
+    {% if t.due_date %}<span class="task-meta{% if t.status == 'open' and t.due_date < today %} task-overdue{% endif %}">Due {{ t.due_date|date:"j M Y" }}{% if t.status == 'open' and t.due_date < today %} (overdue){% endif %}</span>{% endif %}
     <span class="task-meta">From {{ t.task_list.owner.full_name }}</span>
   </div>
   {% endfor %}

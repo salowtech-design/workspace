@@ -284,6 +284,7 @@ def register(g):
     register_tasks_restore(g)
     register_tasks_rename(g)
     register_tasks_move(g)
+    register_tasks_overdue(g)
     register_attendance_csv(g)
     register_post_review_notice(g)
     register_notice_open(g)
@@ -2394,6 +2395,25 @@ def register_tasks_move(g):
         run_tour(ctx, "tasks_move", body, notes="Real Django on TiDB (unistore) under uvicorn, headless Chromium 390x844 emulated. One synthetic employee. Stages: set up two lists and a task, move it, check the source list. Not shown: assigned tasks, subtasks, stale forms or refusals (unit tests cover them).", unshown=["assigned tasks", "subtasks", "stale forms", "refusals"])
 
     g["DRILLS"]["tour_tasks_move"] = tour
+
+
+def register_tasks_overdue(g):
+    APP = g["APP"]
+
+    def tour(ctx):
+        def body(t, pg):
+            txt = lambda: pg.inner_text("body")  # noqa: E731
+            pg.goto(APP + "/tasks/")
+            pg.wait_for_timeout(500)
+            t.step("STAGE 1 SET UP: make a list called Sprint", lambda: (pg.fill("input[name=name]", "Sprint"), pg.click("button:has-text('Add list')")), expect=lambda: "Sprint" in txt())
+            t.step("STAGE 2 PAST DATE: add the task Old report due 2020-01-15", lambda: (pg.fill("input[aria-label='Task title']", "Old report"), pg.fill("input[name=due]", "2020-01-15"), pg.click(".tasks-add button")), expect=lambda: "Old report" in txt())
+            t.step("STAGE 2 PAST DATE: the row shows Due 15 Jan 2020 (overdue) in red", lambda: pg.evaluate("window.scrollBy(0, 200)"), expect=lambda: "(overdue)" in txt() and pg.locator(".task-overdue").count() == 1, wait=900)
+            t.step("STAGE 3 FUTURE DATE: add the task New report due 2099-01-15", lambda: (pg.fill("input[aria-label='Task title']", "New report"), pg.fill("input[name=due]", "2099-01-15"), pg.click(".tasks-add button")), expect=lambda: "New report" in txt())
+            t.step("STAGE 3 FUTURE DATE: the new row shows its date without the overdue mark; only Old report is marked", lambda: pg.evaluate("window.scrollBy(0, 300)"), expect=lambda: pg.locator(".task-overdue").count() == 1 and "15 Jan 2099" in txt(), wait=900)
+            t.step("STAGE 4 DONE: mark Old report done. The overdue mark goes away", lambda: pg.click(".task-row:has-text('Old report') .task-check"), expect=lambda: pg.locator(".task-overdue").count() == 0, wait=1800)
+        run_tour(ctx, "tasks_overdue", body, notes="Real Django on TiDB (unistore) under uvicorn, headless Chromium 390x844 emulated. One synthetic employee. Dates use the workspace date (India time). Stages: set up, a past due date is marked, a future date is not, completing clears the mark. Not shown: the Assigned view (unit test covers it).", unshown=["assigned view"])
+
+    g["DRILLS"]["tour_tasks_overdue"] = tour
 
 
 def register_drive_device(g):

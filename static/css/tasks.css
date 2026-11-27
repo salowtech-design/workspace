@@ -10,6 +10,7 @@
 .tasks .task-row.done .task-title { text-decoration: line-through; color: #8a7a72; }
 .tasks .task-title { flex: 1 1 200px; font-weight: 600; color: #3a1d17; word-break: break-word; }
 .tasks .task-meta { font-size: 13px; color: #8a7a72; }
+.tasks .task-meta.task-overdue { color: #b3261e; font-weight: 600; }
 .tasks .task-check { border: 1px solid #7a2e22; background: #fff; color: #7a2e22; border-radius: 50%; width: 28px; height: 28px; cursor: pointer; }
 .tasks .task-sub-add { margin: 6px 0 0 28px; }
 .tasks .tasks-empty { color: #8a7a72; padding: 18px 0; }

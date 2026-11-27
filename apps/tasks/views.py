@@ -7,6 +7,7 @@ from django.core.exceptions import PermissionDenied, ValidationError
 from django.db.models.functions import Upper
 from django.http import Http404
 from django.shortcuts import get_object_or_404, redirect, render
+from django.utils import timezone
 from django.views.decorators.http import require_http_methods, require_POST
 
 from apps.accounts.models import CustomUser
@@ -68,7 +69,8 @@ def list_view(request, list_id, rename_value=None):
         request,
         "tasks/list.html",
         {"lists": svc.lists_for(request.user), "tl": tl, "tree": tree, "tab": "mine",
-         "rename_value": tl.name if rename_value is None else rename_value},
+         "rename_value": tl.name if rename_value is None else rename_value,
+         "today": timezone.localdate()},
     )
 
 
@@ -80,6 +82,7 @@ def assigned_view(request):
         {
             "lists": svc.lists_for(request.user),
             "tasks": svc.assigned_to(request.user),
+            "today": timezone.localdate(),
             "project_tasks": list(projects.assigned_in_projects(request.user)),
             "tab": "assigned",
         },
