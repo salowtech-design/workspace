@@ -287,7 +287,7 @@
       b.addEventListener("click", function () { saveRules(M.removeRule(rules, i), "Removed the rule for " + r.range + "."); }); li.appendChild(b); ul.appendChild(li);
     });
     $("val-none").hidden = rules.length > 0 || rulesLocked; $("val-add").disabled = rulesLocked;
-    $("val-raw").hidden = !(rulesLocked && rulesRaw !== null);
+    $("val-raw").hidden = !(rulesLocked && rulesRaw !== null); $("val-reset").hidden = !(rulesLocked && rulesRaw !== null);
     if (rulesLocked) $("val-status").textContent = "This tab's validation rules could not be read, so they are not checked and cannot be changed. They were left untouched.";
   }
   function saveRules(next, msg) {
@@ -310,6 +310,18 @@
     if (rulesRaw === null) return;
     var u = URL.createObjectURL(new Blob([rulesRaw], { type: "text/plain;charset=utf-8" })), l = document.createElement("a");
     l.href = u; l.download = "unreadable-validation-rules.txt"; document.body.appendChild(l); l.click(); l.remove(); setTimeout(function () { URL.revokeObjectURL(u); }, 4000);
+  });
+  $("val-reset").addEventListener("click", function () {
+    if (!rulesLocked || rulesRaw === null) return;
+    var st = $("val-status"), lt = null, cur = null, ok = true;
+    try { lt = M.loadTabs(localStorage.getItem(KEY + ".tabs")); cur = localStorage.getItem(rulesKey(meta.active)); } catch (e) { ok = false; }
+    if (!ok || !lt || lt.unreadable || !lt.meta.tabs.some(function (t) { return t.id === meta.active; }) || cur !== rulesRaw) { st.textContent = "This tab or its rules were changed in another window, or the storage cannot be read, so nothing was changed. Reload this page."; return; }
+    if (!window.confirm("Remove this tab's unreadable validation rules? Only the rules are removed: your cells are not changed. A copy of the unreadable rules is kept in this browser under a backup key (use Download unreadable rules first if you want a file). Afterwards values typed in this tab are not checked until you add a rule.")) { st.textContent = "Cancelled. The unreadable rules were left untouched."; return; }
+    var bk = rulesKey(meta.active) + ".backup";
+    try { localStorage.setItem(bk, rulesRaw); if (localStorage.getItem(bk) !== rulesRaw) throw new Error("backup differs"); } catch (e) { st.textContent = "This browser would not keep a backup of the unreadable rules, so nothing was removed."; return; }
+    try { localStorage.removeItem(rulesKey(meta.active)); } catch (e) { st.textContent = "This browser would not remove the unreadable rules, so nothing was changed."; return; }
+    rulesLocked = false; rulesRaw = null; rules = []; renderRules();
+    st.textContent = "Removed the unreadable rules. A copy is kept in this browser under a backup key and is replaced only if you do this again on this tab. Your cells were not changed.";
   });
   reloadRules();
   // ---- Colour rules (conditional formatting) ----

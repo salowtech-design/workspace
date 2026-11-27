@@ -1302,6 +1302,96 @@ def sheets_validation(ctx):
     )
 
 
+def sheets_rules_recovery(ctx):
+    """Damaged validation rules: a visible control removes only the rules, after a backup and a confirm; cancel changes nothing."""
+    pg = ctx.new_page()
+    pg.goto(APP + "/sheets/")
+    pg.evaluate("localStorage.clear()")
+    pg.goto(APP + "/sheets/")
+    pg.wait_for_timeout(500)
+    KEYJS = "document.getElementById('sheet-root').dataset.storeKey"
+    key = pg.evaluate(KEYJS)
+
+    def get(k):
+        return pg.evaluate("k=>localStorage.getItem(k)", k)
+
+    def setc(a, v):
+        pg.click('input[data-addr="%s"]' % a)
+        pg.fill('input[data-addr="%s"]' % a, v)
+        pg.press('input[data-addr="%s"]' % a, "Tab")
+
+    def val(a):
+        return pg.input_value('input[data-addr="%s"]' % a)
+
+    def reset_visible():
+        return pg.locator("#val-reset").count() == 1 and pg.locator("#val-reset").is_visible()
+
+    mode = {"accept": True, "asked": 0}
+
+    def on_dialog(d):
+        mode["asked"] += 1
+        d.accept() if mode["accept"] else d.dismiss()
+
+    pg.on("dialog", on_dialog)
+
+    def press_reset(accept):
+        mode["accept"] = accept
+        pg.click("#val-reset")
+        pg.wait_for_timeout(300)
+
+    setc("A1", "keep")
+    cells_before = get(key)
+    pg.evaluate("k=>localStorage.setItem(k+'.rules','{bad')", key)
+    pg.reload()
+    pg.wait_for_timeout(500)
+    setc("C2", "99")
+    check("recovery: with damaged rules a changed edit is refused", val("C2") == "", val("C2"))
+    check("recovery: a visible control offers to remove the unreadable rules", reset_visible(), "no visible #val-reset")
+    if not reset_visible():
+        pg.close()
+        return
+    with pg.expect_download() as dl:
+        pg.click("#val-raw")
+    check("recovery: the download holds exactly the stored rules", open(dl.value.path()).read() == "{bad")
+    press_reset(False)
+    check(
+        "recovery: cancel says so and changes nothing",
+        pg.inner_text("#val-status").strip() == "Cancelled. The unreadable rules were left untouched."
+        and get(key + ".rules") == "{bad" and get(key + ".rules.backup") is None and pg.is_disabled("#val-add"),
+        pg.inner_text("#val-status"),
+    )
+    pg.evaluate("k=>localStorage.setItem(k+'.rules','{other')", key)
+    press_reset(True)
+    check(
+        "recovery: rules changed in another window since loading are not removed",
+        get(key + ".rules") == "{other" and get(key + ".rules.backup") is None and "changed in another window" in pg.inner_text("#val-status") and mode["asked"] == 1,
+        pg.inner_text("#val-status"),
+    )
+    pg.evaluate("k=>localStorage.setItem(k+'.rules','{bad')", key)
+    pg.reload()
+    pg.wait_for_timeout(500)
+    press_reset(True)
+    check(
+        "recovery: confirm removes the rules key, keeps an exact backup and leaves the cells as they were",
+        get(key + ".rules") is None and get(key + ".rules.backup") == "{bad" and get(key) == cells_before,
+        "%r %r" % (get(key + ".rules"), get(key + ".rules.backup")),
+    )
+    check(
+        "recovery: the status line says what happened and Add rule is on again",
+        pg.inner_text("#val-status").strip() == "Removed the unreadable rules. A copy is kept in this browser under a backup key and is replaced only if you do this again on this tab. Your cells were not changed." and not pg.is_disabled("#val-add") and not pg.is_visible("#val-reset"),
+        pg.inner_text("#val-status"),
+    )
+    setc("C2", "99")
+    check("recovery: edits work again", val("C2") == "99" and val("A1") == "keep", val("C2"))
+    pg.fill("#val-range", "C3:C4")
+    pg.select_option("#val-kind", "list")
+    pg.fill("#val-items", "yes, no")
+    pg.click("#val-add")
+    setc("C3", "maybe")
+    check("recovery: a new rule is added and checked", val("C3") == "" and get(key + ".rules") is not None, val("C3"))
+    pg.close()
+
+
 def sheets_validation_paths(ctx):
     pg = fresh(ctx, "/sheets/")
     KEYJS = "document.getElementById('sheet-root').dataset.storeKey"
@@ -9498,6 +9588,7 @@ DRILLS = {
     "slides_master": slides_master,
     "slides_transition": slides_transition,
     "sheets_validation_paths": sheets_validation_paths,
+    "sheets_rules_recovery": sheets_rules_recovery,
     "sheets_tabs_stale": sheets_tabs_stale,
     "sheets_tabs_safety": sheets_tabs_safety,
     "selftest_scrub": selftest_scrub,
