@@ -62,3 +62,19 @@ def test_pages_form_only_for_manager_and_members_see_the_new_name():
     assert sp.name == "Renamed"
     assert _c(out).post(reverse("chat:rename", args=[sp.public_id]), {"name": "X"}).status_code == 404
     assert _c(a).get(reverse("chat:rename", args=[sp.public_id])).status_code == 405
+
+
+@pytest.mark.django_db
+def test_a_manager_whose_membership_has_ended_cannot_rename_even_by_direct_post():
+    from django.utils import timezone
+
+    from apps.chat.models import Member
+
+    a, b, c, out, sp = _group()
+    Member.objects.filter(space=sp, person=a).update(left_at=timezone.now())  # fixture only: there is no leave feature
+    with pytest.raises(Http404):
+        cs.rename_group(a, sp.public_id, "Still mine")
+    assert _c(a).post(reverse("chat:rename", args=[sp.public_id]), {"name": "Still mine"}).status_code == 404
+    assert not cs.is_manager(a, Space.objects.get(pk=sp.pk))  # and the form is not offered
+    sp.refresh_from_db()
+    assert sp.name == "Old name"
