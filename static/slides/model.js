@@ -6,6 +6,10 @@
   var W = 960, H = 540, MAX_SLIDES = 50, MAX_EL = 30, MAX_MASTER = 10, MAX_TEXT = 1000, MAX_NOTES = 2000, HIST = 100;
   var THEMES = { light: { bg: "#ffffff", fg: "#222222", accent: "#7a2e22" }, dark: { bg: "#1f2430", fg: "#f2f2f2", accent: "#e0a458" }, warm: { bg: "#faf5ec", fg: "#3b2a20", accent: "#a4472f" } };
   var FILLS = ["theme", "#7a2e22", "#2e6f95", "#3b7d4f", "#c28b1d", "#6b6b6b"];
+  // Slide background colours: a fixed list, never free input. A colour may be used only while every text item drawn on that slide
+  // (the slide's own and the master's, unless hidden) keeps a contrast of at least MIN_CONTRAST against it. Text drawn on a shape sits on the shape, so it is not counted.
+  var BGS = [["#ffffff", "White"], ["#f4efe6", "Cream"], ["#e6eef7", "Pale blue"], ["#e7f3e9", "Pale green"], ["#fdf1d6", "Pale yellow"], ["#f6e3df", "Pale rose"], ["#1f2430", "Night"], ["#233a4d", "Deep blue"], ["#2e2a24", "Dark brown"], ["#3a2230", "Plum"]], MIN_CONTRAST = 4.5;
+  var BG_HEX = BGS.map(function (b) { return b[0]; });
   var TYPES = ["text", "rect", "ellipse", "image"], HASH_RE = /^[0-9a-f]{64}$/, MAX_IMAGES = 20;
   var has = function (o, k) { return Object.prototype.hasOwnProperty.call(o, k); };
   var ID_RE = /^[A-Za-z0-9_-]{1,40}$/, MAX_SNAPSHOT_BYTES = 5000000;
@@ -51,8 +55,8 @@
   }
   // returns a clean deck or null; unknown fields are dropped and numbers are clamped
   function validate(d) {
-    if (!d || typeof d !== "object" || Array.isArray(d) || (has(d, "v") && [1, 2, 3, 4, 5, 6, 7].indexOf(d.v) < 0) || !Array.isArray(d.slides) || !d.slides.length || d.slides.length > MAX_SLIDES) return null;
-    var TRANS = ["none", "fade"], ids = Object.create(null), out = { v: 1, theme: has(THEMES, d.theme) ? d.theme : "light", slides: [] }, masterEls = [], anyHide = false, anyTrans = false, anyStyle = false, nImg = 0, anyAnim = false, anyAfter = false;
+    if (!d || typeof d !== "object" || Array.isArray(d) || (has(d, "v") && [1, 2, 3, 4, 5, 6, 7, 8].indexOf(d.v) < 0) || !Array.isArray(d.slides) || !d.slides.length || d.slides.length > MAX_SLIDES) return null;
+    var TRANS = ["none", "fade"], ids = Object.create(null), out = { v: 1, theme: has(THEMES, d.theme) ? d.theme : "light", slides: [] }, masterEls = [], anyHide = false, anyTrans = false, anyStyle = false, nImg = 0, anyAnim = false, anyAfter = false, anyBg = false;
     if (has(d, "master")) {
       var m = d.master; if (!m || typeof m !== "object" || Array.isArray(m) || !Array.isArray(m.elements) || m.elements.length > MAX_MASTER) return null;
       for (var k = 0; k < m.elements.length; k++) { var me = fixEl(m.elements[k], true); if (!me || ids[me.id]) return null; ids[me.id] = true; masterEls.push(me); if (styled(me)) anyStyle = true; }
@@ -63,8 +67,11 @@
       ids[s.id] = true; var els = [];
       for (var j = 0; j < s.elements.length; j++) { var e = fixEl(s.elements[j]); if (!e || ids[e.id]) return null; ids[e.id] = true; els.push(e); if (styled(e)) anyStyle = true; if (isImg(e)) nImg++; }
       if (has(s, "hideMaster") && typeof s.hideMaster !== "boolean") return null;
+      var wantBg = null;
+      if (has(s, "bg")) { if (typeof s.bg !== "string" || BG_HEX.indexOf(s.bg) < 0) return null; wantBg = s.bg; }
       var ns = { id: s.id, elements: els, notes: typeof s.notes === "string" ? cut(s.notes, MAX_NOTES) : "" };
       if (s.hideMaster === true) { ns.hideMaster = true; anyHide = true; }
+      if (wantBg) { ns.bg = wantBg; anyBg = true; }
       if (has(s, "transition")) { if (TRANS.indexOf(s.transition) < 0) return null; if (s.transition === "fade") { ns.transition = "fade"; anyTrans = true; } }
       if (has(s, "anim")) {
         // object animation: an ordered list of {el, fx}; each item at most once, only items on this slide, one click per entry
@@ -82,6 +89,8 @@
     }
     // Version 2 only when something needs it, so a deck without a master is still a version 1 deck that older code opens.
     if (masterEls.length) out.master = { elements: masterEls };
+    // A stored background that no longer reads well with its own text is refused, never drawn. The editor never produces one (every change is checked), so only a hand-edited file can.
+    if (anyBg) for (var bi = 0; bi < out.slides.length; bi++) if (out.slides[bi].bg && !bgReadable(out, bi, out.slides[bi].bg)) return null;
     // Version 3 when a transition is used: the previous (master) version only knows 1 and 2 and refuses 3, so it never drops a transition silently.
     if (masterEls.length || anyHide) out.v = 2;
     if (anyTrans) out.v = 3;
@@ -94,6 +103,8 @@
     if (anyAnim) out.v = 6;
     // Version 7 when an item plays "after previous": older code only knows 1 to 6 and refuses 7, so it never drops that timing silently.
     if (anyAfter) out.v = 7;
+    // Version 8 when any slide has its own background colour: older code only knows 1 to 7 and refuses 8, so it never drops a background silently.
+    if (anyBg) out.v = 8;
     return out;
   }
   // how many text fields in a raw (unvalidated) deck are longer than the limits and so will be shortened
@@ -186,7 +197,7 @@
     var any = n.slides.some(function (s) { return s.hideMaster === true; }), trans = n.slides.some(function (s) { return s.transition === "fade"; }), anim = n.slides.some(function (s) { return s.anim && s.anim.length; }), after = n.slides.some(function (s) { return s.anim && s.anim.some(function (x) { return x.after === true; }); });
     if (n.master && !n.master.elements.length) delete n.master;
     var sty = n.slides.some(function (s) { return s.elements.some(styled); }) || (n.master && n.master.elements.some(styled));
-    var img = n.slides.some(function (s) { return s.elements.some(isImg); }); n.v = after ? 7 : anim ? 6 : img ? 5 : sty ? 4 : trans ? 3 : (n.master || any ? 2 : 1); return n;
+    var img = n.slides.some(function (s) { return s.elements.some(isImg); }); var bgs = n.slides.some(function (s) { return !!s.bg; }); n.v = bgs ? 8 : after ? 7 : anim ? 6 : img ? 5 : sty ? 4 : trans ? 3 : (n.master || any ? 2 : 1); return n;
   }
   function viaMaster(d, fn, adding) {
     var els = d.master ? d.master.elements : [];
@@ -202,6 +213,47 @@
   ops.master_deleteElement = function (d, id) { return viaMaster(d, function (t) { return ops.deleteElement(t, 0, id); }); };
   // the master items drawn under slide i (none when the slide hides the master)
   function masterOf(d, i) { return d.master && d.slides[i] && d.slides[i].hideMaster !== true ? d.master.elements : []; }
+  // ---- slide backgrounds ----
+  function drawnText(d, i) {  // text items that sit directly on the slide background: master items (unless hidden) then the slide's own
+    var out = []; masterOf(d, i).concat(d.slides[i].elements).forEach(function (e) { if (e.type === "text" && typeof e.text === "string" && e.text.trim() !== "") out.push(e); });
+    return out;
+  }
+  function bgReadable(d, i, hex) { return drawnText(d, i).every(function (e) { return contrast(color(d, e), hex) >= MIN_CONTRAST; }); }
+  function bgOf(d, i) { var s = d.slides[i]; return s && s.bg ? s.bg : THEMES[d.theme].bg; }  // the one place every draw path (editor, Present, PDF) takes the background from
+  function bgUsable(d, i, hex) { return !!d.slides[i] && BG_HEX.indexOf(hex) >= 0 && bgReadable(d, i, hex); }
+  // slides (0-based) whose own background would be unreadable under a theme; the theme's own background is always readable (checked in the tests)
+  function themeConflicts(d, name) {
+    if (!has(THEMES, name)) return [];
+    var t = copy(d); t.theme = name; var out = [];
+    t.slides.forEach(function (s, i) { if (s.bg && !bgReadable(t, i, s.bg)) out.push(i); }); return out;
+  }
+  var rejected = null;
+  function takeReject() { var r = rejected; rejected = null; return r; }
+  ops.setBackground = function (d, i, hex) {
+    var s = d.slides[i]; if (!s) return null;
+    if (hex === "theme") { if (!s.bg) return null; var n0 = copy(d); delete n0.slides[i].bg; return normVersion(n0); }
+    if (BG_HEX.indexOf(hex) < 0 || s.bg === hex) return null;
+    if (!bgReadable(d, i, hex)) { rejected = "That background was not applied: text on this slide would be hard to read on it (contrast below 4.5). Change the text colour first, or pick another background."; return null; }
+    var n = copy(d); n.slides[i].bg = hex; return normVersion(n);
+  };
+  // Switching theme and, in the same step, putting the listed slides back to the theme background. One Undo step brings back both.
+  ops.setThemeResetting = function (d, name) {
+    if (!has(THEMES, name) || d.theme === name) return null;
+    var n = copy(d), c = themeConflicts(d, name); c.forEach(function (i) { delete n.slides[i].bg; }); n.theme = name; return normVersion(n);
+  };
+  // Every other change is checked as a whole: a change that would leave any slide with a background its text cannot be read on is refused (null), with a reason in takeReject(). The deck passed in is never touched.
+  Object.keys(ops).forEach(function (k) {
+    var f = ops[k]; if (k === "setBackground" || k === "setThemeResetting") return;
+    ops[k] = function () {
+      rejected = null; var r = f.apply(null, arguments); if (!r) return r;
+      var nd = r.deck || r;
+      for (var i = 0; i < nd.slides.length; i++) if (nd.slides[i].bg && !bgReadable(nd, i, nd.slides[i].bg)) {
+        rejected = k === "setTheme" ? "Not switched: the background on slide " + (i + 1) + " would be hard to read with this theme's text." : "That change was not made: it would leave the text on slide " + (i + 1) + " hard to read on its background (contrast below 4.5). Change or remove that slide's background first.";
+        return null;
+      }
+      return r;
+    };
+  });
   function color(deck, e) { var t = THEMES[deck.theme]; return e.fill === "theme" ? (e.type === "text" ? t.fg : t.accent) : e.fill; }
   function lum(hex) { var c = [1, 3, 5].map(function (i) { var v = parseInt(hex.substr(i, 2), 16) / 255; return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); }); return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]; }
   function contrast(a, b) { var x = lum(a), y = lum(b); return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05); }
@@ -304,6 +356,6 @@
     return out;
   }
   function textHeight(lines, size) { return Math.ceil(lines.length * size * 1.2); }
-  var api = { snapBox: snapBox, SNAP: SNAP, autoNext: autoNext, AUTO_MS: AUTO_MS, showStep: showStep, hiddenIds: hiddenIds, animCount: animCount, FX: FX, LAYOUTS: LAYOUTS, countCut: countCut, cut: cut, MAX_NOTES: MAX_NOTES, fmtClock: fmtClock, wrapLines: wrapLines, textHeight: textHeight, showNav: showNav, W: W, H: H, THEMES: THEMES, FILLS: FILLS, MAX_SLIDES: MAX_SLIDES, MAX_EL: MAX_EL, newDeck: newDeck, validate: validate, ops: ops, color: color, textColor: textColor, onFill: onFill, contrast: contrast, loadDeck: loadDeck, describe: describe, describeEls: describeEls, masterOf: masterOf, MAX_MASTER: MAX_MASTER, History: History, copy: copy };
+  var api = { bgOf: bgOf, bgUsable: bgUsable, bgReadable: bgReadable, themeConflicts: themeConflicts, takeReject: takeReject, BGS: BGS, MIN_CONTRAST: MIN_CONTRAST, snapBox: snapBox, SNAP: SNAP, autoNext: autoNext, AUTO_MS: AUTO_MS, showStep: showStep, hiddenIds: hiddenIds, animCount: animCount, FX: FX, LAYOUTS: LAYOUTS, countCut: countCut, cut: cut, MAX_NOTES: MAX_NOTES, fmtClock: fmtClock, wrapLines: wrapLines, textHeight: textHeight, showNav: showNav, W: W, H: H, THEMES: THEMES, FILLS: FILLS, MAX_SLIDES: MAX_SLIDES, MAX_EL: MAX_EL, newDeck: newDeck, validate: validate, ops: ops, color: color, textColor: textColor, onFill: onFill, contrast: contrast, loadDeck: loadDeck, describe: describe, describeEls: describeEls, masterOf: masterOf, MAX_MASTER: MAX_MASTER, History: History, copy: copy };
   if (typeof module !== "undefined" && module.exports) module.exports = api; else root.SalowSlides = api;
 })(typeof self !== "undefined" ? self : this);

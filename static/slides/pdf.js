@@ -71,7 +71,7 @@
         }
         deck.slides.forEach(function (s) {
           var pg = doc.addPage([W, H]);
-          pg.drawRectangle({ x: 0, y: 0, width: W, height: H, color: rgbOf(L, th.bg) });
+          pg.drawRectangle({ x: 0, y: 0, width: W, height: H, color: rgbOf(L, S.bgOf(deck, deck.slides.indexOf(s))) });
           S.masterOf(deck, deck.slides.indexOf(s)).concat(s.elements).forEach(function (e) {
             if (e.type === "image") return drawPicture(pg, e);
             var c = S.color(deck, e);

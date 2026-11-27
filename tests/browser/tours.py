@@ -271,6 +271,7 @@ def register(g):
     register_chat_mention(g)
     register_cal_location(g)
     register_slides_dup_sheets_fx(g)
+    register_slides_bg(g)
     register_attendance_csv(g)
     register_post_review_notice(g)
     register_notice_open(g)
@@ -1836,6 +1837,34 @@ def register_slides_dup_sheets_fx(g):
                  unshown=["Duplicate item on a picture or on the master", "the 30-item cap", "all other new functions (covered by node tests)"])
 
     g["DRILLS"]["tour_slides_dup_sheets_fx"] = tour
+
+
+def register_slides_bg(g):
+    APP = g["APP"]
+
+    def tour(ctx):
+        def body(t, pg):
+            pg.goto(APP + "/slides/")
+            pg.evaluate("localStorage.clear()")
+            pg.goto(APP + "/slides/")
+            pg.wait_for_timeout(500)
+            seen = []
+            pg.on("dialog", lambda d: (seen.append(d.message), d.accept()))
+            bg = lambda: pg.locator("#sl-canvas-wrap svg rect").first.get_attribute("fill")
+            status = lambda: (pg.locator("#sl-status").text_content() or "")
+            opt = lambda v: pg.locator('#sl-bg option[value="%s"]' % v)
+            t.step("Slides: a text item on a light slide", lambda: (pg.click("#sl-add-text"), pg.fill("#sl-text", "Quarterly plan"), pg.press("#sl-text", "Tab")), expect=lambda: bg() == "#ffffff", wait=1500)
+            t.step("The dark backgrounds are listed but not selectable: the text would be unreadable", expect=lambda: opt("#1f2430").is_disabled() and "too hard to read" in opt("#1f2430").text_content() and not opt("#f4efe6").is_disabled())
+            t.step("Pick Pale yellow as this slide's background", lambda: pg.select_option("#sl-bg", "#fdf1d6"), expect=lambda: bg() == "#fdf1d6" and pg.input_value("#sl-bg") == "#fdf1d6")
+            t.step("Make the text a pale-on-pale colour: the change is refused with a reason and the colour stays", lambda: pg.select_option("#sl-fill", "#c28b1d"), expect=lambda: "hard to read" in status() and pg.input_value("#sl-fill") == "theme")
+            t.step("Present shows the same background", lambda: pg.click("#sl-present"), expect=lambda: pg.locator("#sl-show-canvas svg rect").first.get_attribute("fill") == "#fdf1d6", wait=1800)
+            t.step("Exit the show", lambda: pg.click("#sl-show-exit"), expect=lambda: not pg.locator("#sl-show").evaluate("e=>e.open"))
+            t.step("Switch to Dark: it asks first, naming slide 1", lambda: pg.select_option("#sl-theme", "dark"), expect=lambda: any("slide 1" in m and "hard to read" in m for m in seen) and pg.input_value("#sl-theme") == "dark" and bg() == "#1f2430")
+            t.step("Undo: the light theme and the yellow background both come back", lambda: pg.click("#sl-undo"), expect=lambda: pg.input_value("#sl-theme") == "light" and bg() == "#fdf1d6")
+        run_tour(ctx, "99_slides_background", body, notes="Device-local deck. Real Django on TiDB (unistore) under uvicorn, headless Chromium 390x844 emulated. Editor and Present fills are read from the page; the PDF fill is checked in node from the page content stream, not here.",
+                 unshown=["PDF download (secure context, checked in node)", "dismissing the theme question", "master items", "hand-edited unreadable import"])
+
+    g["DRILLS"]["tour_slides_bg"] = tour
 
 
 def register_chat_mention(g):

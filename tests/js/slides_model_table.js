@@ -49,12 +49,12 @@ ok("no-op is not a step", h.change(null) === false && h.change(S.copy(h.deck)) =
 st.on = true; h.change(S.ops.addSlide(h.deck), "Added.");
 ok("blocked storage failure stays with later notes", h.saveFailed && /would not store/.test(h.note) && /Added/.test(h.note) && (h.undo(), /would not store/.test(h.note) && /Undone/.test(h.note)));
 st.on = false; h.change(S.ops.addSlide(h.deck)); ok("success clears failure", !h.saveFailed && h.note === "Saved on this device.");
-ok("a deck marked with another version is refused", S.validate({ v: 8, slides: [{ id: "s", elements: [] }] }) === null && S.validate({ v: "2", slides: [{ id: "s", elements: [] }] }) === null && S.validate({ v: 1, slides: [{ id: "s", elements: [] }] }) !== null);
+ok("a deck marked with another version is refused", S.validate({ v: 9, slides: [{ id: "s", elements: [] }] }) === null && S.validate({ v: "2", slides: [{ id: "s", elements: [] }] }) === null && S.validate({ v: 1, slides: [{ id: "s", elements: [] }] }) !== null);
 ok("ids must be plain", S.validate({ slides: [{ id: "a b", elements: [] }] }) === null && S.validate({ slides: [{ id: 's"><x', elements: [] }] }) === null && S.validate({ slides: [{ id: "s", elements: [{ id: "e".repeat(41), type: "rect" }] }] }) === null && S.validate({ slides: [{ id: "s_1-A", elements: [] }] }) !== null);
 ok("loadDeck: nothing stored is a fresh deck, not unreadable", (() => { const r = S.loadDeck(null); return !r.unreadable && r.deck.slides.length === 1 && S.loadDeck("").unreadable === false; })());
 ok("loadDeck: good deck loads", (() => { const r = S.loadDeck(JSON.stringify(S.newDeck())); return !r.unreadable && r.raw === null; })());
 ok("loadDeck: broken json is unreadable and the raw text is kept", (() => { const r = S.loadDeck("{not json"); return r.unreadable && r.raw === "{not json"; })());
-ok("loadDeck: a newer format is unreadable, not blank", (() => { const raw = JSON.stringify({ v: 8, slides: [{ id: "s", elements: [] }] }); const r = S.loadDeck(raw); return r.unreadable && r.raw === raw; })());
+ok("loadDeck: a newer format is unreadable, not blank", (() => { const raw = JSON.stringify({ v: 9, slides: [{ id: "s", elements: [] }] }); const r = S.loadDeck(raw); return r.unreadable && r.raw === raw; })());
 ok("loadDeck: one bad element makes the whole deck unreadable", S.loadDeck(JSON.stringify({ slides: [{ id: "s", elements: [{ id: "e", type: "bogus" }] }] })).unreadable);
 const cs = S.FILLS.concat([S.THEMES.light.accent, S.THEMES.dark.accent, S.THEMES.warm.accent]).filter((f) => f !== "theme");
 ok("text on every shape color has contrast of at least 4.5", cs.every((f) => S.contrast(f, S.onFill(f)) >= 4.5));
@@ -121,7 +121,7 @@ ok("master: a deck with no master stays version 1 and equals what an older versi
 ok("master: an old version 1 deck loads, is unchanged and has no master", (() => { const raw = JSON.stringify({ v: 1, theme: "warm", slides: [{ id: "a", elements: [mel("x", "hi")], notes: "" }] }); const r = S.loadDeck(raw); return !r.unreadable && r.deck.slides[0].elements[0].text === "hi" && S.masterOf(r.deck, 0).length === 0; })());
 ok("master: validate round-trips a deck with a master and a hidden slide exactly", (() => { const v = S.validate(MK([mel("m1", "Footer")])); return v.v === 2 && JSON.stringify(S.validate(JSON.parse(JSON.stringify(v)))) === JSON.stringify(v) && v.slides[1].hideMaster === true && !("hideMaster" in v.slides[0]); })());
 ok("master: damaged master data is refused whole, never partly kept", [MK([mel("m1", "a")], { master: [] }), MK([mel("m1", "a")], { master: { elements: "x" } }), MK([mel("m1", "a"), mel("m1", "b")]), MK([mel("s1", "a")]), MK(Array.from({ length: 11 }, (_, i) => mel("q" + i, "a"))), MK([{ id: "bad id", type: "text" }]), MK([mel("m1", "a")], { slides: [{ id: "s1", elements: [], hideMaster: "yes" }] })].every((x) => S.validate(x) === null));
-ok("master: a version above 7 is refused", S.validate(MK([mel("m1", "a")], { v: 8 })) === null);
+ok("master: a version above 8 is refused", S.validate(MK([mel("m1", "a")], { v: 9 })) === null);
 ok("master: text and numbers in the master are cut and clamped like slide items", (() => { const v = S.validate(MK([Object.assign(mel("m1", "x".repeat(2000)), { x: -5, size: 999, fill: "evil" })])); const e = v.master.elements[0]; return e.text.length === 1000 && e.x === 0 && e.size === 120 && e.fill === "theme"; })());
 ok("master: the previous version's real validator refuses a deck with a master, and loadDeck keeps its stored text", (() => { const raw = JSON.stringify(S.validate(MK([mel("m1", "Footer")]))); const r = OLD.loadDeck(raw); return OLD.validate(JSON.parse(raw)) === null && r.unreadable === true && r.raw === raw; })());
 ok("master: with the previous version, history stays blocked on that deck so a save cannot replace it", (() => { const raw = JSON.stringify(S.validate(MK([mel("m1", "Footer")]))); const r = OLD.loadDeck(raw); let saved = 0; const h = new OLD.History(r.deck, { save() { saved++; return true; } }); h.blocked = r.unreadable; const ch = h.change(OLD.ops.addSlide(r.deck, 0)); return ch === false && saved === 0; })());
@@ -133,7 +133,7 @@ ok("master: import counts master text over 1000 characters as cut", S.countCut(M
   const t1 = S.ops.setTransition(S.newDeck(), 0, "fade");
   ok("transition: fade sets the flag and makes a version 3 deck, none returns to version 1", t1.slides[0].transition === "fade" && t1.v === 3 && S.ops.setTransition(t1, 0, "none").v === 1 && !("transition" in S.ops.setTransition(t1, 0, "none").slides[0]));
   ok("transition: bad names and no-change are refused", S.ops.setTransition(S.newDeck(), 0, "spin") === null && S.ops.setTransition(S.newDeck(), 0, "none") === null && S.ops.setTransition(t1, 0, "fade") === null && S.ops.setTransition(S.newDeck(), 5, "fade") === null);
-  ok("transition: validate keeps fade and round-trips, 'none' is dropped, unknown names refuse the deck", S.validate(JSON.parse(JSON.stringify(t1))).slides[0].transition === "fade" && JSON.stringify(S.validate(JSON.parse(JSON.stringify(t1)))) === JSON.stringify(t1) && !("transition" in S.validate({ v: 1, slides: [{ id: "s", elements: [], transition: "none" }] }).slides[0]) && S.validate({ v: 3, slides: [{ id: "s", elements: [], transition: "spin" }] }) === null && S.validate({ v: 3, slides: [{ id: "s", elements: [], transition: 1 }] }) === null && S.validate({ v: 8, slides: [{ id: "s", elements: [] }] }) === null);
+  ok("transition: validate keeps fade and round-trips, 'none' is dropped, unknown names refuse the deck", S.validate(JSON.parse(JSON.stringify(t1))).slides[0].transition === "fade" && JSON.stringify(S.validate(JSON.parse(JSON.stringify(t1)))) === JSON.stringify(t1) && !("transition" in S.validate({ v: 1, slides: [{ id: "s", elements: [], transition: "none" }] }).slides[0]) && S.validate({ v: 3, slides: [{ id: "s", elements: [], transition: "spin" }] }) === null && S.validate({ v: 3, slides: [{ id: "s", elements: [], transition: 1 }] }) === null && S.validate({ v: 9, slides: [{ id: "s", elements: [] }] }) === null);
   ok("transition: the previous version refuses a deck that uses one and keeps the stored text", (() => { const raw = JSON.stringify(t1); const r = OLD.loadDeck(raw); return r.unreadable === true && r.raw === raw; })());
   ok("transition: duplicating keeps it and a deck with a master and a fade stays valid", S.ops.duplicateSlide(t1, 0).slides[1].transition === "fade" && S.validate(S.ops.master_addElement(t1, "text").deck) !== null);
 }
@@ -153,7 +153,7 @@ const OLD2 = require("./fixtures/slides_model_v2_master_validator.js");
   let b = S.ops.updateElement(d, 0, id, { b: true, i: true, al: "center" });
   ok("style: bold, italic and centre are kept and make the deck version 4", b.v === 4 && last(b).b === true && last(b).i === true && last(b).al === "center");
   ok("style: a styled deck round-trips through validate", JSON.stringify(S.validate(JSON.parse(JSON.stringify(b)))) === JSON.stringify(b));
-  ok("style: a version 4 deck is read by the current validator, an unknown version 8 is not", S.validate(JSON.parse(JSON.stringify(b))) !== null && S.validate(Object.assign(JSON.parse(JSON.stringify(b)), { v: 8 })) === null);
+  ok("style: a version 4 deck is read by the current validator, an unknown version 9 is not", S.validate(JSON.parse(JSON.stringify(b))) !== null && S.validate(Object.assign(JSON.parse(JSON.stringify(b)), { v: 9 })) === null);
   ok("style: bad values are refused, nothing is changed", S.ops.updateElement(d, 0, id, { al: "diagonal" }) === null && S.ops.updateElement(d, 0, id, { b: "yes" }) === null && S.ops.updateElement(d, 0, id, { i: 1 }) === null);
   const back = S.ops.updateElement(b, 0, id, { b: false, i: false, al: "default" });
   ok("style: clearing every style drops the fields and the deck goes back to version 1", back.v === 1 && !("b" in last(back)) && !("i" in last(back)) && !("al" in last(back)));
@@ -300,5 +300,47 @@ ok("snap: after a snapped resize or move the existing clamps still apply (minimu
   Hh.change(S.ops.deleteElement(Hh.deck, 0, c1.id), "del copy"); Hh.undo(); const afterUndo = refs(Hh.deck); Hh.undo(); const afterUndo2 = refs(Hh.deck);
   ok("pic: undo of the delete brings the copy back and undo of the copy leaves the original, same hash", afterUndo.length === 2 && afterUndo.every((h) => h === H64) && afterUndo2.length === 1 && afterUndo2[0] === H64);
   ok("pic: deleting a slide that holds one copy of two keeps the hash on the other slide", (() => { const two = S.ops.addSlide(c.deck, 0); const mv = JSON.parse(JSON.stringify(two)); const moved = mv.slides[0].elements.pop(); mv.slides[1].elements.push(moved); const rest = S.ops.deleteSlide(mv, 1); return refs(rest).length === 1 && refs(rest)[0] === H64; })());
+}
+{
+  // Slide background colour
+  const J = (x) => JSON.stringify(x), cl = (x) => JSON.parse(J(x));
+  const mk = (theme, text, fill) => { let d = S.newDeck(); if (theme !== "light") d = S.ops.setTheme(d, theme); const a = S.ops.addElement(d, 0, "text"); d = S.ops.updateElement(a.deck, 0, a.id, Object.assign({ text: text }, fill ? { fill: fill } : {})); return { d: d, id: a.id }; };
+  const L = mk("light", "Hello"), Dk = mk("dark", "Hello");
+  ok("bg: every theme background reads with its own text (the theme background is always safe)", Object.keys(S.THEMES).every((k) => S.contrast(S.THEMES[k].fg, S.THEMES[k].bg) >= S.MIN_CONTRAST));
+  ok("bg: the palette has 10 distinct colours, each usable on at least one theme with the default text", (() => { const hs = S.BGS.map((b) => b[0]); return new Set(hs).size === 10 && hs.every((h) => Object.keys(S.THEMES).some((k) => S.contrast(S.THEMES[k].fg, h) >= S.MIN_CONTRAST)); })());
+  const setL = S.ops.setBackground(L.d, 0, "#f4efe6");
+  ok("bg: a readable colour is set, version 8, other slides untouched", !!setL && setL.slides[0].bg === "#f4efe6" && setL.v === 8 && S.bgOf(setL, 0) === "#f4efe6");
+  ok("bg: without a colour bgOf is the theme background on every theme", S.bgOf(L.d, 0) === "#ffffff" && S.bgOf(Dk.d, 0) === S.THEMES.dark.bg);
+  ok("bg: input deck is not mutated and an unreadable colour is refused with a reason", (() => { const before = J(Dk.d), r = S.ops.setBackground(Dk.d, 0, "#ffffff"), why = S.takeReject(); return r === null && J(Dk.d) === before && /hard to read/.test(why || ""); })());
+  ok("bg: a colour outside the list, a bad slide, and setting the same colour again are refused", S.ops.setBackground(L.d, 0, "#123456") === null && S.ops.setBackground(L.d, 5, "#f4efe6") === null && S.ops.setBackground(setL, 0, "#f4efe6") === null && S.ops.setBackground(L.d, 0, "red") === null);
+  ok("bg: setting 'theme' removes it and the deck goes back to version 1; with none set it is refused", (() => { const r = S.ops.setBackground(setL, 0, "theme"); return !!r && !("bg" in r.slides[0]) && r.v === 1 && S.ops.setBackground(L.d, 0, "theme") === null; })());
+  ok("bg: usable lists differ by theme (white is usable on light, not on dark)", S.bgUsable(L.d, 0, "#ffffff") && !S.bgUsable(Dk.d, 0, "#ffffff") && S.bgUsable(Dk.d, 0, "#1f2430") && !S.bgUsable(L.d, 0, "#1f2430"));
+  ok("bg: an empty text item does not count and a shape's text sits on the shape (not counted)", (() => { let d = S.newDeck(); d = S.ops.addElement(d, 0, "text").deck; d = S.ops.updateElement(d, 0, d.slides[0].elements[0].id, { text: "" }); const r = S.ops.addElement(d, 0, "rect"); d = S.ops.updateElement(r.deck, 0, r.id, { text: "on shape" }); return !!S.ops.setBackground(d, 0, "#1f2430"); })());
+  // all mutation paths keep the invariant
+  ok("bg: editing text colour to an unreadable one is refused; a readable one is accepted", S.ops.updateElement(setL, 0, L.id, { fill: "#c28b1d" }) === null && !!S.ops.updateElement(setL, 0, L.id, { fill: "#7a2e22" }));
+  ok("bg: on an empty dark slide white is allowed (no text yet), and then adding a text item is refused with a reason", (() => { const e = S.ops.setTheme(S.newDeck(), "dark"), w = S.ops.setBackground(e, 0, "#ffffff"), n = S.ops.addElement(w, 0, "text"), why = S.takeReject(); return !!w && n === null && /hard to read/.test(why || ""); })());
+  ok("bg: the same on dark: a dark bg with a light default text accepts a new text item", (() => { const d = S.ops.setBackground(Dk.d, 0, "#233a4d"); return !!d && !!S.ops.addElement(d, 0, "text"); })());
+  ok("bg: duplicating an item with an unreadable colour cannot slip in (copy equals the original, which was readable)", (() => { const d = S.ops.setBackground(Dk.d, 0, "#233a4d"); return !!S.ops.duplicateElement(d, 0, Dk.id); })());
+  ok("bg: showing the master on a background slide is refused when master text would be unreadable, and hiding it first allows it", (() => {
+    let d = mk("light", "Body").d; d = S.ops.setHideMaster(d, 0, true); const m = S.ops.master_addElement(d, "text"); let dm = S.ops.master_updateElement(m.deck, m.id, { text: "Logo", fill: "#c28b1d" });
+    dm = S.ops.setBackground(dm, 0, "#e6eef7"); const unhide = S.ops.setHideMaster(dm, 0, false); return !!dm && unhide === null && /hard to read/.test(S.takeReject() || ""); })());
+  ok("bg: master text that is unreadable on a slide's background is refused (master edit)", (() => {
+    let d = mk("light", "Body").d; d = S.ops.setBackground(d, 0, "#e6eef7"); const m = S.ops.master_addElement(d, "text"); const bad = S.ops.master_updateElement(m.deck, m.id, { text: "Logo", fill: "#c28b1d" }); return !!m && bad === null; })());
+  ok("bg: a slide added from a layout has no background; duplicating a slide copies it", (() => { const a = S.ops.addSlide(setL, 0, "title"); const dup = S.ops.duplicateSlide(setL, 0); return !("bg" in a.slides[1]) && dup.slides[1].bg === "#f4efe6"; })());
+  // theme
+  ok("bg: setTheme is refused when a slide's background would be unreadable, with a reason, deck untouched", (() => { const b = J(setL), r = S.ops.setTheme(setL, "dark"), why = S.takeReject(); return r === null && J(setL) === b && /slide 1/.test(why || ""); })());
+  ok("bg: themeConflicts names the slides; setThemeResetting resets only those, switches the theme, one undo step brings back both", (() => {
+    const c = S.themeConflicts(setL, "dark"); const r = S.ops.setThemeResetting(setL, "dark");
+    const Hh = new S.History(setL, mem(), 100); Hh.change(r, "theme"); const afterChange = Hh.deck; Hh.undo();
+    return J(c) === "[0]" && r.theme === "dark" && !r.slides[0].bg && r.v === 1 && afterChange.theme === "dark" && Hh.deck.theme === "light" && Hh.deck.slides[0].bg === "#f4efe6"; })());
+  ok("bg: a theme switch that conflicts nowhere goes through setTheme and keeps the colour", (() => { const w = S.ops.setBackground(L.d, 0, "#ffffff"); const r = S.ops.setTheme(w, "warm"); return S.themeConflicts(w, "warm").length === 0 && !!r && r.slides[0].bg === "#ffffff"; })());
+  // validator, versions, compatibility
+  ok("bg: validate keeps a good colour and round-trips exactly, version 8", J(S.validate(cl(setL))) === J(setL) && S.validate(cl(setL)).v === 8);
+  ok("bg: validate refuses an unknown colour, a non-string, and an unreadable pairing (never draws it)", S.validate(Object.assign(cl(setL), { slides: [Object.assign(cl(setL).slides[0], { bg: "#abcdef" })] })) === null && S.validate(Object.assign(cl(setL), { slides: [Object.assign(cl(setL).slides[0], { bg: 5 })] })) === null && (() => { const x = cl(setL); x.slides[0].bg = "#1f2430"; return S.validate(x) === null; })());
+  ok("bg: loadDeck of an unreadable pairing is unreadable with the raw text kept, not blank", (() => { const x = cl(setL); x.slides[0].bg = "#1f2430"; const raw = J(x); const r = S.loadDeck(raw); return r.unreadable && r.raw === raw; })());
+  ok("bg: a version 9 deck is refused", S.validate(Object.assign(cl(setL), { v: 9 })) === null);
+  ok("bg: a deck with no background keeps its old version (v1 plain)", L.d.v === 1 && S.ops.addElement(S.newDeck(), 0, "rect").deck.v === 1 && S.ops.setBackground(S.ops.addElement(S.newDeck(), 0, "rect").deck, 0, "#f4efe6").v === 8);
+  ok("bg: the older validators in the fixtures still refuse a version 8 deck", ["slides_model_v1_validator.js", "slides_model_v2_master_validator.js", "slides_model_v3_before_style.js", "slides_model_v4_before_images.js"].every((f) => { const V = require("./fixtures/" + f); const fn = V.validate || (V.default && V.default.validate); return typeof fn === "function" && fn(cl(setL)) === null; }));
+  ok("bg: an old v1 deck is read unchanged", J(S.validate({ v: 1, theme: "light", slides: [{ id: "s", elements: [], notes: "" }] })) === J({ v: 1, theme: "light", slides: [{ id: "s", elements: [], notes: "" }] }));
 }
 console.log(`${n - bad}/${n} slides model rows passed`); process.exit(bad ? 1 : 0);

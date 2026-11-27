@@ -60,7 +60,13 @@
     }
   }
   function sel() { var a = tgt(); for (var i = 0; i < a.length; i++) if (a[i].id === selId) return a[i]; return null; }
-  function apply(next, note) { if (!next) return false; if (!H.change(next, note)) return false; cur = Math.min(cur, H.deck.slides.length - 1); render(); return true; }
+  // After a refused change the controls show what the deck really holds (render() leaves the focused control alone).
+  function syncProps() {
+    var e = sel(); if (!e) return;
+    ["text", "size", "x", "y", "w", "h", "fill"].forEach(function (f) { $("sl-" + f).value = e[f]; });
+    $("sl-bold").checked = !!e.b; $("sl-italic").checked = !!e.i; $("sl-align").value = e.al ? e.al : "default";
+  }
+  function apply(next, note) { if (!next) { var why = S.takeReject(); if (why) { render(); syncProps(); status.textContent = why; } return false; } if (!H.change(next, note)) return false; cur = Math.min(cur, H.deck.slides.length - 1); render(); return true; }
   // Dragging an item moves it, dragging the blue corner square resizes it. Nothing is stored until the pointer is released, so a drag is one Undo step; Esc or a cancelled pointer drops it.
   var drag = null;
   function endDrag() { var w = wrap(); w.removeEventListener("pointermove", onDragMove); w.removeEventListener("pointerup", onDragUp); w.removeEventListener("pointercancel", onDragCancel); w.removeEventListener("lostpointercapture", onDragCancel); document.removeEventListener("keydown", onDragKey, true); try { if (drag) w.releasePointerCapture(drag.id); } catch (e) { /* already released */ } drag = null; if (pendingRefresh) { pendingRefresh = false; setTimeout(refresh, 0); } }
@@ -126,7 +132,7 @@
     var svg = el("svg", { viewBox: "0 0 " + S.W + " " + S.H, tabindex: "0", role: "img", "aria-label": "Slide " + (cur + 1) + " of " + d.slides.length });
     svg.appendChild(el("title", {}, "Slide " + (cur + 1) + " of " + d.slides.length));
     svg.appendChild(el("desc", {}, (editMaster ? "Master items: " + (S.describeEls(tgt()).join("; ") || "none") : (S.masterOf(d, cur).length ? "Master items: " + S.describeEls(S.masterOf(d, cur)).join("; ") + ". Slide items: " : "") + (S.describe(d, cur).join("; ") || "Empty slide"))));
-    svg.appendChild(el("rect", { x: 0, y: 0, width: S.W, height: S.H, fill: th.bg }));
+    svg.appendChild(el("rect", { x: 0, y: 0, width: S.W, height: S.H, fill: editMaster ? th.bg : S.bgOf(d, cur) }));
     if (!editMaster) S.masterOf(d, cur).forEach(function (e) { var g = el("g", {}); drawEl(g, d, e); svg.appendChild(g); });
     tgt().forEach(function (e) {
       var g = el("g", {}); drawEl(g, d, e);
@@ -166,6 +172,9 @@
     ["text", "size", "x", "y", "w", "h", "fill"].forEach(function (f) { var inp = $("sl-" + f); if (document.activeElement !== inp) inp.value = e ? e[f] : ""; });
     $("sl-bold").checked = !!(e && e.b); $("sl-italic").checked = !!(e && e.i); $("sl-align").value = e && e.al ? e.al : "default";
     var nt = $("sl-notes"); if (document.activeElement !== nt) nt.value = d.slides[cur].notes || "";
+    var bgSel = $("sl-bg"); bgSel.disabled = editMaster;
+    Array.prototype.forEach.call(bgSel.options, function (o) { if (o.value === "theme") return; var okc = S.bgUsable(d, cur, o.value); o.disabled = !okc; o.textContent = o.dataset.name + (okc ? "" : " (text too hard to read)"); });
+    bgSel.value = d.slides[cur].bg || "theme";
     $("sl-theme").value = d.theme; $("sl-undo").disabled = !H.past.length; $("sl-redo").disabled = !H.future.length;
     $("sl-up").disabled = cur === 0; $("sl-down").disabled = cur >= d.slides.length - 1; $("sl-del").disabled = d.slides.length <= 1; $("sl-dup").disabled = d.slides.length >= S.MAX_SLIDES;
     $("sl-trans").value = d.slides[cur] && d.slides[cur].transition === "fade" ? "fade" : "none"; $("sl-trans").disabled = editMaster;
@@ -262,7 +271,16 @@
   });
   $("sl-up").addEventListener("click", function () { if (apply(S.ops.moveSlide(H.deck, cur, cur - 1))) { cur--; render(); } });
   $("sl-down").addEventListener("click", function () { if (apply(S.ops.moveSlide(H.deck, cur, cur + 1))) { cur++; render(); } });
-  $("sl-theme").addEventListener("change", function () { apply(S.ops.setTheme(H.deck, this.value)); });
+  $("sl-theme").addEventListener("change", function () {
+    var name = this.value, bad = S.themeConflicts(H.deck, name);
+    if (bad.length) {
+      var list = bad.map(function (i) { return i + 1; }).join(", ");
+      if (!window.confirm("Switching theme would make the background colour on slide " + list + " hard to read with this theme's text. OK puts those slides back to the theme background and switches. Cancel keeps the current theme. You can undo this until you reload.")) { render(); status.textContent = "Theme not changed."; return; }
+      apply(S.ops.setThemeResetting(H.deck, name), "Theme changed. Slide " + list + " went back to the theme background.");
+    } else apply(S.ops.setTheme(H.deck, name));
+  });
+  S.BGS.forEach(function (b) { var o = document.createElement("option"); o.value = b[0]; o.dataset.name = b[1]; o.textContent = b[1]; $("sl-bg").appendChild(o); });
+  $("sl-bg").addEventListener("change", function () { if (editMaster) return; apply(S.ops.setBackground(H.deck, cur, this.value), this.value === "theme" ? "Slide background set to the theme background." : "Slide background colour set."); });
   $("sl-undo").addEventListener("click", function () { if (H.undo()) { cur = Math.min(cur, H.deck.slides.length - 1); render(); } });
   $("sl-redo").addEventListener("click", function () { if (H.redo()) { cur = Math.min(cur, H.deck.slides.length - 1); render(); } });
   $("sl-clear").addEventListener("click", function () {
@@ -396,7 +414,7 @@
     var d = H.deck, th = S.THEMES[d.theme], box = $("sl-show-canvas"); box.textContent = "";
     var svg = el("svg", { viewBox: "0 0 " + S.W + " " + S.H, role: "img", "aria-label": "Slide " + (showAt + 1) + " of " + d.slides.length });
     svg.appendChild(el("desc", {}, S.describe(d, showAt).join("; ") || "Empty slide"));
-    svg.appendChild(el("rect", { x: 0, y: 0, width: S.W, height: S.H, fill: th.bg }));
+    svg.appendChild(el("rect", { x: 0, y: 0, width: S.W, height: S.H, fill: S.bgOf(d, showAt) }));
     var hid = S.hiddenIds(d, showAt, showStep), an = d.slides[showAt].anim || [];
     S.masterOf(d, showAt).concat(d.slides[showAt].elements).forEach(function (e) {
       if (hid[e.id]) return;

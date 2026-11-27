@@ -14,4 +14,4 @@ def test_slides_pdf_rows_pass_in_node():
         timeout=60,
     )
     assert r.returncode == 0, r.stdout + r.stderr
-    assert "13/13 slides pdf rows passed" in r.stdout
+    assert "17/17 slides pdf rows passed" in r.stdout
