@@ -11,6 +11,8 @@
 {% if editing and e.freq %}<p class="cal-meta">This event repeats. Changes apply to the whole series. The repeat rule cannot be changed here.</p>{% endif %}
 {% if editing %}<input type="hidden" name="version" value="{% if conflict %}{{ conflict.version }}{% else %}{{ form.version }}{% endif %}">{% endif %}
 <label>Title<input type="text" name="title" maxlength="200" value="{{ form.title }}" required></label>
+{% if editing and e.all_day %}<p class="cal-meta">This is an all-day event. Only the dates count: the first day is the Starts date and the last day is the Ends date. The time part is ignored. An event cannot be switched between all-day and timed.</p>
+{% elif not editing %}<label class="cal-inline"><input type="checkbox" name="all_day"{% if form.all_day %} checked{% endif %}> All day (only the dates count and the Ends date is the last day. An all-day event cannot repeat.)</label>{% endif %}
 <label>Starts<input type="datetime-local" name="start" value="{{ form.start }}" required></label>
 <label>Ends<input type="datetime-local" name="end" value="{{ form.end }}" required></label>
 <label>Time zone<input type="text" name="tz" maxlength="40" value="{{ form.tz }}" required></label>

@@ -7,7 +7,7 @@
 <div class="card cal{% if e.status == 'cancelled' %} cal-cancelled{% endif %}"><div class="cal-head"><h2>{{ e.title }}</h2></div>
 <div class="cal-tabs"><a href="{% url 'events:home' %}">Agenda</a><a href="{% url 'events:new' %}">New event</a><a href="{% url 'events:busy' %}">Free or busy</a></div>
 {% if e.status == 'cancelled' %}<p><strong>Cancelled</strong></p>{% endif %}
-<p class="cal-when">{{ start|date:"D j M Y, H:i" }} to {{ end|date:"H:i" }} ({{ e.tz }})</p>
+<p class="cal-when">{% if e.all_day %}{{ all_day_text }} ({{ e.tz }}){% else %}{{ start|date:"D j M Y, H:i" }} to {{ end|date:"H:i" }} ({{ e.tz }}){% endif %}</p>
 {% if rule_text %}<p class="cal-meta">{{ rule_text }} The time above is the first occurrence. One answer from a guest covers the whole series. You can cancel one occurrence or the whole series; you cannot change a single occurrence.</p>{% endif %}
 {% if e.location %}<p class="cal-location"><strong>Where:</strong> {{ e.location }}</p>{% endif %}
 {% if e.description %}<div class="cal-description">{{ e.description|linebreaksbr }}</div>{% endif %}

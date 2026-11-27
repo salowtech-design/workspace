@@ -10,7 +10,7 @@ DESCRIPTION_MAX = 2000
 
 class Event(models.Model):
     """An event, single or repeating. Times are stored in UTC with the organiser's time zone name. A repeat rule,
-    guests with answers, and a plain-text location and description are built. Rooms and resources, reminders and
+    guests with answers, all-day events (single only), and a plain-text location and description are built. Rooms and resources, reminders and
     email are NOT built. Location and description are free text, not a room booking."""
 
     CONFIRMED, CANCELLED = "confirmed", "cancelled"
@@ -25,6 +25,7 @@ class Event(models.Model):
     tz = models.CharField(max_length=40)
     location = models.CharField(max_length=LOCATION_MAX, blank=True, default="")  # free text, not a room
     description = models.TextField(blank=True, default="")  # plain text, DESCRIPTION_MAX enforced in services
+    all_day = models.BooleanField(default=False)  # whole local days: start is a local midnight, end is the midnight after the last day. Never repeats.
     status = models.CharField(max_length=10, default=CONFIRMED)
     version = models.PositiveIntegerField(default=1)
     # Repeat rule (all empty for a single event). start_utc/end_utc are the first occurrence.

@@ -46,6 +46,7 @@ class Occurrence:
     tz = property(lambda self: self.event.tz)
     organizer_id = property(lambda self: self.event.organizer_id)
     freq = property(lambda self: self.event.freq)
+    all_day = property(lambda self: self.event.all_day)
 
 
 class StaleEvent(ValidationError):
@@ -182,9 +183,23 @@ def _rule(start, end, tz_name, rule):
     return fields
 
 
-def create_event(actor, title, local_start, local_end, tz_name, guest_ids=(), rule=None, location="", description=""):
+def _whole_days(local_start, local_end):
+    """All-day input: only the DATE parts count. The end date is the last day shown, so the stored end is the midnight after it."""
+    return (
+        datetime.datetime.combine(local_start.date(), datetime.time.min),
+        datetime.datetime.combine(local_end.date() + datetime.timedelta(days=1), datetime.time.min),
+    )
+
+
+def create_event(actor, title, local_start, local_end, tz_name, guest_ids=(), rule=None, location="", description="", all_day=False):
     title = _title(title)
     location, description = _location(location), _description(description)
+    if all_day:
+        if rule and rule.get("freq"):
+            raise ValidationError("An all-day event cannot repeat yet.")
+        if local_end.date() < local_start.date():
+            raise ValidationError("The last day must not be before the first day.")
+        local_start, local_end = _whole_days(local_start, local_end)
     start, end = _utc(local_start, local_end, tz_name)
     fields = _rule(start, end, tz_name, rule)
     guest_ids = list(dict.fromkeys(guest_ids))
@@ -200,7 +215,7 @@ def create_event(actor, title, local_start, local_end, tz_name, guest_ids=(), ru
         if me is None:
             raise PermissionDenied("Not allowed.")
         guests = _live_people(guest_ids, exclude=actor.pk)
-        ev = Event(organizer=me, title=title, start_utc=start, end_utc=end, tz=tz_name.strip(), location=location, description=description)
+        ev = Event(organizer=me, title=title, start_utc=start, end_utc=end, tz=tz_name.strip(), location=location, description=description, all_day=bool(all_day))
         for k, v in fields.items():
             setattr(ev, k, v)
         if fields:
@@ -252,6 +267,12 @@ def update_event(actor, public_id, expected_version, title, local_start, local_e
     except ValueError:
         raise ValidationError("The form is out of date. Reload the event and try again.") from None
     title = _title(title)
+    # all_day is fixed at creation (never edited), so reading it before the lock below cannot race.
+    all_day = Event.objects.filter(public_id=public_id).values_list("all_day", flat=True).first()
+    if all_day:
+        if local_end.date() < local_start.date():
+            raise ValidationError("The last day must not be before the first day.")
+        local_start, local_end = _whole_days(local_start, local_end)
     start, end = _utc(local_start, local_end, tz_name)
     new_loc = None if location is None else _location(location)  # None: leave the stored value as it is
     new_desc = None if description is None else _description(description)

@@ -78,8 +78,19 @@ def _limited(request):
     return False
 
 
-def _span(s, f, tz):
+def _days_text(s, f, with_year=False):
+    """All-day wording. f is the stored (exclusive) end, so the last shown day is the day before it."""
+    last = (f - dt.timedelta(days=1)).date()
+    y = " %Y" if with_year else ""
+    if last == s.date():
+        return f"{s:%a %-d %b{y}}, all day"
+    return f"{s:%a %-d %b{y}} to {last:%a %-d %b{y}}, all day"
+
+
+def _span(s, f, tz, all_day=False):
     """'Tue 02 Mar 10:00 to 11:00 Asia/Kolkata', or with the end date when it ends on another local day."""
+    if all_day:
+        return f"{_days_text(s, f)} {tz}"
     end = f"{f:%H:%M}" if s.date() == f.date() else f"{f:%a %d %b %H:%M}"
     return f"{s:%a %d %b %H:%M} to {end} {tz}"
 
@@ -95,7 +106,7 @@ def _warn_overlaps(request, ev):
         for g in shown:
             o = g.first
             z = ZoneInfo(o.tz)
-            part = _span(o.start_utc.astimezone(z), o.end_utc.astimezone(z), o.tz)
+            part = _span(o.start_utc.astimezone(z), o.end_utc.astimezone(z), o.tz, o.event.all_day)
             if g.count > 1:
                 part += f", {g.count} occurrences overlap"
             bits.append(f"{o.title} ({part})")
@@ -134,7 +145,7 @@ def home(request):
         rows.append(
             {"e": e, "start": s, "end": f, "response": mine.response if mine else None,
              "response_label": mine.response_label if mine else None,
-             "repeats": bool(e.freq)}
+             "repeats": bool(e.freq), "when": _days_text(s, f, True) if e.all_day else ""}
         )  # fmt: skip
     return render(
         request, "events/home.html", {"rows": rows, "tz": DEFAULT_TZ, "days": AGENDA_DAYS}
@@ -177,11 +188,16 @@ def _by_day(user, first, ndays):
     hi = dt.datetime.combine(first + dt.timedelta(days=ndays), dt.time.min, tzinfo=tz)
     cells = {first + dt.timedelta(days=i): [] for i in range(ndays)}
     for e in es.events_for(user, lo, hi):
-        s, f = e.start_utc.astimezone(tz), e.end_utc.astimezone(tz)
+        z = ZoneInfo(e.tz) if e.all_day else tz  # an all-day event keeps the days its organiser chose, in its own zone
+        s, f = e.start_utc.astimezone(z), e.end_utc.astimezone(z)
         d, last = s.date(), max(s, f - dt.timedelta(microseconds=1)).date()  # a zero-length row (the service refuses it) stays on its own day
         while d <= last:
             if d in cells:
                 first_day = d == s.date()
+                if e.all_day:
+                    cells[d].append({"e": e, "time": "All day", "when": _days_text(s, f), "label": f"{e.title}, {_days_text(s, f)}"})
+                    d += dt.timedelta(days=1)
+                    continue
                 cells[d].append(
                     {
                         "e": e,
@@ -299,6 +315,7 @@ def new_event(request):
                 rule=_rule_from(request.POST),
                 location=request.POST.get("location", ""),
                 description=request.POST.get("description", ""),
+                all_day=request.POST.get("all_day") == "on",
             )
         except ValidationError as exc:
             messages.error(request, " ".join(exc.messages))
@@ -366,6 +383,7 @@ def detail(request, event_id):
         "events/detail.html",
         {
             "rule_text": rec.describe(ev),
+            "all_day_text": _days_text(s, f, True) if ev.all_day else "",
             "occ_nav": nav,
             "upcoming": upcoming,
             "skipped": skipped,
@@ -391,7 +409,7 @@ def edit(request, event_id):
     form = {
         "title": ev.title,
         "start": s.strftime("%Y-%m-%dT%H:%M"),
-        "end": f.strftime("%Y-%m-%dT%H:%M"),
+        "end": (f - dt.timedelta(days=1) if ev.all_day else f).strftime("%Y-%m-%dT%H:%M"),
         "tz": ev.tz,
         "location": ev.location,
         "description": ev.description,

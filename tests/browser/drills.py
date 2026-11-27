@@ -9042,6 +9042,63 @@ def cal_month(ctx):
     check("cal month: a bad month shows the error text", "Month must look like" in pg.inner_text("body"))
 
 
+def cal_all_day(ctx):  # noqa: C901
+    """All-day events on the real stack: create with the All day box (time part typed but ignored), detail, agenda-free pages (month chip on each
+    day, day page), edit moves the dates and keeps it all-day, the form refuses repeat plus all-day, 390 px. Real TiDB, headless Chromium."""
+    pg = ctx.pages[0]
+    pg.goto(APP + "/calendar/new/")
+    pg.fill("input[name=title]", "Team offsite")
+    pg.fill("input[name=start]", "2026-12-03T15:40")
+    pg.fill("input[name=end]", "2026-12-05T02:10")
+    pg.check("input[name=all_day]")
+    shot(pg, "cal_all_day_form")
+    pg.click(".cal-form button[type=submit]")
+    pg.wait_for_load_state()
+    body = pg.inner_text("body")
+    check("cal all-day: detail says Thu 3 Dec to Sat 5 Dec, all day", "Thu 3 Dec 2026 to Sat 5 Dec 2026, all day" in body, body[:300])
+    check("cal all-day: the typed times are not shown", "15:40" not in body and "02:10" not in body)
+    detail = pg.url
+    shot(pg, "cal_all_day_detail")
+    pg.goto(APP + "/calendar/month/?m=2026-12")
+    cell = lambda d: pg.evaluate(  # noqa: E731
+        "(d)=>{for(const td of document.querySelectorAll('.cal-month td')){if(td.classList.contains('cal-other'))continue;"
+        "if(td.querySelector('.cal-dn').textContent.trim().split(' ')[0]===d)return td.innerText}return null}", d)
+    hit = [d for d in ("2", "3", "4", "5", "6") if "Team offsite" in (cell(d) or "")]
+    check("cal all-day: month chips on 3, 4, 5 Dec only", hit == ["3", "4", "5"], str(hit))
+    check("cal all-day: the chip says All day", "All day" in (cell("4") or ""), str(cell("4")))
+    shot(pg, "cal_all_day_month")
+    pg.goto(APP + "/calendar/day/?d=2026-12-04")
+    check("cal all-day: day page names the span", "Thu 3 Dec to Sat 5 Dec, all day" in pg.inner_text("body"))
+    pg.goto(detail.replace("/calendar/event/", "/calendar/event/") + "edit/")
+    check("cal all-day: edit page explains it and shows the last day, not the exclusive end", "all-day event" in pg.inner_text("body") and pg.input_value("input[name=end]") == "2026-12-05T00:00", pg.input_value("input[name=end]"))
+    check("cal all-day: edit has no All day box (it cannot be switched)", pg.locator("input[name=all_day]").count() == 0)
+    pg.fill("input[name=start]", "2026-12-08T09:00")
+    pg.fill("input[name=end]", "2026-12-08T17:00")
+    pg.click(".cal-form button[type=submit]")
+    pg.wait_for_load_state()
+    body = pg.inner_text("body")
+    check("cal all-day: after edit it is one day, Tue 8 Dec 2026, all day", "Tue 8 Dec 2026, all day" in body and "to" not in body.split("all day")[0].split("Tue 8 Dec 2026")[-1], body[:300])
+    pg.goto(APP + "/calendar/month/?m=2026-12")
+    check("cal all-day: month now shows 8 Dec and not 4 Dec", "Team offsite" in (cell("8") or "") and "Team offsite" not in (cell("4") or ""))
+    pg.goto(APP + "/calendar/new/")
+    pg.fill("input[name=title]", "Bad repeat")
+    pg.fill("input[name=start]", "2026-12-10T10:00")
+    pg.fill("input[name=end]", "2026-12-10T11:00")
+    pg.check("input[name=all_day]")
+    pg.select_option("select[name=freq]", "daily")
+    pg.fill("input[name=count]", "3")
+    pg.click(".cal-form button[type=submit]")
+    pg.wait_for_load_state()
+    check("cal all-day: repeat plus all day is refused with a message", "cannot repeat" in pg.inner_text("body"), pg.inner_text("body")[:200])
+    pg.set_viewport_size({"width": 390, "height": 800})
+    pg.goto(detail)
+    check("cal all-day: detail has no sideways scroll at 390 px", not pg.evaluate("document.documentElement.scrollWidth > document.documentElement.clientWidth"))
+    shot(pg, "cal_all_day_detail_390")
+    pg.goto(APP + "/calendar/new/")
+    check("cal all-day: form has no sideways scroll at 390 px", not pg.evaluate("document.documentElement.scrollWidth > document.documentElement.clientWidth"))
+    shot(pg, "cal_all_day_form_390")
+
+
 def cal_series(ctx):
     """Repeating events on the real stack: form creates a weekly series, month/day show every occurrence, one occurrence is cancelled from its detail page, the series keeps the rest."""
     pg = ctx.pages[0]
@@ -9709,6 +9766,7 @@ DRILLS = {
     "task_comments": task_comments,
     "cal_series_page": cal_series_page,
     "cal_series": cal_series,
+    "cal_all_day": cal_all_day,
     "cal_month": cal_month,
     "slides_show": slides_show,
     "slides_edit": slides_edit,
