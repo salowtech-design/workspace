@@ -267,6 +267,7 @@ def register(g):
     register_trash_context(g)
     register_due_soon(g)
     register_invite_notice(g)
+    register_chat_badge(g)
     register_task_conflict(g)
     register_sessions_scroll(g, users)
     register_drive_move(g)
@@ -4516,3 +4517,46 @@ def register_invite_notice(g):
         run_tour(ctx, "77_calendar_invite_notice", body, notes="Real Django on TiDB, headless Chromium 390x844 emulated. Fixture by script: a second synthetic account creates an event and invites the signed-in account through the Calendar service.", unshown=["organizer form", "edit/cancel notices", "email/push"])
 
     g["DRILLS"]["tour_invite_notice"] = tour
+
+
+def register_chat_badge(g):
+    APP = g["APP"]
+
+    def tour(ctx):
+        import concurrent.futures
+
+        import django
+
+        django.setup()
+        ids = {}
+
+        def make():
+            from apps.accounts.models import CustomUser
+            from apps.chat import services as cs
+
+            me = CustomUser.objects.get(employee_id="ST-LIVE-1")
+            two = CustomUser.objects.get_or_create(employee_id="ST-LIVE-2", defaults={"full_name": "Second Synthetic", "email": "st-live-2@salowtech.com", "email_verified": True,
+                                                   "role": CustomUser.Role.EMPLOYEE, "status": CustomUser.Status.ACTIVE, "is_active": True})[0]
+            sp = cs.open_dm(me, two.pk)
+            for i in range(3):
+                cs.post_message(two, sp.public_id, "Hello number %d" % i, "bd-%d" % i)
+            cs.post_message(me, sp.public_id, "my own reply", "bd-me")
+            ids["sp"] = str(sp.public_id)
+
+        with concurrent.futures.ThreadPoolExecutor(1) as ex:
+            ex.submit(make).result()
+
+        def body(t, pg):
+            txt = lambda: pg.inner_text("body")
+            show = lambda: pg.evaluate("document.querySelector('.nav-links a[href*=\"/chat/\"]').scrollIntoView({inline:'center', block:'nearest'})")
+            nav = lambda: pg.inner_text(".nav-links")
+            pg.goto(APP + "/tasks/")
+            t.step("Nav shows Chat (3): three unread messages from Second, my own reply not counted", lambda: show(), expect=lambda: "Chat (3)" in nav(), wait=4500)
+            t.step("Open the conversation", lambda: pg.goto(APP + "/chat/space/%s/" % ids["sp"]), expect=lambda: "Hello number 2" in txt(), wait=3500)
+            pg.goto(APP + "/tasks/")
+            t.step("Back on Tasks: the nav says plain Chat, nothing unread", lambda: show(), expect=lambda: "Chat (" not in nav() and "Chat" in nav(), wait=4500)
+            t.note("Not shown: the 99+ cap, left spaces, other people's counts (all unit-tested), live update without a page load (not built).", 3)
+
+        run_tour(ctx, "78_chat_nav_badge", body, notes="Real Django on TiDB, headless Chromium 390x844 emulated. Fixture by script: three messages from a second synthetic account in a DM plus one reply of my own.", unshown=["99+ cap", "left spaces", "live update"])
+
+    g["DRILLS"]["tour_chat_badge"] = tour

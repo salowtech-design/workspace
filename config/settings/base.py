@@ -71,6 +71,7 @@ TEMPLATES = [
                 "django.contrib.messages.context_processors.messages",
                 "apps.core.context_processors.csp_nonce",
                 "apps.inbox.context_processors.unread_notifications",
+                "apps.inbox.context_processors.unread_chat",
             ],
         },
     },
