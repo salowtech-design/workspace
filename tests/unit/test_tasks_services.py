@@ -380,10 +380,16 @@ def _unlocked_interleave(monkeypatch, first, second):
 
     t = threading.Thread(target=run)
     t.start()
-    assert checked.wait(timeout=30), f"the first operation never reached its pause: {out}"
-    second()
-    go.set()
-    t.join(timeout=30)
+    if not checked.wait(timeout=30):
+        go.set()
+        t.join(timeout=30)
+        assert False, f"the first operation never reached its pause: {out}"
+    try:
+        second()
+    finally:
+        go.set()  # always release the first operation, even if the second raised
+        t.join(timeout=30)
+        assert not t.is_alive(), "the first operation did not finish; its transaction may still be open"
     return out
 
 
