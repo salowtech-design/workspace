@@ -300,6 +300,9 @@ def test_day_and_week_list_everything_and_month_more_links_to_the_day():
     out_day = _c(out).get(reverse("events:day"), {"d": "2026-12-15"})
     out_titles = [x["e"].title for d in out_day.context["days"] for x in d["items"]]
     assert out_day.status_code == 200 and out_titles == []
+    assert 'class="cal-title"' not in out_day.content.decode()  # no event row rendered for the outsider (markup, not title text)
+    org_titles = {x["e"].title for d in day.context["days"] for x in d["items"]}
+    assert {f"E{i}" for i in range(5)} <= org_titles  # positive control: the organiser's context does hold the events
     for name in ("day", "week"):
         for bad in ("2026-12", "x", "1999-12-01", "2026-02-30"):
             assert c.get(reverse(f"events:{name}"), {"d": bad}).status_code == 400
