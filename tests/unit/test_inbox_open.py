@@ -72,3 +72,17 @@ def test_other_peoples_missing_inactive_and_unsafe_links():
     assert Client(HTTP_HOST=HOST).post(f"/notifications/open/{bad.pk}/").status_code == 302  # login redirect
     a.status = "suspended"; a.save()
     assert c.post(f"/notifications/open/{bad.pk}/").status_code in (302, 403, 404)
+
+
+@pytest.mark.parametrize("link", [
+    "//evil.example/x", "/\\evil.example", "\\\\evil.example", "https://evil.example/x", "javascript:alert(1)",
+    "/ok\tx", "/ok\nx", "/ok\x00x", "/ok x", " /ok", "evil.example", "/\x7fx", "/\x85x",
+])
+def test_stored_unsafe_links_never_redirect_outside(link):
+    a = _u("IO-9")
+    n = Notification.objects.create(user=a, kind="x", title="T", link=link)
+    c = _c(a)
+    r = c.post(f"/notifications/open/{n.pk}/")
+    assert r.status_code == 302 and r["Location"] == "/notifications/"
+    n.refresh_from_db()
+    assert n.read_at is not None  # it is still marked read, just not followed

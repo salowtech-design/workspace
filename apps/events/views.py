@@ -272,7 +272,7 @@ def new_event(request):
             return render(request, "events/form.html", ctx, status=403)
         messages.success(
             request,
-            "Event created. Guests see it on their own calendar; nobody is emailed or notified.",
+            "Event created. Guests see it on their own calendar and get an in-app notice. Nobody is emailed or pushed.",
         )
         return redirect("events:detail", event_id=ev.public_id)
     return render(request, "events/form.html", ctx)
