@@ -169,11 +169,12 @@
   }
   var findStat = $("find-status");
   function findOpts(repl) { return { find: $("find-text").value, repl: repl, matchCase: $("find-case").checked, formulas: $("find-formulas").checked }; }
-  function findCtx(check) { var sh = new F.Sheet(cells); return { parseAddr: F.parseAddr, shown: function (a) { var v = sh.get(a); return F.isErr(v) ? v.code : String(v); }, check: check, maxCell: MAXCELL, cols: COLS, rows: ROWS, badFormula: function (a, t) { var m = M.copy(cells); m[a] = t; var v = new F.Sheet(m).get(a); return F.isErr(v) && v.code === "#PARSE!"; } }; }
+  function findCtx(check) { var sh = new F.Sheet(cells); return { parseAddr: F.parseAddr, shown: function (a) { var v = sh.get(a); return F.isErr(v) ? v.code : String(v); }, check: check, maxCell: MAXCELL, cols: COLS, rows: ROWS, badFormula: function (a, t) { try { F.parse(t.slice(1)); return false; } catch (e) { return !!(e && e.code === "#PARSE!"); } } };
+  }
   $("find-next").addEventListener("click", function () {
     var r = M.findReplace(cells, findOpts(null), findCtx(null));
     if (r.error) { findStat.textContent = r.error; return; }
-    if (!r.hits.length) { findStat.textContent = "No match in A1:Z100." + (r.outside ? " " + r.outside + " matches outside it are not searched." : ""); return; }
+    if (!r.hits.length) { findStat.textContent = "No match in A1:Z100." + (r.outside ? " " + r.outside + " matches outside it are counted but not listed or changed." : ""); return; }
     var cp = cur ? F.parseAddr(cur) : null, pick = r.hits[0];
     if (cp) for (var i = 0; i < r.hits.length; i++) { var q = F.parseAddr(r.hits[i]); if (q.row > cp.row || (q.row === cp.row && q.col > cp.col)) { pick = r.hits[i]; break; } }
     var pq = F.parseAddr(pick);
@@ -187,8 +188,8 @@
     if (rulesLocked) { findStat.textContent = "This tab's validation rules could not be read, so a replacement cannot be checked and nothing was replaced. The rules were left untouched."; return; }
     var r = M.findReplace(cells, findOpts($("find-repl").value), findCtx(function (addr, v) { return M.checkValue(rules, addr, v, F.parseAddr); }));
     if (r.error) { findStat.textContent = r.error; return; }
-    var bits = [r.changed + " cells changed"]; if (r.cleared) bits.push(r.cleared + " emptied"); if (r.resultOnly) bits.push(r.resultOnly + " formula results matched and left alone"); if (r.becameFormula) bits.push(r.becameFormula + " skipped (would become a formula)"); if (r.lostEquals) bits.push(r.lostEquals + " skipped (formula would lose its =)"); if (r.badFormula) bits.push(r.badFormula + " skipped (formula would no longer parse)"); if (r.outside) bits.push(r.outside + " matches outside A1:Z100 left alone"); if (r.tooLong) bits.push(r.tooLong + " too long"); if (r.refused) bits.push(r.refused + " refused by validation rules");
-    if (!r.changed && !r.cleared) { var why = bits.slice(1).join(", "); findStat.textContent = "Nothing changed" + (why ? ": " + why : r.matched ? ": the text is already what you asked for" : r.outside ? "" : ": no match") + (r.outside && !why ? ": " + r.outside + " matches outside A1:Z100 left alone" : "") + "."; return; }
+    var bits = [r.changed + " cells changed"]; if (r.cleared) bits.push(r.cleared + " emptied"); if (r.resultOnly) bits.push(r.resultOnly + " formula results matched and left alone"); if (r.becameFormula) bits.push(r.becameFormula + " skipped (would become a formula)"); if (r.lostEquals) bits.push(r.lostEquals + " skipped (formula would lose its =)"); if (r.badFormula) bits.push(r.badFormula + " skipped (formula would no longer parse)"); if (r.outside) bits.push(r.outside + " matches outside A1:Z100 counted, not listed or changed"); if (r.tooLong) bits.push(r.tooLong + " too long"); if (r.refused) bits.push(r.refused + " refused by validation rules");
+    if (!r.changed && !r.cleared) { var why = bits.slice(1).join(", "); findStat.textContent = "Nothing changed" + (why ? ": " + why : r.matched ? ": the text is already what you asked for" : r.outside ? "" : ": no match") + (r.outside && !why ? ": " + r.outside + " matches outside A1:Z100 counted, not listed or changed" : "") + "."; return; }
     if (!change(r.cells, "Replaced in " + (r.changed + r.cleared) + " cells. Undo works.")) return;
     findStat.textContent = bits.join(", ") + ". Undo works."; if (cur) { orig = cells[cur] || ""; bar.value = orig; }
   });
@@ -239,7 +240,7 @@
       if (!p || !p.count) { status.textContent = "That file has no usable cells. Your sheet was not changed."; return; }
       if (Object.keys(cells).length && !window.confirm("Replace the " + Object.keys(cells).length + " cells in this tab with the " + p.count + " cells in this file? You can undo it afterwards.")) { status.textContent = "Import cancelled. Your sheet was not changed."; return; }
       var o = outside(p.cells);
-      change(p.cells, "Imported " + p.count + " cells" + (p.skipped ? ", skipped " + p.skipped + " entries that were not valid cells" : "") + (o ? ". " + o + " cells are outside the visible grid (A1 to H20): they are kept, used by formulas and exported, but not shown" : "") + ". You can undo this import.");
+      change(p.cells, "Imported " + p.count + " cells" + (p.skipped ? ", skipped " + p.skipped + " entries that were not valid cells" : "") + (o ? ". " + o + " cells are outside the visible grid (A1:Z100): they are kept, used by formulas and exported, but not shown" : "") + ". You can undo this import.");
     };
     rd.readAsText(f); e.target.value = "";
   });
