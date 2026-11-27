@@ -269,6 +269,7 @@ def register(g):
     register_invite_notice(g)
     register_chat_badge(g)
     register_attendance_csv(g)
+    register_post_review_notice(g)
     register_task_conflict(g)
     register_sessions_scroll(g, users)
     register_drive_move(g)
@@ -4617,3 +4618,39 @@ def register_attendance_csv(g):
         run_tour(ctx, "79_attendance_csv", body, notes="Real Django on TiDB, headless Chromium 390x844 emulated. Two completed sessions seeded for the synthetic account.", unshown=["spreadsheet app"])
 
     g["DRILLS"]["tour_attendance_csv"] = tour
+
+
+def register_post_review_notice(g):
+    APP = g["APP"]
+
+    def tour(ctx):
+        import concurrent.futures
+
+        import django
+
+        django.setup()
+
+        def make():
+            from apps.accounts.models import CustomUser
+            from apps.posts.models import Post
+            from apps.posts.services import create_post, review_post
+
+            me = CustomUser.objects.get(employee_id="ST-LIVE-1")
+            rv = CustomUser.objects.get_or_create(employee_id="ST-LIVE-3", defaults={"full_name": "Reviewer Synthetic", "email": "st-live-3@salowtech.com", "email_verified": True,
+                                                  "role": CustomUser.Role.ADMIN, "status": CustomUser.Status.ACTIVE, "is_active": True})[0]
+            post = create_post(author=me, title="Week 47 progress log", content="Finished the report draft.")
+            review_post(post=post, reviewer=rv, status=Post.Status.FLAGGED, review_notes="Please add the hours.")
+
+        with concurrent.futures.ThreadPoolExecutor(1) as ex:
+            ex.submit(make).result()
+
+        def body(t, pg):
+            txt = lambda: pg.inner_text("body")
+            pg.goto(APP + "/notifications/")
+            t.step("Notifications: 'Reviewer Synthetic flagged your post', no post title or notes in the notice", expect=lambda: "Reviewer Synthetic flagged your post" in txt() and "Week 47" not in txt() and "add the hours" not in txt(), wait=4500)
+            t.step("Open the notice: the post page opens with the review note", lambda: pg.click("a:has-text('flagged your post')"), expect=lambda: "/posts/" in pg.url and "Week 47 progress log" in txt() and "Please add the hours" in txt(), wait=3500)
+            t.note("Not shown: the reviewer's own form (the review is made by the same service the form calls, unit-tested), approved wording (unit-tested), email or push (not built).", 3)
+
+        run_tour(ctx, "80_post_review_notice", body, notes="Real Django on TiDB, headless Chromium 390x844 emulated. Fixture by script: a synthetic admin reviews the signed-in account's post through the Posts service.", unshown=["reviewer form", "approved wording", "email/push"])
+
+    g["DRILLS"]["tour_post_review_notice"] = tour

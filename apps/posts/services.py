@@ -1,9 +1,11 @@
+import logging
 import uuid
 from datetime import date
 from typing import Optional
 
 from django.core.exceptions import PermissionDenied, ValidationError
-from django.db import transaction
+from django.db import DatabaseError, transaction
+from django.urls import reverse
 from django.utils import timezone
 
 from apps.accounts.models import CustomUser
@@ -12,10 +14,13 @@ from apps.accounts.permissions import (
     PERM_POST_MODERATE,
     has_permission,
 )
+from apps.core.foundation.notify import notify
 from apps.core.models import OutboxEvent
 from apps.core.services import record_audit_event
 from apps.directory.models import Team
 from apps.posts.models import Post, PostComment
+
+logger = logging.getLogger(__name__)
 
 
 def create_post(
@@ -187,6 +192,26 @@ def review_post(
             event_type=f"post.{status}",
             payload={"post_id": post.id, "reviewer_id": reviewer.id, "status": status},
         )
+
+        # One notice to the author. The title carries the reviewer's name and the outcome only, never the post
+        # title, content or review notes. It is sent only when the author can open the post (the same listing the
+        # post page uses). A notice that fails for a non-database reason leaves the review saved; a DatabaseError
+        # is re-raised and fails the review.
+        try:
+            from apps.posts.selectors import list_posts_for_user
+
+            if list_posts_for_user(post.author).filter(pk=post.pk).exists():
+                verb = "approved" if status == Post.Status.APPROVED else "flagged"
+                with transaction.atomic():
+                    notify(
+                        post.author, "posts.reviewed",
+                        f"{reviewer.full_name or reviewer.employee_id} {verb} your post",
+                        reverse("posts:detail", args=[post.pk]),
+                    )  # fmt: skip
+        except DatabaseError:
+            raise
+        except Exception:  # noqa: BLE001
+            logger.exception("post review notification skipped")
 
     return post
 
