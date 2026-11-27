@@ -6,7 +6,11 @@
   var btn = document.getElementById("palette-open");
   if (!btn) return;
   var dlg = null, input, list, status, items = [], idx = -1, seq = 0, timer = null, ctl = null, opener = null;
-  function safe(u) { return typeof u === "string" && u.charAt(0) === "/" && u.charAt(1) !== "/" && u.charAt(1) !== "\\" && !/[\r\n]/.test(u); }
+  function safe(u) {
+    if (typeof u !== "string" || u.charAt(0) !== "/" || u.charAt(1) === "/" || u.charAt(1) === "\\") return false;
+    for (var i = 0; i < u.length; i++) { var c = u.charCodeAt(i); if (c <= 32 || c === 127 || u.charAt(i) === "\\") return false; }  // no control characters, spaces or backslashes anywhere
+    try { var r = new URL(u, window.location.origin); return r.origin === window.location.origin; } catch (e) { return false; }
+  }
   function build() {
     dlg = document.createElement("div"); dlg.id = "palette"; dlg.setAttribute("role", "dialog"); dlg.setAttribute("aria-modal", "true"); dlg.setAttribute("aria-label", "Quick search"); dlg.hidden = true;
     var box = document.createElement("div"); box.className = "palette-box";
@@ -20,7 +24,7 @@
       if (e.key === "Escape") { e.preventDefault(); close(); }
       else if (e.key === "ArrowDown") { e.preventDefault(); mark(idx + 1); }
       else if (e.key === "ArrowUp") { e.preventDefault(); mark(idx - 1); }
-      else if (e.key === "Enter") { e.preventDefault(); if (idx >= 0 && items[idx]) go(items[idx].url); }
+      else if (e.key === "Enter") { if (e.isComposing || e.keyCode === 229) return; e.preventDefault(); if (idx >= 0 && items[idx]) go(items[idx].url); }
       else if (e.key === "Tab") { e.preventDefault(); }  // focus stays in the dialog
     });
   }

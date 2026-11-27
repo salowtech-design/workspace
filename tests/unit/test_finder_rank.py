@@ -167,3 +167,38 @@ def test_json_search_is_the_pages_own_search_with_only_names_titles_and_urls():
     assert c.get("/search/", {"q": "x", "format": "json"}).status_code == 400
     assert c.get("/search/", {"q": "palette", "in": "nope", "format": "json"}).status_code == 400
     assert c.get("/search/", {"q": "palette", "format": "json"}).json() == body  # same answer again
+
+
+@pytest.mark.django_db
+def test_page_empty_state_is_identical_for_hidden_and_absent_items():
+    from django.test import Client
+
+    a, b = _u("RK-M"), _u("RK-N")
+    ts.create_task(b, ts.create_list(b, "Theirs"), "Quasar hidden of b")
+    c = Client(HTTP_HOST="app.salowtech.com")
+    c.force_login(a)
+
+    def area(q, scope=""):
+        r = c.get("/search/", {"q": q, "in": scope})
+        html = r.content.decode()
+        assert r.status_code == 200
+        return html.split("are not part of search yet.", 1)[1].replace(q, "Q")
+
+    hidden, absent = area("quasar hidden"), area("nothinghere")
+    assert hidden == absent and "No results." in hidden and "Quasar" not in hidden and "Showing the first" not in hidden
+    # scoped to the module that holds the hidden item: same
+    assert area("quasar hidden", "tasks") == area("nothinghere", "tasks")
+    # the "showing the first N" line appears only from the person's own matches
+    for i in range(22):
+        ts.create_task(a, ts.create_list(a, f"L{i}"), f"Mine quasar {i}")
+    assert "Showing the first 20 matches here" in area("quasar")
+
+
+@pytest.mark.django_db
+def test_quick_search_button_is_for_signed_in_people_only():
+    from django.test import Client
+
+    c = Client(HTTP_HOST="app.salowtech.com")
+    assert "palette-open" not in c.get("/auth/login/", follow=True).content.decode()
+    c.force_login(_u("RK-P"))
+    assert 'id="palette-open"' in c.get("/", follow=True).content.decode()

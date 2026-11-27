@@ -2246,11 +2246,11 @@ def register_palette(g):
             pg.evaluate("""() => { const f = window.fetch; window.fetch = function (u, o) {
               const s = String(u);
               if (s.indexOf('slow') >= 0) return new Promise(res => setTimeout(() => res(new Response(JSON.stringify({groups: [{name: 'Tasks', items: [{title: 'STALE ANSWER', url: '/tasks/'}], more: false}]}), {status: 200, headers: {'Content-Type': 'application/json'}})), 1800));
-              if (s.indexOf('inject') >= 0) return Promise.resolve(new Response(JSON.stringify({groups: [{name: 'Tasks', items: [{title: 'bad1', url: '//evil.example/'}, {title: 'bad2', url: 'javascript:alert(1)'}, {title: 'bad3', url: '/\\\\evil'}, {title: 'good', url: '/tasks/'}], more: false}]}), {status: 200, headers: {'Content-Type': 'application/json'}}));
+              if (s.indexOf('inject') >= 0) return Promise.resolve(new Response(JSON.stringify({groups: [{name: 'Tasks', items: [{title: 'bad1', url: '//evil.example/'}, {title: 'bad2', url: 'javascript:alert(1)'}, {title: 'bad3', url: '/\\\\evil'}, {title: 'bad4', url: '/\\t/evil.example/'}, {title: 'bad5', url: '/\\u0001x'}, {title: 'bad6', url: '/a b'}, {title: 'good', url: '/tasks/'}], more: false}]}), {status: 200, headers: {'Content-Type': 'application/json'}}));
               return f.apply(this, arguments); }; }""")
             t.step("A slow answer for an old search arrives after a newer search: the old answer is dropped", lambda: (pg.fill("#palette input", "palette slow"), pg.wait_for_timeout(700), pg.fill("#palette input", "palette")),
                    wait=3500, expect=lambda: opts(pg) == ["Palette", "Palette notes", "Old palette plan"] and "STALE" not in pg.inner_text("#palette"))
-            t.step("A result with an off-site or script link is not listed, only the path on this site", lambda: pg.fill("#palette input", "inject"),
+            t.step("A result with an off-site, script, tab or control-character link is not listed, only the path on this site", lambda: pg.fill("#palette input", "inject"),
                    wait=2200, expect=lambda: opts(pg) == ["good"])
             t.step("Escape closes the dialog and focus returns to the button", lambda: pg.keyboard.press("Escape"),
                    expect=lambda: (not dlg(pg)) and pg.evaluate("document.activeElement.id") == "palette-open")
