@@ -4723,6 +4723,7 @@ def register_post_comment_notice(g):
             pg.goto(APP + "/notifications/")
             t.step("Notifications: 'Admin Synthetic commented on your post', no comment text or post title; my own comment made no notice", expect=lambda: "Admin Synthetic commented on your post" in txt() and pg.inner_text("body").count(", unread") == 1 and "add the hours" not in txt() and "Week 47" not in txt(), wait=4500)
             t.step("Open the notice: the post page opens and shows the comment", lambda: pg.click("button:has-text('commented on your post')"), expect=lambda: "/posts/" in pg.url and "Looks good, please add the hours." in txt(), wait=3500)
+            t.step("Scrolled to the thread: the heading reads (2) and the comment text is on screen", lambda: pg.evaluate("document.querySelector('#comment-thread').scrollIntoView({block:'center'})"), expect=lambda: pg.is_visible("text=Looks good, please add the hours."), wait=4000)
             t.note("Not shown: the commenter's form (a unit test posts through the real view), a failed notice (unit-tested), email or push (not built).", 3)
 
         run_tour(ctx, "82_post_comment_notice", body, notes="Real Django on TiDB, headless Chromium 390x844 emulated. Fixture by script: a synthetic admin comments on the signed-in account's post through the Posts service.", unshown=["commenter form", "failed notice", "email/push"])
