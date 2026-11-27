@@ -121,7 +121,17 @@ def _event_lines(ev, skipped):
     out = ["BEGIN:VEVENT", f"UID:{ev.public_id}@salow", f"DTSTAMP:{_u(ev.updated_at)}",
            f"LAST-MODIFIED:{_u(ev.updated_at)}", f"SEQUENCE:{ev.version - 1}"]  # fmt: skip
     needs_tz = None
-    if ev.all_day:
+    if ev.all_day and ev.freq:
+        # The app refuses a repeating all-day event (create and update), so this only guards a row made another way:
+        # list its real days instead of dropping the repeat. Each day keeps the first one's length.
+        days = [d for d in rec.local_dates(ev) if d not in skipped]
+        if not days:
+            return [], None
+        span = ev.end_utc.astimezone(tz).date() - ev.start_utc.astimezone(tz).date()
+        out += [f"DTSTART;VALUE=DATE:{days[0]:%Y%m%d}", f"DTEND;VALUE=DATE:{days[0] + span:%Y%m%d}"]
+        if len(days) > 1:
+            out.append("RDATE;VALUE=DATE:" + ",".join(f"{d:%Y%m%d}" for d in days[1:]))
+    elif ev.all_day:
         out += [f"DTSTART;VALUE=DATE:{ev.start_utc.astimezone(tz):%Y%m%d}",
                 f"DTEND;VALUE=DATE:{ev.end_utc.astimezone(tz):%Y%m%d}"]  # fmt: skip
     elif not ev.freq:

@@ -127,3 +127,32 @@ def test_dump_for_outside_parser_check():
         exp[str(ev.public_id)] = {"title": ev.title, "all_day": ev.all_day, "tz": ev.tz,
                                   "occ": [[s.isoformat(), e.isoformat()] for s, e in occ]}
     json.dump(exp, open(os.path.join(out, "expected.json"), "w"), indent=1)
+
+
+@pytest.mark.django_db
+def test_a_repeating_all_day_row_made_outside_the_app_is_listed_not_dropped():
+    a = _u("ICS-AD")
+    with pytest.raises(ValidationError):  # the app itself refuses it
+        es.create_event(a, "X", D(2026, 12, 7), D(2026, 12, 7), IST, rule=_rule("daily", count=3), all_day=True)
+    z = ZoneInfo(IST)
+    s0 = D(2026, 12, 7, tzinfo=z).astimezone(dt.timezone.utc)
+    ev = Event.objects.create(organizer=a, title="Odd row", start_utc=s0, end_utc=s0 + dt.timedelta(days=1), tz=IST,
+                              all_day=True, freq="daily", interval=1, count=3, last_end_utc=s0 + dt.timedelta(days=3))
+    EventException.objects.create(event=ev, local_date=dt.date(2026, 12, 8))
+    lines = _unfold(ics.export_events(a, NOW)[0])
+    assert "DTSTART;VALUE=DATE:20261207" in lines and "DTEND;VALUE=DATE:20261208" in lines
+    assert "RDATE;VALUE=DATE:20261209" in lines  # 7 and 9 Dec, the skipped 8 Dec is gone
+    assert not any(x.startswith("RRULE") for x in lines)
+
+
+@pytest.mark.django_db
+def test_weekly_start_day_is_always_in_byday_because_create_and_update_refuse_otherwise():
+    a = _u("ICS-WK")
+    mon = D(2026, 12, 7, 10)  # a Monday
+    with pytest.raises(ValidationError, match="first day of a weekly series"):
+        es.create_event(a, "W", mon, mon + dt.timedelta(hours=1), IST, rule=_rule("weekly", count=3, weekdays=[2]))
+    ev = es.create_event(a, "W", mon, mon + dt.timedelta(hours=1), IST, rule=_rule("weekly", count=3, weekdays=[0, 2]))
+    with pytest.raises(ValidationError, match="first day of a weekly series"):  # moving the start to Tuesday is refused too
+        es.update_event(a, ev.public_id, 1, "W", D(2026, 12, 8, 10), D(2026, 12, 8, 11), IST)
+    lines = _unfold(ics.export_events(a, NOW)[0])
+    assert "DTSTART;TZID=Asia/Kolkata:20261207T100000" in lines and any("BYDAY=MO,WE" in x for x in lines)

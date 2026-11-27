@@ -925,15 +925,23 @@ def register_calendar_export(g):
 
             me = CustomUser.objects.get(employee_id="ST-LIVE-1")
             Event.objects.filter(organizer=me, title__in=["Export demo: standup", "Export demo: offsite"]).delete()  # a clean start in a shared store
+            from django.utils import timezone
+
             D = dt.datetime
+            day = timezone.now().date() + dt.timedelta(days=45)  # always in the future, whenever the tour runs
             rule = {"freq": "daily", "interval": 1, "weekdays": [], "count": 5, "until": None}
-            ev = es.create_event(me, "Export demo: standup", D(2027, 3, 10, 10), D(2027, 3, 10, 10, 30), "America/New_York", rule=rule, location="Room 4, Block B")
-            EventException.objects.create(event=ev, local_date=dt.date(2027, 3, 12))
-            es.create_event(me, "Export demo: offsite", D(2027, 3, 15), D(2027, 3, 16), "Asia/Kolkata", all_day=True)
+            ev = es.create_event(me, "Export demo: standup", D(day.year, day.month, day.day, 10), D(day.year, day.month, day.day, 10, 30), "America/New_York", rule=rule, location="Room 4, Block B")
+            EventException.objects.create(event=ev, local_date=day + dt.timedelta(days=2))
+            es.create_event(me, "Export demo: offsite", D(day.year, day.month, day.day), D(day.year, day.month, day.day), "Asia/Kolkata", all_day=True)
 
         with concurrent.futures.ThreadPoolExecutor(1) as ex:
             ex.submit(mk).result()
         saved = {}
+
+        def cleanup():
+            from apps.events.models import Event
+
+            Event.objects.filter(title__in=["Export demo: standup", "Export demo: offsite"]).delete()  # cascades its skipped days
 
         def body(t, pg):
             out = os.environ.get("DRILL_VIDEO", "")
@@ -950,7 +958,11 @@ def register_calendar_export(g):
 
             t.step("Press Export .ics. The browser downloads salow-calendar.ics", click, expect=lambda: saved.get("name") == "salow-calendar.ics" and saved["text"].startswith("BEGIN:VCALENDAR") and "Export demo: standup" in saved["text"], wait=1800)
             t.step("The page stays on the Calendar home (a download, not a navigation)", expect=lambda: pg.url.rstrip("/").endswith("/calendar") and pg.is_visible("a:has-text('Export .ics')"), wait=1500)
-        run_tour(ctx, "calendar_export", body, notes="Real Django on TiDB (unistore) under uvicorn, headless Chromium 390x844 emulated. Fixtures (ORM): a repeating New York standup with one skipped day and an all-day event for the signed-in person. The downloaded file is saved and parsed outside the app (icalendar, python-dateutil), see the log. Not shown: guests, declined or cancelled events (unit tests).", unshown=["guest or declined events"])
+        try:
+            run_tour(ctx, "calendar_export", body, notes="Real Django on TiDB (unistore) under uvicorn, headless Chromium 390x844 emulated. Fixtures (ORM): a repeating New York standup (starting 45 days after the run) with one skipped day and an all-day event for the signed-in person. The downloaded file is saved and parsed outside the app (icalendar, python-dateutil), see the log. Not shown: guests, declined or cancelled events (unit tests).", unshown=["guest or declined events"])
+        finally:
+            with concurrent.futures.ThreadPoolExecutor(1) as ex:
+                ex.submit(cleanup).result()
 
     g["DRILLS"]["tour_calendar_export"] = tour
 
