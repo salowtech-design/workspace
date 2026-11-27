@@ -51,7 +51,7 @@ ok("a formula that reads but gives #NAME? is still written (honest limit)", r.ce
 r = fr(fb, { find: "A1", repl: "B1", formulas: true }, bad(fb));
 ok("a readable formula result is written", r.cells.A2 === "=SUM(B1:B1)" && r.cells.A3 === "=B1+1" && r.changed === 2);
 const gr = { cols: 26, rows: 100 };
-const oc = mk({ A1: "x", A500: "x", A101: "x", Z100: "x", B2: "=A1" });
+const oc = mk({ A1: "x", A500: "x", A101: "x", Z100: "x" });
 r = fr(oc, { find: "x", repl: "y" }, gr);
 ok("cells outside A1:Z100 are not changed, listed or searched, only counted", r.cells.A1 === "y" && r.cells.Z100 === "y" && r.cells.A500 === "x" && r.cells.A101 === "x" && r.outside === 2 && r.hits.join() === "A1,Z100");
 r = fr(oc, { find: "x", repl: null }, gr);
