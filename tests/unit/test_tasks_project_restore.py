@@ -87,3 +87,26 @@ def test_views_trash_is_lead_only_and_restore_returns_to_the_board(board):
     assert b"not in the trash" in r.content
     assert b"Project trash" in _c(lead).get(reverse("tasks:project", args=[p.public_id])).content
     assert b"Project trash" not in _c(member).get(reverse("tasks:project", args=[p.public_id])).content
+
+
+def test_a_restored_task_is_not_shown_to_an_assignee_who_left_the_project(board):
+    """Source facts: assigned_in_projects gates on a live membership (removed_at empty, project live). Nothing in the app sets removed_at, so the
+    fixture sets it directly. The former member must not see the restored title, and the lead's board still shows the task."""
+    from django.urls import reverse
+
+    from apps.tasks.models import ProjectMember
+
+    lead, member, stranger, p, col = board
+    t = pj.add_task(lead, p, col.pk, "Secret plan")
+    pj.assign_task(lead, ProjectTask.objects.get(pk=t.pk), member)
+    assigned = reverse("tasks:assigned")
+    assert b"Secret plan" in _c(member).get(assigned).content  # a current member sees it
+    pj.delete_task(lead, ProjectTask.objects.get(pk=t.pk))
+    from django.utils import timezone
+
+    ProjectMember.objects.filter(project=p, person=member).update(removed_at=timezone.now())
+    pj.restore_task(lead, ProjectTask.objects.get(pk=t.pk))
+    assert ProjectTask.objects.get(pk=t.pk).assignee_id == member.pk  # the assignee field is kept
+    assert b"Secret plan" not in _c(member).get(assigned).content
+    assert _c(member).get(reverse("tasks:project", args=[p.public_id])).status_code == 404
+    assert b"Secret plan" in _c(lead).get(reverse("tasks:project", args=[p.public_id])).content

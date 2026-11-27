@@ -46,7 +46,9 @@
   <div class="task-row sub{% if s.status == 'completed' %} done{% endif %}">
     <form method="post" action="{% url 'tasks:toggle' s.public_id %}" class="tasks-inline">{% csrf_token %}
       <button class="task-check" type="submit" aria-label="{% if s.status == 'completed' %}Mark open{% else %}Mark done{% endif %}">{% if s.status == 'completed' %}&#10003;{% else %}&#9675;{% endif %}</button></form>
-    <span class="task-title">{{ s.title }}</span>
+    <span class="task-title">{{ s.title }}{% if s.notes %}<span class="task-notes">{{ s.notes|truncatechars:160 }}</span>{% endif %}</span>
+    {% if s.due_date %}<span class="task-meta{% if s.status == 'open' and s.due_date < today %} task-overdue{% endif %}">Due {{ s.due_date|date:"j M Y" }}{% if s.status == 'open' and s.due_date < today %} (overdue){% endif %}</span>{% endif %}
+    <a class="btn btn-outline btn-small" href="{% url 'tasks:edit' s.public_id %}">Edit</a>
     <a class="btn btn-outline btn-small" href="{% url 'tasks:delete' s.public_id %}">Delete</a>
   </div>
   {% endfor %}
