@@ -92,15 +92,17 @@ def search_grouped(
             continue
         hits: list[SearchHit] = []
         pool = (per_module + 1) * 3
-        raw = 0
         broke = False
         for rtype, obj, title, url in fn(user, query, pool):
-            raw += 1
             if can(user, "view", rtype, obj):
                 hits.append(SearchHit(rtype, str(getattr(obj, "pk", "")), title, url))
                 if len(hits) > per_module:
                     broke = True
                     break
-        # A refused hit can leave fewer than per_module shown while the pool was full: say there may be more.
-        out[name] = (hits[:per_module], broke or raw >= pool)
+        # truncated comes only from hits the person may see. How many rows the backstop refused is never
+        # reflected in the result, so nothing here can reveal that an inaccessible item exists. Cost stays
+        # bounded by the pool above. Because each searcher already filters to the person's own items, a
+        # refusal here is rare; if refusals ever filled the pool, permitted matches beyond it would be missed
+        # without a "more" notice (a completeness limit, accepted so that no existence signal can leak).
+        out[name] = (hits[:per_module], broke)
     return out

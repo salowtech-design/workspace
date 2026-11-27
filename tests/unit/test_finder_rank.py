@@ -67,3 +67,75 @@ def test_people_exact_employee_id_ranks_first():
     other.save()
     titles, _ = _titles(me, "rk-x", "people", per=5)
     assert titles[0] == "Someone Else (RK-X)"
+
+
+@pytest.mark.django_db
+def test_chat_ranks_the_message_text_before_the_cap_and_never_shows_other_conversations():
+    from apps.chat import services as cs
+
+    a, b, c = _u("RK-E"), _u("RK-F"), _u("RK-G")
+    grp = cs.create_group(a, "Crew", [b.pk, _u("RK-F2").pk])
+    cs.post_message(a, grp.public_id, "quokka", "rk-0")  # exact, oldest
+    for i in range(12):  # newer, weaker (word-start) matches
+        cs.post_message(a, grp.public_id, f"the quokka thing {i}", f"rk-w{i}")
+    other = cs.create_group(c, "Not yours", [_u("RK-G1").pk, _u("RK-G2").pk])
+    for i in range(12):  # exact matches in a conversation b is not in
+        cs.post_message(c, other.public_id, "quokka", f"rk-x{i}")
+    titles, truncated = _titles(b, "quokka", "chat", per=2)
+    assert titles[0] == "Crew: quokka" and len(titles) == 2 and truncated is True
+    everything, _ = _titles(b, "quokka", "chat", per=40)
+    assert len(everything) == 13 and not any("Not yours" in t for t in everything)
+
+
+@pytest.mark.django_db
+def test_drive_ranks_names_before_the_cap_and_other_peoples_files_stay_hidden():
+    from apps.drive import services as ds
+
+    a, b = _u("RK-H"), _u("RK-I")
+    for i in range(12):  # sort before "Report" by name, so a name-ordered pool of 9 would hold only these
+        ds.create_file(a, f"Annual report {i}")
+    ds.create_file(a, "Report")
+    ds.create_file(b, "Report")
+    titles, truncated = _titles(a, "report", "drive", per=2)
+    assert titles[0] == "Report" and len(titles) == 2 and truncated is True
+    everything, _ = _titles(a, "report", "drive", per=40)
+    assert everything.count("Report") == 1 and len(everything) == 13
+
+
+@pytest.mark.django_db
+def test_refused_rows_never_change_what_the_person_sees_or_the_truncation_flag(monkeypatch):
+    from apps.core.foundation import permissions as perms
+    from apps.core.foundation import search as sr
+
+    a = _u("RK-J")
+
+    class Row:
+        def __init__(self, pk):
+            self.pk = pk
+
+    def make(refused):
+        def fn(user, query, limit):
+            # a full pool (9 rows for per_module=2): `refused` rows the backstop will refuse, then the permitted ones
+            for i in range(9):
+                yield ("rk_thing", Row(i), ("Hidden %d" % i) if i < refused else ("Shown %d" % i), "/x/%d/" % i)
+        return fn
+
+    monkeypatch.setitem(perms._POLICIES, "rk_thing", lambda user, action, obj: obj.pk >= 8)
+    for refused in (0, 4, 8):
+        monkeypatch.setitem(sr._SEARCHERS, "rk%d" % refused, make(refused))
+    seen = {}
+    for refused in (0, 4, 8):
+        hits, truncated = sr.search_grouped(a, "anything", types=("rk%d" % refused,), per_module=2)["rk%d" % refused]
+        seen[refused] = (len(hits), truncated)
+        assert not any(h.title.startswith("Hidden") for h in hits)
+    # only the permitted rows decide the metadata: one permitted row at most (pk 8), so never truncated
+    assert seen[8] == (1, False)
+    assert seen[4] == (1, False) and seen[0] == (1, False)
+    # negative control: permitted rows beyond the cap do set the flag
+    monkeypatch.setitem(perms._POLICIES, "rk_thing", lambda user, action, obj: True)
+    hits, truncated = sr.search_grouped(a, "anything", types=("rk0",), per_module=2)["rk0"]
+    assert len(hits) == 2 and truncated is True
+    # and with nothing permitted at all the response is empty and not truncated
+    monkeypatch.setitem(perms._POLICIES, "rk_thing", lambda user, action, obj: False)
+    hits, truncated = sr.search_grouped(a, "anything", types=("rk8",), per_module=2)["rk8"]
+    assert hits == [] and truncated is False
