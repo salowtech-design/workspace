@@ -301,6 +301,7 @@ def register(g):
     register_sheets_import_recovery(g)
     register_second_person_views(g, users)
     register_sheets_rules_after(g)
+    register_chat_live(g, users)
     register_pdf_forms(g)
     register_pdf_view_buttons(g)
     register_sheets_tabs_rules(g)
@@ -5163,3 +5164,106 @@ def register_sheets_rules_after(g):
         run_tour(ctx, "88_sheets_rules_recovery_after", body, notes="Device-local sheet; nothing stored on the server. Headless Chromium 390x844 emulated. After-fix clip for the Remove unreadable rules control; clip 86 is the before evidence. The damaged rules are a test-written string in browser storage; the confirm questions are answered by the test. Backup-write and removal failures and the replace-an-earlier-backup warning are covered by the automated drill, not filmed.", unshown=["backup write failure", "removal failure", "the warning when an earlier backup exists", "restoring from the backup (no control exists)"])
 
     g["DRILLS"]["tour_sheets_rules_after"] = tour
+
+
+def register_chat_live(g, users):
+    APP = g["APP"]
+
+    def tour(ctx):
+        import concurrent.futures
+        import secrets as _secrets
+        import time as _time
+
+        import pyotp
+
+        users(ctx)
+        pw2 = _secrets.token_urlsafe(18) + "aA1!"
+        sec2 = pyotp.random_base32(length=32)
+        box = {}
+
+        def make():
+            from django.contrib.auth.hashers import make_password
+            from django.utils import timezone
+
+            from apps.accounts.auth.mfa_totp import encrypt_secret, get_auth_key_ring
+            from apps.accounts.models import CustomUser, TOTPCredential
+            from apps.chat import services as cs
+
+            two = CustomUser.objects.get(employee_id="ST-LIVE-2")
+            me = CustomUser.objects.get(employee_id="ST-LIVE-1")
+            two.password = make_password(pw2)
+            two.save(update_fields=["password"])
+            ct, nonce, key_id = encrypt_secret(sec2, get_auth_key_ring())
+            TOTPCredential.objects.create(user=two, encrypted_secret=ct, nonce=nonce, key_id=key_id, confirmed_at=timezone.now())
+            sp = cs.open_dm(me, two.pk)
+            m = cs.post_message(me, sp.public_id, "Who is on call tonight?", "live-1")
+            seq = getattr(m, "seq", None) or cs.Message.objects.filter(space=sp).order_by("-seq").first().seq
+            box["seq"] = seq
+
+        with concurrent.futures.ThreadPoolExecutor(1) as ex:
+            ex.submit(make).result()
+
+        # off camera: sign in as the second synthetic account in a separate, unrecorded window
+        errs, remote, guard = ctx.salow_hooks
+        c2 = ctx.browser.new_context(viewport={"width": 390, "height": 844})
+        c2.route("**/*", guard)
+        q = c2.new_page()
+        q.goto(APP + "/sign-in/")
+        q.wait_for_timeout(800)
+        q.click("#btn-signin")
+        q.wait_for_timeout(500)
+        q.fill("#employee_id", "ST-LIVE-2")
+        q.fill("#password", pw2)
+        tt = pyotp.TOTP(sec2)
+        left = tt.interval - (_time.time() % tt.interval)
+        if left < 5:
+            _time.sleep(left + 0.5)
+        q.fill("#totp_code", tt.now())
+        q.click("#confirm-btn")
+        q.wait_for_load_state()
+        q.wait_for_timeout(1500)
+        signed_in = "/sign-in" not in q.url
+        # keep this second window open: it stays on the same conversation while the recorded window waits
+        q.goto(APP + "/chat/")
+        q.click("a:has-text('Live Employee')")
+        q.wait_for_load_state()
+        box["q"] = q
+
+        def body(t, pg):
+            txt = lambda: pg.inner_text("#chat-list")
+            sel = "#m%s button[data-kind=tada]" % box["seq"]
+            lab = lambda: pg.get_attribute(sel, "aria-label")
+            pg.goto(APP + "/chat/")
+            pg.click("a:has-text('Second Synthetic')")
+            pg.wait_for_timeout(800)
+            t.step("My message is on screen and Celebrate has no count yet", expect=lambda: "Who is on call tonight?" in txt() and lab() == "Celebrate", wait=1500)
+            t.cap("Next: I leave this page alone. Second, in their own browser window, posts a reply and presses Celebrate on my message")
+
+            def other():
+                q = box["q"]
+                q.fill("textarea[name=body]", "Second is on call tonight.")
+                q.click("form.chat-compose button[type=submit]")
+                q.wait_for_load_state()
+                q.wait_for_timeout(800)
+                q.click("#m%s button[data-kind=tada]" % box["seq"])
+                q.wait_for_timeout(800)
+                box["q_seen"] = "Second is on call tonight." in q.inner_text("#chat-list") and "Celebrate, 1, you reacted" in (q.get_attribute("#m%s button[data-kind=tada]" % box["seq"], "aria-label") or "")
+            t.step("Second's window (off camera) posts and reacts; their own page shows both", other, expect=lambda: signed_in and box.get("q_seen") is True, wait=1000)
+
+            def wait_live():
+                t0 = _time.time()
+                pg.wait_for_function("() => document.querySelector('#chat-list').innerText.indexOf('Second is on call tonight.') >= 0", timeout=20000)
+                box["msg_s"] = round(_time.time() - t0, 1)
+                pg.wait_for_function("s => document.querySelector(s).getAttribute('aria-label') === 'Celebrate, 1'", arg=sel, timeout=20000)
+                box["react_s"] = round(_time.time() - t0, 1)
+            t.step("Without any reload, Second's reply and their Celebrate appear on my page (within 20 s)", wait_live, expect=lambda: "Second is on call tonight." in txt() and lab() == "Celebrate, 1" and pg.get_attribute(sel, "aria-pressed") == "false", wait=800)
+            t.step("The reaction is Second's, not mine: my Celebrate button is not pressed and the label has no 'you reacted'", expect=lambda: pg.get_attribute(sel, "aria-pressed") == "false" and "you reacted" not in lab(), wait=800)
+            print("live polling seconds: message %s, reaction %s" % (box.get("msg_s"), box.get("react_s")), flush=True)
+
+        run_tour(ctx, "89_chat_live_updates", body, notes="Real Django on TiDB, headless Chromium 390x844 emulated. Two real signed-in synthetic accounts in two browser windows; the second sign-in (password and code) is done off camera in the second window, which stays open and posts and reacts. The recorded page is not reloaded. The page polls about every 10 seconds, so a wait of several seconds is expected; the measured seconds are in the run log, not a guarantee.", unshown=["hidden-tab behaviour", "rate-limit slow-down", "thread replies live", "Chat edit/delete (not built)"])
+        try:
+            box["q"].context.close()
+        except Exception:  # noqa: BLE001
+            pass
+
+    g["DRILLS"]["tour_chat_live_updates"] = tour
