@@ -315,6 +315,32 @@ def delete_list(user, task_list):
     audit(user, "tasks.list.delete", "task_list", tl.pk, tasks_deleted=n or None)
 
 
+@transaction.atomic
+def clear_completed(user, task_list):
+    """Move every completed task of the list to the Trash. Same owner right as deleting a task, checked on each row. Each completed task goes
+    in its own deletion, exactly as delete_task does it (a completed task takes its subtasks with it), so each one is restored from the Trash
+    alone, with the established restore rules. A completed subtask of an open task goes too. Returns how many rows were moved."""
+    tl = _lock_list(task_list)
+    require(user, "delete", "task_list", tl)
+    done = list(Task.objects.filter(task_list=tl, deleted_at__isnull=True, status=Task.DONE).order_by("parent_id", "id"))
+    for row in done:
+        row.task_list = tl
+        require(user, "delete", "task", row)
+    if not done:
+        raise ValidationError("There are no completed tasks to clear.")
+    now = timezone.now()
+    gone = set()
+    for row in done:
+        if row.pk in gone:
+            continue
+        kids = list(Task.objects.filter(parent=row, deleted_at__isnull=True).values_list("pk", flat=True))
+        ids = [row.pk, *kids]
+        Task.objects.filter(pk__in=ids).update(deleted_at=now, delete_batch=uuid.uuid4(), updated_at=now, version=F("version") + 1)
+        gone.update(ids)
+    audit(user, "tasks.list.clear_completed", "task_list", tl.pk, tasks_deleted=len(gone))
+    return len(gone)
+
+
 def _same_deletion(row):
     """Q for the rows removed by the same delete call as `row`: the batch id, exactly. A row deleted before batch ids existed has none, and old
     groups cannot be told apart from separate deletions at the same instant, so such a row is restored alone and never pulls others in."""

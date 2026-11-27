@@ -59,6 +59,10 @@ def home(request):
 def list_view(request, list_id, rename_value=None):
     tl = _list_or_404(request.user, list_id)
     rows = list(svc.tasks_in(request.user, tl).select_related("assignee"))
+    hide_done = request.GET.get("show") == "open"
+    if hide_done:  # a view only: a completed task is hidden with its subtasks, a completed subtask of an open task is hidden alone
+        rows = [t for t in rows if t.status != "completed"]
+    done_count = sum(1 for t in svc.tasks_in(request.user, tl) if t.status == "completed")
     tops = [t for t in rows if t.parent_id is None]
     subs = {}
     for t in rows:
@@ -70,7 +74,7 @@ def list_view(request, list_id, rename_value=None):
         "tasks/list.html",
         {"lists": svc.lists_for(request.user), "tl": tl, "tree": tree, "tab": "mine",
          "rename_value": tl.name if rename_value is None else rename_value,
-         "today": timezone.localdate()},
+         "today": timezone.localdate(), "hide_done": hide_done, "done_count": done_count},
     )
 
 
@@ -164,6 +168,16 @@ def move_task(request, task_id):
     if _run(request, svc.move_task, request.user, task, version, target, ok="Task moved.") is None:
         return redirect("tasks:list", list_id=task.task_list.public_id)
     return redirect("tasks:list", list_id=target.public_id)
+
+
+@login_required
+@require_POST
+def clear_completed(request, list_id):
+    tl = _list_or_404(request.user, list_id, "delete")
+    n = _run(request, svc.clear_completed, request.user, tl)
+    if n:
+        messages.success(request, f"Moved {n} completed {'task' if n == 1 else 'tasks'} to the Trash.")
+    return redirect("tasks:list", list_id=tl.public_id)
 
 
 @login_required

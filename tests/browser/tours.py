@@ -288,6 +288,7 @@ def register(g):
     register_project_restore(g)
     register_subtask_edit(g)
     register_task_reorder(g)
+    register_clear_completed(g)
     register_attendance_csv(g)
     register_post_review_notice(g)
     register_notice_open(g)
@@ -2479,6 +2480,32 @@ def register_task_reorder(g):
         run_tour(ctx, "task_reorder", body, notes="Real Django on TiDB (unistore) under uvicorn, headless Chromium 390x844 emulated. One synthetic employee. Stages: set up three tasks, move one up and one down, reload to see the order kept. Not shown: subtasks, stale forms or another person's view.", unshown=["subtasks", "stale forms", "another person's view"])
 
     g["DRILLS"]["tour_task_reorder"] = tour
+
+
+def register_clear_completed(g):
+    APP = g["APP"]
+
+    def tour(ctx):
+        def body(t, pg):
+            txt = lambda: pg.inner_text("body")  # noqa: E731
+            titles = lambda: pg.eval_on_selector_all(".task-row:not(.sub) .task-title", "e=>e.map(x=>x.textContent.trim())")  # noqa: E731
+            top = lambda: (pg.wait_for_timeout(600), pg.evaluate("()=>{const r=document.querySelector('.tasks-filter');window.scrollTo(0, r.getBoundingClientRect().top + window.scrollY - 40)}"))  # noqa: E731
+            pg.goto(APP + "/tasks/")
+            pg.wait_for_timeout(500)
+            t.step("STAGE 1 SET UP: make a list called Chores", lambda: (pg.fill("input[name=name]", "Chores"), pg.click("button:has-text('Add list')")), expect=lambda: "Chores" in txt())
+            for n in ("Wash", "Cook", "Sweep"):
+                t.step("STAGE 1 SET UP: add the task " + n, lambda n=n: (pg.fill("input[aria-label='Task title']", n), pg.click(".tasks-add button")), expect=lambda n=n: n in txt())
+            t.step("STAGE 2 FILTER: mark Wash done and Sweep done", lambda: (pg.click(".task-row:has-text('Wash') .task-check"), pg.wait_for_timeout(500), pg.click(".task-row:has-text('Sweep') .task-check"), top()), expect=lambda: pg.locator(".task-row.done").count() == 2, wait=1200)
+            t.step("STAGE 2 FILTER: press Hide completed. Only Cook is left in view", lambda: (pg.click("a:has-text('Hide completed')"), top()), expect=lambda: titles() == ["Cook"] and "Show completed" in txt(), wait=1500)
+            t.step("STAGE 2 FILTER: press Show completed. All three are back, nothing was deleted", lambda: (pg.click("a:has-text('Show completed')"), top()), expect=lambda: sorted(titles()) == ["Cook", "Sweep", "Wash"], wait=1500)
+            t.step("STAGE 3 CLEAR: press Clear completed (2). Only Cook is left and the banner says 2 moved to the Trash", lambda: (pg.click("button:has-text('Clear completed')"), pg.wait_for_timeout(300), pg.evaluate("window.scrollTo(0, 0)")), expect=lambda: titles() == ["Cook"] and "Moved 2 completed tasks to the Trash." in txt() and "Clear completed" not in txt(), wait=1800)
+            t.step("STAGE 4 RESTORE: open the Trash. Wash and Sweep are listed", lambda: pg.goto(APP + "/tasks/trash/"), expect=lambda: "Wash" in txt() and "Sweep" in txt(), wait=1500)
+            t.step("STAGE 4 RESTORE: restore Wash alone. Sweep stays in the Trash", lambda: pg.click(".task-row:has-text('Wash') button:has-text('Restore')"), expect=lambda: pg.eval_on_selector_all(".task-row strong", "e=>e.map(x=>x.textContent.trim())") == ["Sweep"], wait=1800)
+            t.step("STAGE 4 RESTORE: open the list. Cook and Wash are there, Sweep is not", lambda: pg.goto(APP + "/tasks/"), expect=lambda: True, wait=300)
+            t.step("STAGE 4 RESTORE: choose the list Chores", lambda: pg.click(".tasks-lists a:has-text('Chores')"), expect=lambda: sorted(titles()) == ["Cook", "Wash"], wait=1500)
+        run_tour(ctx, "clear_completed", body, notes="Real Django on TiDB (unistore) under uvicorn, headless Chromium 390x844 emulated. One synthetic employee. Stages: set up three tasks and finish two, hide and show completed, clear completed, restore one from the Trash. Not shown: subtasks, another person's view.", unshown=["subtasks", "another person's view"])
+
+    g["DRILLS"]["tour_clear_completed"] = tour
 
 
 def register_drive_device(g):

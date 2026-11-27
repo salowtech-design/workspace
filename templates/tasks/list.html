@@ -19,6 +19,10 @@
     <input type="text" name="title" maxlength="1024" placeholder="Add a task" aria-label="Task title" required>
     <input type="date" name="due" aria-label="Due date">
     <button class="btn btn-small" type="submit">Add</button></form>
+  <div class="tasks-inline tasks-filter">
+    {% if hide_done %}<a class="btn btn-outline btn-small" href="{% url 'tasks:list' tl.public_id %}">Show completed</a>{% else %}<a class="btn btn-outline btn-small" href="{% url 'tasks:list' tl.public_id %}?show=open">Hide completed</a>{% endif %}
+    {% if done_count %}<form method="post" action="{% url 'tasks:clear_completed' tl.public_id %}" class="tasks-inline">{% csrf_token %}<button class="btn btn-outline btn-small" type="submit">Clear completed ({{ done_count }})</button></form>{% endif %}
+  </div>
   {% for t, subs in tree %}
   <div class="task-row{% if t.status == 'completed' %} done{% endif %}">
     <form method="post" action="{% url 'tasks:toggle' t.public_id %}" class="tasks-inline">{% csrf_token %}
@@ -28,8 +32,8 @@
     {% if t.assignee %}<span class="task-meta">Given to {{ t.assignee.full_name }}</span>{% endif %}
     <a class="btn btn-outline btn-small" href="{% url 'tasks:edit' t.public_id %}">Edit</a>
     <a class="btn btn-outline btn-small" href="{% url 'tasks:delete' t.public_id %}">Delete</a>
-    {% if not forloop.first %}<form method="post" action="{% url 'tasks:reorder' t.public_id %}" class="tasks-inline tasks-reorder">{% csrf_token %}<input type="hidden" name="version" value="{{ t.version }}"><input type="hidden" name="direction" value="up"><button class="btn btn-outline btn-small" type="submit" aria-label="Move {{ t.title }} up">Up</button></form>{% endif %}
-    {% if not forloop.last %}<form method="post" action="{% url 'tasks:reorder' t.public_id %}" class="tasks-inline tasks-reorder">{% csrf_token %}<input type="hidden" name="version" value="{{ t.version }}"><input type="hidden" name="direction" value="down"><button class="btn btn-outline btn-small" type="submit" aria-label="Move {{ t.title }} down">Down</button></form>{% endif %}
+    {% if not hide_done and not forloop.first %}<form method="post" action="{% url 'tasks:reorder' t.public_id %}" class="tasks-inline tasks-reorder">{% csrf_token %}<input type="hidden" name="version" value="{{ t.version }}"><input type="hidden" name="direction" value="up"><button class="btn btn-outline btn-small" type="submit" aria-label="Move {{ t.title }} up">Up</button></form>{% endif %}
+    {% if not hide_done and not forloop.last %}<form method="post" action="{% url 'tasks:reorder' t.public_id %}" class="tasks-inline tasks-reorder">{% csrf_token %}<input type="hidden" name="version" value="{{ t.version }}"><input type="hidden" name="direction" value="down"><button class="btn btn-outline btn-small" type="submit" aria-label="Move {{ t.title }} down">Down</button></form>{% endif %}
     {% if lists|length > 1 %}
     <form method="post" action="{% url 'tasks:move' t.public_id %}" class="tasks-inline tasks-move">{% csrf_token %}<input type="hidden" name="version" value="{{ t.version }}">
       <select name="to" aria-label="Move to list">{% for l in lists %}{% if l.pk != tl.pk %}<option value="{{ l.public_id }}">{{ l.name }}</option>{% endif %}{% endfor %}</select>
@@ -52,8 +56,8 @@
     {% if s.due_date %}<span class="task-meta{% if s.status == 'open' and s.due_date < today %} task-overdue{% endif %}">Due {{ s.due_date|date:"j M Y" }}{% if s.status == 'open' and s.due_date < today %} (overdue){% endif %}</span>{% endif %}
     <a class="btn btn-outline btn-small" href="{% url 'tasks:edit' s.public_id %}">Edit</a>
     <a class="btn btn-outline btn-small" href="{% url 'tasks:delete' s.public_id %}">Delete</a>
-    {% if not forloop.first %}<form method="post" action="{% url 'tasks:reorder' s.public_id %}" class="tasks-inline tasks-reorder">{% csrf_token %}<input type="hidden" name="version" value="{{ s.version }}"><input type="hidden" name="direction" value="up"><button class="btn btn-outline btn-small" type="submit" aria-label="Move {{ s.title }} up">Up</button></form>{% endif %}
-    {% if not forloop.last %}<form method="post" action="{% url 'tasks:reorder' s.public_id %}" class="tasks-inline tasks-reorder">{% csrf_token %}<input type="hidden" name="version" value="{{ s.version }}"><input type="hidden" name="direction" value="down"><button class="btn btn-outline btn-small" type="submit" aria-label="Move {{ s.title }} down">Down</button></form>{% endif %}
+    {% if not hide_done and not forloop.first %}<form method="post" action="{% url 'tasks:reorder' s.public_id %}" class="tasks-inline tasks-reorder">{% csrf_token %}<input type="hidden" name="version" value="{{ s.version }}"><input type="hidden" name="direction" value="up"><button class="btn btn-outline btn-small" type="submit" aria-label="Move {{ s.title }} up">Up</button></form>{% endif %}
+    {% if not hide_done and not forloop.last %}<form method="post" action="{% url 'tasks:reorder' s.public_id %}" class="tasks-inline tasks-reorder">{% csrf_token %}<input type="hidden" name="version" value="{{ s.version }}"><input type="hidden" name="direction" value="down"><button class="btn btn-outline btn-small" type="submit" aria-label="Move {{ s.title }} down">Down</button></form>{% endif %}
   </div>
   {% endfor %}
   {% if not t.assignee %}
