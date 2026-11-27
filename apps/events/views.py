@@ -77,6 +77,22 @@ def _limited(request):
     return False
 
 
+def _warn_overlaps(request, ev):
+    """After a save: say, without blocking or changing anything, which of the person's own events overlap."""
+    shown, total = es.overlaps_for(request.user, ev)
+    if not total:
+        return
+    bits = []
+    for o in shown:
+        z = ZoneInfo(o.tz)
+        s, f = o.start_utc.astimezone(z), o.end_utc.astimezone(z)
+        bits.append(f"{o.title} ({s:%a %d %b %H:%M} to {f:%H:%M} {o.tz})")
+    more = f" and {total - len(shown)} more" if total > len(shown) else ""
+    series = " For a repeating event only its first 62 days were checked." if ev.freq else ""
+    noun = "event" if total == 1 else "events"
+    messages.warning(request, f"Heads up: this overlaps {total} other {noun} on your calendar: " + "; ".join(bits) + more + ". It was saved as entered." + series)
+
+
 def _local(ev, tz_name):
     tz = ZoneInfo(tz_name)
     return ev.start_utc.astimezone(tz), ev.end_utc.astimezone(tz)
@@ -276,6 +292,7 @@ def new_event(request):
             request,
             "Event created. Any invited guests can see it on their Calendar. Nobody is emailed or pushed.",
         )
+        _warn_overlaps(request, ev)
         return redirect("events:detail", event_id=ev.public_id)
     return render(request, "events/form.html", ctx)
 
@@ -390,6 +407,7 @@ def edit(request, event_id):
         messages.success(
             request, "Event saved. Guests keep their earlier answers and are not notified."
         )
+        _warn_overlaps(request, es.get_event(request.user, event_id))
         return redirect("events:detail", event_id=event_id)
     return render(request, "events/form.html", ctx)
 

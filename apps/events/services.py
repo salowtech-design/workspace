@@ -374,6 +374,26 @@ def events_for(user, start, end):
     return out
 
 
+def overlaps_for(user, event, limit=5):
+    """Advisory only: other occurrences on THIS person's own calendar that overlap an occurrence of `event`.
+
+    The window is the event's first 62 days (the most one read may ask for), so a long series is checked for
+    that stretch only; the caller says so. Not counted: the event itself (every occurrence of it), cancelled
+    events, events the person declined, and any event the person may not view (_visible, the gate get_event
+    uses): those are left out entirely, so nothing is revealed about them. Touching ends do not overlap.
+    Returns (shown_occurrences, total_overlaps)."""
+    start = event.start_utc
+    occ = events_for(user, start, start + MAX_RANGE)
+    mine = [o for o in occ if o.pk == event.pk]
+    hits = []
+    for o in occ:
+        if o.pk == event.pk or not _visible(o.event, user):
+            continue
+        if any(o.start_utc < m.end_utc and m.start_utc < o.end_utc for m in mine):
+            hits.append(o)
+    return hits[:limit], len(hits)
+
+
 def free_busy(viewer, person_ids, start, end):
     """Busy intervals only (no titles, no guests), per person. A declined or cancelled event is
     not busy; each occurrence of a repeating event is. Build default: any signed-in active person

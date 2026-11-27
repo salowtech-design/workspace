@@ -278,6 +278,7 @@ def register(g):
     register_sheets_struct_more(g)
     register_sheets_find(g)
     register_palette(g)
+    register_overlap(g)
     register_attendance_csv(g)
     register_post_review_notice(g)
     register_notice_open(g)
@@ -2259,6 +2260,38 @@ def register_palette(g):
                  unshown=["the page the result opens"])
 
     g["DRILLS"]["tour_palette"] = tour
+
+
+def register_overlap(g):
+    APP = g["APP"]
+
+    def tour(ctx):
+        def make(pg, title, start, end):
+            pg.goto(APP + "/calendar/new/")
+            pg.fill("[name=title]", title)
+            pg.fill("[name=start]", start)
+            pg.fill("[name=end]", end)
+            pg.click("form.cal-form button[type=submit]")
+            pg.wait_for_load_state()
+
+        def msgs(pg):
+            return pg.inner_text(".messages-container") if pg.locator(".messages-container").count() else ""
+
+        def body(t, pg):
+            pg.goto(APP + "/")
+            pg.wait_for_timeout(500)
+            t.step("Create Standup from 10:00 to 11:00: saved, no warning", lambda: make(pg, "Standup", "2027-03-02T10:00", "2027-03-02T11:00"),
+                   expect=lambda: "Event created." in msgs(pg) and "Heads up" not in msgs(pg))
+            t.step("Create Planning from 10:30 to 11:30: saved, and the page warns it overlaps Standup", lambda: make(pg, "Planning", "2027-03-02T10:30", "2027-03-02T11:30"),
+                   expect=lambda: "Event created." in msgs(pg) and "Heads up: this overlaps 1 other event" in msgs(pg) and "Standup (Tue 02 Mar 10:00 to 11:00" in msgs(pg))
+            t.step("Create Lunch from 11:00 to 11:30: touching Standup's end is not an overlap, but it overlaps Planning", lambda: make(pg, "Lunch", "2027-03-02T11:00", "2027-03-02T11:30"),
+                   expect=lambda: "overlaps 1 other event" in msgs(pg) and "Planning" in msgs(pg) and "Standup" not in msgs(pg))
+            t.step("Create Retro the next day: no warning", lambda: make(pg, "Retro", "2027-03-03T10:00", "2027-03-03T11:00"),
+                   expect=lambda: "Heads up" not in msgs(pg))
+
+        run_tour(ctx, "106_calendar_overlap_warning", body, notes="Real Django on TiDB (unistore) under uvicorn, headless Chromium 390x844 emulated. The warning appears after the save and does not block it.", unshown=["edit flow (covered by a pytest, not this tour)"])
+
+    g["DRILLS"]["tour_overlap"] = tour
 
 
 def register_slides_bg(g):
