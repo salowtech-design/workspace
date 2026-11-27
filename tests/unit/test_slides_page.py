@@ -45,7 +45,7 @@ def test_slides_model_table_passes_in_node():
         timeout=60,
     )
     assert r.returncode == 0, r.stdout + r.stderr
-    assert "138/138 slides model rows passed" in r.stdout
+    assert "189/189 slides model rows passed" in r.stdout
 
 
 @pytest.mark.django_db

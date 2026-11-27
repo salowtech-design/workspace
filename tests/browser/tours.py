@@ -270,6 +270,7 @@ def register(g):
     register_chat_badge(g)
     register_chat_mention(g)
     register_cal_location(g)
+    register_slides_dup_sheets_fx(g)
     register_attendance_csv(g)
     register_post_review_notice(g)
     register_notice_open(g)
@@ -1790,6 +1791,51 @@ def register_cal_location(g):
                  unshown=["a guest's view of the event"])
 
     g["DRILLS"]["tour_cal_location"] = tour
+
+
+def register_slides_dup_sheets_fx(g):
+    APP = g["APP"]
+
+    def tour(ctx):
+        def put(pg, cells):
+            for a, v in cells:
+                sel = 'input[data-addr="%s"]' % a
+                pg.click(sel)
+                pg.fill(sel, v)
+                pg.press(sel, "Tab")
+
+        def shown(pg, a):  # the value of a cell as the bar shows it after selecting it
+            pg.click('input[data-addr="%s"]' % a)
+            return pg.inner_text("#sheet-val").strip().replace("Result: ", "", 1)
+
+        def body(t, pg):
+            pg.goto(APP + "/slides/")
+            pg.evaluate("localStorage.clear()")
+            pg.goto(APP + "/slides/")
+            pg.wait_for_timeout(500)
+            items = lambda: pg.locator("#sl-items li").count()
+            t.step("Slides: Duplicate item is off until an item is selected", expect=lambda: pg.is_disabled("#sl-dup-el"), wait=1800)
+            t.step("Add a text item and style it", lambda: (pg.click("#sl-add-text"), pg.fill("#sl-text", "Quarterly plan"), pg.press("#sl-text", "Tab"), pg.check("#sl-bold")), expect=lambda: items() == 1 and not pg.is_disabled("#sl-dup-el"))
+            t.step("Duplicate item: a copy appears, selected, 20 right and 20 down", lambda: pg.click("#sl-dup-el"), expect=lambda: items() == 2 and pg.input_value("#sl-x") == "100" and pg.input_value("#sl-y") == "100" and pg.input_value("#sl-text") == "Quarterly plan" and pg.is_checked("#sl-bold"))
+            t.step("Undo: the copy is gone in one step", lambda: pg.click("#sl-undo"), expect=lambda: items() == 1)
+            t.step("Redo: the copy is back", lambda: pg.click("#sl-redo"), expect=lambda: items() == 2)
+            t.step("Select the copy from the list and duplicate it again", lambda: (pg.locator("#sl-items li button").nth(1).click(), pg.click("#sl-dup-el")), expect=lambda: items() == 3 and pg.input_value("#sl-x") == "120")
+            pg.goto(APP + "/sheets/")
+            pg.evaluate("localStorage.clear()")
+            pg.goto(APP + "/sheets/")
+            pg.wait_for_timeout(500)
+            t.step("Sheets: a small table (region, qty, month)", lambda: put(pg, [("A1", "N"), ("B1", "10"), ("C1", "1"), ("A2", "S"), ("B2", "20"), ("C2", "1"), ("A3", "N"), ("B3", "30"), ("C3", "2"), ("A4", "N"), ("B4", "x"), ("C4", "2")]), expect=lambda: pg.input_value('input[data-addr="B3"]') == "30", wait=1500)
+            t.step("SUMIFS over two columns", lambda: put(pg, [("E1", '=SUMIFS(B1:B4,A1:A4,"N",C1:C4,2)')]), expect=lambda: shown(pg, "E1") == "30")
+            t.step("COUNTIFS", lambda: put(pg, [("E2", '=COUNTIFS(A1:A4,"N",C1:C4,2)')]), expect=lambda: shown(pg, "E2") == "2")
+            t.step("IFERROR turns a divide by zero into text", lambda: put(pg, [("E3", '=IFERROR(B1/0,"none")')]), expect=lambda: shown(pg, "E3") == "none")
+            t.step("ROUNDUP of a tiny number", lambda: put(pg, [("E4", "=ROUNDUP(0.0000001,2)")]), expect=lambda: shown(pg, "E4") == "0.01")
+            t.step("Chain: a cell that reads the SUMIFS result and an error cell", lambda: put(pg, [("F1", "=E1*2"), ("F2", "=B1/0"), ("F3", "=ISERROR(F2)"), ("F4", "=LARGE(B1:B4,2)")]), expect=lambda: shown(pg, "F1") == "60" and shown(pg, "F3") == "true" and shown(pg, "F4") == "20")
+            t.step("Edit a source cell: SUMIFS follows", lambda: put(pg, [("B3", "50")]), expect=lambda: shown(pg, "E1") == "50" and shown(pg, "F1") == "100")
+
+        run_tour(ctx, "98_slides_dup_sheets_fx", body, notes="Device-local slide deck and sheet (browser only). Real Django on TiDB (unistore) under uvicorn, headless Chromium 390x844 emulated.",
+                 unshown=["Duplicate item on a picture or on the master", "the 30-item cap", "all other new functions (covered by node tests)"])
+
+    g["DRILLS"]["tour_slides_dup_sheets_fx"] = tour
 
 
 def register_chat_mention(g):

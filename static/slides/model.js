@@ -139,6 +139,17 @@
       if (has(patch, "al") && patch.al === "default") delete merged.al;
       var fixed = fixEl(merged); n.slides[i].elements[k] = fixed; return normVersion(n);
     },
+    // Copy of one item placed right above it, with a fresh id, moved 20 right and 20 down (or 20 left and up when that would leave the slide).
+    // Text, size, fill, bold, italic, align and a picture's reference (the same stored bytes) are kept; its animation is not copied. Null at the 30 item cap, at the 20 picture cap, or for an unknown item.
+    duplicateElement: function (d, i, id) {
+      var s = d.slides[i]; if (!s || s.elements.length >= MAX_EL) return null; var k = -1; s.elements.forEach(function (e, x) { if (e.id === id) k = x; });
+      if (k < 0) return null;
+      var src = s.elements[k];
+      if (isImg(src)) { var count = 0; d.slides.forEach(function (x) { x.elements.forEach(function (e) { if (isImg(e)) count++; }); }); if (count >= MAX_IMAGES) return null; }
+      var n = copy(d), c = copy(src); c.id = uid();
+      c.x = c.x + 20 <= W - c.w ? c.x + 20 : Math.max(0, c.x - 20); c.y = c.y + 20 <= H - c.h ? c.y + 20 : Math.max(0, c.y - 20);
+      n.slides[i].elements.splice(k + 1, 0, c); return { deck: normVersion(n), id: c.id };
+    },
     // dir -1 sends the item one step back (drawn earlier, underneath), +1 brings it one step forward. Null at the ends.
     moveElement: function (d, i, id, dir) {
       var s = d.slides[i]; if (!s || (dir !== 1 && dir !== -1)) return null; var k = -1; s.elements.forEach(function (e, x) { if (e.id === id) k = x; });
@@ -187,6 +198,7 @@
   ops.master_addElement = function (d, type) { return viaMaster(d, function (t) { return ops.addElement(t, 0, type); }, true); };
   ops.master_updateElement = function (d, id, patch) { return viaMaster(d, function (t) { return ops.updateElement(t, 0, id, patch); }); };
   ops.master_moveElement = function (d, id, dir) { return viaMaster(d, function (t) { return ops.moveElement(t, 0, id, dir); }); };
+  ops.master_duplicateElement = function (d, id) { return viaMaster(d, function (t) { return ops.duplicateElement(t, 0, id); }, true); };
   ops.master_deleteElement = function (d, id) { return viaMaster(d, function (t) { return ops.deleteElement(t, 0, id); }); };
   // the master items drawn under slide i (none when the slide hides the master)
   function masterOf(d, i) { return d.master && d.slides[i] && d.slides[i].hideMaster !== true ? d.master.elements : []; }

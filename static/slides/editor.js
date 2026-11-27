@@ -158,7 +158,7 @@
       li.appendChild(b); il.appendChild(li);
     });
     $("sl-items-empty").hidden = tgt().length > 0;
-    var e = sel(), props = $("sl-props"); props.disabled = !e; $("sl-del-el").disabled = !e;
+    var e = sel(), props = $("sl-props"); props.disabled = !e; $("sl-del-el").disabled = !e; $("sl-dup-el").disabled = !e;
     var isPic = !!(e && e.type === "image"); ["sl-size", "sl-fill", "sl-bold", "sl-italic", "sl-align"].forEach(function (id) { $(id).disabled = isPic; });
     $("sl-export-warn").hidden = !deckHashes(d).length;
     $("sl-text-label").textContent = isPic ? "Description (for screen readers, not drawn)" : "Text";
@@ -246,6 +246,11 @@
   });
   [["sl-back", -1, "Item sent backward."], ["sl-fwd", 1, "Item brought forward."]].forEach(function (c) {
     $(c[0]).addEventListener("click", function () { var e = sel(); if (e && apply(eop("moveElement", e.id, c[1]), c[2])) { var b = $(c[0]); if (b.disabled) $("sl-del-el").focus(); else b.focus(); } });
+  });
+  $("sl-dup-el").addEventListener("click", function () {
+    var e = sel(); if (!e) return; var r = eop("duplicateElement", e.id);
+    if (!r) { status.textContent = "Nothing was copied: this slide is full (30 items) or the deck has 20 pictures (or the master has 10 items)."; return; }
+    selId = r.id; if (!apply(r.deck, "Item duplicated.")) { selId = e.id; render(); }
   });
   $("sl-del-el").addEventListener("click", function () { var e = sel(); if (e) apply(eop("deleteElement", e.id), "Item deleted."); });
   $("sl-new").addEventListener("click", function () { var n = S.ops.addSlide(H.deck, cur, $("sl-layout").value); if (!n) { status.textContent = "A deck holds up to " + S.MAX_SLIDES + " slides."; return; } var prev = cur, prevSel = selId; cur++; selId = null; if (!apply(n)) { cur = prev; selId = prevSel; } });

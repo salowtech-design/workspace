@@ -250,4 +250,42 @@ const OLD2 = require("./fixtures/slides_model_v2_master_validator.js");
   ok("snap: a bad slide or box gives no shift", (() => { const r = S.snapBox(D2, 9, Q, { x: 1, y: 1, w: 1, h: 1 }, "move"), q = S.snapBox(D2, 0, Q, null, "move"); return r.dx === 0 && q.dx === 0; })());
 }
 ok("snap: after a snapped resize or move the existing clamps still apply (minimum size 10, inside the slide)", (() => { let d = S.newDeck(); const r = S.ops.addElement(d, 0, "rect"); d = r.deck || r; const id = d.slides[0].elements[0].id, a = S.ops.updateElement(d, 0, id, { w: 3 }).slides[0].elements[0], b = S.ops.updateElement(d, 0, id, { x: 955, w: 100 }).slides[0].elements[0]; return a.w === 10 && b.x + b.w <= 960 && b.w === 100; })());
+{
+  // Duplicate item
+  const H64 = "a".repeat(64), snapJ = (x) => JSON.stringify(x);
+  let q = S.newDeck(); const r1 = S.ops.addElement(q, 0, "text"); q = r1.deck;
+  q = S.ops.updateElement(q, 0, r1.id, { text: "Hello", size: 40, fill: "#2e6f95", b: true, i: true, al: "center", x: 100, y: 120, w: 300, h: 90 });
+  const r2 = S.ops.addElement(q, 0, "rect"); q = r2.deck;
+  const before = snapJ(q), dup = S.ops.duplicateElement(q, 0, r1.id), els = dup && dup.deck.slides[0].elements;
+  ok("dup: the copy has a fresh id and sits right above the original", !!dup && els.length === 3 && els[0].id === r1.id && els[1].id === dup.id && dup.id !== r1.id && els[2].id === r2.id);
+  ok("dup: ids stay unique across the deck", new Set(els.map((e) => e.id)).size === 3);
+  ok("dup: text, size, fill, bold, italic and align are kept", els[1].text === "Hello" && els[1].size === 40 && els[1].fill === "#2e6f95" && els[1].b === true && els[1].i === true && els[1].al === "center");
+  ok("dup: the copy is 20 right and 20 down, same size", els[1].x === 120 && els[1].y === 140 && els[1].w === 300 && els[1].h === 90);
+  ok("dup: the input deck is not changed", snapJ(q) === before);
+  ok("dup: the result is a valid deck as it stands", snapJ(S.validate(dup.deck)) === snapJ(dup.deck));
+  ok("dup: the copy of a styled deck is version 4", dup.deck.v === 4);
+  { const p = S.ops.addElement(S.newDeck(), 0, "rect"), pd = S.ops.duplicateElement(p.deck, 0, p.id); ok("dup: an unstyled deck stays version 1 after a copy", pd.deck.v === 1 && !("b" in pd.deck.slides[0].elements[1])); }
+  { const e = S.ops.addElement(S.newDeck(), 0, "rect"); const d2 = S.ops.updateElement(e.deck, 0, e.id, { x: 760, y: 420, w: 200, h: 120 }); const c = S.ops.duplicateElement(d2, 0, e.id).deck.slides[0].elements[1];
+    ok("dup: next to the right or bottom edge the copy moves left and up and stays inside the slide", c.x === 740 && c.y === 400 && c.x + c.w <= 960 && c.y + c.h <= 540); }
+  { const e = S.ops.addElement(S.newDeck(), 0, "rect"); const d2 = S.ops.updateElement(e.deck, 0, e.id, { x: 760, y: 420, w: 200, h: 120 }), c1 = S.ops.duplicateElement(d2, 0, e.id); const c2 = S.ops.duplicateElement(c1.deck, 0, c1.id);
+    ok("dup: a copy of a copy is again one more item with another fresh id", c2.deck.slides[0].elements.length === 3 && new Set(c2.deck.slides[0].elements.map((x) => x.id)).size === 3); }
+  { let w = S.newDeck(); for (let i = 0; i < 29; i++) w = S.ops.addElement(w, 0, "rect").deck; const id = w.slides[0].elements[0].id;
+    const ok29 = S.ops.duplicateElement(w, 0, id); ok("dup: the 30th item is allowed", !!ok29 && ok29.deck.slides[0].elements.length === 30); ok("dup: at the cap of 30 items it returns null", S.ops.duplicateElement(ok29.deck, 0, id) === null); }
+  ok("dup: bad slide, bad id or a non-string id return null", S.ops.duplicateElement(q, 9, r1.id) === null && S.ops.duplicateElement(q, 0, "nope") === null && S.ops.duplicateElement(q, 0, undefined) === null);
+  { let pd = S.newDeck(); const im = S.ops.addImage(pd, 0, H64, 400, 300, "chart"); pd = im.deck; const c = S.ops.duplicateElement(pd, 0, im.id);
+    const e2 = c.deck.slides[0].elements;
+    ok("dup: a picture copy refers to the same stored bytes and keeps its description and size", e2.length === 2 && e2[1].type === "image" && e2[1].img === H64 && e2[1].text === "chart" && e2[1].w === e2[0].w && e2[1].h === e2[0].h && c.deck.v === 5);
+    ok("dup: the picture copy survives validate", S.validate(c.deck).slides[0].elements[1].img === H64);
+    let full = pd; for (let i = 0; i < 19; i++) { full = S.ops.addImage(full, 0, H64, 100, 100, "").deck; }
+    const tx = S.ops.addElement(full, 0, "text"); ok("dup: with 20 pictures a text item still copies", !!S.ops.duplicateElement(tx.deck, 0, tx.id));
+    ok("dup: with 20 pictures the picture copy returns null", S.ops.duplicateElement(full, 0, im.id) === null); }
+  { const t = S.ops.addElement(S.newDeck(), 0, "text"); const d3 = S.ops.setAnim(S.ops.updateElement(t.deck, 0, t.id, { text: "a" }), 0, t.id, "fade"), c = S.ops.duplicateElement(d3, 0, t.id);
+    ok("dup: the animation is not copied and the original keeps it", c.deck.slides[0].anim.length === 1 && c.deck.slides[0].anim[0].el === t.id && c.deck.v === 6); }
+  { const m = S.ops.master_addElement(S.newDeck(), "rect"); const mid = m.deck.master.elements[0].id; const c = S.ops.master_duplicateElement(m.deck, mid);
+    ok("dup: a master item can be copied", !!c && c.deck.master.elements.length === 2 && c.deck.master.elements[1].id === c.id && c.deck.v === 2);
+    let mm = m.deck; for (let i = 0; i < 9; i++) mm = S.ops.master_addElement(mm, "rect").deck;
+    ok("dup: at the master cap of 10 items a master copy returns null", mm.master.elements.length === 10 && S.ops.master_duplicateElement(mm, mid) === null); }
+  { const Hh = new S.History(S.newDeck(), mem(), 100); const a1 = S.ops.addElement(Hh.deck, 0, "text"); Hh.change(a1.deck, "x"); const c = S.ops.duplicateElement(Hh.deck, 0, a1.id); Hh.change(c.deck, "dup"); const n1 = Hh.deck.slides[0].elements.length; Hh.undo();
+    ok("dup: one undo removes the copy, redo brings it back", n1 === 2 && Hh.deck.slides[0].elements.length === 1 && (Hh.redo(), Hh.deck.slides[0].elements.length === 2)); }
+}
 console.log(`${n - bad}/${n} slides model rows passed`); process.exit(bad ? 1 : 0);
