@@ -102,4 +102,8 @@ def test_a_task_given_to_me_links_to_assigned_not_to_the_other_persons_list():
     html = c.get("/tasks/due/").content.decode()
     assert f"/tasks/list/{tl.public_id}/" not in html  # that page is 404 for a non-owner
     assert "/tasks/assigned/" in html
+    assert "B private list" not in html  # the list name is not shown on the existing Assigned page either
+    assert "From Person DS-H" in html  # the same owner name the Assigned page shows
+    assigned = c.get("/tasks/assigned/").content.decode()
+    assert "B private list" not in assigned and "From Person DS-H" in assigned
     assert c.get(f"/tasks/list/{tl.public_id}/").status_code == 404

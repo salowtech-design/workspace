@@ -4469,7 +4469,7 @@ def register_due_soon(g):
             t.step("Tasks has a Due soon tab", expect=lambda: "Due soon" in txt(), wait=2500)
             t.step("Open Due soon", lambda: pg.click("a:has-text('Due soon')"), expect=lambda: "/tasks/due/" in pg.url, wait=3000)
             t.step("Overdue, Today and Next 7 days: the invoice, the report, the offsite and the one Second gave me", lambda: pg.evaluate("document.querySelector('h3').scrollIntoView({block:'start'})"),
-                   expect=lambda: all(x in txt() for x in ("Pay the invoice", "Send the report", "Plan the offsite", "Given to me by Second")), wait=6000)
+                   expect=lambda: all(x in txt() for x in ("Pay the invoice", "Send the report", "Plan the offsite", "Given to me by Second", "From Second Synthetic")) and "Second's list" not in txt(), wait=6000)
             t.step("Left out: a task more than a week away, a finished one, and Second's own errand", expect=lambda: all(x not in txt() for x in ("Later than a week", "Already finished", "own errand")), wait=3000)
             t.step("A row opens its list", lambda: pg.click("a:has-text('Send the report')"), expect=lambda: "Send the report" in txt() and "/tasks/list/" in pg.url, wait=3000)
             pg.goto(APP + "/tasks/due/")

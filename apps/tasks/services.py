@@ -290,11 +290,11 @@ def due_soon(user, today):
             due_date__isnull=False,
             due_date__lte=last,
         )
-        .select_related("task_list")
+        .select_related("task_list__owner")
         .distinct()
     )
     rows = [
-        {"title": t.title, "due": t.due_date, "where": t.task_list.name, "kind": "list" if t.task_list.owner_id == user.pk else "assigned", "ref": t.task_list.public_id}
+        {"title": t.title, "due": t.due_date, "where": t.task_list.name if t.task_list.owner_id == user.pk else "From " + t.task_list.owner.full_name, "kind": "list" if t.task_list.owner_id == user.pk else "assigned", "ref": t.task_list.public_id}
         for t in mine
     ]
     for t in projects.assigned_in_projects(user).filter(due_date__isnull=False, due_date__lte=last).exclude(column__name="Done"):
