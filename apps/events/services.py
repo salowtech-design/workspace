@@ -186,7 +186,7 @@ def create_event(actor, title, local_start, local_end, tz_name, guest_ids=(), ru
         Guest.objects.bulk_create([Guest(event=ev, person=g) for g in guests])
         audit(me, "events.create", "event", ev.pk, guests=len(guests), repeats=bool(fields))
         # One notice per invited guest. The title carries the organizer's name only, never the event title; the
-        # link is the opaque event id and notify checks the guest may view it. A notice problem never undoes the event.
+        # link is the opaque event id and notify checks the guest may view it. A notice that fails for a non-database reason leaves the event created; a DatabaseError is re-raised and fails the create.
         for g in guests:
             try:
                 with transaction.atomic():
