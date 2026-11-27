@@ -544,6 +544,8 @@
   }
   function applyFreeze() {
     Array.prototype.forEach.call(table.querySelectorAll(".sheet-frz"), function (n) { n.classList.remove("sheet-frz"); n.style.position = ""; n.style.top = ""; n.style.left = ""; n.style.zIndex = ""; });
+    Array.prototype.forEach.call(table.rows[0].cells, function (n) { n.style.top = ""; });
+    fzBase = null; table.parentNode.style.scrollPaddingTop = ""; table.parentNode.style.scrollPaddingLeft = "";
     var f = fzMap[meta.active] || { r: 0, c: 0 }; frz = { r: f.r, c: f.c };
     $("frz-rows").value = String(frz.r); $("frz-cols").value = String(frz.c);
     if (!frz.r && !frz.c) return;
@@ -559,7 +561,25 @@
     }
     for (c = 1; c <= frz.c; c++) { var th = table.rows[0].cells[c]; th.style.left = lefts[c - 1] + "px"; th.style.zIndex = "4"; th.classList.add("sheet-frz"); }
     for (r = 1; r <= frz.r; r++) { var rh = table.rows[r].cells[0]; rh.style.top = tops[r - 1] + "px"; rh.style.zIndex = "3"; rh.classList.add("sheet-frz"); }
+    fzBase = tops; fzLeft = lefts[lefts.length - 1]; placeFreeze();
   }
+  // The formula bar is sticky at the top of the page, so when the page is scrolled until the grid's top edge is under it, the column letters and
+  // frozen rows would sit hidden behind it. While a freeze is on, shift the pinned header and rows down inside the grid by the covered height.
+  var fzBase = null, fzOff = 0, fzRaf = 0, fzLeft = 0;
+  function placeFreeze() {
+    if (!fzBase) return;
+    var bar = $("sheet-barrow"), br = table.parentNode.getBoundingClientRect(), d = bar ? Math.max(0, Math.round(bar.getBoundingClientRect().bottom - br.top)) : 0;
+    d = Math.min(d, Math.max(0, table.parentNode.clientHeight - fzBase[fzBase.length - 1] - 40));
+    if (d === fzOff && table.rows[0].cells[0].style.top !== "") return;
+    fzOff = d;
+    var sc = table.parentNode; sc.style.scrollPaddingTop = (fzBase[fzBase.length - 1] + d) + "px"; sc.style.scrollPaddingLeft = (fzLeft || 0) + "px";
+    Array.prototype.forEach.call(table.rows[0].cells, function (n) { n.style.top = d + "px"; });
+    for (var r = 1; r <= frz.r; r++) {
+      table.rows[r].cells[0].style.top = (fzBase[r - 1] + d) + "px";
+      for (var c = 1; c <= COLS; c++) table.rows[r].cells[c].style.top = (fzBase[r - 1] + d) + "px";
+    }
+  }
+  window.addEventListener("scroll", function () { if (!fzBase || fzRaf) return; fzRaf = requestAnimationFrame(function () { fzRaf = 0; placeFreeze(); }); }, { passive: true });
   function saveFreezeFor() { if (fzLocked) return; var cur = null; try { cur = M.loadFreeze(localStorage.getItem(fzKey), tabIds()); } catch (e) { return; } if (cur.unreadable) return; try { var j = M.freezeJson(cur.map); if (j === null) localStorage.removeItem(fzKey); else localStorage.setItem(fzKey, j); fzMap = cur.map; } catch (e) { /* the entry of a tab that is not listed is ignored when read */ } }
   window.addEventListener("resize", function () { applyFreeze(); });
   var fzStat = $("frz-status");
@@ -590,7 +610,9 @@
     meta = next; return true;
   }
   var EXTRAS = [{ key: rulesKey, load: M.loadRules, label: "validation rules" }, { key: cfKey, load: M.loadCf, label: "colour rules" }, { key: fmtKey, load: M.loadFmt, label: "format rules" }];
-  function keyUsed(id) { try { return localStorage.getItem(tabKey(id)) !== null || localStorage.getItem(rulesKey(id)) !== null || localStorage.getItem(cfKey(id)) !== null || localStorage.getItem(fmtKey(id)) !== null || localStorage.getItem(bakKeyOf(id)) !== null; } catch (e) { return true; } }
+  // an id that still has a stored freeze entry (for example when removing it failed) is never handed out again, so a new tab cannot inherit it
+  function freezeHas(id) { var raw = localStorage.getItem(fzKey); return raw !== null && raw.indexOf("\"" + id + "\":") >= 0; }
+  function keyUsed(id) { try { return localStorage.getItem(tabKey(id)) !== null || localStorage.getItem(rulesKey(id)) !== null || localStorage.getItem(cfKey(id)) !== null || localStorage.getItem(fmtKey(id)) !== null || localStorage.getItem(bakKeyOf(id)) !== null || freezeHas(id); } catch (e) { return true; } }
   function renderTabs() {
     tabBar.textContent = "";
     meta.tabs.forEach(function (t) {

@@ -5479,7 +5479,13 @@ def register_sheets_freeze(g):
             t.step("Set frozen rows 2 and frozen columns 1 and press Apply freeze", lambda: (pg.fill("#frz-rows", "2"), pg.fill("#frz-cols", "1"), pg.click("#frz-apply")), expect=lambda: st().startswith("Frozen: the first 2 row(s) and 1 column(s)"), wait=2600)
             scroll_to(pg, 560, 900)
             t.step("Scrolled far down and right: A1 and A2 (frozen row and column) stay at the top left; A3 keeps its left place but scrolled up out of view; B1 keeps its top place but scrolled left out of view", expect=lambda: two_axis_ok(pg, 2, 1) and pinned(pg, "A1", 80, 80) and pinned(pg, "A2", 140, 80) and (rect(pg, cell("A3"))[1] - box(pg)[1]) < 0 and 0 <= rect(pg, cell("B1"))[1] - box(pg)[1] <= 80 and (rect(pg, cell("B1"))[0] - box(pg)[0]) < 0, wait=3600)
-            t.step("Negative control: with the page scrolled so the sticky formula bar covers the top of the grid, the visibility check reports the covered pinned cells (it is not fooled)", lambda: pg.evaluate("document.getElementById('sheet-root').scrollIntoView({block:'start'})"), expect=lambda: len(hit_all(pg, 2, 1)["problems"]) >= 3 and not two_axis_ok(pg, 2, 1), wait=2600)
+            def covered(pg):
+                # page scrolled so the grid top edge is under the sticky formula bar (the position that used to hide the pinned cells); scrolling both axes of the grid
+                pg.evaluate("a=>{var e=document.getElementById('sheet-root');e.scrollTop=a[0];e.scrollLeft=a[1];e.scrollIntoView({block:'start'})}", [560, 900])
+                pg.wait_for_timeout(700)
+                return pg.evaluate("()=>{var b=document.getElementById('sheet-root').getBoundingClientRect(),r=document.getElementById('sheet-barrow').getBoundingClientRect();return r.bottom-b.top}")
+
+            t.step("Page scrolled so the formula bar covers the top of the grid (the position that used to hide the pinned cells): the pinned column letters and rows 1 and 2 sit just below the formula bar and stay readable", lambda: covered(pg), expect=lambda: pg.evaluate("()=>{var b=document.getElementById('sheet-root').getBoundingClientRect(),r=document.getElementById('sheet-barrow').getBoundingClientRect();return r.bottom-b.top}") > 40 and two_axis_ok(pg, 2, 1), wait=3000)
             scroll_to(pg, 560, 900)
             t.step("A frozen row 2 cell stays beside its row number and A30 (frozen column, far below) keeps its place at the left edge", expect=lambda: pinned(pg, "A2", 140, 80) and pinned(pg, "A30", None, 80), wait=3000)
             pg.reload()
@@ -5488,6 +5494,7 @@ def register_sheets_freeze(g):
             t.step("After a reload the setting is restored: rows 2, columns 1", expect=lambda: pg.input_value("#frz-rows") == "2" and pg.input_value("#frz-cols") == "1", wait=3000)
             scroll_to(pg, 560, 900)
             t.step("After the reload the frozen cells still stay put when scrolled again", expect=lambda: two_axis_ok(pg, 2, 1) and pinned(pg, "A1", 80, 80) and pinned(pg, "A30", None, 80), wait=3000)
+            t.step("After the reload, with the page scrolled so the formula bar covers the grid top, the pinned cells are still below the bar", lambda: covered(pg), expect=lambda: two_axis_ok(pg, 2, 1), wait=3000)
             pg.evaluate("document.getElementById('filter-go').scrollIntoView({block:'center'})")
             t.step("Filter on a tab with frozen rows is refused with a message", lambda: pg.click("#filter-go"), expect=lambda: "frozen row(s)" in pg.inner_text("#filter-status") and "refused" in pg.inner_text("#filter-status"), wait=2600)
             pg.evaluate("document.getElementById('frz-rows').scrollIntoView({block:'center'})")
@@ -5508,6 +5515,14 @@ def register_sheets_freeze(g):
             t.step("Delete that tab: the first tab is back with its own freeze (rows 0, columns 1) and the stored setting names only the first tab", expect=lambda: pg.input_value("#frz-rows") == "0" and pg.input_value("#frz-cols") == "1" and list(__import__("json").loads(pg.evaluate("localStorage.getItem(%s)" % key))["tabs"].keys()) == ["t0"], wait=3000)
             pg.click("#tab-restore"); pg.wait_for_timeout(600)
             t.step("Restore deleted tab: the restored tab has its freeze back (rows 1, columns 0), not the first tab's", expect=lambda: pg.input_value("#frz-rows") == "1" and pg.input_value("#frz-cols") == "0", wait=3000)
+            kk = pg.evaluate("document.getElementById('sheet-root').getAttribute('data-store-key')")
+            pg.evaluate("document.getElementById('tab-del').scrollIntoView({block:'center'})")
+            pg.click("#tab-del"); pg.wait_for_timeout(600)
+            gone = pg.evaluate("a=>JSON.parse(localStorage.getItem(a+'.tabs')).active", kk)
+            pg.evaluate("a=>localStorage.setItem(a[0]+'.freeze', JSON.stringify({v:1,tabs:{[a[1]]:{r:3,c:3}}}))", [kk, "t1"])
+            pg.evaluate("document.getElementById('tab-add').scrollIntoView({block:'center'})")
+            pg.click("#tab-add"); pg.wait_for_timeout(600)
+            t.step("Stale freeze entry for a removed tab id (as if its removal write had failed): a new tab does not reuse that id and starts with no freeze", expect=lambda: pg.evaluate("a=>JSON.parse(localStorage.getItem(a+'.tabs')).active", kk) != "t1" and pg.input_value("#frz-rows") == "0" and pg.input_value("#frz-cols") == "0" and pg.evaluate("document.querySelectorAll('.sheet-frz').length") == 0, wait=3000)
         run_tour(ctx, "sheets_freeze", body, notes="Headless Chromium 390x844 emulated, one run. Pinning is measured from element positions after scrolling and shown in the frames. Not shown: rename, Export and Import leaving the setting alone, damaged stored setting.", unshown=["rename", "export and import", "damaged setting"])
 
     g["DRILLS"]["tour_sheets_freeze"] = tour
