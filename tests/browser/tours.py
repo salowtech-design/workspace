@@ -286,6 +286,7 @@ def register(g):
     register_tasks_move(g)
     register_tasks_overdue(g)
     register_project_restore(g)
+    register_subtask_edit(g)
     register_attendance_csv(g)
     register_post_review_notice(g)
     register_notice_open(g)
@@ -2434,6 +2435,25 @@ def register_project_restore(g):
         run_tour(ctx, "project_restore", body, notes="Real Django on TiDB (unistore) under uvicorn, headless Chromium 390x844 emulated. One synthetic employee who leads the project. Stages: set up, delete, restore from the project trash. Not shown: a plain member's view (404 in unit tests), stale forms, or a deleted project.", unshown=["a member's view", "stale forms", "deleted project"])
 
     g["DRILLS"]["tour_project_restore"] = tour
+
+
+def register_subtask_edit(g):
+    APP = g["APP"]
+
+    def tour(ctx):
+        def body(t, pg):
+            txt = lambda: pg.inner_text("body")  # noqa: E731
+            pg.goto(APP + "/tasks/")
+            pg.wait_for_timeout(500)
+            t.step("STAGE 1 SET UP: make a list called Sprint", lambda: (pg.fill("input[name=name]", "Sprint"), pg.click("button:has-text('Add list')")), expect=lambda: "Sprint" in txt())
+            t.step("STAGE 1 SET UP: add the task Ship report", lambda: (pg.fill("input[aria-label='Task title']", "Ship report"), pg.click(".tasks-add button")), expect=lambda: "Ship report" in txt())
+            t.step("STAGE 1 SET UP: add the subtask Draft under it", lambda: (pg.fill("input[aria-label='Subtask title']", "Draft"), pg.click(".task-sub-add button")), expect=lambda: "Draft" in txt())
+            t.step("STAGE 2 EDIT: the subtask row now has its own Edit button. Press it", lambda: (pg.evaluate("window.scrollBy(0, 250)"), pg.click(".task-row.sub a:has-text('Edit')")), expect=lambda: "Edit task" in txt() and pg.input_value("input[name=title]") == "Draft")
+            t.step("STAGE 2 EDIT: change the title to Draft v2, add a note and a past due date, press Save", lambda: (pg.fill("input[name=title]", "Draft v2"), pg.fill("textarea[name=notes]", "needs review"), pg.fill("input[name=due]", "2020-02-01"), pg.click("button:has-text('Save')")), expect=lambda: "Draft v2" in txt(), wait=1500)
+            t.step("STAGE 3 RESULT: the subtask row shows Draft v2, its note and Due 1 Feb 2020 (overdue) in red", lambda: pg.evaluate("window.scrollBy(0, 250)"), expect=lambda: "needs review" in txt() and "(overdue)" in txt() and pg.locator(".task-row.sub .task-overdue").count() == 1, wait=1000)
+        run_tour(ctx, "subtask_edit", body, notes="Real Django on TiDB (unistore) under uvicorn, headless Chromium 390x844 emulated. One synthetic employee. Stages: set up, press Edit on a subtask and save changes, see the result. Not shown: stale forms or another person's view.", unshown=["stale forms", "another person's view"])
+
+    g["DRILLS"]["tour_subtask_edit"] = tour
 
 
 def register_drive_device(g):
