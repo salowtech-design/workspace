@@ -28,6 +28,9 @@ def test_pdf_page_is_workspace_host_only_signed_in_only_and_says_what_it_does():
     html = r.content.decode()
     assert r.status_code == 200 and "not uploaded" in html and "Password-protected" in html
     assert "no-store" in r["Cache-Control"]
+    assert "Printing is not built yet" in html and "No highlights drawn on the page" not in html  # the old line denied features that exist
+    for built in ("Place signature", "Area highlight", "Fills the standard form fields"):
+        assert built in html  # the controls and text the limits line now points to
     assert f'data-prefix="salow.pdfnotes.{a.pk}."' in html and "not written into the PDF" in html
     b = _u("PD-2")
     cb = Client(HTTP_HOST=HOST)
