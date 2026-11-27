@@ -68,7 +68,7 @@
   // The formula row sticks to the top; focused cells scroll to just below it, whatever height it wraps to.
   var barRow = document.getElementById("sheet-barrow");
   function setBarH() { if (barRow) root.style.setProperty("--sheet-bar-h", barRow.offsetHeight + "px"); }
-  setBarH(); window.addEventListener("resize", setBarH); if (window.ResizeObserver && barRow) new ResizeObserver(setBarH).observe(barRow);
+  setBarH(); window.addEventListener("resize", function () { setBarH(); }); if (window.ResizeObserver && barRow) new ResizeObserver(function () { setBarH(); placeFreeze(); }).observe(barRow);
   function sync() { cells = H.cells; reloadRules(); reloadCf(); reloadFmt(); if (typeof clearPivot === "function") clearPivot(); show(); refreshSelected(); buttons(); drawChart(); applyFilter(); if (typeof applyFreeze === "function") applyFreeze(); status.textContent = H.note; }
   // After any whole-sheet change (import, undo, redo, fill, sort, clear, tab switch) the focused cell and the formula bar must show the new content, not what was there before. A focused cell is refreshed here too, so a later blur cannot write the old text back. The formula bar keeps what the user typed in it (barDirty) and is refreshed when untouched.
   var barDirty = false;
