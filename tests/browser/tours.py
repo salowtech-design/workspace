@@ -5591,7 +5591,11 @@ def register_password_idle(g, users):
                     qa.fill("#current_password", pw_old)
                     qa.fill("#new_password", pw_new)
                     qa.fill("#confirm_password", pw_new)
-                    qa.click("form:has(#new_password) button[type=submit]")
+                    btn = qa.locator("form:has(#new_password) button[type=submit]")
+                    res["pre_click_ok"] = btn.count() == 1 and qa.locator("form:has(#new_password) input[name=current_password]").count() == 1 and "logout" not in (btn.locator("xpath=ancestor::form").get_attribute("action") or "")
+                    if not res["pre_click_ok"]:
+                        return
+                    btn.click()
                     qa.wait_for_load_state()
                     qa.wait_for_timeout(1000)
                     res["change_msg"] = qa.inner_text("body")
@@ -5609,6 +5613,7 @@ def register_password_idle(g, users):
                     qb.goto(APP + "/auth/security/")
                     qb.wait_for_timeout(800)
                     res["b_url"] = qb.url
+                    res["b_text"] = qb.inner_text("body")
                     qb.screenshot(path="/downloads/93_unrecorded_other_session_after_change.png")
                     qa.goto(APP + "/auth/security/idle-lock/?next=/auth/security/")
                     qa.wait_for_timeout(600)
@@ -5621,7 +5626,11 @@ def register_password_idle(g, users):
                     res["bad_box_empty"] = qa.input_value("#password") == ""
                     qa.screenshot(path="/downloads/94_unrecorded_wrong_password_unlock.png")
                     qa.fill("#password", pw_new)
-                    qa.click("form[action$='idle-unlock/'] button[type=submit]")
+                    ub = qa.locator("form[action$='idle-unlock/'] button[type=submit]")
+                    res["pre_unlock_ok"] = ub.count() == 1 and qa.locator("form[action$='idle-unlock/'] #password").count() == 1
+                    if not res["pre_unlock_ok"]:
+                        return
+                    ub.click()
                     qa.wait_for_load_state()
                     qa.wait_for_timeout(800)
                     res["unlock_url"] = qa.url
@@ -5638,7 +5647,7 @@ def register_password_idle(g, users):
             t.step("Off camera: sign in twice as the synthetic account, change the password, then lock and unlock (script only)", off_camera, expect=lambda: res.get("signed_in") is True and "unlock_url" in res, wait=500)
             t.step("Automated result: the page said the password was changed and all other sessions were revoked", expect=lambda: "Your password was changed successfully. All other active sessions have been revoked." in res.get("change_msg", ""), wait=2000)
             t.step("Automated result: the new password is stored and the old one no longer works", expect=lambda: res.get("new_ok") is True and res.get("old_ok") is False, wait=2000)
-            t.step("Automated result: the other signed-in window was sent to sign in", expect=lambda: "b_url" in res and not res["b_url"].rstrip("/").endswith("security"), wait=2000)
+            t.step("Automated result: the other signed-in window was sent to sign in", expect=lambda: "b_text" in res and "Sign In" in res["b_text"] and "Security & Credentials" not in res["b_text"], wait=2000)
             t.step("Automated result: wrong password on the lock screen shows 'Incorrect password entered.' and the box is empty", expect=lambda: "Incorrect password entered." in res.get("bad_text", "") and res.get("bad_box_empty") is True, wait=2000)
             t.step("Automated result: the new password unlocks and the security page opens", expect=lambda: "after_unlock_url" in res and res["after_unlock_url"].rstrip("/").endswith("security") and "idle-unlock" not in res["unlock_url"], wait=2000)
             t.step("Checked by script: no password appears in the final page text of the two result pages", expect=lambda: all(k in res for k in ("change_msg", "bad_text", "unlock_text", "lock_text")) and all(p not in res[k] for p in (pw_old, pw_new, pw_bad) for k in ("change_msg", "bad_text", "unlock_text", "lock_text")), wait=1500)
