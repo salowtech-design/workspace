@@ -5464,20 +5464,29 @@ def register_pdf_password(g):
             def off_camera():
                 c2 = pg.context.browser.new_context(viewport={"width": 390, "height": 844}, service_workers="block")
                 try:
+                    c2.add_cookies(pg.context.cookies())
                     q = c2.new_page()
                     fresh_page(q)
                     pick(q)
                     res["prompt2"] = wait_prompt(q)
                     q.fill("#pdf-pw", wrong)
                     q.click("#pdf-pwgo")
-                    q.wait_for_function("document.getElementById('pdf-status').textContent.indexOf('did not work') >= 0", timeout=20000)
+                    for _ in range(80):
+                        if "did not work" in q.inner_text("#pdf-status"):
+                            break
+                        q.wait_for_timeout(250)
                     res["wrong_msg"] = q.inner_text("#pdf-status")
                     res["wrong_box_empty"] = q.input_value("#pdf-pw") == ""
+                    q.screenshot(path="/downloads/92_unrecorded_wrong_password_result.png")
                     q.fill("#pdf-pw", pw)
                     q.click("#pdf-pwgo")
-                    q.wait_for_function("document.getElementById('pdf-where').textContent.indexOf('Page 1 of') === 0", timeout=20000)
+                    for _ in range(80):
+                        if q.inner_text("#pdf-where").startswith("Page 1 of"):
+                            break
+                        q.wait_for_timeout(250)
                     res["where"] = q.inner_text("#pdf-where")
                     res["box_empty"] = q.input_value("#pdf-pw") == ""
+                    q.screenshot(path="/downloads/92_unrecorded_right_password_result.png")
                     res["leak"] = q.evaluate("(()=>{const o=[];for(const s of [localStorage,sessionStorage]){for(let i=0;i<s.length;i++){o.push(s.key(i)+'='+s.getItem(s.key(i)))}}return o.join('|')})()")
                     res["url"] = q.url
                 finally:
@@ -5488,8 +5497,8 @@ def register_pdf_password(g):
             t.step("Open the encrypted file here: the page asks for a password", lambda: pick(pg), expect=lambda: wait_prompt(pg) and "needs a password" in pg.inner_text("#pdf-status"), wait=2500)
             t.step("Press Cancel: nothing opens and the page says so", lambda: pg.click("#pdf-pwcancel"), expect=lambda: pg.inner_text("#pdf-status").startswith("Not opened.") and pg.evaluate("document.getElementById('pdf-pwform').hidden"), wait=2500)
             t.step("A wrong password and then the right one are entered in the unrecorded window (script only). The run finished", off_camera, expect=lambda: "where" in res, wait=500)
-            t.step("Unrecorded window, wrong password: the page said 'That password did not work.' and the box was emptied", expect=lambda: res.get("prompt2") and "That password did not work" in res.get("wrong_msg", "") and res.get("wrong_box_empty"), wait=2500)
-            t.step("Unrecorded window, right password: the file opened at Page 1 of 3 and the box was emptied", expect=lambda: res.get("where", "").startswith("Page 1 of 3") and res.get("box_empty"), wait=2500)
+            t.step("Automated result from the unrecorded window (not replayed here), wrong password: the page said 'That password did not work.' and the box was emptied", expect=lambda: res.get("prompt2") and "That password did not work" in res.get("wrong_msg", "") and res.get("wrong_box_empty"), wait=2500)
+            t.step("Automated result from the unrecorded window (not replayed here), right password: the file opened at Page 1 of 3 and the box was emptied", expect=lambda: res.get("where", "").startswith("Page 1 of 3") and res.get("box_empty"), wait=2500)
             t.step("Checked by script: no password in local or session storage or in the page address", expect=lambda: "leak" in res and pw not in res["leak"] and wrong not in res["leak"] and pw not in res.get("url", "") and wrong not in res.get("url", ""), wait=2500)
 
         run_tour(ctx, "92_pdf_password", body, notes="Device-local viewer, secure-context test flag. Headless Chromium 390x844 emulated. Throwaway PDF encrypted with qpdf (AES-256) using a generated password; entry was done in a separate unrecorded browser context, so the recording shows only the prompt, Cancel and the checked results.", unshown=["typing a password (off camera by design)", "the opened pages in the unrecorded window", "copy, split or merge of an encrypted file (covered by a drill, not filmed)"])
