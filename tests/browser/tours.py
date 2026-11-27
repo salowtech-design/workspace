@@ -262,6 +262,7 @@ def register(g):
     register_search_tour(g, users)
     register_att_checkout(g, users)
     register_chat_gaps(g)
+    register_chat_search(g)
     register_task_conflict(g)
     register_sessions_scroll(g, users)
     register_drive_move(g)
@@ -4294,3 +4295,76 @@ def register_slides_keys(g):
         run_tour(ctx, "65_slides_keys_order", body, notes="Device-local deck; secure-context test flag. Headless Chromium 390x844 emulated. Which slide is first is read from the list, which the clip shows only as a count of 2; the order itself is shown in the stills.", unshown=["finger drag", "unreadable-deck recovery", "animation click earlier/later"])
 
     g["DRILLS"]["tour_slides_keys"] = tour
+
+
+def register_chat_search(g):
+    APP = g["APP"]
+
+    def tour(ctx):
+        import concurrent.futures
+
+        import django
+
+        django.setup()
+        ids = {}
+
+        def make():
+            from django.utils import timezone
+
+            from apps.accounts.models import CustomUser
+            from apps.chat import services as cs
+            from apps.chat.models import Member
+
+            def person(eid, name):
+                return CustomUser.objects.get_or_create(employee_id=eid, defaults={"full_name": name, "email": eid.lower() + "@salowtech.com", "email_verified": True,
+                                                        "role": CustomUser.Role.EMPLOYEE, "status": CustomUser.Status.ACTIVE, "is_active": True})[0]
+            me = CustomUser.objects.get(employee_id="ST-LIVE-1")
+            two = person("ST-LIVE-2", "Second Synthetic")
+            three = person("ST-LIVE-3", "Third Synthetic")
+            four = person("ST-LIVE-4", "Fourth Synthetic")
+            ops = cs.create_group(me, "Ops crew", [two.pk, four.pk])
+            root = cs.post_message(two, ops.public_id, "Lantern rollout plan for Friday", "s-1")
+            cs.post_message(two, ops.public_id, "Lantern reply detail inside the thread", "s-2", thread_root_seq=root.seq)
+            ids["ops"], ids["root"] = ops.public_id, root.seq
+            dm = cs.open_dm(me, two.pk)
+            cs.post_message(two, dm.public_id, "Lantern note in our direct chat", "s-3")
+            old = cs.create_group(me, "Old crew", [two.pk, four.pk])
+            cs.post_message(two, old.public_id, "Lantern archive from before I left", "s-4")
+            Member.objects.filter(space=old, person=me).update(left_at=timezone.now())
+            ids["old"] = old.public_id
+            sec = cs.open_dm(two, three.pk)
+            cs.post_message(three, sec.public_id, "Lantern secret between the other two", "s-5")
+            ids["sec"] = sec.public_id
+
+        with concurrent.futures.ThreadPoolExecutor(1) as ex:
+            ex.submit(make).result()
+
+        def body(t, pg):
+            txt = lambda: pg.inner_text("body")
+            st = {}
+            def go(url):
+                r = pg.goto(APP + url)
+                st[url] = r.status if r else None
+            def show():
+                pg.evaluate("(document.querySelector('main h2, main h3, main ul')||document.body).scrollIntoView({block:'start'})")
+            go("/search/")
+            t.step("Search page has a Chat option in Where", expect=lambda: "Chat" in pg.inner_html("select[name=in]"), wait=2600)
+            go("/search/?q=lantern&in=chat")
+            t.step("Where = Chat, 'lantern': my group's root and reply, and my DM; not the Old crew message I left, not the other two's DM", lambda: show(),
+                   expect=lambda: "rollout plan" in txt() and "reply detail" in txt() and "direct chat" in txt() and "archive" not in txt() and "secret" not in txt() and "Third Synthetic" not in txt(), wait=5000)
+            t.step("The DM result is titled with the other person's name; the group results with the group name", lambda: show(), expect=lambda: "Second Synthetic: Lantern note" in txt() and "Ops crew: Lantern" in txt(), wait=3500)
+            t.step("Open the root message result", lambda: pg.click("a:has-text('rollout plan')"), expect=lambda: "/chat/" in pg.url and "rollout plan" in txt(), wait=3000)
+            go("/search/?q=lantern&in=chat")
+            t.step("Back on results, open the reply result", lambda: pg.click("a:has-text('reply detail')"), expect=lambda: "/thread/" in pg.url and "reply detail" in txt(), wait=3000)
+            go("/search/?q=lantern")
+            t.step("Where = Everywhere also finds the Chat results", lambda: show(), expect=lambda: "rollout plan" in txt() and "secret" not in txt(), wait=4000)
+            go("/chat/%s/" % ids["sec"])
+            t.step("Opening the other two's DM by its address directly is refused", expect=lambda: "secret between" not in txt() and st["/chat/%s/" % ids["sec"]] in (403, 404), wait=3000)
+            go("/chat/%s/" % ids["old"])
+            t.step("Opening the Old crew chat I left, directly, is refused", expect=lambda: "archive from before" not in txt() and st["/chat/%s/" % ids["old"]] in (403, 404), wait=3000)
+            open("/tmp/vid/dl/chat_search_status.txt", "w").write(repr(st))
+            t.note("Not shown: the 80 character cut, a message from a person who was removed, edit/delete (not built), the throttle. Left membership is set by script, not a Leave button.", 3)
+
+        run_tour(ctx, "72_chat_search", body, notes="Real Django on TiDB, headless Chromium 390x844 emulated. Fixture by script: my group with a root and a reply, my DM, a group I already left, and a DM between two other people. All contain the word lantern.", unshown=["80 character cut", "removed member", "edit/delete (not built)", "throttle"])
+
+    g["DRILLS"]["tour_chat_search"] = tour
