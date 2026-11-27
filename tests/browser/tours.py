@@ -271,6 +271,7 @@ def register(g):
     register_attendance_csv(g)
     register_post_review_notice(g)
     register_notice_open(g)
+    register_post_comment_notice(g)
     register_task_conflict(g)
     register_sessions_scroll(g, users)
     register_drive_move(g)
@@ -4691,3 +4692,39 @@ def register_notice_open(g):
         run_tour(ctx, "81_notice_open", body, notes="Real Django on TiDB, headless Chromium 390x844 emulated. Fixture by script: two unread notices made for the signed-in synthetic account.", unshown=["other person's notice", "GET/prefetch", "CSRF refusal"])
 
     g["DRILLS"]["tour_notice_open"] = tour
+
+
+def register_post_comment_notice(g):
+    APP = g["APP"]
+
+    def tour(ctx):
+        import concurrent.futures
+
+        import django
+
+        django.setup()
+
+        def make():
+            from apps.accounts.models import CustomUser
+            from apps.posts.services import add_comment, create_post
+
+            me = CustomUser.objects.get(employee_id="ST-LIVE-1")
+            two = CustomUser.objects.get_or_create(employee_id="ST-LIVE-3", defaults={"full_name": "Admin Synthetic", "email": "st-live-3@salowtech.com", "email_verified": True,
+                                                   "role": CustomUser.Role.ADMIN, "status": CustomUser.Status.ACTIVE, "is_active": True})[0]
+            post = create_post(author=me, title="Week 47 progress log", content="Finished the report draft.")
+            add_comment(post=post, author=me, content="Own note, no notice for this one.")
+            add_comment(post=post, author=two, content="Looks good, please add the hours.")
+
+        with concurrent.futures.ThreadPoolExecutor(1) as ex:
+            ex.submit(make).result()
+
+        def body(t, pg):
+            txt = lambda: pg.inner_text("body")
+            pg.goto(APP + "/notifications/")
+            t.step("Notifications: 'Admin Synthetic commented on your post', no comment text or post title; my own comment made no notice", expect=lambda: "Admin Synthetic commented on your post" in txt() and pg.inner_text("body").count(", unread") == 1 and "add the hours" not in txt() and "Week 47" not in txt(), wait=4500)
+            t.step("Open the notice: the post page opens and shows the comment", lambda: pg.click("button:has-text('commented on your post')"), expect=lambda: "/posts/" in pg.url and "Looks good, please add the hours." in txt(), wait=3500)
+            t.note("Not shown: the commenter's form (a unit test posts through the real view), a failed notice (unit-tested), email or push (not built).", 3)
+
+        run_tour(ctx, "82_post_comment_notice", body, notes="Real Django on TiDB, headless Chromium 390x844 emulated. Fixture by script: a synthetic admin comments on the signed-in account's post through the Posts service.", unshown=["commenter form", "failed notice", "email/push"])
+
+    g["DRILLS"]["tour_post_comment_notice"] = tour

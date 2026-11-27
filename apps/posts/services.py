@@ -244,4 +244,24 @@ def add_comment(
             payload_summary={"post_id": post.id},
         )
 
+        # One notice to the post's author for a comment by someone else. The title carries the commenter's name only
+        # (the post page already shows it to the author), never the comment text or the post title. It is sent only
+        # when the author can open the post. A notice that fails for a non-database reason leaves the comment saved;
+        # a DatabaseError is re-raised and fails the comment.
+        if post.author_id != author.pk:
+            try:
+                from apps.posts.selectors import list_posts_for_user
+
+                if list_posts_for_user(post.author).filter(pk=post.pk).exists():
+                    with transaction.atomic():
+                        notify(
+                            post.author, "posts.commented",
+                            f"{author.full_name or author.employee_id} commented on your post",
+                            reverse("posts:detail", args=[post.pk]),
+                        )  # fmt: skip
+            except DatabaseError:
+                raise
+            except Exception:  # noqa: BLE001
+                logger.exception("post comment notification skipped")
+
     return comment
