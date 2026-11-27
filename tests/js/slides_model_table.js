@@ -288,4 +288,17 @@ ok("snap: after a snapped resize or move the existing clamps still apply (minimu
   { const Hh = new S.History(S.newDeck(), mem(), 100); const a1 = S.ops.addElement(Hh.deck, 0, "text"); Hh.change(a1.deck, "x"); const c = S.ops.duplicateElement(Hh.deck, 0, a1.id); Hh.change(c.deck, "dup"); const n1 = Hh.deck.slides[0].elements.length; Hh.undo();
     ok("dup: one undo removes the copy, redo brings it back", n1 === 2 && Hh.deck.slides[0].elements.length === 1 && (Hh.redo(), Hh.deck.slides[0].elements.length === 2)); }
 }
+{
+  // Duplicate picture then delete either one: the other keeps the same hash reference (bytes are never deleted), also across undo and a reload of the saved JSON.
+  const H64 = "b".repeat(64), im = S.ops.addImage(S.newDeck(), 0, H64, 300, 200, "logo"), c = S.ops.duplicateElement(im.deck, 0, im.id);
+  const refs = (dk) => dk.slides.flatMap((x) => x.elements).filter((e) => e.type === "image").map((e) => e.img);
+  const delCopy = S.ops.deleteElement(c.deck, 0, c.id), delOrig = S.ops.deleteElement(c.deck, 0, im.id);
+  ok("pic: duplicate then delete the copy leaves the original with the same hash", refs(delCopy).length === 1 && refs(delCopy)[0] === H64 && delCopy.slides[0].elements[0].id === im.id);
+  ok("pic: duplicate then delete the original leaves the copy with the same hash", refs(delOrig).length === 1 && refs(delOrig)[0] === H64 && delOrig.slides[0].elements[0].id === c.id);
+  ok("pic: both survive a reload of the saved JSON", [delCopy, delOrig].every((x) => { const r = S.loadDeck(JSON.stringify(x)); return !r.unreadable && refs(r.deck).length === 1 && refs(r.deck)[0] === H64; }));
+  const Hh = new S.History(S.newDeck(), mem(), 100); const a1 = S.ops.addImage(Hh.deck, 0, H64, 300, 200, ""); Hh.change(a1.deck, "x"); const c1 = S.ops.duplicateElement(Hh.deck, 0, a1.id); Hh.change(c1.deck, "dup");
+  Hh.change(S.ops.deleteElement(Hh.deck, 0, c1.id), "del copy"); Hh.undo(); const afterUndo = refs(Hh.deck); Hh.undo(); const afterUndo2 = refs(Hh.deck);
+  ok("pic: undo of the delete brings the copy back and undo of the copy leaves the original, same hash", afterUndo.length === 2 && afterUndo.every((h) => h === H64) && afterUndo2.length === 1 && afterUndo2[0] === H64);
+  ok("pic: deleting a slide that holds one copy of two keeps the hash on the other slide", (() => { const two = S.ops.addSlide(c.deck, 0); const mv = JSON.parse(JSON.stringify(two)); const moved = mv.slides[0].elements.pop(); mv.slides[1].elements.push(moved); const rest = S.ops.deleteSlide(mv, 1); return refs(rest).length === 1 && refs(rest)[0] === H64; })());
+}
 console.log(`${n - bad}/${n} slides model rows passed`); process.exit(bad ? 1 : 0);

@@ -45,6 +45,12 @@ Promise.all(samples.map((x) => Promise.all([I.sha256(x, true), I.sha256(x)]))).t
   ok("import caps: the largest deck the model accepts fits the plain-deck cap and the largest with-pictures export fits the file cap", v !== null && deckJson < I.LIMITS.MAX_IMPORT_DECK && exp < I.LIMITS.MAX_IMPORT_FILE);
   ok("import caps: the file cap is under 1.3 x the worst case", I.LIMITS.MAX_IMPORT_FILE < exp * 1.3);
 }
+{
+  // Picture bytes are never deleted: a copied picture shares its hash, so no code path may remove stored bytes.
+  const src = ["images.js", "editor.js", "model.js", "pdf.js"].map((f) => fs.readFileSync(__dirname + "/../../static/slides/" + f, "utf8")).join("\n");
+  ok("store has no delete or clear method, only open, put, get and sizes", ["delete", "remove", "clear", "purge", "gc"].every((m) => typeof I.Store.prototype[m] !== "function") && ["open", "put", "get", "sizes"].every((m) => typeof I.Store.prototype[m] === "function"));
+  ok("no slides source deletes from IndexedDB (no .delete( on a store, no deleteDatabase, no objectStore clear)", !/deleteDatabase|\.clear\(\)\s*;?\s*\}\s*\)/.test(src.replace(/localStorage\.clear/g, "")) && !/objectStore\([^)]*\)\s*\.delete|o\.delete\(|store\.delete\(/.test(src));
+}
 I.sha256(new Uint8Array([1, 2, 3])).then((h) => {
   ok("sha256: matches the reference value", h === crypto.createHash("sha256").update(Buffer.from([1, 2, 3])).digest("hex") && /^[0-9a-f]{64}$/.test(h));
   console.log(`${n - bad}/${n} slides image rows passed`); process.exit(bad ? 1 : 0);
