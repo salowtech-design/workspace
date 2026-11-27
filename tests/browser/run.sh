@@ -53,7 +53,7 @@ if [ "$PORT_DB" = "$PORT_APP" ] || [ "$PORT_DB" = "$PORT_ST" ] || [ "$PORT_APP" 
 # Clean environment for everything below. Only these variables pass through.
 E=(env -i PATH="$PATH" HOME="${HOME:-/tmp}" LANG=C.UTF-8 TMPDIR="$TMP" NO_PROXY=127.0.0.1,localhost,app.salowtech.com no_proxy=127.0.0.1,localhost,app.salowtech.com
    ${PLAYWRIGHT_BROWSERS_PATH:+PLAYWRIGHT_BROWSERS_PATH="$PLAYWRIGHT_BROWSERS_PATH"}
-   ${LOAD_LEVELS:+LOAD_LEVELS="$LOAD_LEVELS"} ${LOAD_SECONDS:+LOAD_SECONDS="$LOAD_SECONDS"} ${LOAD_REPORT:+LOAD_REPORT="$LOAD_REPORT"}
+   ${LOAD_LEVELS:+LOAD_LEVELS="$LOAD_LEVELS"} ${LOAD_SECONDS:+LOAD_SECONDS="$LOAD_SECONDS"} ${LOAD_REPORT:+LOAD_REPORT="$LOAD_REPORT"} ${LOAD_EXC_LOG:+LOAD_EXC_LOG="$LOAD_EXC_LOG"}
    AUDIT_CHECKPOINT_DIR="$TMP/audit" DJANGO_SETTINGS_MODULE=drill_settings TIDB_TEST_DB_NAME=drill_db
    TIDB_TEST_USER=root TIDB_TEST_PASSWORD= TIDB_TEST_HOST=127.0.0.1 TIDB_TEST_PORT="$PORT_DB"
    PYTHONPATH="$ROOT:$ROOT/tests/browser${EXTRA_PYTHONPATH:+:$EXTRA_PYTHONPATH}")
@@ -103,5 +103,5 @@ PYEOF
 SC=$?
 [ "$SC" = 0 ] || RC=3
 # load_http: summarise server-side exceptions (type and message line only), after the secret check came back clean.
-if [ "${1:-}" = load_http ] && [ "$SC" = 0 ]; then echo "server exceptions:"; grep -E "^[A-Za-z_.]+(Error|Exception)[:(]" "$TMP/uvicorn.log" | cut -c1-200 | sort | uniq -c | head -10; echo "log tail:"; tail -c 2500 "$TMP/uvicorn.log"; fi
+if [ "${1:-}" = load_http ] && [ "$SC" = 0 ]; then echo "server exceptions:"; grep -E "^[A-Za-z_.]+(Error|Exception)[:(]" "$TMP/uvicorn.log" | cut -c1-200 | sort | uniq -c | head -10; echo "log tail:"; tail -c 6000 "$TMP/uvicorn.log"; fi
 exit "$RC"

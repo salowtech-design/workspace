@@ -41,13 +41,13 @@ STOP_MEM_MB = 250
 REPORT = os.environ.get("LOAD_REPORT", "/tmp/load_report.json")
 
 PAGES = [  # (name, path, weight, text the real page must contain)
-    ("tasks", "/tasks/", 25, "Tasks"),
-    ("notifications", "/notifications/", 15, "Notifications"),
-    ("chat_list", "/chat/", 15, "Chat"),
-    ("chat_space", None, 20, "Load group"),
+    ("tasks", "/tasks/", 25, "Load task 4"),
+    ("notifications", "/notifications/", 15, "Load notice 2"),
+    ("chat_list", "/chat/", 15, "Load group"),
+    ("chat_space", None, 20, "Load group"),  # the space title shows on every window; message text can paginate out as sends accumulate (PAGE is 100)
     ("calendar", "/calendar/", 10, "Calendar"),
     ("attendance_history", "/attendance/history/", 5, "My attendance"),
-    ("posts_feed", "/posts/", 10, "Work Log"),
+    ("posts_feed", "/posts/", 10, "Load log {eid}"),
 ]
 SEND_SHARE = 0.05
 
@@ -109,7 +109,7 @@ def setup(n_users):
     Post.objects.bulk_create([Post(author=u, title=f"Load log {u.employee_id}", content="Synthetic load text.", work_date=today) for u in users])
     WorkSession.objects.bulk_create(
         [WorkSession(user=u, work_date=today, check_in_at=now.replace(hour=4, minute=0), check_out_at=now.replace(hour=12, minute=0),
-                     state="completed", verification_method="face") for u in users[: max(1, n_users // 2)]]
+                     state="completed", verification_method="face") for u in users]
     )
     for u in users:
         tl = ts.create_list(u, "Load list")
@@ -196,7 +196,7 @@ def user_loop(idx, eid, sess, port, space, stop_at, stats, start_evt):
             else:
                 path = LISTS[eid] if name == "tasks" else (next(p[1] for p in PAGES if p[0] == name) or f"/chat/space/{space}/")
                 st, data = req("GET", path)
-                need = next(p[3] for p in PAGES if p[0] == name)
+                need = next(p[3] for p in PAGES if p[0] == name).format(eid=eid)
                 if st == 200 and eid in data and need in data:
                     outcome = "ok"
                 elif st == 200:
@@ -268,7 +268,7 @@ def main():
     t0 = time.time()
     sessions, space = setup(n_users)
     print(f"setup done in {time.time() - t0:.0f}s", flush=True)
-    env = {"cpus": os.cpu_count(), "mem_total_mb": _meminfo()["MemTotal"] // 1024, "seconds_per_level": SECONDS, "warmup_included_s": WARMUP,
+    env = {"cpus": os.cpu_count(), "mem_total_mb": _meminfo()["MemTotal"] // 1024, "model": "closed loop: one request in flight per simulated user, so users != concurrent requests; stop rules are checked after each level, not during", "content_checks": "own employee id plus a per-page seeded string; calendar and attendance_history only check generic page text (weak)", "seconds_per_level": SECONDS, "warmup_included_s": WARMUP,
            "think_time_s": THINK, "request_timeout_s": TIMEOUT, "stop_rules": {"fail_rate": STOP_FAIL_RATE, "p95_s": STOP_P95, "mem_avail_mb": STOP_MEM_MB}}
     levels, stopped = [], None
     for n in LEVELS:
