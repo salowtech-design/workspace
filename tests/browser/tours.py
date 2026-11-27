@@ -5605,7 +5605,8 @@ def register_password_idle(g, users):
 
                         u = _CU.objects.get(employee_id="ST-LIVE-2")
                         return u.check_password(pw_new), u.check_password(pw_old), _US.objects.filter(user=u).count()
-                    print("password tour db after change (new ok, old ok, sessions left):", db(_probe), flush=True)
+                    res["probe"] = db(_probe)
+                    print("password tour db after change (new ok, old ok, sessions left):", res["probe"], flush=True)
                     print("password tour after change:", qa.url, "|", " ".join(res["change_msg"].split())[:160], flush=True)
                     res["a_url"] = qa.url
                     qa.screenshot(path="/downloads/93_unrecorded_password_changed.png")
@@ -5647,10 +5648,10 @@ def register_password_idle(g, users):
             t.step("Off camera: sign in twice as the synthetic account, change the password, then lock and unlock (script only)", off_camera, expect=lambda: res.get("signed_in") is True and "unlock_url" in res, wait=500)
             t.step("Automated result: the page said the password was changed and all other sessions were revoked", expect=lambda: "Your password was changed successfully. All other active sessions have been revoked." in res.get("change_msg", ""), wait=2000)
             t.step("Automated result: the new password is stored and the old one no longer works", expect=lambda: res.get("new_ok") is True and res.get("old_ok") is False, wait=2000)
-            t.step("Automated result: the other signed-in window was sent to sign in", expect=lambda: "b_text" in res and "Sign In" in res["b_text"] and "Security & Credentials" not in res["b_text"], wait=2000)
+            t.step("Automated result: the other signed-in window shows the sign-in landing page (Salowtech Workspace, Login, Sign In) and exactly 1 session is left for the account", expect=lambda: "b_text" in res and "Salowtech Workspace" in res["b_text"] and "Returning Employee" in res["b_text"] and "First-Time Activation" in res["b_text"] and "Security & Credentials" not in res["b_text"] and res.get("probe", (0, 0, -1))[2] == 1, wait=2000)
             t.step("Automated result: wrong password on the lock screen shows 'Incorrect password entered.' and the box is empty", expect=lambda: "Incorrect password entered." in res.get("bad_text", "") and res.get("bad_box_empty") is True, wait=2000)
             t.step("Automated result: the new password unlocks and the security page opens", expect=lambda: "after_unlock_url" in res and res["after_unlock_url"].rstrip("/").endswith("security") and "idle-unlock" not in res["unlock_url"], wait=2000)
-            t.step("Checked by script: no password appears in the final page text of the two result pages", expect=lambda: all(k in res for k in ("change_msg", "bad_text", "unlock_text", "lock_text")) and all(p not in res[k] for p in (pw_old, pw_new, pw_bad) for k in ("change_msg", "bad_text", "unlock_text", "lock_text")), wait=1500)
+            t.step("Checked by script: none of the three generated passwords appears in the captured page text of those result pages (screenshots are not scanned)", expect=lambda: all(k in res for k in ("change_msg", "bad_text", "unlock_text", "lock_text")) and all(p not in res[k] for p in (pw_old, pw_new, pw_bad) for k in ("change_msg", "bad_text", "unlock_text", "lock_text")), wait=1500)
 
         run_tour(ctx, "93_password_change_idle_unlock", body, notes="Real Django on TiDB under uvicorn, headless Chromium 390x844 emulated. Synthetic account, generated passwords, typed only in unrecorded windows. Recording shows only the start page; results are automated captures with real screenshots.", unshown=["typing any password (off camera)", "other roles", "step-up or MFA re-enrolment after a password change"])
 
