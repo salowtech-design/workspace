@@ -2333,7 +2333,7 @@ def register_drive_device(g):
                 rb().set_input_files({"name": "x.txt", "mimeType": "text/plain", "buffer": b"wrong bytes\n"}); pg.wait_for_timeout(1500)
                 res["refused"] = row("notes.txt").inner_text()
                 rb().set_input_files({"name": "x.txt", "mimeType": "text/plain", "buffer": b"quarterly notes\n"}); pg.wait_for_timeout(1500)
-            t.step("Put a copy back with the row's own picker: wrong bytes are refused, the right bytes repair it, and Drive gets no new version", reattach,
+            t.step("Put a copy back with the row's own picker: wrong bytes are refused, the right bytes repair it", reattach,
                    expect=lambda: "checksum is different" in res.get("refused", "") and "A copy is on this device" in row("notes.txt").inner_text(), wait=1500)
             def reopen():
                 pg.reload(); pg.wait_for_timeout(1200)
@@ -2354,6 +2354,16 @@ def register_drive_device(g):
               const s=new D.Store('probe-fail-'+Date.now()); await s.open(); const t0=s.db.transaction.bind(s.db);
               s.db.transaction=()=>{throw new Error('injected')}; let msg=''; try{await s.save(new Uint8Array([1,2,3]))}catch(e){msg=e.message} return msg}"""
             t.step("INJECTED storage failure (not a real quota): the save is refused with a plain message", lambda: out.update(f=pg.evaluate(fail)), expect=lambda: "would not use its file storage" in out["f"], wait=500)
+            def newver():
+                row("notes.txt").locator(".drive-newver").set_input_files({"name": "notes.txt", "mimeType": "text/plain", "buffer": b"second notes\n"}); pg.wait_for_timeout(3000)
+                res["v2"] = row("notes.txt").inner_text()
+                rb().set_input_files({"name": "x.txt", "mimeType": "text/plain", "buffer": b"quarterly notes\n"}); pg.wait_for_timeout(1500)
+                res["stale"] = row("notes.txt").inner_text()
+                rb().set_input_files({"name": "x.txt", "mimeType": "text/plain", "buffer": b"second notes\n"}); pg.wait_for_timeout(1500)
+                res["fresh"] = row("notes.txt").inner_text()
+                print("   v2/stale/fresh:", repr(res["v2"][:160]), "|", repr(res["stale"][:160]), "|", repr(res["fresh"][:160]), flush=True)
+            t.step("New version of notes.txt: the row becomes version 2 at once; the OLD bytes are now refused by the row's picker and the new bytes are accepted", newver,
+                   expect=lambda: "now version 2" in res.get("v2", "") and "checksum is different" in res.get("stale", "") and "A copy is on this device" in res.get("fresh", ""), wait=500)
             t.step("Clear this browser's stored files and reload: the row says Not on this device and Open is disabled", lambda: (pg.evaluate("(n)=>new Promise(r=>{const q=indexedDB.deleteDatabase(n);q.onsuccess=q.onerror=q.onblocked=()=>r()})", dbname()), pg.reload()),
                    expect=lambda: "Not on this device" in row("notes.txt").inner_text() and row("notes.txt").locator(".drive-open").is_disabled(), wait=2000)
         run_tour(ctx, "107_drive_device_files", body, notes="Real Django on TiDB (unistore) under uvicorn, headless Chromium 390x844 emulated, real IndexedDB. Bytes stay in the browser; the server gets name, size and checksum. One synthetic employee: the two-namespace check uses two store names in the same browser, not two signed-in accounts. The storage failure is injected, not a real quota. Not offline proof.", unshown=["real quota exhaustion", "sign-in expiry", "another person's device or account", "no-network reload"])

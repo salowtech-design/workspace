@@ -118,6 +118,12 @@ def shared_view(request):
     items = [
         (item, role, isinstance(item, Folder)) for item, role in svc.shared_with_me(request.user)
     ]
+    # directly shared FILES get the same on-device controls as a folder page, from the file's own grant: nothing here links to or
+    # names the parent folder, and no folder access is implied. Edit rights are the server's own answer for this person.
+    shared_files = [i for i, _r, is_folder in items if not is_folder]
+    _with_hashes(shared_files)
+    for f in shared_files:
+        f.device_edit = can(request.user, "edit", "drive.file", f)
     return render(request, "drive/shared.html", {"items": items})
 
 

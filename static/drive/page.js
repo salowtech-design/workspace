@@ -39,7 +39,12 @@
       var f = nv.files && nv.files[0]; nv.value = ""; if (!f) return;
       label(row).textContent = "Adding a version...";
       D.addVersion(deps, row.dataset.id, parseInt(row.dataset.version, 10), f).then(function (r) {
-        label(row).textContent = r.message + (r.ok ? " Reload the list to see it." : "");
+        if (r.ok) {
+          // the row now describes the version this call committed, so a later Open or "Put a copy" uses the new checksum, not the old one
+          row.dataset.version = String(r.version); row.dataset.sha = r.sha256;
+          label(row).textContent = r.message + " This row is now version " + r.version + ".";
+          var ob = row.querySelector(".drive-open"); if (ob) ob.disabled = false;  // the bytes were just stored and read back by addVersion
+        } else label(row).textContent = r.message;
       });
     });
   });

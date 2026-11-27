@@ -2,14 +2,23 @@
 {% block title %}Shared with me: Salow Drive{% endblock %}
 {% block extra_head %}<link rel="stylesheet" href="/static/css/drive.css">{% endblock %}
 {% block content %}
-<div class="card drive">
+<div class="card drive" id="drive-root" data-user="{{ request.user.pk }}" data-csrf="{{ csrf_token }}" data-new="{% url 'drive:file_new' %}" data-version-tpl="{% url 'drive:file_version' '00000000-0000-0000-0000-000000000000' %}" data-folder="">
   <div class="drive-head"><h2>Drive</h2></div>
   {% include "drive/_nav.html" with tab="shared" %}
   {% for item, role, is_folder in items %}
-  <div class="drive-row">
+  <div class="drive-row{% if not is_folder %} drive-file{% endif %}"{% if not is_folder %} data-id="{{ item.public_id }}" data-name="{{ item.name }}" data-version="{{ item.current_version }}" data-sha="{{ item.device_sha }}"{% endif %}>
     {% if is_folder %}<a class="drive-name" href="{% url 'drive:folder' item.public_id %}">{{ item.name }}</a>{% else %}<span class="drive-name">{{ item.name }}</span>{% endif %}
     <span class="drive-meta">{{ role|title }} access from {{ item.owner.full_name }}</span>
+    {% if not is_folder %}
+    <span class="drive-meta drive-local">{% if item.current_version %}Looking on this device...{% else %}No file saved yet{% endif %}</span>
+    {% if item.current_version %}<button type="button" class="btn btn-secondary btn-small drive-open" disabled>Open from this device</button>
+    <label class="drive-meta">Put a copy on this device <input type="file" class="drive-reattach"></label>{% endif %}
+    {% if item.device_edit %}<label class="drive-meta">{% if item.current_version %}New version{% else %}Add the file{% endif %} <input type="file" class="drive-newver"></label>{% endif %}
+    {% endif %}
   </div>
   {% empty %}<div class="drive-empty">Nothing has been shared with you.</div>{% endfor %}
 </div>
+<script src="/static/slides/images.js"></script>
+<script src="/static/drive/device.js"></script>
+<script src="/static/drive/page.js"></script>
 {% endblock %}

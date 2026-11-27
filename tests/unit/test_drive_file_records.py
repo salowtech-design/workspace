@@ -210,3 +210,33 @@ def test_page_exposes_only_the_current_checksum_to_a_viewer_and_a_stranger_gets_
         ca.get(url)
     ver_q = [x for x in q.captured_queries if "drive_fileversion" in x["sql"].lower()]
     assert len(ver_q) == 1 and "current_version" in ver_q[0]["sql"].lower()
+
+
+@pytest.mark.django_db
+def test_directly_shared_file_gets_the_device_controls_without_exposing_its_parent():
+    a, v, e, s = _u("FR-U"), _u("FR-V"), _u("FR-W"), _u("FR-X")
+    ca = _c(a)
+    folder = svc.create_folder(a, "Private parent name")
+    fid = _new(ca, "direct.pdf", folder).json()["file"]["id"]
+    old, new = "1" * 64, "2" * 64
+    _ver(ca, fid, 0, 4, old)
+    _ver(ca, fid, 1, 6, new)
+    f = DriveFile.objects.get(public_id=fid)
+    svc.share(a, f, v, "viewer")
+    svc.share(a, f, e, "editor")
+    shared = reverse("drive:shared")
+    vh = _c(v).get(shared).content.decode()
+    eh = _c(e).get(shared).content.decode()
+    sh = _c(s).get(shared).content.decode()
+    for h in (vh, eh):
+        assert f'data-sha="{new}"' in h and old not in h and "drive-reattach" in h and "drive-open" in h
+        assert "Private parent name" not in h and 'id="drive-root"' in h
+    assert "drive-newver" not in vh and "drive-newver" in eh
+    assert "direct.pdf" not in sh and new not in sh
+    # the grant is for the file only: no parent page, and the server still refuses a version from the viewer
+    assert _c(v).get(reverse("drive:folder", args=[folder.public_id])).status_code == 404
+    assert _ver(_c(v), fid, 2, 1, "3" * 64).status_code == 403
+    assert _ver(_c(e), fid, 2, 1, "3" * 64).status_code == 200
+    # trashing the parent folder also hides the directly shared file
+    svc.trash(a, folder)
+    assert "direct.pdf" not in _c(v).get(shared).content.decode()
