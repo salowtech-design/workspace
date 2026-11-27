@@ -233,3 +233,16 @@ def delete_task(request, task_id):
                       "post_url": request.path, "back": _back(request, task).url, "tab": "mine"})  # fmt: skip
     _run(request, svc.delete_task, request.user, task, ok="Task deleted.")
     return _back(request, task)
+
+
+@login_required
+def due_soon_view(request):
+    from django.utils import timezone
+
+    # timezone.localdate() is the app's own date (TIME_ZONE = Asia/Kolkata), the same one the project board's Overdue filter uses.
+    groups = svc.due_soon(request.user, timezone.localdate())
+    return render(
+        request,
+        "tasks/due_soon.html",
+        {"groups": groups, "days": svc.DUE_SOON_DAYS, "tab": "due", "lists": svc.lists_for(request.user)},
+    )

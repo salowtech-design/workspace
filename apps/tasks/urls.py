@@ -8,6 +8,7 @@ urlpatterns = [
     path("", views.home, name="home"),
     path("list/<uuid:list_id>/", views.list_view, name="list"),
     path("assigned/", views.assigned_view, name="assigned"),
+    path("due/", views.due_soon_view, name="due_soon"),
     path("new-list/", views.new_list, name="new_list"),
     path("list/<uuid:list_id>/add/", views.add_task, name="add"),
     path("list/<uuid:list_id>/delete/", views.delete_list, name="delete_list"),

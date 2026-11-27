@@ -1,0 +1,5 @@
+<div class="task-row">
+  {% if r.kind == "project" %}<a class="task-title" href="{% url 'tasks:project' r.ref %}">{{ r.title }}</a>{% elif r.kind == "assigned" %}<a class="task-title" href="{% url 'tasks:assigned' %}">{{ r.title }}</a>{% else %}<a class="task-title" href="{% url 'tasks:list' r.ref %}">{{ r.title }}</a>{% endif %}
+  <span class="task-meta">Due {{ r.due|date:"j M Y" }}</span>
+  <span class="task-meta">{{ r.where }}</span>
+</div>

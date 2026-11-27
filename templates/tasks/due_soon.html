@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block title %}Due soon: Salow Tasks{% endblock %}
+{% block extra_head %}<link rel="stylesheet" href="/static/css/tasks.css">{% endblock %}
+{% block content %}
+<div class="card tasks">
+  <div class="tasks-head"><h2>Tasks</h2></div>
+  {% include "tasks/_nav.html" %}
+  <p class="task-meta">Open tasks with a due date, from your lists, tasks assigned to you and project tasks assigned to you. Dates use the workspace date (India time). Looks {{ days }} days ahead.</p>
+  <h3 class="tasks-sub">Overdue</h3>
+  {% for r in groups.overdue %}{% include "tasks/_due_row.html" %}{% empty %}<div class="tasks-empty">Nothing overdue.</div>{% endfor %}
+  <h3 class="tasks-sub">Today</h3>
+  {% for r in groups.today %}{% include "tasks/_due_row.html" %}{% empty %}<div class="tasks-empty">Nothing due today.</div>{% endfor %}
+  <h3 class="tasks-sub">Next {{ days }} days</h3>
+  {% for r in groups.soon %}{% include "tasks/_due_row.html" %}{% empty %}<div class="tasks-empty">Nothing due in the next {{ days }} days.</div>{% endfor %}
+</div>
+{% endblock %}

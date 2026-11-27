@@ -265,6 +265,7 @@ def register(g):
     register_chat_search(g)
     register_forbidden(g)
     register_trash_context(g)
+    register_due_soon(g)
     register_task_conflict(g)
     register_sessions_scroll(g, users)
     register_drive_move(g)
@@ -4428,3 +4429,53 @@ def register_trash_context(g):
         run_tour(ctx, "75_drive_trash_context", body, notes="Real Django on TiDB, headless Chromium 390x844 emulated. Fixture by script: a folder with a subfolder and a file trashed together, plus one file trashed on its own earlier.", unshown=["restore", "nested trash"])
 
     g["DRILLS"]["tour_trash_context"] = tour
+
+
+def register_due_soon(g):
+    APP = g["APP"]
+
+    def tour(ctx):
+        import concurrent.futures
+        import datetime as dt
+
+        import django
+
+        django.setup()
+
+        def make():
+            from django.utils import timezone
+
+            from apps.accounts.models import CustomUser
+            from apps.tasks.models import Task, TaskList
+
+            me = CustomUser.objects.get(employee_id="ST-LIVE-1")
+            two = CustomUser.objects.get_or_create(employee_id="ST-LIVE-2", defaults={"full_name": "Second Synthetic", "email": "st-live-2@salowtech.com", "email_verified": True,
+                                                   "role": CustomUser.Role.EMPLOYEE, "status": CustomUser.Status.ACTIVE, "is_active": True})[0]
+            today = timezone.localdate()
+            mine = TaskList.objects.create(owner=me, name="Home list")
+            other = TaskList.objects.create(owner=two, name="Second's list")
+            for title, n in (("Pay the invoice", -2), ("Send the report", 0), ("Plan the offsite", 5), ("Later than a week", 12)):
+                Task.objects.create(task_list=mine, title=title, due_date=today + dt.timedelta(days=n), created_by=me)
+            Task.objects.create(task_list=mine, title="Already finished", due_date=today - dt.timedelta(days=3), status=Task.DONE, created_by=me)
+            Task.objects.create(task_list=other, title="Given to me by Second", due_date=today + dt.timedelta(days=1), created_by=two, assignee=me)
+            Task.objects.create(task_list=other, title="Second's own errand", due_date=today, created_by=two)
+
+        with concurrent.futures.ThreadPoolExecutor(1) as ex:
+            ex.submit(make).result()
+
+        def body(t, pg):
+            txt = lambda: pg.inner_text("body")
+            pg.goto(APP + "/tasks/")
+            t.step("Tasks has a Due soon tab", expect=lambda: "Due soon" in txt(), wait=2500)
+            t.step("Open Due soon", lambda: pg.click("a:has-text('Due soon')"), expect=lambda: "/tasks/due/" in pg.url, wait=3000)
+            t.step("Overdue, Today and Next 7 days: the invoice, the report, the offsite and the one Second gave me", lambda: pg.evaluate("document.querySelector('h3').scrollIntoView({block:'start'})"),
+                   expect=lambda: all(x in txt() for x in ("Pay the invoice", "Send the report", "Plan the offsite", "Given to me by Second")), wait=6000)
+            t.step("Left out: a task more than a week away, a finished one, and Second's own errand", expect=lambda: all(x not in txt() for x in ("Later than a week", "Already finished", "own errand")), wait=3000)
+            t.step("A row opens its list", lambda: pg.click("a:has-text('Send the report')"), expect=lambda: "Send the report" in txt() and "/tasks/list/" in pg.url, wait=3000)
+            pg.goto(APP + "/tasks/due/")
+            t.step("The row Second gave me opens my Assigned to me page, not Second's private list", lambda: pg.click("a:has-text('Given to me by Second')"), expect=lambda: "/tasks/assigned/" in pg.url and "Given to me by Second" in txt(), wait=3000)
+            t.note("Not shown: project tasks in this page (unit-tested, not filmed), the boundary days (unit-tested).", 3)
+
+        run_tour(ctx, "76_tasks_due_soon", body, notes="Real Django on TiDB, headless Chromium 390x844 emulated. Fixture by script: tasks due -2, 0, +5, +12 days, one finished task, one task a second account assigned to me, and one of that account's own tasks.", unshown=["project tasks on the page", "boundary days"])
+
+    g["DRILLS"]["tour_due_soon"] = tour

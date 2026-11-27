@@ -1,5 +1,6 @@
 <div class="tasks-tabs">
   <a href="{% url 'tasks:home' %}"{% if tab == "mine" %} class="active"{% endif %}>My lists</a>
   <a href="{% url 'tasks:assigned' %}"{% if tab == "assigned" %} class="active"{% endif %}>Assigned to me</a>
+  <a href="{% url 'tasks:due_soon' %}"{% if tab == "due" %} class="active"{% endif %}>Due soon</a>
   <a href="{% url 'tasks:projects' %}"{% if tab == "projects" %} class="active"{% endif %}>Projects</a>
 </div>

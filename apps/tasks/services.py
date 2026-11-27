@@ -265,3 +265,42 @@ def get_task(user, public_id, action="view"):
     if t is None or not can(user, action, "task", t):
         raise Http404
     return t
+
+
+DUE_SOON_DAYS = 7  # build default for how far ahead the Due soon page looks, not a stated policy
+
+
+def due_soon(user, today):
+    """Open tasks with a due date that this person already sees: tasks in their own lists, tasks
+    assigned to them, and project tasks assigned to them (not in the Done column). Read only.
+    Returns {"overdue": [...], "today": [...], "soon": [...]} of dicts, each sorted by date then title."""
+    from datetime import timedelta
+
+    from django.db.models import Q
+
+    from apps.tasks import projects
+
+    last = today + timedelta(days=DUE_SOON_DAYS)
+    mine = (
+        Task.objects.filter(
+            Q(task_list__owner=user) | Q(assignee=user),
+            deleted_at__isnull=True,
+            task_list__deleted_at__isnull=True,
+            status=Task.OPEN,
+            due_date__isnull=False,
+            due_date__lte=last,
+        )
+        .select_related("task_list")
+        .distinct()
+    )
+    rows = [
+        {"title": t.title, "due": t.due_date, "where": t.task_list.name, "kind": "list" if t.task_list.owner_id == user.pk else "assigned", "ref": t.task_list.public_id}
+        for t in mine
+    ]
+    for t in projects.assigned_in_projects(user).filter(due_date__isnull=False, due_date__lte=last).exclude(column__name="Done"):
+        rows.append({"title": t.title, "due": t.due_date, "where": t.project.name, "kind": "project", "ref": t.project.public_id})
+    rows.sort(key=lambda r: (r["due"], r["title"].lower()))
+    out = {"overdue": [], "today": [], "soon": []}
+    for r in rows:
+        out["overdue" if r["due"] < today else "today" if r["due"] == today else "soon"].append(r)
+    return out
