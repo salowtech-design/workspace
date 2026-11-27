@@ -268,7 +268,7 @@ class TestPostReview:
 
 @pytest.mark.django_db
 class TestPostComments:
-    def test_add_and_list_comments(self, employee_alpha, employee_beta):
+    def test_add_and_list_comments(self, employee_alpha, manager_user):
         """Users can post replies and they are ordered chronologically."""
         post = create_post(
             author=employee_alpha,
@@ -276,7 +276,7 @@ class TestPostComments:
             content="Content for discussion.",
         )
 
-        c1 = add_comment(post=post, author=employee_beta, content="First comment reply.")
+        c1 = add_comment(post=post, author=manager_user, content="First comment reply.")  # alpha's team lead can see the post
         c2 = add_comment(post=post, author=employee_alpha, content="Thanks for the feedback!")
 
         comments = list(list_comments_for_post(post))

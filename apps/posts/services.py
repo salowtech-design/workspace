@@ -229,6 +229,13 @@ def add_comment(
     if not content or not content.strip():
         raise ValidationError("Comment content cannot be empty.")
 
+    from apps.posts.selectors import list_posts_for_user
+
+    # The same visibility the comment view checks: a person who cannot see the post cannot comment on it,
+    # whoever calls the service. Nothing is written when this refuses.
+    if not list_posts_for_user(author).filter(pk=post.pk).exists():
+        raise PermissionDenied("You do not have permission to comment on this post.")
+
     with transaction.atomic():
         comment = PostComment.objects.create(
             post=post,

@@ -154,7 +154,7 @@ class Command(BaseCommand):
             },
         )
 
-    def _seed_posts(self, eng1, eng2, manager, team_core, team_front):
+    def _seed_posts(self, eng1, eng2, manager, team_core, team_front, admin):
         self.stdout.write("Seeding post templates & work logs...")
         PostTemplate.objects.get_or_create(
             name="Daily Standup 3-Point",
@@ -201,9 +201,9 @@ class Command(BaseCommand):
                 category=Post.Category.MILESTONE,
                 work_date=today,
             )
-            add_comment(
+            add_comment(  # by the admin: eng1 is not in team_front, so add_comment refuses eng1 on this post
                 post=post2,
-                author=eng1,
+                author=admin,
                 content="Contrast ratios look well above 4.5:1 for WCAG AA compliance.",
             )
 
@@ -269,7 +269,7 @@ class Command(BaseCommand):
         with transaction.atomic():
             admin, manager, eng1, eng2, intern, team_core, team_front = self._seed_org(default_pwd)
             self._seed_attendance(eng1)
-            self._seed_posts(eng1, eng2, manager, team_core, team_front)
+            self._seed_posts(eng1, eng2, manager, team_core, team_front, admin)
             self._seed_certificates(admin, intern, eng1, eng2)
 
         self.stdout.write(
