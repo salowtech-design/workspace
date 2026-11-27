@@ -6,6 +6,8 @@ Nobody, including admins, can read a space they are not in. Order comes from a p
 assigned under the space row lock. Reactions are a fixed set of six, one row per person and kind.
 No edit, delete, retention or attachments exist."""
 
+import logging
+import re
 import time
 
 from django.contrib.auth import get_user_model
@@ -25,6 +27,7 @@ from apps.chat.models import (
     Space,
 )
 from apps.core.foundation.audit import audit
+from apps.core.foundation.notify import notify
 
 MAX_GROUP_OTHERS = 50
 PAGE = 100
@@ -181,7 +184,70 @@ def post_message(actor, public_id, body, client_msg_id, thread_root_seq=None):
         if mem.last_read_seq >= seq - 1:  # only a caught-up sender has "read" up to here
             Member.objects.filter(pk=mem.pk).update(last_read_seq=seq)
         audit(me, "chat.message.post", "space", sp.pk, seq=seq)  # ids only, never the text
+        notify_mentions(sp, msg, me)
     return msg
+
+
+log = logging.getLogger(__name__)
+MENTION = re.compile(r"(?<![A-Za-z0-9_@-])@([A-Za-z0-9_-]{1,32})")
+MENTION_MAX = 20  # most people one message can notify
+
+
+def mentioned_members(sp, body, author):
+    """People this message mentions as @EmployeeID who are active members of this space now. Not the author, not
+    someone who left, is suspended or is not active, and not anyone outside the space (an ID that matches no
+    member is ignored without saying so). Matching is case-insensitive on the employee ID."""
+    ids = []
+    for m in MENTION.finditer(body or ""):
+        eid = m.group(1).upper()
+        if eid not in ids:
+            ids.append(eid)
+        if len(ids) >= MENTION_MAX:
+            break
+    if not ids:
+        return []
+    out = []
+    rows = Member.objects.filter(space=sp, left_at__isnull=True).select_related("person")
+    by_id = {r.person.employee_id.upper(): r.person for r in rows}
+    for eid in ids:
+        p = by_id.get(eid)
+        if p is not None and p.pk != author.pk and p.is_active and p.status == "active":
+            out.append(p)
+    return out
+
+
+def mention_choices(sp, user):
+    """Active members the composer offers for @mentions: everyone in the space except the viewer."""
+    rows = Member.objects.filter(space=sp, left_at__isnull=True).exclude(person=user).select_related("person")
+    return sorted(
+        (r.person for r in rows if r.person.is_active and r.person.status == "active"),
+        key=lambda p: (p.full_name.lower(), p.employee_id),
+    )[:MAX_GROUP_OTHERS]
+
+
+def notify_mentions(sp, msg, author):
+    """One in-app notice per mentioned member. The title names the author and the conversation, never the message text.
+    The link opens the conversation (the thread for a reply), where the member's own access check still applies.
+    A failure here never blocks or undoes the message."""
+    people = mentioned_members(sp, msg.body, author)
+    if not people:
+        return
+    if sp.kind == Space.DM:
+        where = "a direct message"
+    else:
+        where = sp.name or "a group"
+    from django.urls import reverse
+
+    if msg.thread_root_seq:
+        link = reverse("chat:thread", args=[sp.public_id, msg.thread_root_seq]) + f"#m{msg.seq}"
+    else:
+        link = reverse("chat:space", args=[sp.public_id]) + f"#m{msg.seq}"
+    for p in people:
+        try:
+            with transaction.atomic():
+                notify(p, "chat_mention", f"{author.full_name} mentioned you in {where}", link, check=("chat_message", msg))
+        except Exception:  # noqa: BLE001
+            log.exception("chat mention notice failed")
 
 
 THREAD_ERROR = "That message cannot be replied to in a thread. Reload the conversation."

@@ -136,6 +136,7 @@ def _page(request, space_id, *, status=200, draft="", client_msg_id=None, thread
             "draft": draft,
             "reply_to": reply_to,
             "me": request.user,
+            "mentionable": cs.mention_choices(sp, request.user),
             "live": not viewing_history and last >= sp.last_seq,
         },
         status=status,

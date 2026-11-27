@@ -108,3 +108,21 @@
   later(EVERY);
   document.addEventListener("visibilitychange", function () { if (document.visibilityState === "visible" && Date.now() >= notBefore) tick(); });
 })();
+
+// Mentions: a button inserts "@EMPLOYEEID " at the cursor of the message box. Without this script the person types the ID.
+(function () {
+  var box = document.getElementById("chat-mentions");
+  var ta = document.querySelector(".chat-compose textarea[name=body]");
+  if (!box || !ta) return;
+  box.addEventListener("click", function (ev) {
+    var b = ev.target.closest && ev.target.closest(".chat-mention-btn");
+    if (!b) return;
+    var t = b.getAttribute("data-mention") + " ", a = ta.selectionStart, z = ta.selectionEnd;
+    if (typeof a !== "number") { a = z = ta.value.length; }
+    var pre = ta.value.slice(0, a), need = pre && !/\s$/.test(pre) ? " " : "";
+    ta.value = pre + need + t + ta.value.slice(z);
+    var pos = (pre + need + t).length;
+    ta.focus();
+    ta.setSelectionRange(pos, pos);
+  });
+})();

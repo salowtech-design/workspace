@@ -10,3 +10,4 @@
 .chat-react-t{font-size:12px;margin-left:4px}
 .chat-react-n{font-weight:700;margin-left:6px}
 .chat-list.chat-thread{max-height:none;overflow-y:visible}
+.chat-mention-btn{background:#fff;border:1px solid #e3c9bd;border-radius:14px;padding:2px 8px;font-size:13px;min-height:28px;cursor:pointer}

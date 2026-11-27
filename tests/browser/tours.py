@@ -268,6 +268,7 @@ def register(g):
     register_due_soon(g)
     register_invite_notice(g)
     register_chat_badge(g)
+    register_chat_mention(g)
     register_attendance_csv(g)
     register_post_review_notice(g)
     register_notice_open(g)
@@ -1769,6 +1770,52 @@ def register_bg_probe(g):
         check("probe RESULT: that page is the real recovery console, not an error page", "Recovery" in body and "Forbidden" not in body and "denied" not in body.lower(), " ".join(body.split())[:120])
 
     g["DRILLS"]["probe_bg_sudo"] = probe
+
+
+def register_chat_mention(g):
+    APP = g["APP"]
+
+    def tour(ctx):
+        import concurrent.futures
+
+        import django
+
+        django.setup()
+
+        def make():
+            from apps.accounts.models import CustomUser
+            from apps.chat import services as cs
+
+            two = CustomUser.objects.get_or_create(employee_id="ST-LIVE-2", defaults={"full_name": "Second Synthetic", "email": "st-live-2@salowtech.com", "email_verified": True,
+                                                   "role": CustomUser.Role.EMPLOYEE, "status": CustomUser.Status.ACTIVE, "is_active": True})[0]
+            me = CustomUser.objects.get(employee_id="ST-LIVE-1")
+            sp = cs.open_dm(me, two.pk)
+            cs.post_message(two, sp.public_id, "Can you check the rota?", "mn-1")
+
+        with concurrent.futures.ThreadPoolExecutor(1) as ex:
+            ex.submit(make).result()
+
+        def count():
+            def q():
+                from apps.core.models import Notification
+
+                return Notification.objects.filter(kind="chat_mention", user__employee_id="ST-LIVE-2").count()
+
+            with concurrent.futures.ThreadPoolExecutor(1) as ex:
+                return ex.submit(q).result()
+
+        def body(t, pg):
+            pg.goto(APP + "/chat/")
+            t.step("Open the conversation", lambda: pg.click("a:has-text('Second Synthetic')"), expect=lambda: "check the rota" in pg.inner_text("#chat-list"), wait=1800)
+            t.step("The composer lists the other member as a mention button", expect=lambda: pg.locator("#chat-mentions .chat-mention-btn[data-mention='@ST-LIVE-2']").count() == 1, wait=1800)
+            t.step("Tap the mention button: @ST-LIVE-2 is inserted", lambda: (pg.fill("textarea[name=body]", "Yes, looking now"), pg.click("#chat-mentions .chat-mention-btn")), expect=lambda: pg.input_value("textarea[name=body]").rstrip().endswith("@ST-LIVE-2"), wait=2000)
+            t.step("Send it", lambda: pg.click(".chat-compose button[type=submit]"), expect=lambda: "@ST-LIVE-2" in pg.inner_text("#chat-list"), wait=2000)
+            t.step("The mentioned member has exactly one notice (checked in the database; the other account's Inbox page is not shown)", expect=lambda: count() == 1, wait=1500)
+
+        run_tour(ctx, "96_chat_mention", body, notes="Real Django on TiDB (unistore) under uvicorn, headless Chromium 390x844 emulated. The mentioned person's Inbox is covered by unit tests, not filmed.",
+                 unshown=["the mentioned person's Inbox page"])
+
+    g["DRILLS"]["tour_chat_mention"] = tour
 
 
 def register_chat_react(g):
