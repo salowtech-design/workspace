@@ -21,7 +21,7 @@ from django.urls import reverse
 from apps.core.foundation.audit import audit
 from apps.core.foundation.notify import notify
 from apps.events import recurrence as rec
-from apps.events.models import TITLE_MAX, Event, EventException, Guest
+from apps.events.models import DESCRIPTION_MAX, LOCATION_MAX, TITLE_MAX, Event, EventException, Guest
 
 GUEST_ERROR = "Some guests could not be added. Check the employee IDs."  # same for every cause
 MAX_GUESTS = 50  # build default
@@ -85,6 +85,27 @@ def _title(title):
     if not title or len(title) > TITLE_MAX:
         raise ValidationError(f"A title of 1 to {TITLE_MAX} characters is needed.")
     return title
+
+
+def _bad_char(c, keep_newlines):
+    o = ord(c)
+    if keep_newlines and c in "\n\t":
+        return False
+    return o < 0x20 or 0x7F <= o <= 0x9F or o in (0x2028, 0x2029)
+
+
+def _location(value):
+    value = (value or "").strip()
+    if len(value) > LOCATION_MAX or any(_bad_char(c, False) for c in value):
+        raise ValidationError(f"A location can be at most {LOCATION_MAX} characters on one line.")
+    return value
+
+
+def _description(value):
+    value = (value or "").replace("\r\n", "\n").replace("\r", "\n").strip()
+    if len(value) > DESCRIPTION_MAX or any(_bad_char(c, True) for c in value):
+        raise ValidationError(f"A description can be at most {DESCRIPTION_MAX} plain-text characters.")
+    return value
 
 
 def _live_people(ids, exclude=None):
@@ -160,8 +181,9 @@ def _rule(start, end, tz_name, rule):
     return fields
 
 
-def create_event(actor, title, local_start, local_end, tz_name, guest_ids=(), rule=None):
+def create_event(actor, title, local_start, local_end, tz_name, guest_ids=(), rule=None, location="", description=""):
     title = _title(title)
+    location, description = _location(location), _description(description)
     start, end = _utc(local_start, local_end, tz_name)
     fields = _rule(start, end, tz_name, rule)
     guest_ids = list(dict.fromkeys(guest_ids))
@@ -177,7 +199,7 @@ def create_event(actor, title, local_start, local_end, tz_name, guest_ids=(), ru
         if me is None:
             raise PermissionDenied("Not allowed.")
         guests = _live_people(guest_ids, exclude=actor.pk)
-        ev = Event(organizer=me, title=title, start_utc=start, end_utc=end, tz=tz_name.strip())
+        ev = Event(organizer=me, title=title, start_utc=start, end_utc=end, tz=tz_name.strip(), location=location, description=description)
         for k, v in fields.items():
             setattr(ev, k, v)
         if fields:
@@ -222,7 +244,7 @@ def _visible(ev, me):
     return ev.organizer_id == me.pk or Guest.objects.filter(event=ev, person=me).exists()
 
 
-def update_event(actor, public_id, expected_version, title, local_start, local_end, tz_name):
+def update_event(actor, public_id, expected_version, title, local_start, local_end, tz_name, location=None, description=None):
     """Organiser only. A guest or stranger gets 404 (existence is not revealed)."""
     try:
         version = int(str(expected_version).strip())
@@ -230,13 +252,17 @@ def update_event(actor, public_id, expected_version, title, local_start, local_e
         raise ValidationError("The form is out of date. Reload the event and try again.") from None
     title = _title(title)
     start, end = _utc(local_start, local_end, tz_name)
+    new_loc = None if location is None else _location(location)  # None: leave the stored value as it is
+    new_desc = None if description is None else _description(description)
     with transaction.atomic():
         ev, me = _locked(public_id, actor)
         if ev.organizer_id != me.pk or not _visible(ev, me):
             raise Http404
         if ev.status == Event.CANCELLED:
             raise ValidationError("A cancelled event cannot be changed.")
-        same = (ev.title, ev.start_utc, ev.end_utc, ev.tz) == (title, start, end, tz_name.strip())
+        new_loc = ev.location if new_loc is None else new_loc
+        new_desc = ev.description if new_desc is None else new_desc
+        same = (ev.title, ev.start_utc, ev.end_utc, ev.tz, ev.location, ev.description) == (title, start, end, tz_name.strip(), new_loc, new_desc)
         if same:
             return ev  # nothing changes: no version bump, no audit row
         if ev.version != version:
@@ -255,6 +281,7 @@ def update_event(actor, public_id, expected_version, title, local_start, local_e
             })  # fmt: skip
         _pause()
         ev.title, ev.start_utc, ev.end_utc, ev.tz = title, start, end, tz_name.strip()
+        ev.location, ev.description = new_loc, new_desc
         if ev.freq:
             ev.last_end_utc = rec.last_end(ev)
         ev.version += 1

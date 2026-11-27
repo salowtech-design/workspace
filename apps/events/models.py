@@ -4,11 +4,14 @@ from django.conf import settings
 from django.db import models
 
 TITLE_MAX = 200
+LOCATION_MAX = 200
+DESCRIPTION_MAX = 2000
 
 
 class Event(models.Model):
-    """A single (non-repeating) event. Times are stored in UTC with the organiser's time zone
-    name. Recurrence, rooms, notifications and email are NOT built."""
+    """An event, single or repeating. Times are stored in UTC with the organiser's time zone name. A repeat rule,
+    guests with answers, and a plain-text location and description are built. Rooms and resources, reminders and
+    email are NOT built. Location and description are free text, not a room booking."""
 
     CONFIRMED, CANCELLED = "confirmed", "cancelled"
 
@@ -20,6 +23,8 @@ class Event(models.Model):
     start_utc = models.DateTimeField()
     end_utc = models.DateTimeField()
     tz = models.CharField(max_length=40)
+    location = models.CharField(max_length=LOCATION_MAX, blank=True, default="")  # free text, not a room
+    description = models.TextField(blank=True, default="")  # plain text, DESCRIPTION_MAX enforced in services
     status = models.CharField(max_length=10, default=CONFIRMED)
     version = models.PositiveIntegerField(default=1)
     # Repeat rule (all empty for a single event). start_utc/end_utc are the first occurrence.

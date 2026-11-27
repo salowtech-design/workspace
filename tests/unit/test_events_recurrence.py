@@ -301,9 +301,10 @@ def test_migration_0002_keeps_existing_single_events_working():
         start_utc=dt.datetime(2026, 12, 1, 4, 30, tzinfo=UTC), end_utc=dt.datetime(2026, 12, 1, 5, 30, tzinfo=UTC),
     )  # fmt: skip
     ex = MigrationExecutor(connection)
-    ex.migrate([("events", "0002_recurrence")])
+    ex.migrate([("events", "0003_location_description")])  # the newest migration: the current model reads its columns
     ev = Event.objects.get(pk=row.pk)
     assert (ev.freq, ev.interval, ev.weekdays, ev.count, ev.until, ev.last_end_utc) == ("", 1, "", None, None, None)
+    assert (ev.location, ev.description) == ("", "")  # 0003 leaves old rows with empty text
     got = es.events_for(org, *W("2026-12-01T00:00", "2026-12-02T00:00"))
     assert [o.title for o in got] == ["Before"] and got[0].occ_date is None
     assert es.free_busy(org, [org.pk], *W("2026-12-01T00:00", "2026-12-02T00:00"))[org.pk]

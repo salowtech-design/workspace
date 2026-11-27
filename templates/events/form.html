@@ -14,6 +14,8 @@
 <label>Starts<input type="datetime-local" name="start" value="{{ form.start }}" required></label>
 <label>Ends<input type="datetime-local" name="end" value="{{ form.end }}" required></label>
 <label>Time zone<input type="text" name="tz" maxlength="40" value="{{ form.tz }}" required></label>
+<label>Location (optional, plain text)<input type="text" name="location" maxlength="200" value="{{ form.location }}"></label>
+<label>Description (optional, plain text)<textarea name="description" rows="3" maxlength="2000">{{ form.description }}</textarea></label>
 {% if not editing %}<fieldset class="cal-repeat"><legend>Repeat</legend>
 <label>Repeats<select name="freq"><option value="">Does not repeat</option>{% for v,n in freqs %}<option value="{{ v }}"{% if form.freq == v %} selected{% endif %}>{{ n }}</option>{% endfor %}</select></label>
 <label>Every (1 to 12)<input type="number" name="interval" min="1" max="12" value="{{ form.interval|default:1 }}"></label>

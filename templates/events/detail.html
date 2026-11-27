@@ -9,6 +9,8 @@
 {% if e.status == 'cancelled' %}<p><strong>Cancelled</strong></p>{% endif %}
 <p class="cal-when">{{ start|date:"D j M Y, H:i" }} to {{ end|date:"H:i" }} ({{ e.tz }})</p>
 {% if rule_text %}<p class="cal-meta">{{ rule_text }} The time above is the first occurrence. One answer from a guest covers the whole series. You can cancel one occurrence or the whole series; you cannot change a single occurrence.</p>{% endif %}
+{% if e.location %}<p class="cal-location"><strong>Where:</strong> {{ e.location }}</p>{% endif %}
+{% if e.description %}<div class="cal-description">{{ e.description|linebreaksbr }}</div>{% endif %}
 <p class="cal-meta">Organiser: {{ e.organizer.employee_id }}</p>
 <h3>Guests</h3>
 {% for g in guests %}<div class="cal-row"><span class="cal-title">{{ g.person.employee_id }}</span><span class="cal-meta">{{ g.response_label }}</span></div>{% empty %}<p class="cal-meta">No guests.</p>{% endfor %}

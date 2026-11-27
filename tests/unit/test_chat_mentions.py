@@ -135,7 +135,7 @@ def test_recipient_who_left_or_was_suspended_after_the_mention_cannot_read_anyth
     assert page.status_code == 404 and b"private text" not in page.content  # the destination refuses on its own check
     c.status = "suspended"
     c.save()
-    r2 = _c(c).post(reverse("inbox:open", args=[nc.pk]))  # a suspended account has no session: sent to sign-in, never to the conversation
+    r2 = _c(c).post(reverse("inbox:open", args=[nc.pk]))  # a suspended account: this test shows it is not sent to the conversation and gets no message text; the mechanism (login refusal) is not asserted
     assert r2.status_code in (302, 404) and "/chat/" not in r2.get("Location", "")
     r3 = _c(c).get(reverse("chat:space", args=[sp.public_id]))
     assert r3.status_code in (302, 403, 404) and b"private text" not in r3.content

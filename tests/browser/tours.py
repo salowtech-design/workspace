@@ -269,6 +269,7 @@ def register(g):
     register_invite_notice(g)
     register_chat_badge(g)
     register_chat_mention(g)
+    register_cal_location(g)
     register_attendance_csv(g)
     register_post_review_notice(g)
     register_notice_open(g)
@@ -1770,6 +1771,25 @@ def register_bg_probe(g):
         check("probe RESULT: that page is the real recovery console, not an error page", "Recovery" in body and "Forbidden" not in body and "denied" not in body.lower(), " ".join(body.split())[:120])
 
     g["DRILLS"]["probe_bg_sudo"] = probe
+
+
+def register_cal_location(g):
+    APP = g["APP"]
+
+    def tour(ctx):
+        def body(t, pg):
+            pg.goto(APP + "/calendar/new/")
+            t.step("New event form shows Location and Description", expect=lambda: pg.locator("input[name=location]").count() == 1 and pg.locator("textarea[name=description]").count() == 1, wait=1800)
+            t.step("Fill the form", lambda: (pg.fill("input[name=title]", "Team sync"), pg.fill("input[name=start]", "2026-12-04T10:00"), pg.fill("input[name=end]", "2026-12-04T11:00"),
+                                             pg.fill("input[name=location]", "Meeting room, 2nd floor"), pg.fill("textarea[name=description]", "Agenda: rota and leave.\nBring your notes.")), expect=lambda: pg.input_value("input[name=location]") == "Meeting room, 2nd floor", wait=2200)
+            t.step("Create the event: the page shows Where and the description", lambda: pg.click(".cal-form button[type=submit]"), expect=lambda: "Meeting room, 2nd floor" in pg.inner_text("body") and "Bring your notes." in pg.inner_text("body"), wait=2500)
+            t.step("Edit: both fields are filled with the saved text", lambda: pg.click("a:has-text('Edit')"), expect=lambda: pg.input_value("input[name=location]") == "Meeting room, 2nd floor" and "Agenda" in pg.input_value("textarea[name=description]"), wait=2200)
+            t.step("Change the location and save", lambda: (pg.fill("input[name=location]", "Hall B"), pg.click(".cal-form button[type=submit]")), expect=lambda: "Hall B" in pg.inner_text("body") and "Meeting room" not in pg.inner_text("body"), wait=2500)
+
+        run_tour(ctx, "97_calendar_location", body, notes="Real Django on TiDB (unistore) under uvicorn, headless Chromium 390x844 emulated. Organiser view only; a guest's view is covered by unit tests, not filmed.",
+                 unshown=["a guest's view of the event"])
+
+    g["DRILLS"]["tour_cal_location"] = tour
 
 
 def register_chat_mention(g):

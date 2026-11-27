@@ -264,6 +264,8 @@ def new_event(request):
                 request.POST.get("tz", DEFAULT_TZ),
                 _ids_to_pks(request.POST.get("guests")),
                 rule=_rule_from(request.POST),
+                location=request.POST.get("location", ""),
+                description=request.POST.get("description", ""),
             )
         except ValidationError as exc:
             messages.error(request, " ".join(exc.messages))
@@ -357,6 +359,8 @@ def edit(request, event_id):
         "start": s.strftime("%Y-%m-%dT%H:%M"),
         "end": f.strftime("%Y-%m-%dT%H:%M"),
         "tz": ev.tz,
+        "location": ev.location,
+        "description": ev.description,
         "version": ev.version,
     }
     ctx = {"e": ev, "form": form, "action": "Save changes", "editing": True, "tz": ev.tz}
@@ -373,6 +377,8 @@ def edit(request, event_id):
                 _dt(request.POST.get("start")),
                 _dt(request.POST.get("end")),
                 request.POST.get("tz", ev.tz),
+                location=request.POST.get("location"),
+                description=request.POST.get("description"),
             )
         except es.StaleEvent:
             fresh = es.get_event(request.user, event_id)
