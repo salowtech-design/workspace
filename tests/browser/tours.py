@@ -324,6 +324,7 @@ def register(g):
     register_pdf_marks_tools(g)
     register_pdf_pages(g)
     register_pdf_alltext(g)
+    register_pdf_alltext_stop(g)
     register_pdf_roundtrip(g)
     register_slides_order_recovery(g)
     register_sheets_import_recovery(g)
@@ -4772,13 +4773,93 @@ def register_pdf_alltext(g):
                 saved["name"] = d.value.suggested_filename
                 saved["text"] = open(d.value.path(), encoding="utf-8").read()
                 open(os.path.join(out, "alltext.txt"), "w", encoding="utf-8").write(saved["text"])
-                pg.evaluate("document.querySelector('#pdf-fstatus').scrollIntoView({block:'center'})")
+                pg.wait_for_timeout(1200)
 
             t.step("Press it. The status says 3 of 4 pages were downloaded and 1 had no readable text", click, expect=lambda: "Downloaded the text of 3 of 4 page" in pg.inner_text("#pdf-fstatus") and "1 page(s) had no readable text" in pg.inner_text("#pdf-fstatus"), wait=3200)
             t.step("The saved file holds pages 1, 2 and 4 in order and its header names page 3 (checked in the saved file)", expect=lambda: saved.get("name") == "demo-all-text.txt" and saved["text"].index("Demo 1") < saved["text"].index("Demo 2") < saved["text"].index("Demo 4") and "Demo 3" not in saved["text"] and "on page(s): 3." in saved["text"] and "not OCR" in saved["text"], wait=1500)
         run_tour(ctx, "pdf_alltext", body, notes="Device-local viewer on a generated 4-page PDF whose page 3 has no text. Headless Chromium 390x844 emulated; the downloaded text file is saved and read back by the tour. Not shown: a very large file reaching the size limit (node table rows), Stop mid-read, closing the file mid-read.", unshown=["size limit", "Stop mid-read", "close mid-read"])
 
     g["DRILLS"]["tour_pdf_alltext"] = tour
+
+
+def register_pdf_alltext_stop(g):
+    APP = g["APP"]
+
+    def tour(ctx):
+        import os
+
+        def body(t, pg):
+            def big(pages, lines, blank=()):
+                """A valid PDF where each page holds lines x 1000 characters of text (about lines*1000 characters)."""
+                objs = [b"<< /Type /Catalog /Pages 2 0 R >>"]
+                objs.append(("<< /Type /Pages /Kids [%s] /Count %d >>" % (" ".join("%d 0 R" % (3 + 2 * i) for i in range(pages)), pages)).encode())
+                font = 3 + 2 * pages
+                for i in range(pages):
+                    objs.append(("<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents %d 0 R /Resources << /Font << /F1 %d 0 R >> >> >>" % (4 + 2 * i, font)).encode())
+                    c = ("BT /F1 1 Tf 5 780 Td 0.5 TL " + "".join("(%s) Tj T* " % ("word" * 250) for _ in range(lines)) + "ET").encode()
+                    objs.append(b"<< /Length %d >>\nstream\n" % len(c) + c + b"\nendstream")
+                objs.append(b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>")
+                out = b"%PDF-1.4\n"; offs = []
+                for i, o in enumerate(objs, 1):
+                    offs.append(len(out)); out += b"%d 0 obj\n" % i + o + b"\nendobj\n"
+                x = len(out)
+                out += b"xref\n0 %d\n0000000000 65535 f \n" % (len(objs) + 1)
+                for o in offs:
+                    out += b"%010d 00000 n \n" % o
+                out += b"trailer\n<< /Size %d /Root 1 0 R >>\nstartxref\n%d\n%%%%EOF\n" % (len(objs) + 1, x)
+                return out
+
+            pg.goto(APP + "/pdf/")
+            pg.evaluate("localStorage.clear()")
+            pg.goto(APP + "/pdf/")
+            pg.wait_for_timeout(500)
+            out = os.environ.get("DRILL_VIDEO", "")
+            status = lambda: pg.inner_text("#pdf-fstatus")
+            downloads = []
+            pg.on("download", lambda d: downloads.append(d))
+
+            def opened(name, data, pages):
+                pg.set_input_files("#pdf-open", files=[{"name": name, "mimeType": "application/pdf", "buffer": data}])
+                for _ in range(160):
+                    if pg.inner_text("#pdf-where").startswith("Page 1 of %d" % pages):
+                        break
+                    pg.wait_for_timeout(250)
+
+            def view(sel):
+                pg.evaluate("s=>document.querySelector(s).scrollIntoView({block:'center'})", sel)
+
+            many = big(1500, 1)
+            opened("many.pdf", many, 1500)
+            view("#pdf-exportall")
+            pg.wait_for_timeout(600)
+            t.step("A 1,500-page file is open. Press Download text of all pages: it starts reading", lambda: pg.click("#pdf-exportall"), expect=lambda: "Reading page" in status() and pg.is_enabled("#pdf-exportallstop") and pg.is_disabled("#pdf-exportall"), wait=900)
+            t.step("Press Stop while it reads: the status says it stopped and nothing was downloaded, and the button is back on", lambda: pg.click("#pdf-exportallstop"), expect=lambda: status().startswith("Stopped. Nothing was downloaded.") and pg.is_enabled("#pdf-exportall") and pg.is_disabled("#pdf-exportallstop"), wait=1200)
+            pg.wait_for_timeout(2500)
+            t.step("Three seconds later no file was saved and the status is still Stopped", expect=lambda: len(downloads) == 0 and status().startswith("Stopped."), wait=800)
+            t.step("Press it again, then Close file while it reads: the file closes and the buttons go off", lambda: (pg.click("#pdf-exportall"), pg.wait_for_timeout(150), pg.click("#pdf-close")), expect=lambda: pg.is_disabled("#pdf-exportall") and pg.is_disabled("#pdf-exportallstop") and pg.inner_text("#pdf-name").strip() == "" and status() == "", wait=1500)
+            pg.wait_for_timeout(2500)
+            t.step("Three seconds later no file was saved", expect=lambda: len(downloads) == 0, wait=800)
+            opened("many.pdf", many, 1500)
+            pg.click("#pdf-exportall")
+            pg.wait_for_timeout(150)
+            opened("small.pdf", g["_n_page_pdf"](2, "Small"), 2)
+            view("#pdf-exportall")
+            t.step("Press it, then open a different 2-page file while it reads: the new file is open, nothing from the old one is saved and the buttons are ready", expect=lambda: pg.inner_text("#pdf-where").startswith("Page 1 of 2") and pg.is_enabled("#pdf-exportall") and pg.is_disabled("#pdf-exportallstop") and len(downloads) == 0, wait=1500)
+            pg.wait_for_timeout(2500)
+            t.step("Three seconds later still no file was saved", expect=lambda: len(downloads) == 0, wait=800)
+            capdata = big(7, 900)
+            opened("huge.pdf", capdata, 7)
+            view("#pdf-exportall")
+            def cap_click():
+                with pg.expect_download(timeout=60000) as d:
+                    pg.click("#pdf-exportall")
+                txt = open(d.value.path(), encoding="utf-8").read()
+                open(os.path.join(out, "cap.txt"), "w", encoding="utf-8").write(txt[:3000] + "\n[...]\nlength " + str(len(txt)))
+                downloads.append(("cap", txt))
+            t.step("A 7-page file with about 900,000 characters a page: press it, the file stops at the size limit", cap_click, expect=lambda: "It stops after page 6 (size limit)" in status() and len(downloads[-1][1]) < 5100000 and "Page 7 of 7" not in downloads[-1][1] and "Page 6 of 7" in downloads[-1][1], wait=2500)
+        run_tour(ctx, "pdf_alltext_stop", body, notes="Generated PDFs: 1,500 pages (Stop, Close file and open-another-file while reading), then 7 pages of about 900,000 characters (size limit). Headless Chromium 390x844 emulated, one run. Not shown: a file that fails to parse mid-read.", unshown=["thrown error mid-read", "damaged page"])
+
+    g["DRILLS"]["tour_pdf_alltext_stop"] = tour
 
 
 def register_pdf_pages(g):

@@ -70,7 +70,7 @@
   }
   var textBusy = false;
   $("pdf-exporttext").addEventListener("click", function () {
-    if (!doc || textBusy) return;
+    if (!doc || textBusy || allBusy) return;
     var d = doc, p = page, name = $("pdf-name").textContent || "PDF file"; textBusy = true; controls(); fmsg("Reading the text of page " + p + "...");
     d.getPage(p).then(function (pg) { return pg.getTextContent(); }).then(function (tc) {
       if (d !== doc) return;
@@ -96,15 +96,21 @@
     var d = doc, mine = aseq.begin(), name = $("pdf-name").textContent || "PDF file", pages = [], n = 0, used = 0, stopped = 0;
     allBusy = true; $("pdf-exportallstop").disabled = false; controls();
     var live = function () { return aseq.current(mine) && doc === d; };
+    function fail() { if (!live()) return; aseq.begin(); fmsg("Reading the text failed, so nothing was downloaded. The PDF was not changed."); allEnd(); }
     function finish() {
       if (!live()) return;
-      var r = C.allTextFile(name, d.numPages, pages, stopped);
-      if (!r.pagesWithText) { fmsg("No page has text the viewer can read (it may be scanned images), so nothing was downloaded. This is not OCR."); allEnd(); return; }
-      var url = URL.createObjectURL(new Blob([r.text], { type: "text/plain;charset=utf-8" })), a = document.createElement("a");
-      a.href = url; a.download = name.replace(/\.pdf$/i, "").replace(/[^A-Za-z0-9._-]+/g, "_").slice(0, 80) + "-all-text.txt";
-      document.body.appendChild(a); a.click(); a.remove(); setTimeout(function () { URL.revokeObjectURL(url); }, 4000);
-      fmsg("Downloaded the text of " + r.pagesWithText + " of " + d.numPages + " page(s) as one text file." + (r.noText.length ? " " + r.noText.length + " page(s) had no readable text." : "") + (r.failed.length ? " " + r.failed.length + " could not be read." : "") + (r.stoppedAfter ? " It stops after page " + r.stoppedAfter + " (size limit)." : "") + " It is not OCR, and the PDF was not changed.");
-      allEnd();
+      try {
+        var r = C.allTextFile(name, d.numPages, pages, stopped);
+        if (!r.pagesWithText) {
+          fmsg(r.failed.length && !r.noText.length ? "The viewer could not read any page, so nothing was downloaded. The file may be damaged or unsupported. This is not OCR." : "No page has text the viewer can read (it may be scanned images)" + (r.failed.length ? ", and " + r.failed.length + " page(s) could not be read" : "") + ", so nothing was downloaded. This is not OCR.");
+          allEnd(); return;
+        }
+        var url = URL.createObjectURL(new Blob([r.text], { type: "text/plain;charset=utf-8" })), a = document.createElement("a");
+        a.href = url; a.download = name.replace(/\.pdf$/i, "").replace(/[^A-Za-z0-9._-]+/g, "_").slice(0, 80) + "-all-text.txt";
+        document.body.appendChild(a); a.click(); a.remove(); setTimeout(function () { URL.revokeObjectURL(url); }, 4000);
+        fmsg("Downloaded the text of " + r.pagesWithText + " of " + d.numPages + " page(s) as one text file." + (r.noText.length ? " " + r.noText.length + " page(s) had no readable text." : "") + (r.failed.length ? " " + r.failed.length + " could not be read." : "") + (r.stoppedAfter ? " It stops after page " + r.stoppedAfter + " (size limit)." : "") + " It is not OCR, and the PDF was not changed.");
+        allEnd();
+      } catch (x) { fail(); }
     }
     function step() {
       if (!live()) return;
@@ -114,7 +120,7 @@
         if (held) { try { held.cleanup(); } catch (x) { /* already released */ } }
         if (!live()) return;
         var r = C.takeText(tc.items, C.EXPORT_BUDGET); used += r.text.length; pages.push({ n: p, text: r.text, cut: r.cut }); setTimeout(step, 0);
-      }, function () { if (held) { try { held.cleanup(); } catch (x) { /* already released */ } } if (!live()) return; pages.push({ n: p, text: "", cut: false, failed: true }); setTimeout(step, 0); });
+      }, function () { if (held) { try { held.cleanup(); } catch (x) { /* already released */ } } if (!live()) return; pages.push({ n: p, text: "", cut: false, failed: true }); setTimeout(step, 0); }).catch(fail);
     }
     step();
   });
