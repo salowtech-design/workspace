@@ -302,6 +302,7 @@ def register(g):
     register_second_person_views(g, users)
     register_sheets_rules_after(g)
     register_chat_live(g, users)
+    register_password_idle(g, users)
     register_iam_exit_session(g)
     register_pdf_password(g)
     register_pdf_forms(g)
@@ -5504,3 +5505,144 @@ def register_pdf_password(g):
         run_tour(ctx, "92_pdf_password", body, notes="Device-local viewer, secure-context test flag. Headless Chromium 390x844 emulated. Throwaway PDF encrypted with qpdf (AES-256) using a generated password; entry was done in a separate unrecorded browser context, so the recording shows only the prompt, Cancel and the checked results.", unshown=["typing a password (off camera by design)", "the opened pages in the unrecorded window", "copy, split or merge of an encrypted file (covered by a drill, not filmed)"])
 
     g["DRILLS"]["tour_pdf_password"] = tour
+
+
+def register_password_idle(g, users):
+    APP = g["APP"]
+
+    def tour(ctx):
+        import concurrent.futures
+        import secrets as _secrets
+        import time as _time
+
+        import pyotp
+
+        users(ctx)
+        pw_old = _secrets.token_urlsafe(18) + "aA1!"
+        pw_new = _secrets.token_urlsafe(18) + "bB2#"
+        pw_bad = _secrets.token_urlsafe(12) + "cC3$"
+        sec = pyotp.random_base32(length=32)
+        res = {"last": 0}
+
+        def db(fn):
+            with concurrent.futures.ThreadPoolExecutor(1) as ex:
+                return ex.submit(fn).result()
+
+        def make():
+            from django.contrib.auth.hashers import make_password
+            from django.utils import timezone
+
+            from apps.accounts.auth.mfa_totp import encrypt_secret, get_auth_key_ring
+            from apps.accounts.models import CustomUser, TOTPCredential
+
+            two = CustomUser.objects.get(employee_id="ST-LIVE-2")
+            two.password = make_password(pw_old)
+            two.save(update_fields=["password"])
+            ct, nonce, key_id = encrypt_secret(sec, get_auth_key_ring())
+            TOTPCredential.objects.create(user=two, encrypted_secret=ct, nonce=nonce, key_id=key_id, confirmed_at=timezone.now())
+
+        def check_pw():
+            from apps.accounts.models import CustomUser
+
+            u = CustomUser.objects.get(employee_id="ST-LIVE-2")
+            return u.check_password(pw_new), u.check_password(pw_old)
+
+        db(make)
+        errs, remote, guard = ctx.salow_hooks
+
+        def sign_in():
+            c = ctx.browser.new_context(viewport={"width": 390, "height": 844})
+            c.route("**/*", guard)
+            q = c.new_page()
+            q.goto(APP + "/sign-in/")
+            q.wait_for_timeout(800)
+            q.click("#btn-signin")
+            q.wait_for_timeout(500)
+            q.fill("#employee_id", "ST-LIVE-2")
+            q.fill("#password", pw_old)
+            tt = pyotp.TOTP(sec)
+            while int(_time.time() // 30) <= res["last"]:
+                _time.sleep(1.0)
+            left = tt.interval - (_time.time() % tt.interval)
+            if left < 5:
+                _time.sleep(left + 0.5)
+            q.fill("#totp_code", tt.now())
+            res["last"] = int(_time.time() // 30)
+            q.click("#confirm-btn")
+            q.wait_for_load_state()
+            q.wait_for_timeout(1500)
+            return c, q
+
+        def body(t, pg):
+            def off_camera():
+                ca, qa = sign_in()
+                cb, qb = sign_in()
+                qa.goto(APP + "/auth/security/")
+                qb.goto(APP + "/auth/security/")
+                res["a_pre"], res["b_pre"] = qa.url, qb.url
+                res["a_has"] = "Change Password" in qa.inner_text("body") or "Security" in qa.inner_text("body")
+                res["signed_in"] = bool(res["a_has"]) and "sign-in" not in qa.url and "sign-in" not in qb.url and qb.url.rstrip("/").endswith("security")
+                print("password tour sign-in urls:", res["a_pre"], res["b_pre"], res["signed_in"], flush=True)
+                try:
+                    if not res["signed_in"]:
+                        qa.screenshot(path="/downloads/93_debug_a.png")
+                        return
+                    qa.goto(APP + "/auth/security/password/change/")
+                    qa.fill("#current_password", pw_old)
+                    qa.fill("#new_password", pw_new)
+                    qa.fill("#confirm_password", pw_new)
+                    qa.click("form:has(#new_password) button[type=submit]")
+                    qa.wait_for_load_state()
+                    qa.wait_for_timeout(1000)
+                    res["change_msg"] = qa.inner_text("body")
+                    def _probe():
+                        from apps.accounts.models import CustomUser as _CU
+                        from apps.accounts.models import UserSession as _US
+
+                        u = _CU.objects.get(employee_id="ST-LIVE-2")
+                        return u.check_password(pw_new), u.check_password(pw_old), _US.objects.filter(user=u).count()
+                    print("password tour db after change (new ok, old ok, sessions left):", db(_probe), flush=True)
+                    print("password tour after change:", qa.url, "|", " ".join(res["change_msg"].split())[:160], flush=True)
+                    res["a_url"] = qa.url
+                    qa.screenshot(path="/downloads/93_unrecorded_password_changed.png")
+                    res["new_ok"], res["old_ok"] = db(check_pw)
+                    qb.goto(APP + "/auth/security/")
+                    qb.wait_for_timeout(800)
+                    res["b_url"] = qb.url
+                    qb.screenshot(path="/downloads/93_unrecorded_other_session_after_change.png")
+                    qa.goto(APP + "/auth/security/idle-lock/?next=/auth/security/")
+                    qa.wait_for_timeout(600)
+                    res["lock_text"] = qa.inner_text("body")
+                    qa.fill("#password", pw_bad)
+                    qa.click("form[action$='idle-unlock/'] button[type=submit]")
+                    qa.wait_for_load_state()
+                    qa.wait_for_timeout(600)
+                    res["bad_text"] = qa.inner_text("body")
+                    res["bad_box_empty"] = qa.input_value("#password") == ""
+                    qa.screenshot(path="/downloads/94_unrecorded_wrong_password_unlock.png")
+                    qa.fill("#password", pw_new)
+                    qa.click("form[action$='idle-unlock/'] button[type=submit]")
+                    qa.wait_for_load_state()
+                    qa.wait_for_timeout(800)
+                    res["unlock_url"] = qa.url
+                    res["unlock_text"] = qa.inner_text("body")
+                    qa.screenshot(path="/downloads/94_unrecorded_unlocked.png")
+                    qa.goto(APP + "/auth/security/")
+                    res["after_unlock_url"] = qa.url
+                finally:
+                    ca.close()
+                    cb.close()
+
+            pg.goto(APP + "/auth/security/")
+            t.note("Password change and idle unlock use a synthetic account (ST-LIVE-2). Every password and code is typed only in separate unrecorded windows by script. This recording shows only the starting page. The results are automated captures from those windows, with real screenshots saved separately.", 3)
+            t.step("Off camera: sign in twice as the synthetic account, change the password, then lock and unlock (script only)", off_camera, expect=lambda: res.get("signed_in") is True and "unlock_url" in res, wait=500)
+            t.step("Automated result: the page said the password was changed and all other sessions were revoked", expect=lambda: "Your password was changed successfully. All other active sessions have been revoked." in res.get("change_msg", ""), wait=2000)
+            t.step("Automated result: the new password is stored and the old one no longer works", expect=lambda: res.get("new_ok") is True and res.get("old_ok") is False, wait=2000)
+            t.step("Automated result: the other signed-in window was sent to sign in", expect=lambda: "b_url" in res and not res["b_url"].rstrip("/").endswith("security"), wait=2000)
+            t.step("Automated result: wrong password on the lock screen shows 'Incorrect password entered.' and the box is empty", expect=lambda: "Incorrect password entered." in res.get("bad_text", "") and res.get("bad_box_empty") is True, wait=2000)
+            t.step("Automated result: the new password unlocks and the security page opens", expect=lambda: "after_unlock_url" in res and res["after_unlock_url"].rstrip("/").endswith("security") and "idle-unlock" not in res["unlock_url"], wait=2000)
+            t.step("Checked by script: no password appears in the final page text of the two result pages", expect=lambda: all(k in res for k in ("change_msg", "bad_text", "unlock_text", "lock_text")) and all(p not in res[k] for p in (pw_old, pw_new, pw_bad) for k in ("change_msg", "bad_text", "unlock_text", "lock_text")), wait=1500)
+
+        run_tour(ctx, "93_password_change_idle_unlock", body, notes="Real Django on TiDB under uvicorn, headless Chromium 390x844 emulated. Synthetic account, generated passwords, typed only in unrecorded windows. Recording shows only the start page; results are automated captures with real screenshots.", unshown=["typing any password (off camera)", "other roles", "step-up or MFA re-enrolment after a password change"])
+
+    g["DRILLS"]["tour_password_idle"] = tour
