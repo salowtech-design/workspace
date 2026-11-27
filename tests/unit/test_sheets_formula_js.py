@@ -87,3 +87,15 @@ def test_freeze_table_passes_in_node():
     )
     assert r.returncode == 0, r.stdout + r.stderr
     assert "12/12 freeze rows passed" in r.stdout
+
+
+def test_versions_table_passes_in_node():
+    assert shutil.which("node"), "node is required to run the versions table"
+    r = subprocess.run(  # noqa: S603 - fixed argv, repo-owned script
+        [shutil.which("node"), str(ROOT / "tests/js/sheets_versions.js")],
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert "20/20 version rows passed" in r.stdout

@@ -683,6 +683,37 @@
     });
     return { groups: out, skipped: skipped, rows: rows };
   }
-  var api = { structApply: structApply, structRecover: structRecover, structRecovery: structRecovery, structRecoveryInfo: structRecoveryInfo, structEdit: structEdit, structRange: structRange, fillRange: fillRange, findReplace: findReplace, parseRange: parseRange, makeRule: makeRule, addRule: addRule, removeRule: removeRule, loadRules: loadRules, rulesJson: rulesJson, checkValue: checkValue, makePivot: makePivot, pivot: pivot, MAX_GROUPS: MAX_GROUPS, makeCf: makeCf, addCf: addCf, loadCf: loadCf, cfJson: cfJson, cfColor: cfColor, parsePaste: parsePaste, loadFreeze: loadFreeze, freezeJson: freezeJson, parseFreeze: parseFreeze, MAX_FREEZE: MAX_FREEZE, parseCsv: parseCsv, csvImport: csvImport, isBlock: isBlock, applyPaste: applyPaste, MAX_PASTE_CELLS: MAX_PASTE_CELLS, makeFmt: makeFmt, addFmt: addFmt, loadFmt: loadFmt, fmtJson: fmtJson, fmtFor: fmtFor, fmtText: fmtText, MAX_FMT: MAX_FMT, MAX_RULES: MAX_RULES, loadTabs: loadTabs, addTab: addTab, markFmt: markFmt, renameTab: renameTab, deleteTab: deleteTab, setActive: setActive, cleanName: cleanName, MAX_TABS: MAX_TABS, sortRange: sortRange, filterRows: filterRows, toNum: toNum, toCsv: toCsv, clean: clean, History: History, chartPoints: chartPoints, pieSlices: pieSlices, isComposing: isComposing, keyMove: keyMove, copy: copy, same: same };
+  // ---- Named versions of one tab, kept in this browser only. A version is the four stored texts of the tab (cells, validation, colour and format rules) exactly as stored.
+  // Nothing about tab names, the freeze setting, the chart or the filter is in it. Not a backup: it lives in the same browser storage as the tab.
+  var MAX_VERS = 5, MAX_VER_NAME = 40, MAX_VER_BYTES = 1500000;
+  function verName(raw) { var n = String(raw === undefined || raw === null ? "" : raw).replace(/\s+/g, " ").trim(); return n.length >= 1 && n.length <= MAX_VER_NAME ? n : null; }
+  function verNameTaken(items, name, exceptIndex) { var l = name.toLowerCase(); return items.some(function (v, i) { return i !== exceptIndex && v.n.toLowerCase() === l; }); }
+  function loadVers(raw) {
+    if (raw === null || raw === undefined) return { items: [], unreadable: false };
+    var j = null; try { j = JSON.parse(raw); } catch (e) { return { items: [], unreadable: true }; }
+    if (!j || j.v !== 1 || !Array.isArray(j.items) || j.items.length > MAX_VERS) return { items: [], unreadable: true };
+    var out = [];
+    for (var i = 0; i < j.items.length; i++) {
+      var v = j.items[i];
+      if (!v || typeof v.n !== "string" || verName(v.n) !== v.n || !Array.isArray(v.k) || v.k.length !== 4) return { items: [], unreadable: true };
+      for (var q = 0; q < 4; q++) if (!(v.k[q] === null || (typeof v.k[q] === "string" && v.k[q].length <= MAX_VER_BYTES))) return { items: [], unreadable: true };
+      if (verNameTaken(out, v.n, -1)) return { items: [], unreadable: true };
+      out.push({ n: v.n, k: v.k.slice() });
+    }
+    return { items: out, unreadable: false };
+  }
+  function versJson(items) { return items.length ? JSON.stringify({ v: 1, items: items }) : null; }
+  // Adds a version. Returns { items } or { error }. The four texts are what is stored now.
+  function addVer(items, name, k) {
+    var n = verName(name); if (n === null) return { error: "Give the version a name of 1 to " + MAX_VER_NAME + " characters." };
+    if (items.length >= MAX_VERS) return { error: "A tab keeps up to " + MAX_VERS + " versions. Delete one first." };
+    if (verNameTaken(items, n, -1)) return { error: "A version with that name already exists on this tab. Pick another name." };
+    var next = items.map(function (v) { return { n: v.n, k: v.k.slice() }; }); next.push({ n: n, k: k.slice() });
+    if (JSON.stringify({ v: 1, items: next }).length > MAX_VER_BYTES) return { error: "The sheet is too large to keep as a version (over " + MAX_VER_BYTES + " characters stored)." };
+    return { items: next };
+  }
+  function dropVer(items, index) { if (index < 0 || index >= items.length) return null; return items.filter(function (v, i) { return i !== index; }).map(function (v) { return { n: v.n, k: v.k.slice() }; }); }
+
+  var api = { loadVers: loadVers, versJson: versJson, addVer: addVer, dropVer: dropVer, verName: verName, MAX_VERS: MAX_VERS, structApply: structApply, structRecover: structRecover, structRecovery: structRecovery, structRecoveryInfo: structRecoveryInfo, structEdit: structEdit, structRange: structRange, fillRange: fillRange, findReplace: findReplace, parseRange: parseRange, makeRule: makeRule, addRule: addRule, removeRule: removeRule, loadRules: loadRules, rulesJson: rulesJson, checkValue: checkValue, makePivot: makePivot, pivot: pivot, MAX_GROUPS: MAX_GROUPS, makeCf: makeCf, addCf: addCf, loadCf: loadCf, cfJson: cfJson, cfColor: cfColor, parsePaste: parsePaste, loadFreeze: loadFreeze, freezeJson: freezeJson, parseFreeze: parseFreeze, MAX_FREEZE: MAX_FREEZE, parseCsv: parseCsv, csvImport: csvImport, isBlock: isBlock, applyPaste: applyPaste, MAX_PASTE_CELLS: MAX_PASTE_CELLS, makeFmt: makeFmt, addFmt: addFmt, loadFmt: loadFmt, fmtJson: fmtJson, fmtFor: fmtFor, fmtText: fmtText, MAX_FMT: MAX_FMT, MAX_RULES: MAX_RULES, loadTabs: loadTabs, addTab: addTab, markFmt: markFmt, renameTab: renameTab, deleteTab: deleteTab, setActive: setActive, cleanName: cleanName, MAX_TABS: MAX_TABS, sortRange: sortRange, filterRows: filterRows, toNum: toNum, toCsv: toCsv, clean: clean, History: History, chartPoints: chartPoints, pieSlices: pieSlices, isComposing: isComposing, keyMove: keyMove, copy: copy, same: same };
   if (typeof module !== "undefined" && module.exports) module.exports = api; else root.SalowSheetModel = api;
 })(typeof self !== "undefined" ? self : this);

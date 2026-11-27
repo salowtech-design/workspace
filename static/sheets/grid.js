@@ -69,7 +69,7 @@
   var barRow = document.getElementById("sheet-barrow");
   function setBarH() { if (barRow) root.style.setProperty("--sheet-bar-h", barRow.offsetHeight + "px"); }
   setBarH(); window.addEventListener("resize", function () { setBarH(); }); if (window.ResizeObserver && barRow) new ResizeObserver(function () { setBarH(); placeFreeze(); }).observe(barRow);
-  function sync() { cells = H.cells; reloadRules(); reloadCf(); reloadFmt(); if (typeof clearPivot === "function") clearPivot(); show(); refreshSelected(); buttons(); drawChart(); applyFilter(); if (typeof applyFreeze === "function") applyFreeze(); status.textContent = H.note; }
+  function sync() { cells = H.cells; reloadRules(); reloadCf(); reloadFmt(); if (typeof clearPivot === "function") clearPivot(); show(); refreshSelected(); buttons(); drawChart(); applyFilter(); if (typeof applyFreeze === "function") applyFreeze(); if (typeof renderVers === "function") renderVers(); status.textContent = H.note; }
   // After any whole-sheet change (import, undo, redo, fill, sort, clear, tab switch) the focused cell and the formula bar must show the new content, not what was there before. A focused cell is refreshed here too, so a later blur cannot write the old text back. The formula bar keeps what the user typed in it (barDirty) and is refreshed when untouched.
   var barDirty = false;
   function refreshSelected() {
@@ -609,10 +609,10 @@
     if (!saveMeta(next)) { tabMsg.textContent = "This browser would not store the tab list, so nothing was changed."; return false; }
     meta = next; return true;
   }
-  var EXTRAS = [{ key: rulesKey, load: M.loadRules, label: "validation rules" }, { key: cfKey, load: M.loadCf, label: "colour rules" }, { key: fmtKey, load: M.loadFmt, label: "format rules" }];
+  var EXTRAS = [{ key: rulesKey, load: M.loadRules, label: "validation rules" }, { key: cfKey, load: M.loadCf, label: "colour rules" }, { key: fmtKey, load: M.loadFmt, label: "format rules" }, { key: verKey, load: M.loadVers, label: "saved versions" }];
   // an id that still has a stored freeze entry (for example when removing it failed) is never handed out again, so a new tab cannot inherit it
   function freezeHas(id) { var raw = localStorage.getItem(fzKey); return raw !== null && raw.indexOf("\"" + id + "\":") >= 0; }
-  function keyUsed(id) { try { return localStorage.getItem(tabKey(id)) !== null || localStorage.getItem(rulesKey(id)) !== null || localStorage.getItem(cfKey(id)) !== null || localStorage.getItem(fmtKey(id)) !== null || localStorage.getItem(bakKeyOf(id)) !== null || freezeHas(id); } catch (e) { return true; } }
+  function keyUsed(id) { try { return localStorage.getItem(tabKey(id)) !== null || localStorage.getItem(rulesKey(id)) !== null || localStorage.getItem(cfKey(id)) !== null || localStorage.getItem(fmtKey(id)) !== null || localStorage.getItem(bakKeyOf(id)) !== null || freezeHas(id) || localStorage.getItem(verKey(id)) !== null; } catch (e) { return true; } }
   function renderTabs() {
     tabBar.textContent = "";
     meta.tabs.forEach(function (t) {
@@ -797,6 +797,99 @@
     chartRange = null; out.textContent = ""; sync(); status.textContent = (redo ? "Redone" : "Undone") + ". The chart and pivot were cleared." + (r.bakLeft ? " The recovery copy could not be removed and is still there." : ""); if (r.bakLeft) renderRecovery();
   }
   ["row-ins", "row-del", "col-ins", "col-del"].forEach(function (id) { var b = $(id); if (b) b.addEventListener("click", function () { structGo(id.slice(0, 3) === "row" ? "row" : "col", id.slice(4) === "ins" ? "insert" : "delete"); }); });
+  // ---- Named versions of this tab (model in model.js). Kept in this browser only, next to the tab's own stored items. Not a backup. ----
+  function verKey(id) { return tabKey(id) + ".ver"; }
+  var verItems = [], verLocked = false, verRaw = null, verSig = null, verList = $("ver-list"), verStat = $("ver-status");
+  function readVers() {
+    var raw = null; try { raw = localStorage.getItem(verKey(meta.active)); } catch (e) { verItems = []; verLocked = true; verRaw = null; return false; }
+    var l = M.loadVers(raw); verItems = l.items; verLocked = l.unreadable; verRaw = raw; return true;
+  }
+  function verInfo(v) {
+    var bits = [], st = null; try { st = v.k[0] === null ? { count: 0 } : clean(JSON.parse(v.k[0])); } catch (e) { st = null; }
+    bits.push(st ? st.count + " cells" : "cells unreadable");
+    [[1, M.loadRules, "validation"], [2, M.loadCf, "colour"], [3, M.loadFmt, "format"]].forEach(function (x) { var l = v.k[x[0]] === null ? { rules: [], unreadable: false } : x[1](v.k[x[0]], F.parseAddr); bits.push(l.unreadable ? x[2] + " rules unreadable" : l.rules.length + " " + x[2] + " rules"); });
+    return bits.join(", ");
+  }
+  function renderVers() {
+    if (!verList) return; readVers(); var sig = meta.active + "|" + verLocked + "|" + verRaw; if (sig === verSig) return; verSig = sig; verList.textContent = "";
+    if (verLocked) { var u = document.createElement("li"); u.textContent = "The saved versions for this tab could not be read, so they were left untouched and saving or deleting versions is off."; verList.appendChild(u); return; }
+    if (!verItems.length) { var z = document.createElement("li"); z.textContent = "No saved versions on this tab."; verList.appendChild(z); return; }
+    verItems.forEach(function (v, i) {
+      var li = document.createElement("li"), t = document.createElement("span"), b1 = document.createElement("button"), b2 = document.createElement("button");
+      t.textContent = (i + 1) + ". " + v.n + ": " + verInfo(v) + " "; b1.type = "button"; b1.className = "btn"; b1.textContent = "Restore"; b1.setAttribute("aria-label", "Restore the version " + v.n); b2.type = "button"; b2.className = "btn"; b2.textContent = "Delete"; b2.setAttribute("aria-label", "Delete the version " + v.n);
+      b1.addEventListener("click", function () { verRestore(i, v.n); }); b2.addEventListener("click", function () { verDelete(i, v.n); });
+      li.appendChild(t); li.appendChild(b1); li.appendChild(document.createTextNode(" ")); li.appendChild(b2); verList.appendChild(li);
+    });
+  }
+  // The stored four texts of this tab, but only when they are exactly what this page shows. Otherwise a message and null.
+  function verCurrent(what) {
+    var id = meta.active;
+    if (heldMsg()) { verStat.textContent = status.textContent; return null; }
+    if (tabsLocked || unreadableTabs[id]) { verStat.textContent = "The stored cells or tab list could not be read, so nothing was " + what + ". Nothing changed."; return null; }
+    if (!tabStillListed(id)) { verStat.textContent = "This tab was deleted or changed in another window, so nothing was " + what + ". Reload this page."; return null; }
+    var seen = JSON.stringify([rules, cfRules, fmtRules]); reloadRules(); reloadCf(); reloadFmt();
+    if (rulesLocked || cfLocked || fmtLocked || JSON.stringify([rules, cfRules, fmtRules]) !== seen) { verStat.textContent = "This tab's validation, colour or format rules were changed in another window or could not be read, so nothing was " + what + ". Reload this page."; return null; }
+    var rc = null; try { rc = localStorage.getItem(tabKey(id)); } catch (e) { verStat.textContent = "This browser would not read the stored cells, so nothing was " + what + "."; return null; }
+    var okCells = rc === null ? !Object.keys(H.cells).length : (function () { try { var st0 = clean(JSON.parse(rc)); return !!st0 && sameCells(st0.cells, H.cells); } catch (e) { return false; } })();
+    if (!okCells) { verStat.textContent = "The stored cells differ from what this page shows (not saved on this device, or changed in another window), so nothing was " + what + "."; return null; }
+    return [rc, rulesRaw, cfRaw, fmtRaw];
+  }
+  function verFresh(what) {
+    var before = verRaw, before2 = verLocked; readVers();
+    if (verLocked) { verStat.textContent = "The saved versions for this tab could not be read, so nothing was " + what + ". They were left untouched."; return false; }
+    if (verRaw !== before) { verSig = null; renderVers(); verStat.textContent = "The saved versions were changed in another window, so nothing was " + what + ". The list now shows what is stored."; return false; }
+    return true;
+  }
+  function verWrite(items) {
+    var key = verKey(meta.active), old = verRaw, j = M.versJson(items);
+    try { if (j === null) localStorage.removeItem(key); else localStorage.setItem(key, j); } catch (e) { return false; }
+    var back = null; try { back = localStorage.getItem(key); } catch (e) { back = undefined; }
+    if (back === j) return true;
+    try { if (old === null) localStorage.removeItem(key); else localStorage.setItem(key, old); } catch (e) { /* the list is read back on the next render */ }
+    return false;
+  }
+  $("ver-save").addEventListener("click", function () {
+    if (verLocked) { verStat.textContent = "The saved versions for this tab could not be read, so saving is off. They were left untouched."; return; }
+    var k = verCurrent("saved"); if (!k) return; if (!verFresh("saved")) return;
+    var r = M.addVer(verItems, $("ver-name").value, k); if (r.error) { verStat.textContent = r.error + " Nothing was saved."; return; }
+    if (!verWrite(r.items)) { verSig = null; renderVers(); verStat.textContent = "This browser would not store the version, so nothing was saved. Your cells, rules and earlier versions are unchanged."; return; }
+    var nm = r.items[r.items.length - 1].n; $("ver-name").value = ""; verSig = null; renderVers();
+    verStat.textContent = "Saved the version " + nm + ": " + verInfo(r.items[r.items.length - 1]) + ". It is kept in this browser only, with this tab.";
+  });
+  function verDelete(i, name) {
+    if (verLocked) { verStat.textContent = "The saved versions for this tab could not be read, so deleting is off. They were left untouched."; return; }
+    if (!verFresh("deleted")) return; if (!verItems[i] || verItems[i].n !== name) { verSig = null; renderVers(); verStat.textContent = "That version is no longer in the list. Nothing was deleted."; return; }
+    var tab = meta.active, hh = H;
+    if (!window.confirm("Delete the saved version " + name + "? It cannot be brought back. Your current cells and rules are not changed.")) { verStat.textContent = "Delete cancelled. Nothing was changed."; return; }
+    if (meta.active !== tab || H !== hh) { verStat.textContent = "The tab changed while the question was open, so nothing was deleted."; return; }
+    if (!verFresh("deleted")) return; var nx = M.dropVer(verItems, i); if (!nx || verItems[i].n !== name) { verStat.textContent = "That version is no longer in the list. Nothing was deleted."; return; }
+    if (!verWrite(nx)) { verSig = null; renderVers(); verStat.textContent = "This browser would not update the saved versions, so nothing was deleted."; return; }
+    verSig = null; renderVers(); verStat.textContent = "Deleted the version " + name + ".";
+  }
+  function verRestore(i, name) {
+    var id = meta.active;
+    if (filt) { verStat.textContent = "A filter is on, so nothing was restored (it would also change rows you cannot see). Clear the filter first."; return; }
+    if (verLocked) { verStat.textContent = "The saved versions for this tab could not be read, so restoring is off. They were left untouched."; return; }
+    var cur4 = verCurrent("restored"); if (!cur4) return; if (!verFresh("restored")) return;
+    var v = verItems[i]; if (!v || v.n !== name) { verSig = null; renderVers(); verStat.textContent = "That version is no longer in the list. Nothing was restored."; return; }
+    var st = null; try { st = v.k[0] === null ? { cells: Object.create(null), count: 0 } : clean(JSON.parse(v.k[0])); } catch (e) { st = null; }
+    var rl = v.k[1] === null ? { unreadable: false } : M.loadRules(v.k[1], F.parseAddr), cl = v.k[2] === null ? { unreadable: false } : M.loadCf(v.k[2], F.parseAddr), fl = v.k[3] === null ? { unreadable: false } : M.loadFmt(v.k[3], F.parseAddr);
+    if (!st || rl.unreadable || cl.unreadable || fl.unreadable) { verStat.textContent = "The version " + name + " holds stored text this page cannot read, so nothing was restored. Your tab was not changed."; return; }
+    if (JSON.stringify(cur4) === JSON.stringify(v.k)) { verStat.textContent = "This tab is already exactly the version " + name + ". Nothing was changed."; return; }
+    var have = Object.keys(H.cells).length, hh = H;
+    if (!window.confirm("Restore the version " + name + " (" + verInfo(v) + ")? This replaces the " + have + " cells in this tab and its validation, colour and format rules with the saved ones. Undo works until you reload this page, and your saved versions are kept.")) { verStat.textContent = "Restore cancelled. Nothing was changed."; return; }
+    if (meta.active !== id || H !== hh) { verStat.textContent = "The tab changed while the question was open, so nothing was restored."; return; }
+    var again = verCurrent("restored"); if (!again || JSON.stringify(again) !== JSON.stringify(cur4)) { if (again) verStat.textContent = "This tab changed while the question was open, so nothing was restored."; return; }
+    if (!verFresh("restored")) return;
+    var r = M.structApply(localStorage, structKeys(id), bakKeyOf(id), cur4, v.k);
+    if (r.status !== "done") { structFail(r, "restore"); verStat.textContent = status.textContent; return; }
+    H.recordExternal(st.cells, { before: cur4, after: v.k.slice() }, "");
+    chartRange = null; out.textContent = ""; sync();
+    status.textContent = "Restored the version " + name + ": " + verInfo(v) + ". Undo works until you reload this page." + (r.bakLeft ? " The recovery copy could not be removed and is still there." : ""); verStat.textContent = status.textContent;
+    if (r.bakLeft) renderRecovery();
+  }
+  renderVers();
+
   renderRecovery();
   status.textContent = H.note;
   if (heldTab() !== null) status.textContent = "A change to rows or columns did not finish. See the notice above.";

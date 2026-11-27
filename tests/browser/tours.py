@@ -326,6 +326,7 @@ def register(g):
     register_pdf_alltext(g)
     register_sheets_csv_import(g)
     register_sheets_freeze(g)
+    register_sheets_versions(g)
     register_pdf_alltext_stop(g)
     register_pdf_roundtrip(g)
     register_slides_order_recovery(g)
@@ -5526,6 +5527,81 @@ def register_sheets_freeze(g):
         run_tour(ctx, "sheets_freeze", body, notes="Headless Chromium 390x844 emulated, one run. Pinning is measured from element positions after scrolling and shown in the frames. Not shown: rename, Export and Import leaving the setting alone, damaged stored setting.", unshown=["rename", "export and import", "damaged setting"])
 
     g["DRILLS"]["tour_sheets_freeze"] = tour
+
+
+def register_sheets_versions(g):
+    APP = g["APP"]
+
+    def tour(ctx):
+        val = lambda pg, a: pg.input_value('input[data-addr="%s"]' % a)
+        cell = lambda a: 'input[data-addr="%s"]' % a
+
+        def body(t, pg):
+            dlg = {"accept": True, "msgs": []}
+            pg.on("dialog", lambda d: (dlg["msgs"].append(d.message), d.accept() if dlg["accept"] else d.dismiss()))
+            pg.goto(APP + "/sheets/")
+            pg.evaluate("localStorage.clear()")
+            pg.goto(APP + "/sheets/")
+            pg.wait_for_timeout(500)
+            vs = lambda: pg.inner_text("#ver-status")
+            lis = lambda: pg.locator("#ver-list li").count()
+            vkeys = lambda: pg.evaluate("Object.keys(localStorage).filter(k=>k.endsWith('.ver'))")
+            show = lambda: pg.evaluate("document.getElementById('ver-save').scrollIntoView({block:'center'})")
+            put = lambda a, v: (pg.click(cell(a)), pg.keyboard.type(v), pg.keyboard.press("Enter"))
+            grid = lambda: pg.evaluate("()=>{document.getElementById('sheet-root').scrollIntoView({block:'start'});scrollBy(0,-(document.getElementById('sheet-barrow').getBoundingClientRect().height+6))}")
+            for a, v in (("A1", "10"), ("A2", "20"), ("A3", "=A1+A2")):
+                put(a, v)
+            pg.fill("#fmt-range", "A1:A3"); pg.select_option("#fmt-bold", "on"); pg.click("#fmt-add"); pg.wait_for_timeout(400)
+            t.step("Start: A1 10, A2 20, A3 =A1+A2 shows 30, and one format rule (bold on A1:A3)", expect=lambda: val(pg, "A3") == "30" and pg.locator("#fmt-list li").count() == 1, wait=2500)
+            show()
+            pg.fill("#ver-name", "Draft one"); pg.click("#ver-save"); pg.wait_for_timeout(400)
+            t.step("Save a version named Draft one: the list shows it with 3 cells, 0 validation rules, 0 colour rules, 1 format rules", expect=lambda: lis() == 1 and "Saved the version Draft one: 3 cells, 0 validation rules, 0 colour rules, 1 format rules" in vs() and "Draft one: 3 cells, 0 validation rules, 0 colour rules, 1 format rules" in pg.inner_text("#ver-list"), wait=3000)
+            put("A1", "99"); pg.locator("#fmt-list button").first.click(); pg.wait_for_timeout(400)
+            t.step("Change the tab: A1 99 so A3 shows 119, and remove the format rule", expect=lambda: val(pg, "A3") == "119" and pg.locator("#fmt-list li").count() == 0, wait=2500)
+            t.step("The grid now: A1 99, A2 20, A3 119", lambda: grid(), expect=lambda: val(pg, "A1") == "99" and val(pg, "A3") == "119", wait=2500)
+            show(); pg.fill("#ver-name", ""); pg.click("#ver-save"); pg.wait_for_timeout(300)
+            msg1 = vs(); pg.fill("#ver-name", "draft ONE"); pg.click("#ver-save"); pg.wait_for_timeout(300)
+            t.step("A blank name and a repeated name (different capitals) are refused and the list still has 1 version", expect=lambda: "Give the version a name" in msg1 and "already exists" in vs() and lis() == 1, wait=3000)
+            dlg["accept"] = False; dlg["msgs"].clear(); pg.locator("#ver-list button", has_text="Restore").first.click(); pg.wait_for_timeout(400)
+            t.step("Restore, then Cancel in the question: nothing changes (A1 stays 99, rule stays removed)", expect=lambda: "Restore cancelled" in vs() and val(pg, "A1") == "99" and pg.locator("#fmt-list li").count() == 0 and len(dlg["msgs"]) == 1 and "Draft one" in dlg["msgs"][0] and "3 cells" in dlg["msgs"][0], wait=3000)
+            dlg["accept"] = True; dlg["msgs"].clear(); pg.locator("#ver-list button", has_text="Restore").first.click(); pg.wait_for_timeout(600)
+            t.step("Restore and confirm: A1 is 10 again, A3 shows 30 and the format rule is back", expect=lambda: val(pg, "A1") == "10" and val(pg, "A3") == "30" and pg.locator("#fmt-list li").count() == 1 and "Restored the version Draft one" in vs() and lis() == 1, wait=3000)
+            t.step("The grid after Restore: A1 10, A2 20, A3 30", lambda: grid(), expect=lambda: val(pg, "A1") == "10" and val(pg, "A3") == "30", wait=2500)
+            pg.click("#sheet-undo"); pg.wait_for_timeout(500)
+            t.step("The grid after Undo: A1 99, A3 119", lambda: grid(), expect=lambda: val(pg, "A1") == "99" and val(pg, "A3") == "119", wait=2500)
+            t.step("Undo brings the pre-restore tab back: A1 99, A3 119 and no format rule; the saved version is still listed", expect=lambda: val(pg, "A1") == "99" and val(pg, "A3") == "119" and pg.locator("#fmt-list li").count() == 0 and lis() == 1, wait=3000)
+            pg.evaluate("()=>{ window.__realSet = Storage.prototype.setItem; Storage.prototype.setItem = function (k, v) { if (String(k).endsWith('.ver')) throw new Error('quota'); return window.__realSet.call(this, k, v); }; }")
+            show(); pg.fill("#ver-name", "Second"); pg.click("#ver-save"); pg.wait_for_timeout(400)
+            ok_fail = "would not store the version, so nothing was saved" in vs() and lis() == 1 and val(pg, "A1") == "99"
+            pg.evaluate("()=>{ Storage.prototype.setItem = window.__realSet; }")
+            t.step("Storage refuses the write (quota simulated for the versions key only): the message says nothing was saved, the list still has 1 version and the cells are unchanged", expect=lambda: ok_fail, wait=3000)
+            pg.click("#tab-add"); pg.wait_for_timeout(500); show()
+            t.step("A new tab has its own list: no saved versions there", expect=lambda: "No saved versions on this tab" in pg.inner_text("#ver-list") and lis() == 1, wait=3000)
+            pg.fill("#ver-name", "T2 keep"); pg.click("#ver-save"); pg.wait_for_timeout(400)
+            n2 = len(vkeys())
+            pg.evaluate("document.getElementById('tab-del').scrollIntoView({block:'center'})"); pg.click("#tab-del"); pg.wait_for_timeout(600)
+            gone = len(vkeys()) == 1
+            pg.click("#tab-restore"); pg.wait_for_timeout(700); show()
+            t.step("Save a version on the new tab, delete that tab (its stored versions go with it), then Restore deleted tab: the version is back on it", expect=lambda: n2 == 2 and gone and len(vkeys()) == 2 and "T2 keep" in pg.inner_text("#ver-list") and lis() == 1, wait=3000)
+            pg.reload(); pg.wait_for_timeout(600); show()
+            t.step("After a reload the second tab still lists its own version T2 keep and not Draft one", expect=lambda: "T2 keep" in pg.inner_text("#ver-list") and "Draft one" not in pg.inner_text("#ver-list") and lis() == 1, wait=2500)
+            pg.locator("#sheet-tabs button", has_text="Sheet 1").first.click(); pg.wait_for_timeout(500); show()
+            t.step("First tab: Draft one is still listed after the reload", expect=lambda: "Draft one" in pg.inner_text("#ver-list") and lis() == 1, wait=3000)
+            vk = vkeys()[0]; real = pg.evaluate("k=>localStorage.getItem(k)", vk)
+            pg.evaluate("a=>localStorage.setItem(a[0], JSON.stringify({v:1,items:[{n:'Other window',k:['{\"A1\":\"5\"}',null,null,null]}]}))", [vk])
+            dlg["msgs"].clear(); pg.locator("#ver-list button", has_text="Restore").first.click(); pg.wait_for_timeout(500)
+            t.step("Another window changed the saved versions after this page listed them: Restore is refused as stale, the list refreshes to Other window, and A1 is unchanged", expect=lambda: "changed in another window" in vs() and "Other window" in pg.inner_text("#ver-list") and val(pg, "A1") == "99" and not dlg["msgs"], wait=3000)
+            pg.evaluate("a=>localStorage.setItem(a[0], '{bad')", [vk]); pg.evaluate("document.getElementById('ver-save').scrollIntoView({block:'center'})")
+            pg.reload(); pg.wait_for_timeout(600); show(); pg.fill("#ver-name", "After damage"); pg.click("#ver-save"); pg.wait_for_timeout(400)
+            t.step("A damaged saved-versions entry is shown as unreadable, saving is refused and the stored text is left exactly as it was", expect=lambda: "could not be read" in pg.inner_text("#ver-list") and "saving is off" in vs() and pg.evaluate("k=>localStorage.getItem(k)", vk) == "{bad", wait=3000)
+            pg.evaluate("a=>localStorage.setItem(a[0], a[1])", [vk, real]); pg.reload(); pg.wait_for_timeout(600); show()
+            dlg["accept"] = False; pg.locator("#ver-list button", has_text="Delete").first.click(); pg.wait_for_timeout(300)
+            c1 = lis() == 1 and "Delete cancelled" in vs()
+            dlg["accept"] = True; pg.locator("#ver-list button", has_text="Delete").first.click(); pg.wait_for_timeout(500)
+            t.step("Delete: Cancel keeps the version, then confirming removes it, its stored entry is gone and the other tab's entry is untouched", expect=lambda: c1 and "No saved versions" in pg.inner_text("#ver-list") and "Deleted the version Draft one" in vs() and len(vkeys()) == 1 and "T2 keep" in pg.evaluate("k=>localStorage.getItem(k)", vkeys()[0]), wait=3000)
+        run_tour(ctx, "sheets_versions", body, notes="Headless Chromium 390x844 emulated, one run. Not shown: Export and Import leaving versions alone, a real full browser store, a restore that fails half way.", unshown=["export and import", "real quota", "restore failing half way"])
+
+    g["DRILLS"]["tour_sheets_versions"] = tour
 
 
 def register_sheets_io_keys(g):
