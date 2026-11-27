@@ -69,7 +69,7 @@
   var barRow = document.getElementById("sheet-barrow");
   function setBarH() { if (barRow) root.style.setProperty("--sheet-bar-h", barRow.offsetHeight + "px"); }
   setBarH(); window.addEventListener("resize", setBarH); if (window.ResizeObserver && barRow) new ResizeObserver(setBarH).observe(barRow);
-  function sync() { cells = H.cells; reloadRules(); reloadCf(); reloadFmt(); if (typeof clearPivot === "function") clearPivot(); show(); refreshSelected(); buttons(); drawChart(); applyFilter(); status.textContent = H.note; }
+  function sync() { cells = H.cells; reloadRules(); reloadCf(); reloadFmt(); if (typeof clearPivot === "function") clearPivot(); show(); refreshSelected(); buttons(); drawChart(); applyFilter(); if (typeof applyFreeze === "function") applyFreeze(); status.textContent = H.note; }
   // After any whole-sheet change (import, undo, redo, fill, sort, clear, tab switch) the focused cell and the formula bar must show the new content, not what was there before. A focused cell is refreshed here too, so a later blur cannot write the old text back. The formula bar keeps what the user typed in it (barDirty) and is refreshed when untouched.
   var barDirty = false;
   function refreshSelected() {
@@ -506,6 +506,7 @@
   $("filter-go").addEventListener("click", function () {
     var col = colNum($("filter-col").value);
     if (!col || col > COLS) { fstat.textContent = "Enter a column from A to " + String.fromCharCode(64 + COLS) + "."; return; }
+    if (frz.r) { fstat.textContent = "This tab has " + frz.r + " frozen row(s). A filter would hide rows between frozen and scrolling rows, so it is refused. Set frozen rows to 0 first."; return; }
     var f = { col: col, op: $("filter-op").value, val: $("filter-val").value, header: $("filter-header").checked };
     var sh = new F.Sheet(cells), test = M.filterRows(function (a) { return sh.get(a); }, F.isErr, 1, Math.max(1, lastRow()), f.col, f.op, f.val, f.header);
     if (test.error) { fstat.textContent = test.error; return; }
@@ -525,6 +526,56 @@
     var note = "Sorted " + r.rows + " rows by column " + String.fromCharCode(64 + key) + "; " + r.moved + " moved. Undo restores the old order." + (filt ? " The filter is still on." : "") + outsideFormulas(rg);
     if (!change(r.cells, note)) status.textContent = "Already in that order. Nothing changed.";
   });
+  // ---- Frozen rows and columns (view only, per tab). Model: loadFreeze, freezeJson, parseFreeze in model.js. A frozen row or column
+  // pins under the column letters or beside the row numbers, at the offset measured from the real sizes. Not saved in Export (.json) or CSV. ----
+  var fzKey = KEY + ".freeze", fzMap = Object.create(null), fzLocked = false, frz = { r: 0, c: 0 }, fzDeleted = null;
+  function tabIds() { return meta.tabs.map(function (t) { return t.id; }); }
+  function readFreeze() {
+    var raw = null, ok = true; try { raw = localStorage.getItem(fzKey); } catch (e) { ok = false; }
+    var l = ok ? M.loadFreeze(raw, tabIds()) : { map: Object.create(null), unreadable: true };
+    fzMap = l.map; fzLocked = l.unreadable;
+  }
+  function saveFreeze() {
+    if (fzLocked) return false;
+    var cur = null; try { cur = M.loadFreeze(localStorage.getItem(fzKey), tabIds()); } catch (e) { return false; }
+    if (cur.unreadable) return false;
+    var m = cur.map; if (fzMap[meta.active] && (fzMap[meta.active].r || fzMap[meta.active].c)) m[meta.active] = fzMap[meta.active]; else delete m[meta.active];
+    try { var j = M.freezeJson(m); if (j === null) localStorage.removeItem(fzKey); else localStorage.setItem(fzKey, j); fzMap = m; return true; } catch (e) { return false; }
+  }
+  function applyFreeze() {
+    Array.prototype.forEach.call(table.querySelectorAll(".sheet-frz"), function (n) { n.classList.remove("sheet-frz"); n.style.position = ""; n.style.top = ""; n.style.left = ""; n.style.zIndex = ""; });
+    var f = fzMap[meta.active] || { r: 0, c: 0 }; frz = { r: f.r, c: f.c };
+    $("frz-rows").value = String(frz.r); $("frz-cols").value = String(frz.c);
+    if (!frz.r && !frz.c) return;
+    var hh = table.rows[0].offsetHeight, rw = table.rows[1].cells[0].offsetWidth, tops = [hh], lefts = [rw], i;
+    for (i = 1; i <= frz.r; i++) tops.push(tops[i - 1] + table.rows[i].offsetHeight);
+    for (i = 1; i <= frz.c; i++) lefts.push(lefts[i - 1] + table.rows[1].cells[i].offsetWidth);
+    for (var r = 1; r <= ROWS; r++) for (var c = 1; c <= COLS; c++) {
+      var inR = r <= frz.r, inC = c <= frz.c; if (!inR && !inC) continue;
+      var td = table.rows[r].cells[c]; td.classList.add("sheet-frz"); td.style.position = "sticky";
+      if (inR) td.style.top = tops[r - 1] + "px";
+      if (inC) td.style.left = lefts[c - 1] + "px";
+      td.style.zIndex = inR && inC ? "2" : "1";
+    }
+    for (c = 1; c <= frz.c; c++) { var th = table.rows[0].cells[c]; th.style.left = lefts[c - 1] + "px"; th.style.zIndex = "4"; th.classList.add("sheet-frz"); }
+    for (r = 1; r <= frz.r; r++) { var rh = table.rows[r].cells[0]; rh.style.top = tops[r - 1] + "px"; rh.style.zIndex = "3"; rh.classList.add("sheet-frz"); }
+  }
+  function saveFreezeFor() { if (fzLocked) return; var cur = null; try { cur = M.loadFreeze(localStorage.getItem(fzKey), tabIds()); } catch (e) { return; } if (cur.unreadable) return; try { var j = M.freezeJson(cur.map); if (j === null) localStorage.removeItem(fzKey); else localStorage.setItem(fzKey, j); fzMap = cur.map; } catch (e) { /* the entry of a tab that is not listed is ignored when read */ } }
+  window.addEventListener("resize", function () { applyFreeze(); });
+  var fzStat = $("frz-status");
+  $("frz-apply").addEventListener("click", function () {
+    if (fzLocked) { fzStat.textContent = "The stored freeze setting could not be read, so it was left untouched and changes are off."; return; }
+    var p = M.parseFreeze($("frz-rows").value, $("frz-cols").value); if (p.error) { fzStat.textContent = p.error; return; }
+    if (p.r && filt) { fzStat.textContent = "A filter is on, so rows cannot be frozen (hidden rows would sit between frozen and scrolling rows). Show all rows first. Nothing changed."; return; }
+    if (!tabStillListed(meta.active)) { fzStat.textContent = "This tab was changed in another window. Reload this page. Nothing changed."; return; }
+    var before = fzMap[meta.active];
+    if (p.r || p.c) fzMap[meta.active] = p; else delete fzMap[meta.active];
+    if (!saveFreeze()) { if (before) fzMap[meta.active] = before; else delete fzMap[meta.active]; fzStat.textContent = "This browser would not store the setting. Nothing changed."; return; }
+    applyFreeze();
+    fzStat.textContent = p.r || p.c ? "Frozen: the first " + p.r + " row(s) and " + p.c + " column(s) of this tab stay in view. Saved for this tab only, in this browser." : "Nothing is frozen on this tab.";
+  });
+  readFreeze(); applyFreeze();
+
   // ---- Tabs UI (model in model.js). Export, CSV, chart, sort and filter work on the tab you are on. ----
   var tabBar = $("sheet-tabs"), tabName = $("tab-name"), tabMsg = $("tab-status");
   function saveMeta(m) { try { localStorage.setItem(KEY + ".tabs", JSON.stringify(m)); return true; } catch (e) { return false; } }
@@ -591,6 +642,7 @@
     if (!commitMeta(r.meta)) return;
     if (!bad) { try { localStorage.removeItem(tabKey(id)); } catch (e) { /* the tab is out of the list; its id will not be reused while the cells remain */ } }
     delete hist[id]; delete unreadableTabs[id]; if (!bad) { var ex = [], left = false; EXTRAS.forEach(function (x) { var raw = null, was = false; try { raw = localStorage.getItem(x.key(id)); was = raw !== null; if (raw !== null && !x.load(raw, F.parseAddr).unreadable) localStorage.removeItem(x.key(id)); else raw = null; } catch (e) { raw = null; } ex.push(raw); if (raw === null && was) left = true; }); lastDeleted = { name: nm, cells: saved, extras: ex, rulesLeft: left }; }
+    fzDeleted = bad ? null : (fzMap[id] || null); delete fzMap[id]; var keepA = meta.active; saveFreezeFor(keepA);
     H = histFor(meta.active); chartRange = null; out.textContent = ""; cur = null; filt = null; sync(); renderTabs();
     tabMsg.textContent = bad ? "Removed the tab " + nm + " from the list. Its unreadable stored cells were not deleted." : "Deleted the tab " + nm + ". Restore deleted tab brings back only this one, until you reload; after a reload it cannot be brought back.";
   });
@@ -611,6 +663,7 @@
     }
     if (!commitMeta(next)) { undoAll(); return; }
     var left = lastDeleted.rulesLeft; H = histFor(meta.active); lastDeleted = null;
+    if (fzDeleted) { fzMap[meta.active] = fzDeleted; saveFreeze(); } fzDeleted = null;
     chartRange = null; out.textContent = ""; cur = null; filt = null; sync(); renderTabs();
     tabMsg.textContent = "Restored the tab" + (rn.error ? " under a new name, because " + nm + " is in use." : " " + nm + ".") + (left ? " Its validation, colour or format rules were unreadable or could not be removed, so they were not restored." : "");
   });

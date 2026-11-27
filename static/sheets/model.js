@@ -469,6 +469,35 @@
     var res = applyPaste(Object.create(null), { rows: rows.length, cols: cols, items: items }, 1, 1, maxCol, maxRow, maxCell, check, addrOf);
     res.rows = rows.length; res.cols = cols; res.literal = literal; return res;
   }
+  // ---- Frozen rows and columns: how many top rows and left columns stay in view while the grid scrolls. A view setting only, kept per tab. ----
+  // One stored object { v: 1, tabs: { <tab id>: { r, c } } }. Entries for tabs that are not in the list are dropped when read, so a deleted
+  // tab's setting can never show on another tab. Anything unreadable or out of range reads as "no freeze" and the stored text is not touched.
+  var MAX_FREEZE = 5;
+  function loadFreeze(raw, ids) {
+    var none = { map: Object.create(null), unreadable: false };
+    if (raw === null || raw === undefined) return none;
+    var v; try { v = JSON.parse(raw); } catch (e) { return { map: Object.create(null), unreadable: true }; }
+    if (!v || typeof v !== "object" || v.v !== 1 || !v.tabs || typeof v.tabs !== "object" || Array.isArray(v.tabs)) return { map: Object.create(null), unreadable: true };
+    var out = Object.create(null);
+    Object.keys(v.tabs).forEach(function (id) {
+      var e = v.tabs[id];
+      if (ids.indexOf(id) < 0 || !e || typeof e !== "object") return;
+      var ok = function (n) { return typeof n === "number" && n === Math.floor(n) && n >= 0 && n <= MAX_FREEZE; };
+      if (!ok(e.r) || !ok(e.c)) return;
+      if (e.r || e.c) out[id] = { r: e.r, c: e.c };
+    });
+    return { map: out, unreadable: false };
+  }
+  function freezeJson(map) {
+    var tabs = {}; Object.keys(map).forEach(function (id) { if (map[id].r || map[id].c) tabs[id] = { r: map[id].r, c: map[id].c }; });
+    return Object.keys(tabs).length ? JSON.stringify({ v: 1, tabs: tabs }) : null;
+  }
+  function parseFreeze(rt, ct) {
+    var one = function (t) { t = String(t == null ? "" : t).trim(); return /^[0-5]$/.test(t) ? Number(t) : null; };
+    var r = one(rt), c = one(ct);
+    if (r === null || c === null) return { error: "Frozen rows and columns must each be a whole number from 0 to " + MAX_FREEZE + "." };
+    return { r: r, c: c };
+  }
   // Copy the first row of a range down over the rest (dir "down") or its first column right over the rest ("right").
   // Text is copied as written, except that with a shift function a formula's relative references move with the fill ($ pins). Empty source cells clear the targets.
 
@@ -654,6 +683,6 @@
     });
     return { groups: out, skipped: skipped, rows: rows };
   }
-  var api = { structApply: structApply, structRecover: structRecover, structRecovery: structRecovery, structRecoveryInfo: structRecoveryInfo, structEdit: structEdit, structRange: structRange, fillRange: fillRange, findReplace: findReplace, parseRange: parseRange, makeRule: makeRule, addRule: addRule, removeRule: removeRule, loadRules: loadRules, rulesJson: rulesJson, checkValue: checkValue, makePivot: makePivot, pivot: pivot, MAX_GROUPS: MAX_GROUPS, makeCf: makeCf, addCf: addCf, loadCf: loadCf, cfJson: cfJson, cfColor: cfColor, parsePaste: parsePaste, parseCsv: parseCsv, csvImport: csvImport, isBlock: isBlock, applyPaste: applyPaste, MAX_PASTE_CELLS: MAX_PASTE_CELLS, makeFmt: makeFmt, addFmt: addFmt, loadFmt: loadFmt, fmtJson: fmtJson, fmtFor: fmtFor, fmtText: fmtText, MAX_FMT: MAX_FMT, MAX_RULES: MAX_RULES, loadTabs: loadTabs, addTab: addTab, markFmt: markFmt, renameTab: renameTab, deleteTab: deleteTab, setActive: setActive, cleanName: cleanName, MAX_TABS: MAX_TABS, sortRange: sortRange, filterRows: filterRows, toNum: toNum, toCsv: toCsv, clean: clean, History: History, chartPoints: chartPoints, pieSlices: pieSlices, isComposing: isComposing, keyMove: keyMove, copy: copy, same: same };
+  var api = { structApply: structApply, structRecover: structRecover, structRecovery: structRecovery, structRecoveryInfo: structRecoveryInfo, structEdit: structEdit, structRange: structRange, fillRange: fillRange, findReplace: findReplace, parseRange: parseRange, makeRule: makeRule, addRule: addRule, removeRule: removeRule, loadRules: loadRules, rulesJson: rulesJson, checkValue: checkValue, makePivot: makePivot, pivot: pivot, MAX_GROUPS: MAX_GROUPS, makeCf: makeCf, addCf: addCf, loadCf: loadCf, cfJson: cfJson, cfColor: cfColor, parsePaste: parsePaste, loadFreeze: loadFreeze, freezeJson: freezeJson, parseFreeze: parseFreeze, MAX_FREEZE: MAX_FREEZE, parseCsv: parseCsv, csvImport: csvImport, isBlock: isBlock, applyPaste: applyPaste, MAX_PASTE_CELLS: MAX_PASTE_CELLS, makeFmt: makeFmt, addFmt: addFmt, loadFmt: loadFmt, fmtJson: fmtJson, fmtFor: fmtFor, fmtText: fmtText, MAX_FMT: MAX_FMT, MAX_RULES: MAX_RULES, loadTabs: loadTabs, addTab: addTab, markFmt: markFmt, renameTab: renameTab, deleteTab: deleteTab, setActive: setActive, cleanName: cleanName, MAX_TABS: MAX_TABS, sortRange: sortRange, filterRows: filterRows, toNum: toNum, toCsv: toCsv, clean: clean, History: History, chartPoints: chartPoints, pieSlices: pieSlices, isComposing: isComposing, keyMove: keyMove, copy: copy, same: same };
   if (typeof module !== "undefined" && module.exports) module.exports = api; else root.SalowSheetModel = api;
 })(typeof self !== "undefined" ? self : this);

@@ -325,6 +325,7 @@ def register(g):
     register_pdf_pages(g)
     register_pdf_alltext(g)
     register_sheets_csv_import(g)
+    register_sheets_freeze(g)
     register_pdf_alltext_stop(g)
     register_pdf_roundtrip(g)
     register_slides_order_recovery(g)
@@ -5422,6 +5423,94 @@ def register_sheets_csv_import(g):
         run_tour(ctx, "sheets_csv_import", body, notes="Headless Chromium 390x844 emulated, one run. Hand-made CSV files only, not files from Google Sheets or Excel. Confirm dialogs are answered off camera and their text is checked. Not shown: the 5,000 row limit, import while a filter is on.", unshown=["row limit", "filter on"])
 
     g["DRILLS"]["tour_sheets_csv_import"] = tour
+
+
+def register_sheets_freeze(g):
+    APP = g["APP"]
+
+    def tour(ctx):
+        val = lambda pg, a: pg.input_value('input[data-addr="%s"]' % a)
+        cell = lambda a: 'input[data-addr="%s"]' % a
+
+        def rect(pg, sel):
+            return pg.evaluate("s=>{var r=document.querySelector(s).getBoundingClientRect();return [r.left,r.top]}", sel)
+
+        def box(pg):
+            return pg.evaluate("()=>{var r=document.getElementById('sheet-root').getBoundingClientRect();return [r.left,r.top]}")
+
+        def scroll_to(pg, top, left):
+            pg.evaluate("a=>{var e=document.getElementById('sheet-root');e.scrollTop=a[0];e.scrollLeft=a[1]}", [top, left])
+            pg.evaluate("document.getElementById('sheet-root').scrollIntoView({block:'start'});scrollBy(0,-(document.getElementById('sheet-barrow').getBoundingClientRect().height+6))")
+            pg.wait_for_timeout(400)
+
+        def hit_all(pg, nrows, ncols):
+            # every pinned cell (corner, column letters 1..ncols, row numbers 1..nrows, and the pinned data cells) must be the topmost element at its own centre,
+            # lie inside the scroll box and below the sticky formula bar, and none may overlap another; a non-pinned row 3 cell must not be hit anywhere in the box
+            return pg.evaluate("""a=>{var nr=a[0],nc=a[1],box=document.getElementById('sheet-root'),b=box.getBoundingClientRect(),bar=document.getElementById('sheet-barrow').getBoundingClientRect(),tb=box.querySelector('table'),out=[],rects=[];
+ function chk(el,name){var r=el.getBoundingClientRect(),x=r.left+r.width/2,y=r.top+Math.min(r.height/2,12),h=document.elementFromPoint(x,y);
+  var ok=h&&(h===el||el.contains(h))&&r.top>=b.top&&r.bottom<=b.bottom+1&&r.left>=b.left&&r.top>=bar.bottom-1;if(!ok)out.push(name+' hidden/outside:'+(h?h.tagName+':'+(h.textContent||'').slice(0,12):'none')+' top='+Math.round(r.top)+' bar='+Math.round(bar.bottom));rects.push([name,r.left,r.top,r.right,r.bottom]);}
+ chk(tb.rows[0].cells[0],'corner');for(var c=1;c<=nc;c++)chk(tb.rows[0].cells[c],'col'+c);
+ for(var r=1;r<=nr;r++){chk(tb.rows[r].cells[0],'rn'+r);for(var c2=1;c2<=nc;c2++)chk(tb.rows[r].cells[c2],'r'+r+'c'+c2);}
+ for(var i=0;i<rects.length;i++)for(var j=i+1;j<rects.length;j++){var A=rects[i],B=rects[j];if(A[1]<B[3]-1&&B[1]<A[3]-1&&A[2]<B[4]-1&&B[2]<A[4]-1)out.push('overlap '+A[0]+' '+B[0]);}
+ var r3=tb.rows[nr+1].cells[1].getBoundingClientRect();var inview=r3.bottom>b.top&&r3.top<b.bottom;
+ return {problems:out,n:rects.length,unpinnedRowInPinZone:inview&&r3.top<tb.rows[nr].getBoundingClientRect().bottom};}""",[nrows,ncols])
+
+        def two_axis_ok(pg, nr, nc):
+            h = hit_all(pg, nr, nc)
+            sc = pg.evaluate("()=>{var e=document.getElementById('sheet-root');return [e.scrollTop,e.scrollLeft]}")
+            return (not h["problems"]) and h["n"] == 1 + nc + nr * (1 + nc) and sc[0] > 100 and sc[1] > 100 and not h["unpinnedRowInPinZone"]
+
+        def pinned(pg, a, top_ok=None, left_ok=None):
+            r, b = rect(pg, cell(a)), box(pg)
+            return (top_ok is None or (0 <= r[1] - b[1] <= top_ok)) and (left_ok is None or (0 <= r[0] - b[0] <= left_ok))
+
+        def body(t, pg):
+            pg.on("dialog", lambda d: d.accept())
+            pg.goto(APP + "/sheets/")
+            pg.evaluate("localStorage.clear()")
+            pg.goto(APP + "/sheets/")
+            pg.wait_for_timeout(500)
+            st = lambda: pg.inner_text("#frz-status")
+            tm = lambda: pg.inner_text("#tab-status")
+            for a, v in (("A1", "Head1"), ("B1", "Head2"), ("A2", "Row2"), ("A3", "Row3"), ("A30", "Row30"), ("H1", "H-one"), ("H30", "H-thirty")):
+                pg.click(cell(a)); pg.keyboard.type(v); pg.keyboard.press("Enter")
+            pg.wait_for_timeout(300)
+            pg.evaluate("document.getElementById('frz-rows').scrollIntoView({block:'center'})")
+            t.step("Set frozen rows 2 and frozen columns 1 and press Apply freeze", lambda: (pg.fill("#frz-rows", "2"), pg.fill("#frz-cols", "1"), pg.click("#frz-apply")), expect=lambda: st().startswith("Frozen: the first 2 row(s) and 1 column(s)"), wait=2600)
+            scroll_to(pg, 560, 900)
+            t.step("Scrolled far down and right: A1 and A2 (frozen row and column) stay at the top left; A3 keeps its left place but scrolled up out of view; B1 keeps its top place but scrolled left out of view", expect=lambda: two_axis_ok(pg, 2, 1) and pinned(pg, "A1", 80, 80) and pinned(pg, "A2", 140, 80) and (rect(pg, cell("A3"))[1] - box(pg)[1]) < 0 and 0 <= rect(pg, cell("B1"))[1] - box(pg)[1] <= 80 and (rect(pg, cell("B1"))[0] - box(pg)[0]) < 0, wait=3600)
+            t.step("Negative control: with the page scrolled so the sticky formula bar covers the top of the grid, the visibility check reports the covered pinned cells (it is not fooled)", lambda: pg.evaluate("document.getElementById('sheet-root').scrollIntoView({block:'start'})"), expect=lambda: len(hit_all(pg, 2, 1)["problems"]) >= 3 and not two_axis_ok(pg, 2, 1), wait=2600)
+            scroll_to(pg, 560, 900)
+            t.step("A frozen row 2 cell stays beside its row number and A30 (frozen column, far below) keeps its place at the left edge", expect=lambda: pinned(pg, "A2", 140, 80) and pinned(pg, "A30", None, 80), wait=3000)
+            pg.reload()
+            pg.wait_for_timeout(700)
+            pg.evaluate("document.getElementById('frz-rows').scrollIntoView({block:'center'})")
+            t.step("After a reload the setting is restored: rows 2, columns 1", expect=lambda: pg.input_value("#frz-rows") == "2" and pg.input_value("#frz-cols") == "1", wait=3000)
+            scroll_to(pg, 560, 900)
+            t.step("After the reload the frozen cells still stay put when scrolled again", expect=lambda: two_axis_ok(pg, 2, 1) and pinned(pg, "A1", 80, 80) and pinned(pg, "A30", None, 80), wait=3000)
+            pg.evaluate("document.getElementById('filter-go').scrollIntoView({block:'center'})")
+            t.step("Filter on a tab with frozen rows is refused with a message", lambda: pg.click("#filter-go"), expect=lambda: "frozen row(s)" in pg.inner_text("#filter-status") and "refused" in pg.inner_text("#filter-status"), wait=2600)
+            pg.evaluate("document.getElementById('frz-rows').scrollIntoView({block:'center'})")
+            pg.fill("#frz-rows", "0"); pg.click("#frz-apply"); pg.wait_for_timeout(300)
+            pg.evaluate("document.getElementById('filter-go').scrollIntoView({block:'center'})")
+            pg.fill("#filter-val", "Row"); pg.click("#filter-go"); pg.wait_for_timeout(300)
+            pg.evaluate("document.getElementById('frz-rows').scrollIntoView({block:'center'})")
+            pg.fill("#frz-rows", "2"); pg.click("#frz-apply"); pg.wait_for_timeout(300)
+            t.step("With a filter on, freezing rows is refused and nothing changes (frozen columns alone stay at 1)", expect=lambda: "A filter is on, so rows cannot be frozen" in st() and pg.evaluate("localStorage.getItem(document.getElementById('sheet-root').getAttribute('data-store-key')+'.freeze')").count('"r":0') == 1, wait=3000)
+            pg.evaluate("document.getElementById('filter-clear').click()")
+            pg.evaluate("document.getElementById('tab-add').scrollIntoView({block:'center'})")
+            pg.click("#tab-add"); pg.wait_for_timeout(500)
+            t.step("A new tab starts with no freeze: the fields read 0 and 0 and nothing is pinned", expect=lambda: pg.input_value("#frz-rows") == "0" and pg.input_value("#frz-cols") == "0" and pg.evaluate("document.querySelectorAll('.sheet-frz').length") == 0, wait=3000)
+            pg.fill("#frz-rows", "1"); pg.click("#frz-apply"); pg.wait_for_timeout(300)
+            pg.evaluate("document.getElementById('tab-del').scrollIntoView({block:'center'})")
+            pg.click("#tab-del"); pg.wait_for_timeout(600)
+            key = "document.getElementById('sheet-root').getAttribute('data-store-key')+'.freeze'"
+            t.step("Delete that tab: the first tab is back with its own freeze (rows 0, columns 1) and the stored setting names only the first tab", expect=lambda: pg.input_value("#frz-rows") == "0" and pg.input_value("#frz-cols") == "1" and list(__import__("json").loads(pg.evaluate("localStorage.getItem(%s)" % key))["tabs"].keys()) == ["t0"], wait=3000)
+            pg.click("#tab-restore"); pg.wait_for_timeout(600)
+            t.step("Restore deleted tab: the restored tab has its freeze back (rows 1, columns 0), not the first tab's", expect=lambda: pg.input_value("#frz-rows") == "1" and pg.input_value("#frz-cols") == "0", wait=3000)
+        run_tour(ctx, "sheets_freeze", body, notes="Headless Chromium 390x844 emulated, one run. Pinning is measured from element positions after scrolling and shown in the frames. Not shown: rename, Export and Import leaving the setting alone, damaged stored setting.", unshown=["rename", "export and import", "damaged setting"])
+
+    g["DRILLS"]["tour_sheets_freeze"] = tour
 
 
 def register_sheets_io_keys(g):

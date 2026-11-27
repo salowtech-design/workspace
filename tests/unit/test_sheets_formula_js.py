@@ -75,3 +75,15 @@ def test_csv_import_table_passes_in_node():
     )
     assert r.returncode == 0, r.stdout + r.stderr
     assert "23/23 csv import rows passed" in r.stdout
+
+
+def test_freeze_table_passes_in_node():
+    assert shutil.which("node"), "node is required to run the freeze table"
+    r = subprocess.run(  # noqa: S603 - fixed argv, repo-owned script
+        [shutil.which("node"), str(ROOT / "tests/js/sheets_freeze.js")],
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert "12/12 freeze rows passed" in r.stdout
