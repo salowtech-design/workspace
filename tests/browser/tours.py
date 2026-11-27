@@ -4834,6 +4834,9 @@ def register_pdf_roundtrip(g):
                     pg.click(sel)
                 d.value.save_as(os.path.join(out, name))
 
+            def viewer_top():
+                pg.evaluate("document.getElementById('pdf-where').scrollIntoView({block:'start'})")
+
             def words(name):
                 return subprocess.run(["pdftotext", os.path.join(out, name), "-"], capture_output=True, text=True).stdout.split()
 
@@ -4855,11 +4858,12 @@ def register_pdf_roundtrip(g):
             grab("#pdf-splitgo", "reordered.pdf")
             t.step("Download the new PDF; the saved file has 3 pages in the order Keep 2, Keep 4, Keep 3", expect=lambda: pages_of("reordered.pdf") == 3 and [w for w in words("reordered.pdf") if w.isdigit()] == ["2", "4", "3"], wait=1500)
             open_bytes(open(os.path.join(out, "reordered.pdf"), "rb").read(), "reordered.pdf", "Page 1 of 3")
-            t.step("Open the downloaded file back in the viewer: it reads Page 1 of 3", expect=lambda: where().startswith("Page 1 of 3"), wait=2500)
+            t.step("Open the downloaded file back in the viewer: it reads Page 1 of 3", viewer_top, expect=lambda: where().startswith("Page 1 of 3"), wait=2500)
             pg.fill("#pdf-q", "Keep 4")
             pg.keyboard.press("Enter")
             pg.wait_for_timeout(1200)
-            t.step("Find Keep 4 in the reopened file", expect=lambda: "Page 2" in pg.inner_text("body"), wait=2500)
+            viewer_top()
+            t.step("Find Keep 4 in the reopened file: the status says it is on page 2", expect=lambda: 'Found "Keep 4" on page 2' in pg.inner_text("body"), wait=3500)
             open_bytes(data, "demo.pdf", "Page 1 of 4")
             show("#pdf-mergeadd")
             pg.set_input_files("#pdf-mergeadd", files=[{"name": "other.pdf", "mimeType": "application/pdf", "buffer": other}])
@@ -4869,7 +4873,7 @@ def register_pdf_roundtrip(g):
             grab("#pdf-mergego", "merged.pdf")
             t.step("Download the merged PDF; the saved file has 7 pages: Keep 1 to 4 then Other 1 to 3", expect=lambda: pages_of("merged.pdf") == 7 and words("merged.pdf") == ["Keep", "1", "Keep", "2", "Keep", "3", "Keep", "4", "Other", "1", "Other", "2", "Other", "3"], wait=1500)
             open_bytes(open(os.path.join(out, "merged.pdf"), "rb").read(), "merged.pdf", "Page 1 of 7")
-            t.step("Open the merged file in the viewer: it reads Page 1 of 7", expect=lambda: where().startswith("Page 1 of 7"), wait=2500)
+            t.step("Open the merged file in the viewer: it reads Page 1 of 7", viewer_top, expect=lambda: where().startswith("Page 1 of 7"), wait=3500)
             t.note("Not shown: text of the opened pages beyond the page count (the file text was read from the saved files by script), password PDFs.", 3)
 
         run_tour(ctx, "84_pdf_roundtrip", body, notes="Device-local viewer on generated PDFs, secure-context test flag. Headless Chromium 390x844 emulated. The saved files were also read by script (pdfinfo, pdftotext) and then opened back in the viewer.", unshown=["password PDF", "page text of reopened files beyond page count"])
