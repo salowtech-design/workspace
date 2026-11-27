@@ -2,6 +2,7 @@ import re
 
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
+from django.http import JsonResponse
 from django.shortcuts import render
 from django.urls import reverse
 
@@ -29,6 +30,8 @@ def _link(hit):
 def search_page(request):
     q = (request.GET.get("q") or "").strip()
     scope = request.GET.get("in", "")
+    if request.GET.get("format") == "json":
+        return _json_search(request, q, scope)
     ctx = {"q": q, "scope": scope, "groups": None, "ran": False}
     if scope and scope not in MODULES:
         messages.error(request, "Unknown place to search. Pick one from the list.")
@@ -61,3 +64,27 @@ def search_page(request):
             )
     ctx.update(groups=groups, ran=True)
     return render(request, "finder/search.html", ctx)
+
+
+def _json_search(request, q, scope):
+    """The quick-search palette's data: the same checks, throttle and search as the page, and only group name,
+    title and url come back. Errors are short fixed texts. Never cached."""
+
+    def reply(body, status=200):
+        r = JsonResponse(body, status=status)
+        r["Cache-Control"] = "no-store"
+        return r
+
+    if scope and scope not in MODULES:
+        return reply({"error": "Unknown place to search."}, 400)
+    if len(q) < QUERY_MIN or len(q) > QUERY_MAX:
+        return reply({"error": f"Type {QUERY_MIN} to {QUERY_MAX} characters."}, 400)
+    if throttled(request.user, "search", SEARCH_LIMIT):
+        return reply({"error": "Too many searches. Wait a moment."}, 429)
+    found = search_grouped(request.user, q, types=(scope,) if scope else None, per_module=PER_MODULE)
+    groups = [
+        {"name": MODULES.get(name, name), "items": [{"title": h.title, "url": _link(h)} for h in hits], "more": truncated}
+        for name, (hits, truncated) in found.items()
+        if hits
+    ]
+    return reply({"groups": groups})

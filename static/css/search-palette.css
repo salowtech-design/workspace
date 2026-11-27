@@ -1,0 +1,9 @@
+#palette { position: fixed; inset: 0; background: rgba(0,0,0,.45); z-index: 1000; display: flex; justify-content: center; align-items: flex-start; padding-top: 8vh; }
+#palette[hidden] { display: none; }
+.palette-box { background: #fff; color: #111; width: min(560px, 94vw); max-height: 80vh; overflow: auto; border-radius: 10px; padding: 12px; box-shadow: 0 10px 30px rgba(0,0,0,.35); }
+.palette-box input { width: 100%; box-sizing: border-box; font-size: 1rem; padding: 10px; }
+#palette-list { list-style: none; margin: 8px 0 0; padding: 0; }
+#palette-list li[role=option] { padding: 8px 10px; cursor: pointer; border-radius: 6px; overflow-wrap: anywhere; }
+#palette-list li.palette-on { background: #dde8ff; outline: 2px solid #1a56db; }
+#palette-list .palette-group { font-weight: 700; padding: 8px 10px 2px; font-size: .85rem; }
+#palette-list .palette-more { padding: 2px 10px; font-size: .85rem; }

@@ -139,3 +139,31 @@ def test_refused_rows_never_change_what_the_person_sees_or_the_truncation_flag(m
     monkeypatch.setitem(perms._POLICIES, "rk_thing", lambda user, action, obj: False)
     hits, truncated = sr.search_grouped(a, "anything", types=("rk8",), per_module=2)["rk8"]
     assert hits == [] and truncated is False
+
+
+@pytest.mark.django_db
+def test_json_search_is_the_pages_own_search_with_only_names_titles_and_urls():
+    from django.test import Client
+
+    a, b = _u("RK-K"), _u("RK-L")
+    la, lb = ts.create_list(a, "Mine"), ts.create_list(b, "Theirs")
+    ts.create_task(a, la, "Palette mine")
+    ts.create_task(b, lb, "Palette secret of b")
+    c = Client(HTTP_HOST="app.salowtech.com")
+    r = c.get("/search/", {"q": "palette", "format": "json"})
+    assert r.status_code == 302  # signed out: the same login gate as the page
+    c.force_login(a)
+    r = c.get("/search/", {"q": "palette", "format": "json"})
+    body = r.json()
+    assert r.status_code == 200 and r["Cache-Control"] == "no-store"
+    assert [g["name"] for g in body["groups"]] == ["Tasks"]
+    assert set(body["groups"][0].keys()) == {"name", "items", "more"}
+    assert body["groups"][0]["items"] == [{"title": "Palette mine", "url": body["groups"][0]["items"][0]["url"]}]
+    assert body["groups"][0]["items"][0]["url"].startswith("/tasks/")
+    assert "secret" not in r.content.decode()
+    # nothing found and nothing permitted look the same, and say nothing about hidden items
+    none = c.get("/search/", {"q": "palette secret of", "format": "json"}).json()
+    assert none == {"groups": []}
+    assert c.get("/search/", {"q": "x", "format": "json"}).status_code == 400
+    assert c.get("/search/", {"q": "palette", "in": "nope", "format": "json"}).status_code == 400
+    assert c.get("/search/", {"q": "palette", "format": "json"}).json() == body  # same answer again

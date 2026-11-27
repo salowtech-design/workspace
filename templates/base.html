@@ -7,6 +7,7 @@
   <link rel="stylesheet" href="/static/css/tokens.css">
   <link rel="stylesheet" href="/static/css/components.css">
   <link rel="stylesheet" href="/static/css/inline-styles.css">
+  <link rel="stylesheet" href="/static/css/search-palette.css">
   {% if request.is_iam_host %}<link rel="stylesheet" href="/static/css/iam-utilities.css">{% endif %}
   <link rel="manifest" href="/static/manifest.json">
   <meta name="theme-color" content="#7D3024">
@@ -39,6 +40,7 @@
           <li class="nav-item"><a href="{% url 'automation:home' %}">Automation</a></li>
           <li class="nav-item"><a href="{% url 'inbox:home' %}">Notifications{% if unread_notifications %} ({{ unread_notifications }}){% endif %}</a></li>
           <li class="nav-item"><a href="{% url 'finder:search' %}">Search</a></li>
+          <li class="nav-item"><button type="button" id="palette-open" class="btn">Quick search (Ctrl+K)</button></li>
           <li class="nav-item"><a href="{% url 'directory:list' %}">Directory</a></li>
           <li class="nav-item"><a href="{% url 'accounts:security' %}">Security & Sessions</a></li>
           {% if request.user.role in 'super_admin,admin,hr,manager' %}
@@ -126,6 +128,7 @@
   <script src="/static/session-idle.js" defer></script>
   {% endif %}
   <script src="/static/inline-actions.js" defer></script>
+  <script src="/static/search-palette.js" defer></script>
   <script src="/static/htmx.min.js" defer></script>
   <script src="/static/sw-register.js" defer></script>
 </body>

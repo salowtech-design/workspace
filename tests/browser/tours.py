@@ -277,6 +277,7 @@ def register(g):
     register_sheets_struct_col(g)
     register_sheets_struct_more(g)
     register_sheets_find(g)
+    register_palette(g)
     register_attendance_csv(g)
     register_post_review_notice(g)
     register_notice_open(g)
@@ -2186,6 +2187,78 @@ def register_sheets_find(g):
                  unshown=["status lines are mostly below the frame"])
 
     g["DRILLS"]["tour_sheets_find"] = tour
+
+
+def register_palette(g):
+    APP = g["APP"]
+
+    def tour(ctx):
+        import django
+
+        django.setup()
+
+        def seed():
+            from apps.accounts.models import CustomUser
+            from apps.tasks import services as ts
+
+            me = CustomUser.objects.get(employee_id="ST-LIVE-1")
+            other, _ = CustomUser.objects.get_or_create(
+                employee_id="ST-LIVE-2",
+                defaults={"full_name": "Second Synthetic", "email": "live.two@salowtech.com", "email_verified": True,
+                          "role": CustomUser.Role.EMPLOYEE, "status": CustomUser.Status.ACTIVE, "is_active": True},
+            )
+            lm, lo = ts.create_list(me, "Palette list"), ts.create_list(other, "Other list")
+            ts.create_task(me, lm, "Old palette plan")
+            ts.create_task(me, lm, "Palette notes")
+            ts.create_task(me, lm, "Palette")
+            ts.create_task(other, lo, "Palette secret of two")
+
+        def opts(pg):
+            return pg.evaluate("() => Array.from(document.querySelectorAll('#palette-list [role=option]')).map(e => e.textContent)")
+
+        def dlg(pg):
+            return pg.evaluate("() => { const d = document.getElementById('palette'); return !!d && !d.hidden; }")
+
+        def body(t, pg):
+            import concurrent.futures
+
+            with concurrent.futures.ThreadPoolExecutor(1) as ex:
+                ex.submit(seed).result()
+            pg.goto(APP + "/")
+            pg.wait_for_timeout(600)
+            t.step("Quick search button opens the dialog and the box has focus", lambda: pg.click("#palette-open"),
+                   expect=lambda: dlg(pg) and pg.evaluate("document.activeElement.getAttribute('aria-label')") == "Search your workspace")
+            t.step("Ctrl+K closes it and focus goes back to the button, then Ctrl+K opens it again", lambda: pg.keyboard.press("Control+k"),
+                   expect=lambda: (not dlg(pg)) and pg.evaluate("document.activeElement.id") == "palette-open")
+            pg.keyboard.press("Control+k")
+            pg.wait_for_timeout(300)
+            t.step("Type palette: three of my tasks, best match first, and nothing of the other person's", lambda: pg.fill("#palette input", "palette"),
+                   wait=2200, expect=lambda: opts(pg) == ["Palette", "Palette notes", "Old palette plan"] and "secret" not in pg.inner_text("#palette"))
+            t.step("Arrow Down moves the choice to the second result", lambda: pg.keyboard.press("ArrowDown"),
+                   expect=lambda: pg.evaluate("() => document.querySelector('#palette-list [aria-selected=true]').textContent") == "Palette notes")
+            t.step("Enter opens that result's page on this site", lambda: pg.keyboard.press("Enter"),
+                   wait=1500, expect=lambda: "/tasks/" in pg.url)
+            pg.goto(APP + "/")
+            pg.wait_for_timeout(500)
+            pg.keyboard.press("Control+k")
+            t.step("A search with no match says No results and lists nothing", lambda: pg.fill("#palette input", "zzzzqq"),
+                   wait=2200, expect=lambda: opts(pg) == [] and "No results." in pg.inner_text("#palette"))
+            pg.evaluate("""() => { const f = window.fetch; window.fetch = function (u, o) {
+              const s = String(u);
+              if (s.indexOf('slow') >= 0) return new Promise(res => setTimeout(() => res(new Response(JSON.stringify({groups: [{name: 'Tasks', items: [{title: 'STALE ANSWER', url: '/tasks/'}], more: false}]}), {status: 200, headers: {'Content-Type': 'application/json'}})), 1800));
+              if (s.indexOf('inject') >= 0) return Promise.resolve(new Response(JSON.stringify({groups: [{name: 'Tasks', items: [{title: 'bad1', url: '//evil.example/'}, {title: 'bad2', url: 'javascript:alert(1)'}, {title: 'bad3', url: '/\\\\evil'}, {title: 'good', url: '/tasks/'}], more: false}]}), {status: 200, headers: {'Content-Type': 'application/json'}}));
+              return f.apply(this, arguments); }; }""")
+            t.step("A slow answer for an old search arrives after a newer search: the old answer is dropped", lambda: (pg.fill("#palette input", "palette slow"), pg.wait_for_timeout(700), pg.fill("#palette input", "palette")),
+                   wait=3500, expect=lambda: opts(pg) == ["Palette", "Palette notes", "Old palette plan"] and "STALE" not in pg.inner_text("#palette"))
+            t.step("A result with an off-site or script link is not listed, only the path on this site", lambda: pg.fill("#palette input", "inject"),
+                   wait=2200, expect=lambda: opts(pg) == ["good"])
+            t.step("Escape closes the dialog and focus returns to the button", lambda: pg.keyboard.press("Escape"),
+                   expect=lambda: (not dlg(pg)) and pg.evaluate("document.activeElement.id") == "palette-open")
+
+        run_tour(ctx, "105_quick_search", body, notes="Real Django on TiDB (unistore) under uvicorn, headless Chromium 390x844 emulated. The slow and off-site answers are injected in the page by wrapping fetch; the server answers are real.",
+                 unshown=["the page the result opens"])
+
+    g["DRILLS"]["tour_palette"] = tour
 
 
 def register_slides_bg(g):
