@@ -435,8 +435,8 @@ _HEX64 = re.compile(r"^[0-9a-f]{64}$")
 def add_version(user, file, base_version, size, sha256):
     """Record a new version only if the caller saw the current one (compare and set under the
     owner lock). The server mints the opaque storage key (unique across all files); callers
-    never choose it. Nothing here writes or reads bytes. No maximum size is enforced because the
-    product file-size limit has not been chosen."""
+    never choose it. Nothing here writes or reads bytes. The only size bound is the column's
+    own range (MAX_SIZE); the product file-size limit has not been chosen, so no policy cap exists."""
     _lock_tree(file.owner_id)
     _fresh(file)
     require(user, "edit", FILE, file)
