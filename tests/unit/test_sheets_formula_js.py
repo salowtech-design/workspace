@@ -39,3 +39,15 @@ def test_formula_batch2_passes_in_node():
     )
     assert r.returncode == 0, r.stdout + r.stderr
     assert "63/63 rows passed" in r.stdout
+
+
+def test_structure_table_passes_in_node():
+    assert shutil.which("node"), "node is required to run the structure table"
+    r = subprocess.run(  # noqa: S603 - fixed argv, repo-owned script
+        [shutil.which("node"), str(ROOT / "tests/js/sheets_struct.js")],
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert "60/60 structure rows passed" in r.stdout

@@ -718,15 +718,15 @@
   // cell reference. A reference that would leave A1:Z1000 (the engine's grid) becomes #REF!; so does a whole range when
   // either end leaves it. A reference that was already out of range is left as written (it already shows #REF!).
   var REFRE = /^(\$?)([A-Za-z]{1,3})(\$?)([0-9]+)(?![A-Za-z0-9_.(])/;
-  function shiftFormula(src, dc, dr) {
+  // Walk formula text and call cb(a, b) for each cell reference (b is null) or range (a and b are the two ends). An end is
+  // { col, row, ac, ar } (ac, ar: pinned with $) or { keep: true } when it is already out of range. cb returns the new text.
+  // Quoted text, function names, numbers and anything that is not a whole cell reference are copied as they are.
+  function rewriteRefs(src, cb) {
     if (typeof src !== "string" || src.charAt(0) !== "=") return src;
     var out = "", i = 0, n = src.length;
-    function one(m) {
-      var up = m[2].toUpperCase(), a = parseAddr(up + m[4]);
-      if (!a) return { keep: true };
-      var c = m[1] ? a.col : a.col + dc, r = m[3] ? a.row : a.row + dr;
-      if (c < 1 || c > MAX_COL || r < 1 || r > MAX_ROW) return { bad: true };
-      return { text: (m[1] ? "$" : "") + String.fromCharCode(64 + c) + (m[3] ? "$" : "") + r };
+    function end(m) {
+      var a = parseAddr(m[2].toUpperCase() + m[4]);
+      return a ? { col: a.col, row: a.row, ac: !!m[1], ar: !!m[3] } : { keep: true };
     }
     while (i < n) {
       var ch = src[i], m;
@@ -735,23 +735,55 @@
         while (j < n) { if (src[j] === '"') { if (src[j + 1] === '"') { j += 2; continue; } break; } j++; }
         out += src.slice(i, Math.min(j + 1, n)); i = j + 1; continue;
       }
-      var prev = i ? src[i - 1] : "";
-      if (!/[A-Za-z0-9_.$]/.test(prev) && (ch === "$" || /[A-Za-z]/.test(ch)) && (m = REFRE.exec(src.slice(i)))) {
-        var a = one(m), len = m[0].length, m2 = null, b = null;
-        if (src[i + len] === ":" && (m2 = REFRE.exec(src.slice(i + len + 1)))) b = one(m2);
-        if (m2) {
-          if (a.keep || b.keep) out += src.slice(i, i + len + 1 + m2[0].length);
-          else if (a.bad || b.bad) out += "#REF!";
-          else out += a.text + ":" + b.text;
-          i += len + 1 + m2[0].length; continue;
+      if ((ch === "$" || /[A-Za-z]/.test(ch)) && (m = REFRE.exec(src.slice(i)))) {
+        var a = end(m), len = m[0].length, m2 = null;
+        if (src[i + len] === ":" && (m2 = REFRE.exec(src.slice(i + len + 1)))) {
+          var b = end(m2), all = len + 1 + m2[0].length;
+          out += (a.keep || b.keep) ? src.slice(i, i + all) : cb(a, b); i += all; continue;
         }
-        out += a.keep ? m[0] : a.bad ? "#REF!" : a.text; i += len; continue;
+        out += a.keep ? m[0] : cb(a, null); i += len; continue;
       }
       if (/[A-Za-z0-9_.$]/.test(ch)) { var w = /^[A-Za-z0-9_.$]+/.exec(src.slice(i))[0]; out += w; i += w.length; continue; }
       out += ch; i++;
     }
     return out;
   }
-  var api = { shiftFormula: shiftFormula, Sheet: Sheet, parse: parse, Err: Err, isErr: isErr, parseAddr: parseAddr, MAX_LEN: MAX_LEN };
+  function endText(c, r, ac, ar) { return (ac ? "$" : "") + String.fromCharCode(64 + c) + (ar ? "$" : "") + r; }
+  // Move the relative parts of every cell reference by (dc, dr), as Fill does. $ pins a column or row. A reference that
+  // would leave A1:Z1000 becomes #REF!, and so does a whole range when either end leaves it.
+  function shiftFormula(src, dc, dr) {
+    return rewriteRefs(src, function (a, b) {
+      function mv(e) { var c = e.ac ? e.col : e.col + dc, r = e.ar ? e.row : e.row + dr; return (c < 1 || c > MAX_COL || r < 1 || r > MAX_ROW) ? null : endText(c, r, e.ac, e.ar); }
+      var x = mv(a), y = b ? mv(b) : "";
+      if (x === null || y === null) return "#REF!";
+      return b ? x + ":" + y : x;
+    });
+  }
+  // Rewrite references for inserting or deleting one row or column. axis "row" or "col", kind "insert" or "delete", at is the
+  // 1-based row or column number. $ makes no difference: the cell a reference points at moves, so the reference follows it.
+  // Insert at N moves N and later down or right by one (a range that spans N grows). Delete of N makes a reference to N #REF!,
+  // moves later ones back by one and shrinks a range that spans N; a range whose every row or column is deleted is #REF!.
+  // Anything that would leave A1:Z1000 is #REF!.
+  function structFormula(src, axis, kind, at) {
+    var isRow = axis === "row", max = isRow ? MAX_ROW : MAX_COL;
+    return rewriteRefs(src, function (a, b) {
+      function pos(e) { return isRow ? e.row : e.col; }
+      function put(e, v) { return isRow ? endText(e.col, v, e.ac, e.ar) : endText(v, e.row, e.ac, e.ar); }
+      var lo = pos(a), hi = b ? pos(b) : lo, swap = lo > hi; if (swap) { var t = lo; lo = hi; hi = t; }
+      var nlo, nhi;
+      if (kind === "insert") { nlo = lo >= at ? lo + 1 : lo; nhi = hi >= at ? hi + 1 : hi; }
+      else {
+        if (lo === at && hi === at) return "#REF!";
+        nlo = lo > at ? lo - 1 : lo; nhi = hi >= at ? hi - 1 : hi;
+        if (nhi < nlo) return "#REF!";
+      }
+      if (nlo < 1 || nhi > max) return "#REF!";
+      if (!b) return put(a, nlo);
+      var ea = swap ? nhi : nlo, eb = swap ? nlo : nhi;
+      return put(a, ea) + ":" + put(b, eb);
+    });
+  }
+
+  var api = { shiftFormula: shiftFormula, structFormula: structFormula, Sheet: Sheet, parse: parse, Err: Err, isErr: isErr, parseAddr: parseAddr, MAX_LEN: MAX_LEN };
   if (typeof module !== "undefined" && module.exports) module.exports = api; else root.SalowFormula = api;
 })(typeof self !== "undefined" ? self : this);

@@ -441,6 +441,47 @@
     }
     return { cells: n, set: set, cleared: cleared, refused: refused, tooLong: tooLong, formulas: formulas, refErrs: refErrs, adjusted: adjusted };
   }
+  // ---- Insert or delete one row or column. Pure: takes the cells and the three rule lists, returns the moved copies or { error }. ----
+  // op: { axis: "row"|"col", kind: "insert"|"delete", at }. grid: { rows, cols } is the editable grid (A1:Z100). Nothing is changed when an error is
+  // returned. Insert is refused when a filled cell, or a rule range, in the last row or column would be pushed off the grid. Delete drops the cells
+  // on that line (counted), shrinks rule ranges, and drops a rule whose whole range was deleted (counted).
+  function structRange(g, axis, kind, at) {
+    var k1 = axis === "row" ? "r1" : "c1", k2 = axis === "row" ? "r2" : "c2", o = { c1: g.c1, c2: g.c2, r1: g.r1, r2: g.r2 }, lo = g[k1], hi = g[k2];
+    if (kind === "insert") { o[k1] = lo >= at ? lo + 1 : lo; o[k2] = hi >= at ? hi + 1 : hi; return o; }
+    if (lo === at && hi === at) return null;
+    o[k1] = lo > at ? lo - 1 : lo; o[k2] = hi >= at ? hi - 1 : hi;
+    return o[k2] < o[k1] ? null : o;
+  }
+  function structEdit(st, op, parseAddr, structFormula, grid, maxCell) {
+    var row = op.axis === "row", lim = row ? grid.rows : grid.cols, at = op.at, ins = op.kind === "insert";
+    if ((op.axis !== "row" && op.axis !== "col") || (!ins && op.kind !== "delete") || !(at >= 1 && at <= lim) || Math.floor(at) !== at) return { error: "Choose a " + (row ? "row 1 to " + grid.rows : "column A to " + String.fromCharCode(64 + grid.cols)) + "." };
+    var stats = { removed: 0, formulas: 0, refErrs: 0, dropped: 0, resized: 0 }, cells = Object.create(null), keys = Object.keys(st.cells);
+    var lineName = row ? "row " + lim : "column " + String.fromCharCode(64 + lim);
+    for (var i = 0; i < keys.length; i++) {
+      var a = parseAddr(keys[i]), v = st.cells[keys[i]]; if (!a) { cells[keys[i]] = v; continue; }
+      var p = row ? a.row : a.col;
+      if (ins && p >= lim && v !== "") return { error: "Nothing was inserted: " + lineName + " has content that would be pushed off the grid. Clear it or move it first." };
+      if (!ins && p === at) { if (v !== "") stats.removed++; continue; }
+      var q = ins ? (p >= at ? p + 1 : p) : (p > at ? p - 1 : p), nk = row ? colName(a.col) + q : colName(q) + a.row;
+      if (v.charAt(0) === "=") { var nv = structFormula(v, op.axis, op.kind, at); if (nv !== v) { stats.formulas++; if (nv.indexOf("#REF!") >= 0 && v.indexOf("#REF!") < 0) stats.refErrs++; } if (nv.length > maxCell) return { error: "Nothing was changed: a formula would grow past the cell length limit." }; v = nv; }
+      cells[nk] = v;
+    }
+    function lists(list, what) {
+      var out = [];
+      for (var k = 0; k < list.length; k++) {
+        var g = parseRange(list[k].range, parseAddr); if (!g) return { error: "A " + what + " could not be read, so nothing was changed." };
+        if (ins && g[row ? "r2" : "c2"] >= at && g[row ? "r2" : "c2"] >= lim) return { error: "Nothing was inserted: a " + what + " reaches the last " + (row ? "row" : "column") + " and would be pushed off the grid." };
+        var ng = structRange(g, op.axis, op.kind, at); if (!ng) { stats.dropped++; continue; }
+        if (rangeLabel(ng) !== rangeLabel(g)) stats.resized++;
+        var c = {}; Object.keys(list[k]).forEach(function (f) { c[f] = list[k][f]; }); c.range = rangeLabel(ng); out.push(c);
+      }
+      return { list: out };
+    }
+    var r1 = lists(st.rules, "validation rule"); if (r1.error) return r1;
+    var r2 = lists(st.cf, "colour rule"); if (r2.error) return r2;
+    var r3 = lists(st.fmt, "format rule"); if (r3.error) return r3;
+    return { cells: cells, rules: r1.list, cf: r2.list, fmt: r3.list, stats: stats };
+  }
   // ---- Pivot: group rows of a range by one column and total another. Read only: it never writes to cells. ----
   var PIVOT_AGGS = ["count", "sum", "average", "min", "max"], MAX_GROUPS = 20;
   function colNo(t) { var m = /^\s*([A-Za-z])\s*$/.exec(String(t)); return m ? m[1].toUpperCase().charCodeAt(0) - 64 : null; }
@@ -482,6 +523,6 @@
     });
     return { groups: out, skipped: skipped, rows: rows };
   }
-  var api = { fillRange: fillRange, parseRange: parseRange, makeRule: makeRule, addRule: addRule, removeRule: removeRule, loadRules: loadRules, rulesJson: rulesJson, checkValue: checkValue, makePivot: makePivot, pivot: pivot, MAX_GROUPS: MAX_GROUPS, makeCf: makeCf, addCf: addCf, loadCf: loadCf, cfJson: cfJson, cfColor: cfColor, parsePaste: parsePaste, isBlock: isBlock, applyPaste: applyPaste, MAX_PASTE_CELLS: MAX_PASTE_CELLS, makeFmt: makeFmt, addFmt: addFmt, loadFmt: loadFmt, fmtJson: fmtJson, fmtFor: fmtFor, fmtText: fmtText, MAX_FMT: MAX_FMT, MAX_RULES: MAX_RULES, loadTabs: loadTabs, addTab: addTab, markFmt: markFmt, renameTab: renameTab, deleteTab: deleteTab, setActive: setActive, cleanName: cleanName, MAX_TABS: MAX_TABS, sortRange: sortRange, filterRows: filterRows, toNum: toNum, toCsv: toCsv, clean: clean, History: History, chartPoints: chartPoints, pieSlices: pieSlices, isComposing: isComposing, keyMove: keyMove, copy: copy, same: same };
+  var api = { structEdit: structEdit, structRange: structRange, fillRange: fillRange, parseRange: parseRange, makeRule: makeRule, addRule: addRule, removeRule: removeRule, loadRules: loadRules, rulesJson: rulesJson, checkValue: checkValue, makePivot: makePivot, pivot: pivot, MAX_GROUPS: MAX_GROUPS, makeCf: makeCf, addCf: addCf, loadCf: loadCf, cfJson: cfJson, cfColor: cfColor, parsePaste: parsePaste, isBlock: isBlock, applyPaste: applyPaste, MAX_PASTE_CELLS: MAX_PASTE_CELLS, makeFmt: makeFmt, addFmt: addFmt, loadFmt: loadFmt, fmtJson: fmtJson, fmtFor: fmtFor, fmtText: fmtText, MAX_FMT: MAX_FMT, MAX_RULES: MAX_RULES, loadTabs: loadTabs, addTab: addTab, markFmt: markFmt, renameTab: renameTab, deleteTab: deleteTab, setActive: setActive, cleanName: cleanName, MAX_TABS: MAX_TABS, sortRange: sortRange, filterRows: filterRows, toNum: toNum, toCsv: toCsv, clean: clean, History: History, chartPoints: chartPoints, pieSlices: pieSlices, isComposing: isComposing, keyMove: keyMove, copy: copy, same: same };
   if (typeof module !== "undefined" && module.exports) module.exports = api; else root.SalowSheetModel = api;
 })(typeof self !== "undefined" ? self : this);
