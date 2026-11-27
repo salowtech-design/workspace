@@ -1398,8 +1398,8 @@ def sheets_rules_recovery(ctx):
     pg.evaluate("()=>{var o=Storage.prototype.removeItem;window.__r=o;Storage.prototype.removeItem=function(k){if(String(k).slice(-6)==='.rules')throw new Error('fail');return o.call(this,k);};}")
     press_reset(True)
     check(
-        "recovery: if the rules cannot be removed the page stays locked and says nothing was changed",
-        get(key + ".rules") == "{bad" and pg.inner_text("#val-status").strip() == "This browser would not remove the unreadable rules, so nothing was changed." and pg.is_disabled("#val-add") and get(key + ".rules.backup") == "{bad",
+        "recovery: if the rules cannot be removed the page stays locked and says the rules were not removed but a backup copy was written",
+        get(key + ".rules") == "{bad" and pg.inner_text("#val-status").strip() == "This browser would not remove the unreadable rules, so they were not removed. A backup copy of them was written." and pg.is_disabled("#val-add") and get(key + ".rules.backup") == "{bad",
         pg.inner_text("#val-status"),
     )
     pg.evaluate("()=>{Storage.prototype.removeItem=window.__r;}")

@@ -320,7 +320,7 @@
     if (!window.confirm("Remove this tab's unreadable validation rules? Only the rules are removed: your cells are not changed. A copy of the unreadable rules is kept in this browser under a backup key (use Download unreadable rules first if you want a file). " + (had !== null ? "A backup from an earlier removal on this tab already exists and WILL BE REPLACED by this copy. " : "") + "Afterwards values typed in this tab are not checked until you add a rule.")) { st.textContent = "Cancelled. The unreadable rules were left untouched."; return; }
     if (stale()) { st.textContent = MSG; return; } // the confirm box can stay open while another window changes things: check again right after it
     try { localStorage.setItem(bk, rulesRaw); if (localStorage.getItem(bk) !== rulesRaw) throw new Error("backup differs"); } catch (e) { st.textContent = "This browser would not keep a backup of the unreadable rules, so nothing was removed."; return; }
-    try { localStorage.removeItem(rulesKey(meta.active)); } catch (e) { st.textContent = "This browser would not remove the unreadable rules, so nothing was changed."; return; }
+    try { localStorage.removeItem(rulesKey(meta.active)); } catch (e) { st.textContent = "This browser would not remove the unreadable rules, so they were not removed. A backup copy of them was written" + (had !== null ? " and it replaced the earlier backup for this tab" : "") + "."; return; }
     rulesLocked = false; rulesRaw = null; rules = []; renderRules();
     st.textContent = "Removed the unreadable rules. A copy is kept in this browser under a backup key and is replaced only if you do this again on this tab. Your cells were not changed.";
   });
