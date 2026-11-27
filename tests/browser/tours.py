@@ -264,6 +264,7 @@ def register(g):
     register_chat_gaps(g)
     register_chat_search(g)
     register_forbidden(g)
+    register_trash_context(g)
     register_task_conflict(g)
     register_sessions_scroll(g, users)
     register_drive_move(g)
@@ -4389,3 +4390,41 @@ def register_forbidden(g):
         run_tour(ctx, "73_forbidden_page", body, notes="Real Django on TiDB, headless Chromium 390x844 emulated. The signed-in fixture account has the Employee role.", unshown=["other 403 sources", "404 page (unchanged)"])
 
     g["DRILLS"]["tour_forbidden"] = tour
+
+
+def register_trash_context(g):
+    APP = g["APP"]
+
+    def tour(ctx):
+        import concurrent.futures
+
+        import django
+
+        django.setup()
+
+        def make():
+            from apps.accounts.models import CustomUser
+            from apps.drive import services as svc
+            from apps.drive.models import DriveFile
+
+            me = CustomUser.objects.get(employee_id="ST-LIVE-1")
+            top = svc.create_folder(me, "Parent box", None)
+            svc.create_folder(me, "Inner box", top)
+            DriveFile.objects.create(owner=me, folder=top, name="inside.txt", created_by=me)
+            alone = DriveFile.objects.create(owner=me, folder=top, name="alone.txt", created_by=me)
+            svc.trash(me, alone)
+            svc.trash(me, top)
+
+        with concurrent.futures.ThreadPoolExecutor(1) as ex:
+            ex.submit(make).result()
+
+        def body(t, pg):
+            txt = lambda: pg.inner_text("body")
+            pg.goto(APP + "/drive/trash/")
+            t.step("Trash: the inner folder and the file trashed with Parent box say 'Was inside Parent box'", lambda: pg.evaluate("document.querySelector('.drive-row').scrollIntoView({block:'start'})"), expect=lambda: txt().count("Was inside Parent box") == 2, wait=5000)
+            t.step("The Parent box row and the file trashed on its own (alone.txt) have no 'Was inside' line", expect=lambda: txt().count("Was inside") == 2 and "alone.txt" in txt(), wait=3000)
+            t.note("Not shown: restore (unchanged, not part of this change), a folder trashed inside an already trashed folder.", 3)
+
+        run_tour(ctx, "75_drive_trash_context", body, notes="Real Django on TiDB, headless Chromium 390x844 emulated. Fixture by script: a folder with a subfolder and a file trashed together, plus one file trashed on its own earlier.", unshown=["restore", "nested trash"])
+
+    g["DRILLS"]["tour_trash_context"] = tour

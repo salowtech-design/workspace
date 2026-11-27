@@ -791,10 +791,17 @@ def shared_with_me(user):
 
 
 def trash_items(user):
-    return (
-        list(Folder.objects.filter(owner=user, trashed_at__isnull=False)),
-        list(DriveFile.objects.filter(owner=user, trashed_at__isnull=False)),
-    )
+    folders = list(Folder.objects.filter(owner=user, trashed_at__isnull=False).select_related("parent"))
+    files = list(DriveFile.objects.filter(owner=user, trashed_at__isnull=False).select_related("folder"))
+    # Display only: an item trashed in the same batch as its parent folder says where it was.
+    for item, parent in [(f, f.parent) for f in folders] + [(f, f.folder) for f in files]:
+        item.was_inside = (
+            parent.name
+            if parent is not None and parent.trashed_at is not None
+            and parent.trash_batch is not None and parent.trash_batch == item.trash_batch
+            else None
+        )
+    return folders, files
 
 
 MAX_SEARCH_DEPTH = 20

@@ -7,11 +7,11 @@
   {% include "drive/_nav.html" with tab="trash" %}
   <p class="drive-meta">Items stay in the trash until you restore them. Nothing is deleted automatically.</p>
   {% for f in folders %}
-  <div class="drive-row"><span class="drive-name">{{ f.name }}</span><span class="drive-meta">Folder</span>
+  <div class="drive-row"><span class="drive-name">{{ f.name }}</span><span class="drive-meta">Folder</span>{% if f.was_inside %}<span class="drive-meta">Was inside {{ f.was_inside }}</span>{% endif %}
     <form method="post" action="{% url 'drive:restore_item' 'folder' f.public_id %}" class="drive-inline">{% csrf_token %}<button class="btn btn-secondary btn-small" type="submit">Restore</button></form></div>
   {% endfor %}
   {% for f in files %}
-  <div class="drive-row"><span class="drive-name">{{ f.name }}</span><span class="drive-meta">File</span>
+  <div class="drive-row"><span class="drive-name">{{ f.name }}</span><span class="drive-meta">File</span>{% if f.was_inside %}<span class="drive-meta">Was inside {{ f.was_inside }}</span>{% endif %}
     <form method="post" action="{% url 'drive:restore_item' 'file' f.public_id %}" class="drive-inline">{% csrf_token %}<button class="btn btn-secondary btn-small" type="submit">Restore</button></form></div>
   {% endfor %}
   {% if not folders and not files %}<div class="drive-empty">The trash is empty.</div>{% endif %}
