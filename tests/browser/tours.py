@@ -263,6 +263,7 @@ def register(g):
     register_att_checkout(g, users)
     register_chat_gaps(g)
     register_chat_search(g)
+    register_forbidden(g)
     register_task_conflict(g)
     register_sessions_scroll(g, users)
     register_drive_move(g)
@@ -4368,3 +4369,23 @@ def register_chat_search(g):
         run_tour(ctx, "72_chat_search", body, notes="Real Django on TiDB, headless Chromium 390x844 emulated. Fixture by script: my group with a root and a reply, my DM, a group I already left, and a DM between two other people. All contain the word lantern.", unshown=["80 character cut", "removed member", "edit/delete (not built)", "throttle"])
 
     g["DRILLS"]["tour_chat_search"] = tour
+
+
+def register_forbidden(g):
+    APP = g["APP"]
+
+    def tour(ctx):
+        def body(t, pg):
+            txt = lambda: pg.inner_text("body")
+            st = {}
+            def go(url):
+                r = pg.goto(APP + url)
+                st[url] = r.status if r else None
+            go("/attendance/admin/")
+            t.step("An Employee opens the HR admin address: a styled page says there is no access, inside the app layout", expect=lambda: "You don't have access to this page" in txt() and st["/attendance/admin/"] == 403 and "Forbidden" not in txt(), wait=3500)
+            t.step("The page offers Back to home", lambda: pg.click("a:has-text('Back to home')"), expect=lambda: pg.url.rstrip("/") == APP.rstrip("/") or "/attendance/admin" not in pg.url, wait=3000)
+            t.note("Not shown: other 403 sources (all use the same page), 404 pages (unchanged, still the plain default).", 3)
+
+        run_tour(ctx, "73_forbidden_page", body, notes="Real Django on TiDB, headless Chromium 390x844 emulated. The signed-in fixture account has the Employee role.", unshown=["other 403 sources", "404 page (unchanged)"])
+
+    g["DRILLS"]["tour_forbidden"] = tour
