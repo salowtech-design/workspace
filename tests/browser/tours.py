@@ -274,6 +274,7 @@ def register(g):
     register_slides_bg(g)
     register_sheets_refs(g)
     register_sheets_struct(g)
+    register_sheets_struct_col(g)
     register_attendance_csv(g)
     register_post_review_notice(g)
     register_notice_open(g)
@@ -1952,6 +1953,74 @@ def register_sheets_struct(g):
                  unshown=["column insert and delete (node rows)", "unreadable recovery copy"])
 
     g["DRILLS"]["tour_sheets_struct"] = tour
+
+
+def register_sheets_struct_col(g):
+    APP = g["APP"]
+
+    def tour(ctx):
+        def put(pg, cells):
+            for a, v in cells:
+                sel = 'input[data-addr="%s"]' % a
+                pg.click(sel)
+                pg.fill(sel, v)
+                pg.press(sel, "Tab")
+
+        def val(pg, a):
+            return pg.input_value('input[data-addr="%s"]' % a)
+
+        def bar(pg, a):
+            pg.click('input[data-addr="%s"]' % a)
+            return pg.input_value("#sheet-bar")
+
+        def raw(pg):
+            return pg.evaluate("""() => { const k = document.getElementById('sheet-root').dataset.storeKey; return [k, k + '.rules', k + '.cf', k + '.fmt'].map(x => localStorage.getItem(x)); }""")
+
+        def stat(pg):
+            return pg.inner_text("#sheet-status")
+
+        def must(cond, info):
+            return cond or (_ for _ in ()).throw(Exception(info()))
+
+        def body(t, pg):
+            seen = []
+            pg.on("dialog", lambda d: (seen.append(d.message), d.accept()))
+            pg.goto(APP + "/sheets/")
+            pg.evaluate("localStorage.clear()")
+            pg.goto(APP + "/sheets/")
+            pg.wait_for_timeout(500)
+            t.step("A row of numbers A1:C1 with =SUM in D1 and =B1 in A2", lambda: put(pg, [("A1", "1"), ("B1", "2"), ("C1", "3"), ("D1", "=SUM(A1:C1)"), ("A2", "=B1")]), expect=lambda: val(pg, "D1") != "")
+            pg.evaluate("""() => { const k = document.getElementById('sheet-root').dataset.storeKey;
+              localStorage.setItem(k + '.rules', JSON.stringify({v:1, rules:[{range:'B1:C1', kind:'number', min:0, max:9}]}));
+              localStorage.setItem(k + '.cf', JSON.stringify({v:1, rules:[{range:'A1:C1', kind:'greater', color:'red', value:1}]}));
+              localStorage.setItem(k + '.fmt', JSON.stringify({v:1, rules:[{range:'A1:B1', bold:true}]})); }""")
+            pg.goto(APP + "/sheets/")
+            pg.wait_for_timeout(500)
+            orig = raw(pg)
+            t.step("Select B1 and Insert column left: SUM grows, rules move with their columns", lambda: (pg.click('input[data-addr="B1"]'), pg.click("#col-ins")),
+                   expect=lambda: must(bar(pg, "E1") == "=SUM(A1:D1)" and val(pg, "B1") == "" and val(pg, "C1") == "2" and bar(pg, "A2") == "=C1" and '"C1:D1"' in raw(pg)[1] and '"A1:D1"' in raw(pg)[2] and '"A1:C1"' in raw(pg)[3] and "Inserted" in stat(pg), lambda: stat(pg)[:120]))
+            t.step("Undo: all four stored texts are byte equal to before", lambda: pg.click("#sheet-undo"), expect=lambda: raw(pg) == orig and val(pg, "B1") == "2")
+            t.step("Select B1 and Delete column: =B1 now shows #REF!, SUM shrinks, the validation rule narrows to C1", lambda: (pg.click('input[data-addr="B1"]'), pg.click("#col-del")),
+                   expect=lambda: must(bar(pg, "A2") == "=#REF!" and bar(pg, "C1") == "=SUM(A1:B1)" and val(pg, "B1") == "3" and '"B1:B1"' in raw(pg)[1] and any("Delete column B" in m for m in seen), lambda: stat(pg)[:120]))
+            t.step("Undo brings the column, the formulas and the rules back", lambda: pg.click("#sheet-undo"), expect=lambda: raw(pg) == orig and bar(pg, "A2") == "=B1")
+            pg.goto(APP + "/sheets/")
+            pg.wait_for_timeout(500)
+            t.step("Failure test: a colour-rule write fails and the restore of the cells also fails: the notice appears", lambda: (
+                pg.evaluate("""() => { window.__o = Storage.prototype.setItem; Storage.prototype.setItem = function (k, v) { if (k.endsWith('.cf') || (k === document.getElementById('sheet-root').dataset.storeKey && v.indexOf('"B1":"2"') >= 0)) throw new Error('quota'); return window.__o.call(this, k, v); }; }"""),
+                pg.click('input[data-addr="B1"]'), pg.click("#col-ins")),
+                expect=lambda: must(pg.is_visible("#struct-recovery") and "Not known to be as before: cells" in stat(pg), lambda: stat(pg)[:120]))
+            t.step("The storage works again, but another window changed the validation rules meanwhile", lambda: pg.evaluate("""() => { Storage.prototype.setItem = window.__o; const k = document.getElementById('sheet-root').dataset.storeKey; localStorage.setItem(k + '.rules', JSON.stringify({v:1, rules:[{range:'B1:C1', kind:'number', min:0, max:5}]})); }"""), expect=lambda: True)
+            conflict_raw = raw(pg)
+            t.step("Restore: it refuses, writes nothing, names the validation rules, and offers a separate Restore anyway", lambda: pg.click("#struct-restore"),
+                   expect=lambda: must(raw(pg) == conflict_raw and "Nothing was restored" in stat(pg) and "validation rules" in stat(pg) and pg.locator("#struct-force").count() == 1, lambda: stat(pg)[:140]))
+            t.step("Restore anyway: the confirm says those later changes are lost; then all four items are as before", lambda: pg.click("#struct-force"),
+                   expect=lambda: must(raw(pg) == orig and not pg.is_visible("#struct-recovery") and any("will be lost" in m and "validation rules" in m for m in seen) and "Restored the tab" in stat(pg), lambda: stat(pg)[:140]))
+            t.step("Editing works again", lambda: put(pg, [("A3", "z")]), expect=lambda: val(pg, "A3") == "z" and '"A3":"z"' in raw(pg)[0])
+
+        run_tour(ctx, "102_sheets_column_recovery", body, notes="Device-local sheet (browser only). Real Django on TiDB (unistore) under uvicorn, headless Chromium 390x844 emulated. Storage faults are injected in the page. Dialogs are accepted by the script and checked from their text; they do not appear in the video.",
+                 unshown=["confirm dialogs (text asserted, not on screen)"])
+
+    g["DRILLS"]["tour_sheets_struct_col"] = tour
 
 
 def register_slides_bg(g):
