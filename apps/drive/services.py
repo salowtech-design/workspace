@@ -770,8 +770,8 @@ def list_folder(user, folder=None):
         )
     require(user, "view", FOLDER, folder)
     return (
-        list(Folder.objects.filter(parent=folder, trashed_at__isnull=True).select_related("created_by")),
-        list(DriveFile.objects.filter(folder=folder, trashed_at__isnull=True).select_related("created_by")),
+        list(Folder.objects.filter(parent=folder, trashed_at__isnull=True)),
+        list(DriveFile.objects.filter(folder=folder, trashed_at__isnull=True)),
     )
 
 
