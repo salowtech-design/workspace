@@ -38,7 +38,7 @@
     var on = !!doc;
     $("pdf-prev").disabled = !on || page <= 1; $("pdf-next").disabled = !on || page >= doc.numPages;
     $("pdf-zin").disabled = !on || zoom >= 3; $("pdf-zout").disabled = !on || zoom <= 0.5;
-    $("pdf-fitw").disabled = !on || (!fitPage && zoom === 1); $("pdf-fitp").disabled = !on || fitPage; $("pdf-rot").disabled = !on; $("pdf-close").disabled = !on; $("pdf-page").disabled = !on; $("pdf-q").disabled = !on; $("pdf-find").disabled = !on || finding; $("pdf-exporttext").disabled = !on || textBusy;
+    $("pdf-fitw").disabled = !on || (!fitPage && zoom === 1); $("pdf-fitp").disabled = !on || fitPage; $("pdf-rot").disabled = !on; $("pdf-close").disabled = !on; $("pdf-page").disabled = !on; $("pdf-q").disabled = !on; $("pdf-find").disabled = !on || finding; $("pdf-exporttext").disabled = !on || textBusy || allBusy; $("pdf-exportall").disabled = !on || textBusy || allBusy;
     $("pdf-where").textContent = on ? "Page " + page + " of " + doc.numPages + ", " + (fitPage ? "fit to page, " + Math.round(fitZoom * 100) + "%" : "zoom " + Math.round(zoom * 100) + "%") + (rot ? ", turned " + rot + " degrees" : "") : "No file open.";
     if (on) $("pdf-page").value = page;
     if (typeof thMark === "function") { thMark(); thFollow(); }
@@ -87,6 +87,37 @@
   function fend() { finding = false; $("pdf-fstop").disabled = true; controls(); }
   // Reads the text of each page in turn, stops at the first page with a match. Any file change, close,
   // new find or Stop makes the older find stale, and a stale find never writes anything.
+  // Text of every page as one file: read page by page (so the tab stays usable), stoppable, and closed files never write.
+  var aseq = new C.Seq(), allBusy = false;
+  function allEnd() { allBusy = false; $("pdf-exportallstop").disabled = true; controls(); }
+  $("pdf-exportallstop").addEventListener("click", function () { if (!allBusy) return; aseq.begin(); fmsg("Stopped. Nothing was downloaded."); allEnd(); });
+  $("pdf-exportall").addEventListener("click", function () {
+    if (!doc || allBusy || textBusy) return;
+    var d = doc, mine = aseq.begin(), name = $("pdf-name").textContent || "PDF file", pages = [], n = 0, used = 0, stopped = 0;
+    allBusy = true; $("pdf-exportallstop").disabled = false; controls();
+    var live = function () { return aseq.current(mine) && doc === d; };
+    function finish() {
+      if (!live()) return;
+      var r = C.allTextFile(name, d.numPages, pages, stopped);
+      if (!r.pagesWithText) { fmsg("No page has text the viewer can read (it may be scanned images), so nothing was downloaded. This is not OCR."); allEnd(); return; }
+      var url = URL.createObjectURL(new Blob([r.text], { type: "text/plain;charset=utf-8" })), a = document.createElement("a");
+      a.href = url; a.download = name.replace(/\.pdf$/i, "").replace(/[^A-Za-z0-9._-]+/g, "_").slice(0, 80) + "-all-text.txt";
+      document.body.appendChild(a); a.click(); a.remove(); setTimeout(function () { URL.revokeObjectURL(url); }, 4000);
+      fmsg("Downloaded the text of " + r.pagesWithText + " of " + d.numPages + " page(s) as one text file." + (r.noText.length ? " " + r.noText.length + " page(s) had no readable text." : "") + (r.failed.length ? " " + r.failed.length + " could not be read." : "") + (r.stoppedAfter ? " It stops after page " + r.stoppedAfter + " (size limit)." : "") + " It is not OCR, and the PDF was not changed.");
+      allEnd();
+    }
+    function step() {
+      if (!live()) return;
+      if (n >= d.numPages || used >= C.ALL_BUDGET) { if (n < d.numPages) stopped = n; return finish(); }
+      var p = ++n, held = null; fmsg("Reading page " + p + " of " + d.numPages + "...");
+      d.getPage(p).then(function (pg) { held = pg; return pg.getTextContent(); }).then(function (tc) {
+        if (held) { try { held.cleanup(); } catch (x) { /* already released */ } }
+        if (!live()) return;
+        var r = C.takeText(tc.items, C.EXPORT_BUDGET); used += r.text.length; pages.push({ n: p, text: r.text, cut: r.cut }); setTimeout(step, 0);
+      }, function () { if (held) { try { held.cleanup(); } catch (x) { /* already released */ } } if (!live()) return; pages.push({ n: p, text: "", cut: false, failed: true }); setTimeout(step, 0); });
+    }
+    step();
+  });
   function find() {
     if (!doc || finding) return;
     var q = C.normQuery($("pdf-q").value);
@@ -876,7 +907,7 @@
     }).then(function () { if (tok === mToken) { mBusy = false; mControls(); } });
   });
   function closeDoc(msg) {
-    token++; cancelCurrent(); fseq.begin(); finding = false; mark = ""; $("pdf-fstop").disabled = true; fmsg(""); $("pdf-q").value = "";
+    token++; cancelCurrent(); fseq.begin(); finding = false; aseq.begin(); allBusy = false; $("pdf-exportallstop").disabled = true; mark = ""; $("pdf-fstop").disabled = true; fmsg(""); $("pdf-q").value = "";
     formsReset(); pagesReset(); mReset(); thClose(); var d = doc; doc = null; page = 1; zoom = 1; fitPage = false; rot = 0; notesClose(); $("pdf-text").textContent = ""; shown = "";
     settle.then(function () { if (doc) return; canvas.width = 1; canvas.height = 1; canvas.style.width = "0"; canvas.style.height = "0"; });
     var lt = loadTask; loadTask = null; if (lt) { try { lt.destroy(); } catch (e) { /* already gone */ } }

@@ -323,6 +323,7 @@ def register(g):
     register_parent_delete(g, users)
     register_pdf_marks_tools(g)
     register_pdf_pages(g)
+    register_pdf_alltext(g)
     register_pdf_roundtrip(g)
     register_slides_order_recovery(g)
     register_sheets_import_recovery(g)
@@ -4740,6 +4741,44 @@ def register_pdf_marks_tools(g):
         run_tour(ctx, "60_pdf_marks_tools", body, notes="Device-local viewer on a generated 4-page PDF; secure-context test flag. Headless Chromium 390x844 emulated. The downloaded copies are saved off-camera and are not opened in this clip.", unshown=["opening the downloaded copies", "reorder", "merge", "form fields", "password PDF", "unreadable-marks discard"])
 
     g["DRILLS"]["tour_pdf_marks_tools"] = tour
+
+
+def register_pdf_alltext(g):
+    APP = g["APP"]
+
+    def tour(ctx):
+        import os
+
+        def body(t, pg):
+            data = g["_n_page_pdf"](4, "Demo", blank=(3,))
+            pg.goto(APP + "/pdf/")
+            pg.evaluate("localStorage.clear()")
+            pg.goto(APP + "/pdf/")
+            pg.wait_for_timeout(500)
+            where = lambda: pg.inner_text("#pdf-where")
+            pg.set_input_files("#pdf-open", files=[{"name": "demo.pdf", "mimeType": "application/pdf", "buffer": data}])
+            for _ in range(40):
+                if where().startswith("Page 1 of 4"):
+                    break
+                pg.wait_for_timeout(250)
+            out = os.environ.get("DRILL_VIDEO", "")
+            saved = {}
+            pg.evaluate("document.querySelector('#pdf-exportall').scrollIntoView({block:'center'})")
+            t.step("A 4-page file is open (page 3 has no text, like a scan). The Download text of all pages button is on", expect=lambda: not pg.is_disabled("#pdf-exportall"), wait=2400)
+
+            def click():
+                with pg.expect_download(timeout=15000) as d:
+                    pg.click("#pdf-exportall")
+                saved["name"] = d.value.suggested_filename
+                saved["text"] = open(d.value.path(), encoding="utf-8").read()
+                open(os.path.join(out, "alltext.txt"), "w", encoding="utf-8").write(saved["text"])
+                pg.evaluate("document.querySelector('#pdf-fstatus').scrollIntoView({block:'center'})")
+
+            t.step("Press it. The status says 3 of 4 pages were downloaded and 1 had no readable text", click, expect=lambda: "Downloaded the text of 3 of 4 page" in pg.inner_text("#pdf-fstatus") and "1 page(s) had no readable text" in pg.inner_text("#pdf-fstatus"), wait=3200)
+            t.step("The saved file holds pages 1, 2 and 4 in order and its header names page 3 (checked in the saved file)", expect=lambda: saved.get("name") == "demo-all-text.txt" and saved["text"].index("Demo 1") < saved["text"].index("Demo 2") < saved["text"].index("Demo 4") and "Demo 3" not in saved["text"] and "on page(s): 3." in saved["text"] and "not OCR" in saved["text"], wait=1500)
+        run_tour(ctx, "pdf_alltext", body, notes="Device-local viewer on a generated 4-page PDF whose page 3 has no text. Headless Chromium 390x844 emulated; the downloaded text file is saved and read back by the tour. Not shown: a very large file reaching the size limit (node table rows), Stop mid-read, closing the file mid-read.", unshown=["size limit", "Stop mid-read", "close mid-read"])
+
+    g["DRILLS"]["tour_pdf_alltext"] = tour
 
 
 def register_pdf_pages(g):

@@ -6093,7 +6093,7 @@ def pdf_notes_turn(ctx):  # noqa: C901
     pg.set_viewport_size({"width": 1280, "height": 720})
 
 
-def _n_page_pdf(n, label="Page"):
+def _n_page_pdf(n, label="Page", blank=()):
     """A valid PDF of n portrait pages, each with a frame and its number (for measuring, not for the app)."""
     objs = [b"<< /Type /Catalog /Pages 2 0 R >>"]
     kids = " ".join("%d 0 R" % (3 + 2 * i) for i in range(n))
@@ -6107,8 +6107,8 @@ def _n_page_pdf(n, label="Page"):
             ).encode()
         )
         t = (
-            "2 w 20 20 572 752 re S BT /F1 48 Tf 60 700 Td (%s %d) Tj ET" % (label, i + 1)
-        ).encode()
+            "2 w 20 20 572 752 re S" if (i + 1) in blank else "2 w 20 20 572 752 re S BT /F1 48 Tf 60 700 Td (%s %d) Tj ET" % (label, i + 1)
+        ).encode()  # a page in blank has a frame and no text, like a scan
         objs.append(b"<< /Length %d >>\nstream\n" % len(t) + t + b"\nendstream")
     objs.append(b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>")
     out = b"%PDF-1.4\n"

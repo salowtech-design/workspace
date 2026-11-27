@@ -63,6 +63,32 @@
       (r.cut ? "The page had more text than the limit of " + EXPORT_BUDGET + " characters, so it stops early.\n" : "") + "\n";
     return h + r.text + "\n";
   }
-  var api = { textFile: textFile, EXPORT_BUDGET: EXPORT_BUDGET, splitMatches: splitMatches, normQuery: normQuery, countIn: countIn, pageOrder: pageOrder, MAX_SCAN: MAX_SCAN, takeText: takeText, Seq: Seq, MAX_BYTES: MAX_BYTES, check: check, pageIndex: pageIndex, zoomStep: zoomStep, zoomFrom: zoomFrom };
+  // Text of every page in one file. pages: [{n, text, cut, failed}] in page order. ALL_BUDGET bounds the whole file; once it
+  // is used up the file stops and says which page it stopped after. Pages with no text (often scans) and pages that could
+  // not be read are listed in the header, never skipped silently. Plain text from the file, not OCR.
+  var ALL_BUDGET = 5000000;
+  function allTextFile(name, total, pages, stoppedAfter) {
+    var body = [], noText = [], failed = [], cut = [], used = 0, last = 0;
+    for (var i = 0; i < pages.length; i++) {
+      var p = pages[i];
+      if (p.failed) { failed.push(p.n); last = p.n; continue; }
+      if (!p.text) { noText.push(p.n); last = p.n; continue; }
+      var room = ALL_BUDGET - used, t = p.text;
+      if (room <= 0) { stoppedAfter = last || stoppedAfter || 0; break; }
+      if (t.length > room) { t = t.slice(0, room); stoppedAfter = p.n; cut.push(p.n); }
+      else if (p.cut) cut.push(p.n);
+      body.push("----- Page " + p.n + " of " + total + " -----\n" + t + "\n"); used += t.length; last = p.n;
+      if (t.length < p.text.length) break;
+    }
+    var list = function (a) { return a.slice(0, 50).join(", ") + (a.length > 50 ? " and " + (a.length - 50) + " more" : ""); };
+    var h = "Text of all pages of " + String(name).replace(/\s+/g, " ").trim().slice(0, 120) + " (" + total + " page" + (total === 1 ? "" : "s") + ")\n" +
+      "This is the text stored in the PDF, page by page, in the order the file lists it. It is not OCR, the order can differ from what you see, and it may include text you cannot see on the page (hidden or off-page text kept in the file).\n" +
+      (noText.length ? "No readable text (often a scanned image) on page(s): " + list(noText) + ".\n" : "") +
+      (failed.length ? "Could not be read: page(s) " + list(failed) + ".\n" : "") +
+      (cut.length ? "Page(s) " + list(cut) + " had more text than fits, so they stop early.\n" : "") +
+      (stoppedAfter ? "The file stops after page " + stoppedAfter + " because it reached the limit of " + ALL_BUDGET + " characters. Later pages are not in it.\n" : "") + "\n";
+    return { text: h + body.join("\n"), pagesWithText: body.length, noText: noText, failed: failed, cut: cut, stoppedAfter: stoppedAfter || 0 };
+  }
+  var api = { allTextFile: allTextFile, ALL_BUDGET: ALL_BUDGET, textFile: textFile, EXPORT_BUDGET: EXPORT_BUDGET, splitMatches: splitMatches, normQuery: normQuery, countIn: countIn, pageOrder: pageOrder, MAX_SCAN: MAX_SCAN, takeText: takeText, Seq: Seq, MAX_BYTES: MAX_BYTES, check: check, pageIndex: pageIndex, zoomStep: zoomStep, zoomFrom: zoomFrom };
   if (typeof module !== "undefined" && module.exports) module.exports = api; else root.SalowPdfCheck = api;
 })(typeof self !== "undefined" ? self : this);
