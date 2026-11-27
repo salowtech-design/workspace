@@ -296,6 +296,7 @@ def register(g):
     register_parent_delete(g, users)
     register_pdf_marks_tools(g)
     register_pdf_pages(g)
+    register_pdf_roundtrip(g)
     register_pdf_forms(g)
     register_pdf_view_buttons(g)
     register_sheets_tabs_rules(g)
@@ -4794,3 +4795,83 @@ def register_role_views(g, users):
         run_tour(ctx, "83_role_views", body, notes="Real Django on TiDB, headless Chromium 390x844 emulated. Fixture by script: the signed-in account is Admin; 12 synthetic employees each have one completed session today (12 rows); two pending fallback requests and one post by Second Synthetic created by script.", unshown=["Admin step-up", "non-lead reviewer", "worker's own page after approval"])
 
     g["DRILLS"]["tour_role_views"] = tour
+
+
+def register_pdf_roundtrip(g):
+    """84: build a reordered copy and a merged copy, then open each downloaded file back in the viewer and read its text."""
+    APP = g["APP"]
+
+    def tour(ctx):
+        import os
+        import subprocess
+
+        def body(t, pg):
+            data = g["_n_page_pdf"](4, "Keep")
+            other = g["_n_page_pdf"](3, "Other")
+            out = os.environ["DRILL_VIDEO"] + "/dl84"
+            os.makedirs(out, exist_ok=True)
+            pg.goto(APP + "/pdf/")
+            pg.evaluate("localStorage.clear()")
+            pg.goto(APP + "/pdf/")
+            pg.wait_for_timeout(500)
+            where = lambda: pg.inner_text("#pdf-where")
+            if not pg.evaluate("!!(navigator.locks && navigator.locks.request)"):
+                t.step("No secure context in this browser", expect=lambda: False)
+                return
+
+            def open_bytes(buf, name, want):
+                pg.set_input_files("#pdf-open", files=[{"name": name, "mimeType": "application/pdf", "buffer": buf}])
+                for _ in range(40):
+                    if where().startswith(want):
+                        break
+                    pg.wait_for_timeout(250)
+
+            def show(sel):
+                pg.evaluate("s=>{document.querySelector(s).scrollIntoView({block:'center'})}", sel)
+
+            def grab(sel, name):
+                with pg.expect_download(timeout=15000) as d:
+                    pg.click(sel)
+                d.value.save_as(os.path.join(out, name))
+
+            def words(name):
+                return subprocess.run(["pdftotext", os.path.join(out, name), "-"], capture_output=True, text=True).stdout.split()
+
+            def pages_of(name):
+                o = subprocess.run(["pdfinfo", os.path.join(out, name)], capture_output=True, text=True).stdout
+                return int([l for l in o.splitlines() if l.startswith("Pages:")][0].split()[1])
+
+            open_bytes(data, "demo.pdf", "Page 1 of 4")
+            t.step("Open the 4-page file (pages labelled Keep 1 to Keep 4)", expect=lambda: where().startswith("Page 1 of 4"), wait=2000)
+            show("#pdf-orderstart")
+            pg.click("#pdf-orderstart")
+            pg.wait_for_timeout(400)
+            pg.locator("#pdf-orderlist li").nth(3).locator("button").nth(0).click()
+            pg.wait_for_timeout(300)
+            pg.locator("#pdf-orderlist li").nth(0).locator("button").nth(2).click()
+            pg.wait_for_timeout(300)
+            show("#pdf-orderlist")
+            t.step("Move Page 4 up and remove Page 1: the list now has 3 entries", expect=lambda: pg.locator("#pdf-orderlist li").count() == 3, wait=2500)
+            grab("#pdf-splitgo", "reordered.pdf")
+            t.step("Download the new PDF; the saved file has 3 pages in the order Keep 2, Keep 4, Keep 3", expect=lambda: pages_of("reordered.pdf") == 3 and [w for w in words("reordered.pdf") if w.isdigit()] == ["2", "4", "3"], wait=1500)
+            open_bytes(open(os.path.join(out, "reordered.pdf"), "rb").read(), "reordered.pdf", "Page 1 of 3")
+            t.step("Open the downloaded file back in the viewer: it reads Page 1 of 3", expect=lambda: where().startswith("Page 1 of 3"), wait=2500)
+            pg.fill("#pdf-q", "Keep 4")
+            pg.keyboard.press("Enter")
+            pg.wait_for_timeout(1200)
+            t.step("Find Keep 4 in the reopened file", expect=lambda: "Page 2" in pg.inner_text("body"), wait=2500)
+            open_bytes(data, "demo.pdf", "Page 1 of 4")
+            show("#pdf-mergeadd")
+            pg.set_input_files("#pdf-mergeadd", files=[{"name": "other.pdf", "mimeType": "application/pdf", "buffer": other}])
+            pg.wait_for_timeout(1200)
+            show("#pdf-mergelist")
+            t.step("Reopen the original and add other.pdf (3 pages) to merge", expect=lambda: "other.pdf" in pg.inner_text("#pdf-mergelist"), wait=2500)
+            grab("#pdf-mergego", "merged.pdf")
+            t.step("Download the merged PDF; the saved file has 7 pages: Keep 1 to 4 then Other 1 to 3", expect=lambda: pages_of("merged.pdf") == 7 and words("merged.pdf") == ["Keep", "1", "Keep", "2", "Keep", "3", "Keep", "4", "Other", "1", "Other", "2", "Other", "3"], wait=1500)
+            open_bytes(open(os.path.join(out, "merged.pdf"), "rb").read(), "merged.pdf", "Page 1 of 7")
+            t.step("Open the merged file in the viewer: it reads Page 1 of 7", expect=lambda: where().startswith("Page 1 of 7"), wait=2500)
+            t.note("Not shown: text of the opened pages beyond the page count (the file text was read from the saved files by script), password PDFs.", 3)
+
+        run_tour(ctx, "84_pdf_roundtrip", body, notes="Device-local viewer on generated PDFs, secure-context test flag. Headless Chromium 390x844 emulated. The saved files were also read by script (pdfinfo, pdftotext) and then opened back in the viewer.", unshown=["password PDF", "page text of reopened files beyond page count"])
+
+    g["DRILLS"]["tour_pdf_roundtrip"] = tour
