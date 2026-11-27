@@ -6,6 +6,7 @@ titles) is readable for any active person. Nothing notifies anyone and no email 
 invitation only appears on the guest's own calendar. Locking: the event row first, then re-read."""
 
 import datetime
+from collections import namedtuple
 import itertools
 import logging
 import types
@@ -374,24 +375,38 @@ def events_for(user, start, end):
     return out
 
 
-def overlaps_for(user, event, limit=5):
-    """Advisory only: other occurrences on THIS person's own calendar that overlap an occurrence of `event`.
+def _now():
+    return datetime.datetime.now(datetime.timezone.utc)
 
-    The window is the event's first 62 days (the most one read may ask for), so a long series is checked for
-    that stretch only; the caller says so. Not counted: the event itself (every occurrence of it), cancelled
-    events, events the person declined, and any event the person may not view (_visible, the gate get_event
-    uses): those are left out entirely, so nothing is revealed about them. Touching ends do not overlap.
-    Returns (shown_occurrences, total_overlaps)."""
-    start = event.start_utc
-    occ = events_for(user, start, start + MAX_RANGE)
+
+OverlapGroup = namedtuple("OverlapGroup", "event first count")
+
+
+def overlaps_for(user, event, limit=5):
+    """Advisory only: other events on THIS person's own calendar that overlap an occurrence of `event`.
+
+    Window: a single event is checked where it is. A repeating event that is still running is checked over
+    its NEXT 62 days (from now, or from its first occurrence if that is still ahead), the most one read may
+    ask for; an ended series is checked over its own first 62 days. Earlier starters count: events_for finds
+    events and series that began before the window and still overlap it. Not counted: the event itself (every
+    occurrence), cancelled events, events the person declined, and any event the person may not view
+    (_visible, the gate get_event uses): those are left out entirely, so nothing is revealed about them.
+    Touching ends do not overlap. Several overlapping occurrences of one event are ONE group (with a count).
+    Returns (shown_groups, total_groups, window_start); groups are OverlapGroup(event, first_occurrence, count)."""
+    anchor = event.start_utc
+    if event.freq and (event.last_end_utc is None or event.last_end_utc > _now()):
+        anchor = max(anchor, _now())
+    occ = events_for(user, anchor, anchor + MAX_RANGE)
     mine = [o for o in occ if o.pk == event.pk]
-    hits = []
+    groups = {}
     for o in occ:
         if o.pk == event.pk or not _visible(o.event, user):
             continue
         if any(o.start_utc < m.end_utc and m.start_utc < o.end_utc for m in mine):
-            hits.append(o)
-    return hits[:limit], len(hits)
+            g = groups.get(o.pk)
+            groups[o.pk] = OverlapGroup(o.event, o, 1) if g is None else OverlapGroup(g.event, g.first, g.count + 1)
+    ordered = sorted(groups.values(), key=lambda g: (g.first.start_utc, g.event.pk))
+    return ordered[:limit], len(ordered), anchor
 
 
 def free_busy(viewer, person_ids, start, end):

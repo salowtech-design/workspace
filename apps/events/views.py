@@ -1,4 +1,5 @@
 import datetime as dt
+import logging
 from zoneinfo import ZoneInfo
 
 from django.contrib import messages
@@ -77,20 +78,36 @@ def _limited(request):
     return False
 
 
+def _span(s, f, tz):
+    """'Tue 02 Mar 10:00 to 11:00 Asia/Kolkata', or with the end date when it ends on another local day."""
+    end = f"{f:%H:%M}" if s.date() == f.date() else f"{f:%a %d %b %H:%M}"
+    return f"{s:%a %d %b %H:%M} to {end} {tz}"
+
+
 def _warn_overlaps(request, ev):
-    """After a save: say, without blocking or changing anything, which of the person's own events overlap."""
-    shown, total = es.overlaps_for(request.user, ev)
-    if not total:
-        return
-    bits = []
-    for o in shown:
-        z = ZoneInfo(o.tz)
-        s, f = o.start_utc.astimezone(z), o.end_utc.astimezone(z)
-        bits.append(f"{o.title} ({s:%a %d %b %H:%M} to {f:%H:%M} {o.tz})")
-    more = f" and {total - len(shown)} more" if total > len(shown) else ""
-    series = " For a repeating event only its first 62 days were checked." if ev.freq else ""
-    noun = "event" if total == 1 else "events"
-    messages.warning(request, f"Heads up: this overlaps {total} other {noun} on your calendar: " + "; ".join(bits) + more + ". It was saved as entered." + series)
+    """After a save: say, without blocking or changing anything, which of the person's own events overlap.
+    A failure here is logged and ignored: the save already happened and must still redirect normally."""
+    try:
+        shown, total, anchor = es.overlaps_for(request.user, ev)
+        if not total:
+            return
+        bits = []
+        for g in shown:
+            o = g.first
+            z = ZoneInfo(o.tz)
+            part = _span(o.start_utc.astimezone(z), o.end_utc.astimezone(z), o.tz)
+            if g.count > 1:
+                part += f", {g.count} occurrences overlap"
+            bits.append(f"{o.title} ({part})")
+        more = f" and {total - len(shown)} more" if total > len(shown) else ""
+        noun = "event" if total == 1 else "events"
+        series = ""
+        if ev.freq:
+            z = ZoneInfo(ev.tz)
+            series = f" For a repeating event only the 62 days from {anchor.astimezone(z):%a %d %b %Y} were checked."
+        messages.warning(request, f"Heads up: this overlaps {total} other {noun} on your calendar: " + "; ".join(bits) + more + ". It was saved as entered." + series)
+    except Exception:  # noqa: BLE001 - advisory only; never turn a saved event into an error page
+        logging.getLogger(__name__).exception("overlap warning failed")
 
 
 def _local(ev, tz_name):

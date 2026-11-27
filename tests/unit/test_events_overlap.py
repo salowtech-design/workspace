@@ -14,8 +14,8 @@ def mk(who, title, s, e, tz=IST, guests=(), rule=None):
 
 
 def titles(user, ev):
-    shown, total = es.overlaps_for(user, ev)
-    return sorted(o.title for o in shown), total
+    shown, total, _anchor = es.overlaps_for(user, ev)
+    return sorted(g.event.title for g in shown), total
 
 
 @pytest.mark.django_db
@@ -66,7 +66,7 @@ def test_the_list_is_capped_but_the_total_is_exact():
     main = mk(a, "Main", D(2026, 12, 1, 10), D(2026, 12, 1, 12))
     for i in range(8):
         mk(a, f"Clash {i}", D(2026, 12, 1, 10, i), D(2026, 12, 1, 11))
-    shown, total = es.overlaps_for(a, main)
+    shown, total, _anchor = es.overlaps_for(a, main)
     assert len(shown) == 5 and total == 8
 
 
@@ -95,3 +95,55 @@ def test_create_and_edit_warn_without_blocking_and_name_only_own_events():
     warn = [m for m in msgs if m.startswith("Heads up")]
     assert r.redirect_chain and len(warn) == 1 and "Existing" in warn[0] and "New one" in warn[0] and "Alone (" not in warn[0]
     assert any(m.startswith("Event saved.") for m in msgs)
+
+
+@pytest.mark.django_db
+def test_one_event_with_several_overlapping_occurrences_is_one_group():
+    a = _u("OV-G")
+    long = mk(a, "Offsite", D(2026, 12, 1, 9), D(2026, 12, 3, 12))  # spans three days
+    mk(a, "Daily", D(2026, 12, 1, 10), D(2026, 12, 1, 11), rule=DAILY3)
+    shown, total, _anchor = es.overlaps_for(a, long)
+    assert total == 1 and shown[0].event.title == "Daily" and shown[0].count == 3
+
+
+@pytest.mark.django_db
+def test_events_that_started_before_the_window_and_long_spans_are_found(monkeypatch):
+    a = _u("OV-L")
+    old = mk(a, "Old series", D(2026, 12, 1, 10), D(2026, 12, 1, 11),
+             rule={"freq": "daily", "interval": 1, "weekdays": [], "count": 120, "until": None})  # Dec 1 to Mar 29
+    mk(a, "Past clash", D(2026, 12, 5, 10, 30), D(2026, 12, 5, 11, 30))  # in the past of the checked stretch
+    mk(a, "Soon clash", D(2027, 2, 25, 10, 30), D(2027, 2, 25, 11, 30))
+    mk(a, "Long span", D(2027, 2, 10, 0), D(2027, 2, 23, 0))  # 13 days: began before the window, still running into it
+    import datetime as dt
+
+    monkeypatch.setattr(es, "_now", lambda: dt.datetime(2027, 2, 20, 0, 0, tzinfo=dt.timezone.utc))
+    shown, total, anchor = es.overlaps_for(a, old)
+    assert anchor == dt.datetime(2027, 2, 20, tzinfo=dt.timezone.utc)
+    names = sorted(g.event.title for g in shown)
+    assert names == ["Long span", "Soon clash"] and total == 2  # the past clash is outside the next 62 days
+    # an ended series keeps its own first 62 days as the stretch
+    monkeypatch.setattr(es, "_now", lambda: dt.datetime(2027, 6, 1, tzinfo=dt.timezone.utc))
+    shown, total, anchor = es.overlaps_for(a, old)
+    assert anchor == old.start_utc and sorted(g.event.title for g in shown) == ["Past clash"]
+
+
+@pytest.mark.django_db
+def test_failure_of_the_advisory_never_breaks_a_save_and_text_is_escaped_and_overnight_shows_the_end_date(monkeypatch):
+    a = _u("OV-F")
+    mk(a, "<i>Clash</i>", D(2027, 3, 2, 22), D(2027, 3, 3, 1))  # overnight
+    c = _c(a)
+    form = {"title": "Late", "start": "2027-03-02T23:00", "end": "2027-03-02T23:30", "tz": IST}
+    r = c.post(reverse("events:new"), form, follow=True)
+    warn = [str(m) for m in r.context["messages"] if str(m).startswith("Heads up")]
+    assert warn and "Tue 02 Mar 22:00 to Wed 03 Mar 01:00 Asia/Kolkata" in warn[0]  # the end date shows
+    html = r.content.decode()
+    assert "&lt;i&gt;Clash&lt;/i&gt;" in html and "(<i>Clash</i>" not in html  # autoescaped, not raw markup
+
+    def boom(*args, **kwargs):
+        raise RuntimeError("advisory broke")
+
+    monkeypatch.setattr(es, "overlaps_for", boom)
+    r = c.post(reverse("events:new"), {**form, "title": "Still saved"}, follow=True)
+    msgs = [str(m) for m in r.context["messages"]]
+    assert r.status_code == 200 and r.redirect_chain and any(m.startswith("Event created.") for m in msgs)
+    assert not any(m.startswith("Heads up") for m in msgs) and es.Event.objects.filter(title="Still saved").exists()
