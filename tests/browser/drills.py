@@ -9434,6 +9434,150 @@ def task_assign_second(ctx):
     pg2.close()
 
 
+def drive_shared_second(ctx):
+    """A second REAL login (own context, random password and authenticator secret, never printed) opens the Shared with me page for a file
+    shared to it directly, with its parent folder not shared. Real IndexedDB, headless Chromium 390 wide. Viewer: no new-version picker,
+    wrong bytes refused, right bytes stored and Open downloads them. Editor: new version moves the row to version 2. Owner then trashes the
+    FILE itself: it leaves the Shared page and its checksum is gone. Not covered: other-device transfer, offline reload."""
+    import concurrent.futures
+    import secrets as _sec
+
+    import django
+
+    django.setup()
+    shots = os.environ.get("DRILL_SHOTS", "/tmp")  # noqa: S108
+    DATA = b"hello direct file\n"
+
+    def seed():
+        import hashlib
+
+        from django.contrib.auth.hashers import make_password
+        from django.utils import timezone
+
+        from apps.accounts.auth.mfa_totp import encrypt_secret, get_auth_key_ring
+        from apps.accounts.models import CustomUser, TOTPCredential
+        from apps.drive import services as svc
+
+        pw = _sec.token_urlsafe(18) + "aA1!"
+        sec = pyotp.random_base32(length=32)
+        u = CustomUser.objects.create(
+            employee_id="ST-LIVE-2", full_name="Second Member", email="second.m@salowtech.com", email_verified=True,
+            password=make_password(pw), role=CustomUser.Role.EMPLOYEE, status=CustomUser.Status.ACTIVE, is_active=True,
+        )
+        ct, nonce, key_id = encrypt_secret(sec, get_auth_key_ring())
+        TOTPCredential.objects.create(user=u, encrypted_secret=ct, nonce=nonce, key_id=key_id, confirmed_at=timezone.now())
+        me = CustomUser.objects.get(employee_id="ST-LIVE-1")
+        folder = svc.create_folder(me, "Hidden parent folder")
+        f = svc.create_file(me, "direct.txt", folder, "text/plain")
+        svc.add_version(me, f, 0, len(DATA), hashlib.sha256(DATA).hexdigest())
+        svc.share(me, f, u, "viewer")
+        return str(f.public_id), str(folder.public_id), pw, sec
+
+    with concurrent.futures.ThreadPoolExecutor(1) as ex:
+        fid, folder_id, pw2, sec2 = ex.submit(seed).result()
+
+    ctx2 = ctx.browser.new_context(viewport={"width": 390, "height": 800}, accept_downloads=True)
+    errs, _remote, only_loopback = ctx.salow_hooks
+    ctx2.route("**/*", only_loopback)
+    pg2 = ctx2.new_page()
+    pg2.on("pageerror", lambda e: errs.append(scrub(e)))
+    pg2.set_default_timeout(8000)
+    pg2.goto(APP + "/sign-in/")
+    pg2.wait_for_timeout(800)
+    pg2.click("#btn-signin")
+    pg2.wait_for_timeout(500)
+    pg2.fill("#employee_id", "ST-LIVE-2")
+    pg2.fill("#password", pw2)
+    t = pyotp.TOTP(sec2)
+    left = t.interval - (time.time() % t.interval)
+    if left < 5:
+        time.sleep(left + 0.5)
+    pg2.fill("#totp_code", t.now())
+    pg2.click("#confirm-btn")
+    pg2.wait_for_load_state()
+    pg2.wait_for_timeout(1200)
+    row = lambda: pg2.locator(".drive-file", has_text="direct.txt")
+    pg2.goto(APP + "/drive/shared/")
+    pg2.wait_for_timeout(1000)
+    body = pg2.inner_text("body")
+    check("shared second: the directly shared file is listed with the device controls and its parent folder is not named", row().count() == 1 and "Hidden parent folder" not in body and row().locator(".drive-reattach").count() == 1)
+    check("shared second: the viewer has no new-version picker and starts with Not on this device and Open disabled", row().locator(".drive-newver").count() == 0 and "Not on this device" in row().inner_text() and row().locator(".drive-open").is_disabled())
+    pg2.screenshot(path=os.path.join(shots, "drive_shared_viewer_390.png"), full_page=True)
+    check("shared second: the viewer cannot open the parent folder page", pg2.goto(APP + "/drive/folder/%s/" % folder_id).status == 404)
+    pg2.goto(APP + "/drive/shared/")
+    pg2.wait_for_timeout(800)
+    row().locator(".drive-reattach").set_input_files({"name": "x.txt", "mimeType": "text/plain", "buffer": b"not the same bytes\n"})
+    pg2.wait_for_timeout(1500)
+    check("shared second: wrong bytes are refused", "checksum is different" in row().inner_text() and row().locator(".drive-open").is_disabled())
+    row().locator(".drive-reattach").set_input_files({"name": "x.txt", "mimeType": "text/plain", "buffer": DATA})
+    pg2.wait_for_timeout(1500)
+    check("shared second: the right bytes are stored and the row says a copy is on this device", "A copy is on this device" in row().inner_text() and row().locator(".drive-open").is_enabled())
+    with pg2.expect_download() as d:
+        row().locator(".drive-open").click()
+    check("shared second: Open downloads direct.txt with exactly the file's bytes", d.value.suggested_filename == "direct.txt" and open(d.value.path(), "rb").read() == DATA)
+    pg2.wait_for_timeout(500)
+    pg2.screenshot(path=os.path.join(shots, "drive_shared_viewer_opened_390.png"), full_page=True)
+
+    def as_editor():
+        from apps.accounts.models import CustomUser
+        from apps.drive import services as svc
+        from apps.drive.models import DriveFile
+
+        me = CustomUser.objects.get(employee_id="ST-LIVE-1")
+        svc.share(me, DriveFile.objects.get(public_id=fid), CustomUser.objects.get(employee_id="ST-LIVE-2"), "editor")
+
+    with concurrent.futures.ThreadPoolExecutor(1) as ex:
+        ex.submit(as_editor).result()
+    pg2.goto(APP + "/drive/shared/")
+    pg2.wait_for_timeout(1000)
+    check("shared second: after the owner makes them an editor the new-version picker appears", row().locator(".drive-newver").count() == 1)
+    row().locator(".drive-newver").set_input_files({"name": "direct.txt", "mimeType": "text/plain", "buffer": b"second version\n"})
+    pg2.wait_for_timeout(3000)
+    check("shared second: the editor's new version moves the row to version 2", "now version 2" in row().inner_text() and row().get_attribute("data-version") == "2")
+    pg2.screenshot(path=os.path.join(shots, "drive_shared_editor_v2_390.png"), full_page=True)
+    row().locator(".drive-reattach").set_input_files({"name": "x.txt", "mimeType": "text/plain", "buffer": DATA})
+    pg2.wait_for_timeout(1500)
+    check("shared second: the old bytes are now refused against the new checksum", "checksum is different" in row().inner_text())
+
+    def revoke(on):
+        from apps.accounts.models import CustomUser
+        from apps.drive import services as svc
+        from apps.drive.models import DriveFile
+
+        me = CustomUser.objects.get(employee_id="ST-LIVE-1")
+        f, u = DriveFile.objects.get(public_id=fid), CustomUser.objects.get(employee_id="ST-LIVE-2")
+        svc.share(me, f, u, "editor") if on else svc.unshare(me, f, u)
+
+    with concurrent.futures.ThreadPoolExecutor(1) as ex:
+        ex.submit(revoke, False).result()
+    pg2.goto(APP + "/drive/shared/")
+    pg2.wait_for_timeout(1000)
+    check("shared second: after the owner revokes the direct share the file and its checksum leave the Shared page", row().count() == 0 and "direct.txt" not in pg2.inner_text("body") and "data-sha=" not in pg2.content().split("drive-root", 1)[1].split("<script", 1)[0])
+    pg2.screenshot(path=os.path.join(shots, "drive_shared_revoked_390.png"), full_page=True)
+    with concurrent.futures.ThreadPoolExecutor(1) as ex:
+        ex.submit(revoke, True).result()
+    pg2.goto(APP + "/drive/shared/")
+    pg2.wait_for_timeout(1000)
+    check("shared second: sharing it again brings the row back at version 2", row().count() == 1 and row().get_attribute("data-version") == "2")
+
+    def trash_file():
+        from apps.accounts.models import CustomUser
+        from apps.drive import services as svc
+        from apps.drive.models import DriveFile
+
+        me = CustomUser.objects.get(employee_id="ST-LIVE-1")
+        svc.trash(me, DriveFile.objects.get(public_id=fid))
+
+    with concurrent.futures.ThreadPoolExecutor(1) as ex:
+        ex.submit(trash_file).result()
+    pg2.goto(APP + "/drive/shared/")
+    pg2.wait_for_timeout(1000)
+    page = pg2.content()
+    check("shared second: after the owner trashes the FILE it leaves the Shared page and its checksum is not in the page", "direct.txt" not in pg2.inner_text("body") and row().count() == 0 and "data-sha" not in page.split("drive-root", 1)[1].split("<script", 1)[0])
+    pg2.screenshot(path=os.path.join(shots, "drive_shared_trashed_390.png"), full_page=True)
+    pg2.close()
+
+
 def iam_audit_filters(ctx):
     """The IAM console audit filters on the IAM host, in a real browser. Stand-ins, said plainly: the IAM host name is mapped to loopback by the
     browser flag, and the IAM session is created in the drill database (not signed in through the IAM sign-in page), carried in a cookie
@@ -9559,6 +9703,7 @@ DRILLS = {
     "second_context_selftest": second_context_selftest,
     "iam_audit_filters": iam_audit_filters,
     "task_assign_second": task_assign_second,
+    "drive_shared_second": drive_shared_second,
     "finder_projects": finder_projects,
     "task_filters": task_filters,
     "task_comments": task_comments,
