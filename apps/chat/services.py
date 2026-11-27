@@ -217,8 +217,15 @@ def mentioned_members(sp, body, author):
 
 
 def mention_choices(sp, user):
-    """Active members the composer offers for @mentions: everyone in the space except the viewer."""
-    rows = Member.objects.filter(space=sp, left_at__isnull=True).exclude(person=user).select_related("person")
+    """People the composer offers as one-tap mentions: only people this viewer can already see in the conversation, that is
+    the other person in a direct message, or in a group those who have written a message in it (their name and ID already
+    show on their messages). A member who never wrote is not listed, so the composer reveals no member list that Chat did
+    not already show; the ID can still be typed. Active members only, never the viewer."""
+    q = Member.objects.filter(space=sp, left_at__isnull=True).exclude(person=user)
+    if sp.kind != Space.DM:
+        wrote = Message.objects.filter(space=sp).values("author_id").distinct()
+        q = q.filter(person_id__in=wrote)
+    rows = q.select_related("person")
     return sorted(
         (r.person for r in rows if r.person.is_active and r.person.status == "active"),
         key=lambda p: (p.full_name.lower(), p.employee_id),

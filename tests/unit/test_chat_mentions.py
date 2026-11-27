@@ -85,9 +85,57 @@ def test_notice_failure_never_blocks_the_message(monkeypatch):
 
 
 @pytest.mark.django_db
-def test_composer_lists_members_and_escapes_names():
+def test_twenty_first_distinct_mention_is_silently_not_notified():
+    a = _u("CAP-A")
+    others = [_u("CAP-%02d" % i) for i in range(22)]
+    sp = cs.create_group(a, "Big", [o.pk for o in others])
+    cs.post_message(a, sp.public_id, " ".join("@CAP-%02d" % i for i in range(22)), "m1")
+    got = [o for o in others if _n(o)]
+    assert [o.employee_id for o in got] == ["CAP-%02d" % i for i in range(20)]  # first 20 in text order, no error shown
+
+
+@pytest.mark.django_db
+def test_group_composer_offers_only_people_who_wrote_and_dm_offers_the_other_person():
     a, b, c, d, sp = _group()
-    r = _c(a).get(reverse("chat:space", args=[sp.public_id]))
-    html = r.content.decode()
-    assert 'data-mention="@MN-B"' in html and 'data-mention="@MN-C"' in html
-    assert 'data-mention="@MN-A"' not in html and "MN-D" not in html
+    html = lambda u: _c(u).get(reverse("chat:space", args=[sp.public_id])).content.decode()
+    assert 'data-mention="@MN-B"' not in html(a)  # b is a member but has not written: no member list is revealed
+    cs.post_message(b, sp.public_id, "hello", "b1")
+    h = html(a)
+    assert 'data-mention="@MN-B"' in h and 'data-mention="@MN-C"' not in h and 'data-mention="@MN-A"' not in h
+    assert "MN-D" not in h  # not a member
+    x, y = _u("MN-X"), _u("MN-Y")
+    dm = cs.open_dm(x, y.pk)
+    assert 'data-mention="@MN-Y"' in _c(x).get(reverse("chat:space", args=[dm.public_id])).content.decode()
+
+
+@pytest.mark.django_db
+def test_hostile_display_name_is_escaped_in_the_mention_button():
+    a, b, c, d, sp = _group()
+    b.full_name = '<script>alert(1)</script><img src=x onerror=alert(2)>'
+    b.save()
+    cs.post_message(b, sp.public_id, "hi", "b1")
+    h = _c(a).get(reverse("chat:space", args=[sp.public_id])).content.decode()
+    assert "<script>alert(1)</script>" not in h and "<img src=x" not in h
+    assert "&lt;script&gt;alert(1)&lt;/script&gt;" in h
+
+
+@pytest.mark.django_db
+def test_recipient_who_left_or_was_suspended_after_the_mention_cannot_read_anything_through_the_notice():
+    from apps.chat.models import Member
+
+    a, b, c, d, sp = _group()
+    cs.post_message(a, sp.public_id, "the private text @MN-B @MN-C", "m1")
+    nb, nc = _n(b)[0], _n(c)[0]
+    # the notice stores only the title and a link, never the text
+    assert "private" not in nb.title and "private" not in nb.link
+    Member.objects.filter(space=sp, person=b).update(left_at="2026-01-01T00:00:00Z")
+    r = _c(b).post(reverse("inbox:open", args=[nb.pk]))
+    assert r.status_code == 302 and r["Location"].startswith(reverse("chat:space", args=[sp.public_id]))
+    page = _c(b).get(r["Location"])
+    assert page.status_code == 404 and b"private text" not in page.content  # the destination refuses on its own check
+    c.status = "suspended"
+    c.save()
+    r2 = _c(c).post(reverse("inbox:open", args=[nc.pk]))  # a suspended account has no session: sent to sign-in, never to the conversation
+    assert r2.status_code in (302, 404) and "/chat/" not in r2.get("Location", "")
+    r3 = _c(c).get(reverse("chat:space", args=[sp.public_id]))
+    assert r3.status_code in (302, 403, 404) and b"private text" not in r3.content
