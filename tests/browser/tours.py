@@ -300,6 +300,7 @@ def register(g):
     register_slides_order_recovery(g)
     register_sheets_import_recovery(g)
     register_second_person_views(g, users)
+    register_sheets_rules_after(g)
     register_pdf_forms(g)
     register_pdf_view_buttons(g)
     register_sheets_tabs_rules(g)
@@ -5106,3 +5107,59 @@ def register_second_person_views(g, users):
         run_tour(ctx, "87_second_person_views", body, notes="Real Django on TiDB, headless Chromium 390x844 emulated. Two real signed-in synthetic accounts; the second sign-in is done in a separate unrecorded window and only its session is swapped into the recorded window, and the other person's task click happens in a second real browser window off camera. Nothing secret is typed on camera.", unshown=["a conflict on a repeating series from a second person", "a guest answering for one occurrence only (not built)", "a project task conflict"])
 
     g["DRILLS"]["tour_second_person_views"] = tour
+
+
+def register_sheets_rules_after(g):
+    APP = g["APP"]
+
+    def tour(ctx):
+        import os
+
+        os.makedirs("/tmp/vid/dl", exist_ok=True)
+        val = lambda pg, a: pg.input_value('input[data-addr="%s"]' % a)
+
+        def put(pg, a, v):
+            sel = 'input[data-addr="%s"]' % a
+            pg.click(sel)
+            pg.fill(sel, v)
+            pg.press(sel, "Tab")
+
+        def sc(pg, sel):
+            pg.evaluate("s=>{var e=document.querySelector(s);if(e)e.scrollIntoView({block:'center'})}", sel)
+
+        def body(t, pg):
+            pg.goto(APP + "/sheets/")
+            pg.evaluate("localStorage.clear()")
+            pg.goto(APP + "/sheets/")
+            pg.wait_for_timeout(500)
+            KEY = pg.evaluate("document.getElementById('sheet-root').dataset.storeKey")
+            get = lambda k: pg.evaluate("k=>localStorage.getItem(k)", k)
+            st = lambda: pg.inner_text("#sheet-status").strip()
+            vs = lambda: pg.inner_text("#val-status").strip()
+            msgs = []
+            mode = {"accept": False}
+            pg.on("dialog", lambda d: (msgs.append(d.message), d.accept() if mode["accept"] else d.dismiss()))
+            t.step("Type keep in A1", lambda: (put(pg, "A1", "keep"), sc(pg, 'input[data-addr="A1"]')), expect=lambda: val(pg, "A1") == "keep", wait=2200)
+            cells_before = get(KEY)
+            t.cap("Next: store damaged rules (the text {bad) for this tab and reload")
+            pg.evaluate("([k])=>localStorage.setItem(k+'.rules','{bad')", [KEY])
+            pg.reload()
+            pg.wait_for_timeout(600)
+            t.step("Type 99 in C2: refused with the exact reason", lambda: (put(pg, "C2", "99"), sc(pg, "#sheet-status")), expect=lambda: val(pg, "C2") == "" and st() == "This tab's validation rules could not be read, so edits are off until they are fixed or removed. Use Download unreadable rules to keep a copy. The edit was not applied.", wait=3400)
+
+            def dl():
+                with pg.expect_download(timeout=15000) as d:
+                    pg.click("#val-raw")
+                d.value.save_as("/tmp/vid/dl/unreadable-validation-rules-after.txt")
+            t.step("Download unreadable rules: the file holds exactly what was stored", lambda: (sc(pg, "#val-raw"), dl()), expect=lambda: open("/tmp/vid/dl/unreadable-validation-rules-after.txt").read() == "{bad", wait=2000)
+            t.step("Press Remove unreadable rules and answer No: cancelled, the rules are still damaged", lambda: (sc(pg, "#val-reset"), pg.click("#val-reset"), pg.wait_for_timeout(500), sc(pg, "#val-status")), expect=lambda: vs() == "Cancelled. The unreadable rules were left untouched." and get(KEY + ".rules") == "{bad" and get(KEY + ".rules.backup") is None and pg.is_disabled("#val-add") and "Remove this tab's unreadable validation rules?" in msgs[-1], wait=3400)
+            mode["accept"] = True
+            t.step("Press Remove unreadable rules and answer Yes: removed, exact backup kept, cells untouched", lambda: (pg.click("#val-reset"), pg.wait_for_timeout(500), sc(pg, "#val-status")), expect=lambda: vs() == "Removed the unreadable rules. A copy is kept in this browser under a backup key and is replaced only if you do this again on this tab. Your cells were not changed." and get(KEY + ".rules") is None and get(KEY + ".rules.backup") == "{bad" and get(KEY) == cells_before and not pg.is_disabled("#val-add"), wait=3600)
+            t.step("A1 still says keep, and typing 99 in C2 now works", lambda: (put(pg, "C2", "99"), sc(pg, 'input[data-addr="C2"]')), expect=lambda: val(pg, "A1") == "keep" and val(pg, "C2") == "99", wait=3200)
+            t.step("Add a new rule: C3:C4 may only hold yes or no", lambda: (pg.fill("#val-range", "C3:C4"), pg.select_option("#val-kind", "list"), pg.fill("#val-items", "yes, no"), pg.click("#val-add"), sc(pg, "#val-list")), expect=lambda: pg.locator("#val-list li").count() == 1, wait=3000)
+            t.step("Type maybe in C3: refused by the new rule, C3 stays empty", lambda: (put(pg, "C3", "maybe"), sc(pg, 'input[data-addr="C3"]')), expect=lambda: val(pg, "C3") == "", wait=3000)
+            t.step("Type yes in C3: accepted", lambda: (put(pg, "C3", "yes"), sc(pg, 'input[data-addr="C3"]')), expect=lambda: val(pg, "C3") == "yes", wait=3000)
+
+        run_tour(ctx, "88_sheets_rules_recovery_after", body, notes="Device-local sheet; nothing stored on the server. Headless Chromium 390x844 emulated. After-fix clip for the Remove unreadable rules control; clip 86 is the before evidence. The damaged rules are a test-written string in browser storage; the confirm questions are answered by the test. Backup-write and removal failures and the replace-an-earlier-backup warning are covered by the automated drill, not filmed.", unshown=["backup write failure", "removal failure", "the warning when an earlier backup exists", "restoring from the backup (no control exists)"])
+
+    g["DRILLS"]["tour_sheets_rules_after"] = tour
