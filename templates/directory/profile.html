@@ -36,6 +36,9 @@
             <span class="s-7326de92">Attendance Mode:</span>
             <span>{{ profile_user.get_attendance_mode_display }}</span>
 
+            <span class="s-7326de92">Reports to:</span>
+            <span>{% if manager %}<a href="{% url 'directory:profile' manager.employee_id %}">{{ manager.full_name }} ({{ manager.employee_id }})</a>{% else %}No manager set{% endif %}</span>
+
             {% if is_privileged %}
             <span class="s-7326de92">Phone:</span>
             <span>{{ profile_user.profile.phone|default:"Protected" }}</span>
@@ -44,6 +47,13 @@
             <span>{{ profile_user.profile.emergency_contact|default:"Protected" }}</span>
             {% endif %}
         </div>
+
+        {% if is_admin %}
+        <form method="post" action="{% url 'directory:assign_manager' profile_user.employee_id %}" class="tasks-inline">{% csrf_token %}
+            <label for="mgr">Reporting manager</label>
+            <select name="manager" id="mgr">{% for u in manager_choices %}<option value="{{ u.employee_id }}"{% if manager and u.pk == manager.pk %} selected{% endif %}>{{ u.full_name }} ({{ u.employee_id }})</option>{% endfor %}</select>
+            <button class="btn btn-small" type="submit">Set manager</button></form>
+        {% endif %}
 
         {% if teams %}
         <div class="s-0f2d52c5">
