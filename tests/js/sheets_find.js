@@ -42,7 +42,7 @@ r = fr(mk({ A1: "Ünï", A2: "ÜNÏ" }), { find: "ünï", repl: null });
 ok("case-insensitive for accented letters", r.matched === 2);
 const bad = (cells) => ({ badFormula: (a, v) => { const m = Object.assign(Object.create(null), cells); m[a] = v; const x = new F.Sheet(m).get(a); return F.isErr(x) && x.code === "#PARSE!"; } });
 const fb = mk({ A1: "1", A2: "=SUM(A1:A1)", A3: "=A1+1" });
-r = fr(fb, { find: "A1:A1)", repl: "A1:", formulas: true }, bad(fb));
+r = fr(fb, { find: "A1:A1)", repl: "A1:A1", formulas: true }, bad(fb));
 ok("a replacement that leaves an unreadable formula is skipped and counted", r.cells.A2 === "=SUM(A1:A1)" && r.badFormula === 1 && r.changed === 0);
 r = fr(fb, { find: "+", repl: "+*", formulas: true }, bad(fb));
 ok("another unreadable result is skipped", r.cells.A3 === "=A1+1" && r.badFormula === 1);
