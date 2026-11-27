@@ -274,6 +274,7 @@ def register(g):
     register_post_comment_notice(g)
     register_task_conflict(g)
     register_sessions_scroll(g, users)
+    register_role_views(g, users)
     register_drive_move(g)
     register_drive_confirm(g, users)
     register_drive_find(g, users)
@@ -4729,3 +4730,67 @@ def register_post_comment_notice(g):
         run_tour(ctx, "82_post_comment_notice", body, notes="Real Django on TiDB, headless Chromium 390x844 emulated. Fixture by script: a synthetic admin comments on the signed-in account's post through the Posts service.", unshown=["commenter form", "failed notice", "email/push"])
 
     g["DRILLS"]["tour_post_comment_notice"] = tour
+
+
+def register_role_views(g, users):
+    """83: the Admin role on the Attendance review panel, the Work log review form, and a Sessions table with many rows."""
+    APP = g["APP"]
+
+    def tour(ctx):
+        import concurrent.futures
+        import datetime as dt
+
+        users(ctx)
+        ids = {}
+
+        def run(fn):
+            with concurrent.futures.ThreadPoolExecutor(1) as ex:
+                return ex.submit(fn).result()
+
+        def fixture():
+            from django.utils import timezone
+
+            from apps.accounts.models import CustomUser
+            from apps.attendance import services as at
+            from apps.attendance.models import WorkSession
+            from apps.posts import services as ps
+            from apps.posts.models import Post
+
+            me = CustomUser.objects.get(employee_id="ST-LIVE-1")
+            me.role = CustomUser.Role.ADMIN
+            me.save(update_fields=["role"])
+            two = CustomUser.objects.get(employee_id="ST-LIVE-2")
+            three = CustomUser.objects.get(employee_id="ST-LIVE-3")
+            now = timezone.now().replace(microsecond=0)
+            wd = at.get_current_kolkata_date(now)
+            at.create_fallback_request(two, "check_in", wd, now, "Second: camera broken")
+            at.create_fallback_request(three, "check_in", wd, now, "Third: badge lost")
+            for i in range(12):
+                u = CustomUser.objects.create(employee_id="RV-%03d" % i, full_name="Role View %03d" % i, email="rv%03d@salowtech.com" % i, role="employee", status="active", is_active=True, email_verified=True)
+                WorkSession.objects.create(user=u, work_date=wd, check_in_at=now - dt.timedelta(minutes=90 + i), check_out_at=now - dt.timedelta(minutes=10 + i), verification_method=WorkSession.VerificationMethod.MANUAL_APPROVED, state=WorkSession.State.COMPLETED, notes="Fixture completed session")
+            ids["post"] = ps.create_post(author=two, title="Admin review fixture post", content="Second's note.", category=Post.Category.GENERAL).pk
+
+        run(fixture)
+
+        def body(t, pg):
+            txt = lambda: pg.inner_text("body")
+            row = lambda who: pg.evaluate("w=>{const r=[...document.querySelectorAll('tbody tr')].find(x=>x.textContent.indexOf(w)>=0); if(r) r.scrollIntoView({block:'center'}); return !!r}", who)
+            pg.goto(APP + "/attendance/admin/")
+            t.step("Attendance review as Admin: both pending requests are listed", lambda: row("ST-LIVE-3"), expect=lambda: "Second: camera broken" in txt() and "Third: badge lost" in txt(), wait=3000)
+            t.step("Approve Second's request as Admin", lambda: pg.evaluate("w=>{const r=[...document.querySelectorAll('tbody tr')].find(x=>x.textContent.indexOf(w)>=0); r.querySelector('button[value=approve]').click()}", "Second: camera broken"), expect=lambda: "successfully approved" in txt().lower() or "approved" in txt().lower(), wait=3200)
+            t.step("Second's row is gone from pending, Third's remains", lambda: pg.evaluate("window.scrollTo(0,0)"), expect=lambda: "Second: camera broken" not in txt() and "Third: badge lost" in txt(), wait=3200)
+            t.step("Today's sessions table with 12 rows (heading says 12): scroll down through it", lambda: pg.evaluate("(()=>{const e=[...document.querySelectorAll('h2,h3')].find(h=>/session/i.test(h.textContent)); e.scrollIntoView({block:'start'}); window.scrollBy(0,500); return 0})()"), expect=lambda: pg.locator("tr:has-text('Role View')").count() == 12, wait=3500)
+            pg.goto(APP + "/posts/%d/" % ids["post"])
+            t.step("Work log review as Admin: Second's post has the Sign-Off form", lambda: pg.evaluate("[...document.querySelectorAll('h4')].find(h=>h.textContent.indexOf('Sign-Off')>=0).scrollIntoView({block:'center'})"), expect=lambda: "Sign-Off" in txt(), wait=2600)
+
+            def appr():
+                pg.select_option("#id_status", "approved")
+                pg.click("form[action$='/review/'] button[type=submit]")
+
+            t.step("Approve the post as Admin", appr, expect=lambda: "Approved" in txt(), wait=2600)
+            t.step("Result: reviewed by me", lambda: pg.evaluate("[...document.querySelectorAll('h3')].find(h=>h.textContent.indexOf('Manager Review')>=0).scrollIntoView({block:'center'})"), expect=lambda: "Reviewed by" in txt(), wait=3000)
+            t.note("Not shown: Admin step-up, a reviewer who is neither lead nor manager, the worker's own page after approval.", 3)
+
+        run_tour(ctx, "83_role_views", body, notes="Real Django on TiDB, headless Chromium 390x844 emulated. Fixture by script: the signed-in account is Admin; 12 synthetic employees each have one completed session today (12 rows); two pending fallback requests and one post by Second Synthetic created by script.", unshown=["Admin step-up", "non-lead reviewer", "worker's own page after approval"])
+
+    g["DRILLS"]["tour_role_views"] = tour
