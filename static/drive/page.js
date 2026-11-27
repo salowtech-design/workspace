@@ -14,20 +14,26 @@
     },
   };
   function label(row) { return row.querySelector(".drive-local"); }
-  function paint(row) {
+  // The badge only says a record is present. "Checked" is said only right after a successful open (the bytes were hashed then).
+  function paint(row, checked) {
     var btn = row.querySelector(".drive-open"), sha = row.dataset.sha;
     if (!sha) return;
     store.has(sha).then(function (yes) {
-      label(row).textContent = yes ? "On this device (checked when opened)" : "Not on this device";
+      label(row).textContent = yes ? (checked ? "Opened just now: the copy on this device was checked" : "A copy is on this device (not checked until opened)") : "Not on this device";
       if (btn) btn.disabled = !yes;
     }, function (e) { label(row).textContent = "This device cannot be checked: " + e.message; });
   }
   Array.prototype.forEach.call(root.querySelectorAll(".drive-file"), function (row) {
     paint(row);
-    var btn = row.querySelector(".drive-open"), nv = row.querySelector(".drive-newver");
+    var btn = row.querySelector(".drive-open"), nv = row.querySelector(".drive-newver"), ra = row.querySelector(".drive-reattach");
+    if (ra) ra.addEventListener("change", function () {
+      var f = ra.files && ra.files[0]; ra.value = ""; if (!f) return;
+      label(row).textContent = "Checking the file...";
+      D.reattach(deps, row.dataset.sha, f).then(function (r) { if (r.ok) paint(row); else label(row).textContent = r.message; });
+    });
     if (btn) btn.addEventListener("click", function () {
       btn.disabled = true;
-      D.openLocal(deps, row.dataset.name, row.dataset.sha).then(function (r) { if (!r.ok) label(row).textContent = r.message; else paint(row); if (!r.ok && r.state === "damaged") btn.disabled = true; });
+      D.openLocal(deps, row.dataset.name, row.dataset.sha).then(function (r) { if (!r.ok) label(row).textContent = r.message; else paint(row, true); if (!r.ok && r.state === "damaged") btn.disabled = true; });
     });
     if (nv) nv.addEventListener("change", function () {
       var f = nv.files && nv.files[0]; nv.value = ""; if (!f) return;

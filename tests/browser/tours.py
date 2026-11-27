@@ -2308,7 +2308,7 @@ def register_drive_device(g):
             t.step("Add notes.txt from this device", lambda: pg.set_input_files("#drive-pick", {"name": "notes.txt", "mimeType": "text/plain", "buffer": b"quarterly notes\n"}),
                    expect=lambda: "1 of 1 saved to Drive" in st() and "on this device" in st(), wait=6000)
             print("   status:", st()[:200], flush=True)
-            t.step("Reload: the file row says On this device (checked when opened)", lambda: pg.reload(), expect=lambda: "On this device" in row("notes.txt").inner_text() and row("notes.txt").locator(".drive-open").is_enabled(), wait=2000)
+            t.step("Reload: the row says a copy is on this device, not checked until opened", lambda: pg.reload(), expect=lambda: "A copy is on this device" in row("notes.txt").inner_text() and row("notes.txt").locator(".drive-open").is_enabled(), wait=2000)
             t.step("Add an empty file: a real file, saved with size 0", lambda: pg.set_input_files("#drive-pick", {"name": "empty.txt", "mimeType": "text/plain", "buffer": b""}),
                    expect=lambda: "1 of 1 saved to Drive" in st(), wait=6000)
             res = {}
@@ -2328,7 +2328,13 @@ def register_drive_device(g):
                 pg.evaluate(corrupt, dbname()); pg.reload(); pg.wait_for_timeout(800)
                 row("notes.txt").locator(".drive-open").click(); pg.wait_for_timeout(800)
             t.step("Damage the stored bytes in the real browser store: Open refuses and says the copy is damaged", damage, expect=lambda: "damaged" in row("notes.txt").inner_text(), wait=800)
-            t.step("Add notes.txt again (same bytes): the damaged copy is repaired", lambda: pg.set_input_files("#drive-pick", {"name": "notes2.txt", "mimeType": "text/plain", "buffer": b"quarterly notes\n"}), expect=lambda: "on this device" in st(), wait=6000)
+            rb = lambda: row("notes.txt").locator(".drive-reattach")
+            def reattach():
+                rb().set_input_files({"name": "x.txt", "mimeType": "text/plain", "buffer": b"wrong bytes\n"}); pg.wait_for_timeout(1500)
+                res["refused"] = row("notes.txt").inner_text()
+                rb().set_input_files({"name": "x.txt", "mimeType": "text/plain", "buffer": b"quarterly notes\n"}); pg.wait_for_timeout(1500)
+            t.step("Put a copy back with the row's own picker: wrong bytes are refused, the right bytes repair it, and Drive gets no new version", reattach,
+                   expect=lambda: "checksum is different" in res.get("refused", "") and "A copy is on this device" in row("notes.txt").inner_text(), wait=1500)
             def reopen():
                 pg.reload(); pg.wait_for_timeout(1200)
                 with pg.expect_download() as d:

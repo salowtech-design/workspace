@@ -35,8 +35,9 @@ const created = (u, id) => u.endsWith("new/") ? json(201, { ok: true, file: { id
   let r = await D.addFile(dep, file("a.pdf", "application/pdf", [1, 2, 3]), "fold");
   ok("add: ok, version 1, hash is the SHA-256, read back healthy", r.ok && r.onDevice && r.version === 1 && r.sha256 === h && (await dep.store.state(h)).state === "on-device");
   ok("add: only name, type, folder, size, hash and the CSRF token are sent, never bytes", calls.length === 2 && calls[0].tok === "tok" && /name=a.pdf/.test(calls[0].body) && /folder=fold/.test(calls[0].body) && /base_version=0/.test(calls[1].body) && /size=3/.test(calls[1].body) && calls[1].body.includes("sha256=" + h) && !/%01%02%03/.test(calls[0].body + calls[1].body));
-  r = await D.addFile(mk({}, (u) => created(u, "e")), file("empty.txt", "text/plain", []), "");
-  ok("empty: a zero byte file is stored, read back and recorded", r.ok && r.size === 3 /* stub reply */ && r.sha256 === "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855");
+  const EMPTY = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
+  calls = []; r = await D.addFile(mk({}, (u, init) => { calls.push({ u, body: init.body }); return created(u, "e"); }), file("empty.txt", "text/plain", []), "");
+  ok("empty: the version request itself carries size 0, base 0 and the empty-input hash (not the stub reply)", r.ok && r.sha256 === EMPTY && r.size === 3 /* stub reply, not asserted as the request */ && calls.length === 2 && /size=0(&|$)/.test(calls[1].body) && /base_version=0(&|$)/.test(calls[1].body) && calls[1].body.includes("sha256=" + EMPTY));
   calls = []; r = await D.addFile(mk({ quota: true }, (u) => { calls.push(u); return json(201, {}); }), file("big.bin", "", [1, 2]), "");
   ok("injected quota: not stored, nothing sent to Drive, no on-device claim", !r.ok && !r.onDevice && /out of room/.test(r.message) && calls.length === 0);
   // damaged copy: a healthy copy is kept; a damaged one is repaired; a bad write is caught by the read back
@@ -82,6 +83,29 @@ const created = (u, id) => u.endsWith("new/") ? json(201, { ok: true, file: { id
   // namespaces
   const A = new D.Store("salow-drive-1", fakeIdb({})), B = new D.Store("salow-drive-2", fakeIdb({})); await A.save(b);
   ok("namespace: a copy saved under one name is not present under another", (await A.has(h)) === true && (await B.has(h)) === false);
+  // reattach: local only, hash must equal the row's current checksum; never talks to Drive
+  calls = []; const rs = new D.Store("ra", fakeIdb({})); const rdep = { store: rs, fetch: (u) => { calls.push(u); return json(200, {}); }, csrf: "t", urls };
+  r = await D.reattach(rdep, h, file("anything.bin", "", [1, 2, 3]));
+  ok("reattach: matching bytes are stored and read back with no request to Drive", r.ok && r.how === "added" && calls.length === 0 && (await rs.state(h)).state === "on-device");
+  rs.idb.store.set(h, { sha256: h, size: 3, bytes: Uint8Array.from([1, 2, 4]).buffer });
+  r = await D.reattach(rdep, h, file("a", "", [1, 2, 3]));
+  ok("reattach: a damaged copy is repaired the same way, still no request", r.ok && r.how === "repaired" && calls.length === 0 && (await rs.state(h)).state === "on-device");
+  const before = rs.idb.store.size; r = await D.reattach(rdep, h, file("other", "", [9, 9, 9]));
+  ok("reattach: different bytes are refused before anything is stored", !r.ok && r.stage === "mismatch" && rs.idb.store.size === before && calls.length === 0);
+  // fallback hash with crypto.subtle absent: run the real files in a context that has no crypto and no require
+  {
+    const vm = require("vm"), fs = require("fs"), crypto = require("crypto");
+    const box = { Uint8Array, ArrayBuffer, Promise, URLSearchParams, Object, Array, String, Math, Error, setTimeout }; box.self = box; vm.createContext(box);
+    vm.runInContext(fs.readFileSync(__dirname + "/../../static/slides/images.js", "utf8"), box);
+    vm.runInContext(fs.readFileSync(__dirname + "/../../static/drive/device.js", "utf8"), box);
+    const F = box.SalowDriveDevice, vals = [[], [1, 2, 3], new Array(55).fill(7), new Array(56).fill(8), new Array(1000).fill(3)];
+    const want = (a) => crypto.createHash("sha256").update(Buffer.from(a)).digest("hex");
+    let all = true;
+    for (const v of vals) { const u8 = Uint8Array.from(v); const a = await F.sha256(u8), b = await F.sha256(u8.buffer.slice(0)); all = all && a === want(v) && b === want(v) && typeof a === "string"; }
+    ok("fallback: with no crypto.subtle and no require, ArrayBuffer and Uint8Array inputs of 0, 3, 55, 56 and 1000 bytes give node's digest as a string", all && box.crypto === undefined);
+    const fs2 = new F.Store("fb", fakeIdb({})); const sv = await fs2.save(Uint8Array.from([1, 2, 3]));
+    ok("fallback: a save and read back works end to end on the fallback hash", sv.sha256 === want([1, 2, 3]) && (await fs2.state(sv.sha256)).state === "on-device");
+  }
   // open: attachment only, revoked afterwards, name sanitised
   let dl = [], blobs = [], revoked = [], laters = [];
   const odep = (st) => ({ store: st, Blob: function (parts, o) { blobs.push(o); }, URL: { createObjectURL: () => "blob:x", revokeObjectURL: (u) => revoked.push(u) }, download: (u, name) => dl.push([u, name]), later: (f) => laters.push(f) });

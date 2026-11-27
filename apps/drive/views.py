@@ -4,6 +4,7 @@ from types import SimpleNamespace
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied, ValidationError
+from django.db.models import F
 from django.db.models.functions import Upper
 from django.http import Http404, HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
@@ -63,14 +64,15 @@ def _run(request, fn, *args, ok=""):
 
 
 def _with_hashes(files):
-    """Attach the current version's SHA-256 to each file (one query). 0 versions have none: no bytes recorded."""
+    """Attach the CURRENT version's SHA-256 to each file with one query filtered in the database (older versions are never
+    read). Version 0 has none: no bytes recorded."""
     ids = [f.pk for f in files if f.current_version]
     have = {}
     if ids:
-        for v in FileVersion.objects.filter(file_id__in=ids).values("file_id", "number", "sha256"):
-            have[(v["file_id"], v["number"])] = v["sha256"]
+        rows = FileVersion.objects.filter(file_id__in=ids, number=F("file__current_version")).values("file_id", "sha256")
+        have = {r["file_id"]: r["sha256"] for r in rows}
     for f in files:
-        f.device_sha = have.get((f.pk, f.current_version), "")
+        f.device_sha = have.get(f.pk, "") if f.current_version else ""
     return files
 
 

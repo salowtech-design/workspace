@@ -180,3 +180,33 @@ def test_page_carries_the_checksum_only_for_saved_versions_escapes_names_and_nam
     assert "No file saved yet" in html and "<b>x" not in html and "&lt;b&gt;x" in html
     other = _u("FR-Q")
     assert H not in _c(other).get(reverse("drive:home")).content.decode()
+
+
+@pytest.mark.django_db
+def test_page_exposes_only_the_current_checksum_to_a_viewer_and_a_stranger_gets_nothing():
+    a, v, s = _u("FR-R"), _u("FR-S"), _u("FR-T")
+    ca, cv, cs = _c(a), _c(v), _c(s)
+    folder = svc.create_folder(a, "Shared team")
+    fid = _new(ca, "plan.pdf", folder).json()["file"]["id"]
+    old, new = "1" * 64, "2" * 64
+    assert _ver(ca, fid, 0, 4, old).status_code == 200 and _ver(ca, fid, 1, 6, new).status_code == 200
+    svc.share(a, folder, v, "viewer")
+    url = reverse("drive:folder", args=[folder.public_id])
+    owner_html = ca.get(url).content.decode()
+    viewer_html = cv.get(url).content.decode()
+    for html in (owner_html, viewer_html):
+        assert f'data-sha="{new}"' in html and old not in html  # only the current version's checksum is ever in the page
+    assert "drive-reattach" in viewer_html and "drive-newver" not in viewer_html  # a viewer can put a copy back but not add a version
+    assert "drive-newver" in owner_html
+    assert cs.get(url).status_code == 404 and new not in cs.get(reverse("drive:home")).content.decode()
+    # the lookup is one filtered query for the whole page, not one per file and not every version
+    from django.db import connection
+    from django.test.utils import CaptureQueriesContext
+
+    for i in range(4):
+        x = _new(ca, f"f{i}.pdf", folder).json()["file"]["id"]
+        _ver(ca, x, 0, 1, f"{i + 3}" * 64)
+    with CaptureQueriesContext(connection) as q:
+        ca.get(url)
+    ver_q = [x for x in q.captured_queries if "drive_fileversion" in x["sql"].lower()]
+    assert len(ver_q) == 1 and "current_version" in ver_q[0]["sql"].lower()

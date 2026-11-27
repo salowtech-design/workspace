@@ -41,6 +41,7 @@
     <span class="drive-meta">File</span>
     <span class="drive-meta drive-local">{% if f.current_version %}Looking on this device...{% else %}No file saved yet{% endif %}</span>
     {% if f.current_version %}<button type="button" class="btn btn-secondary btn-small drive-open" disabled>Open from this device</button>{% endif %}
+    {% if f.current_version %}<label class="drive-meta">Put a copy on this device <input type="file" class="drive-reattach"></label>{% endif %}
     {% if can_edit %}<label class="drive-meta">{% if f.current_version %}New version{% else %}Add the file{% endif %} <input type="file" class="drive-newver"></label>{% endif %}
     {% if can_edit %}
     <form method="post" action="{% url 'drive:rename' 'file' f.public_id %}" class="drive-inline">{% csrf_token %}<input type="text" name="name" class="form-input" value="{{ f.name }}" maxlength="200" aria-label="New name"><button class="btn btn-secondary btn-small" type="submit">Rename</button></form>

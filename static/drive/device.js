@@ -11,7 +11,7 @@
     var c = root.crypto || (typeof require !== "undefined" ? require("crypto").webcrypto : null);
     // crypto.subtle is missing on pages not served over a secure connection; the plain-code SHA-256 from the Slides picture checker
     // (tested against node's digest) is used then. It is slow on large files.
-    if ((!c || !c.subtle) && root.SalowSlidesImages && root.SalowSlidesImages.sha256) return root.SalowSlidesImages.sha256(bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes));
+    if ((!c || !c.subtle) && root.SalowSlidesImages && root.SalowSlidesImages.sha256) return Promise.resolve(root.SalowSlidesImages.sha256(bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes))).then(String);
     if (!c || !c.subtle) return Promise.reject(new Error("This browser cannot check files."));
     return c.subtle.digest("SHA-256", bytes).then(function (d) {
       return Array.prototype.map.call(new Uint8Array(d), function (x) { return (x < 16 ? "0" : "") + x.toString(16); }).join("");
@@ -130,6 +130,19 @@
       return recordVersion(deps, fileId, baseVersion, s.hash, s.bytes.length, "The file is on this device. ", false);
     }).catch(function (e) { return fail("local", e); });
   }
+  // Put a copy of a file Drive already has on THIS device, without telling Drive anything (no new version, no history). The bytes must hash to
+  // exactly the checksum the row shows for the current version; anything else is refused before it is stored. Open to anyone who may see the row.
+  function reattach(deps, rowSha, file) {
+    var bytes;
+    return file.arrayBuffer().then(function (ab) { bytes = new Uint8Array(ab); return sha256(bytes); }).then(function (h) {
+      if (h !== rowSha) return { ok: false, stage: "mismatch", message: "That is not the file Drive has recorded here (its checksum is different). Nothing was stored." };
+      return deps.store.save(bytes).then(function (sv) {
+        return deps.store.state(sv.sha256).then(function (st) {
+          return st.state === "on-device" ? { ok: true, stage: "reattached", how: sv.how, message: "The file is on this device again. Drive was not changed." } : { ok: false, stage: "readback", message: "The saved copy did not read back correctly." };
+        });
+      });
+    }).catch(function (e) { return fail("local", e); });
+  }
   // A download name only (the stored name is never changed): no path, no control, bidi or invisible format characters, bounded.
   function safeName(n) {
     n = String(n || "").replace(/[\u0000-\u001f\u007f-\u009f\u00ad\u061c\u180e\u200b-\u200f\u2028-\u202e\u2060-\u206f\ufeff\ufff9-\ufffb\\\/:*?"<>|]+/g, "_").replace(/^\.+/, "").slice(0, 120);
@@ -147,6 +160,6 @@
       });
     }, function (e) { return { ok: false, message: e.message }; });
   }
-  var api = { Store: Store, sha256: sha256, addFile: addFile, addVersion: addVersion, openLocal: openLocal, safeName: safeName };
+  var api = { Store: Store, sha256: sha256, addFile: addFile, addVersion: addVersion, reattach: reattach, openLocal: openLocal, safeName: safeName };
   if (typeof module !== "undefined" && module.exports) module.exports = api; else root.SalowDriveDevice = api;
 })(typeof self !== "undefined" ? self : this);
