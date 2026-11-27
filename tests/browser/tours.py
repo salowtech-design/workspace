@@ -297,6 +297,8 @@ def register(g):
     register_pdf_marks_tools(g)
     register_pdf_pages(g)
     register_pdf_roundtrip(g)
+    register_slides_order_recovery(g)
+    register_sheets_import_recovery(g)
     register_pdf_forms(g)
     register_pdf_view_buttons(g)
     register_sheets_tabs_rules(g)
@@ -4879,3 +4881,109 @@ def register_pdf_roundtrip(g):
         run_tour(ctx, "84_pdf_roundtrip", body, notes="Device-local viewer on generated PDFs, secure-context test flag. Headless Chromium 390x844 emulated. The saved files were also read by script (pdfinfo, pdftotext) and then opened back in the viewer.", unshown=["password PDF", "page text of reopened files beyond page count"])
 
     g["DRILLS"]["tour_pdf_roundtrip"] = tour
+
+
+def register_slides_order_recovery(g):
+    APP = g["APP"]
+
+    def tour(ctx):
+        import os
+
+        os.makedirs("/tmp/vid/dl", exist_ok=True)
+
+        def body(t, pg):
+            pg.goto(APP + "/slides/")
+            pg.evaluate("localStorage.clear()")
+            pg.goto(APP + "/slides/")
+            pg.wait_for_timeout(500)
+            pg.on("dialog", lambda d: d.accept())
+            KEY = pg.evaluate("document.getElementById('slide-root').dataset.storeKey")
+            see = lambda: pg.locator("#sl-canvas-wrap").scroll_into_view_if_needed()
+            alist = lambda: [x.strip() for x in pg.locator("#sl-anim-list li").all_inner_texts()]
+            cnt = lambda: (pg.locator("#sl-show-count").text_content() or "").strip()
+            groups = lambda: pg.locator("#sl-show-canvas svg g").count()
+            shown_text = lambda: "Alpha title" in (pg.locator("#sl-show-canvas svg").text_content() or "")
+            st = lambda: pg.inner_text("#sl-status").strip()
+            t.step("Add a text item Alpha title and a rectangle", lambda: (pg.click("#sl-add-text"), pg.fill("#sl-text", "Alpha title"), pg.press("#sl-text", "Tab"), pg.click("#sl-add-rect"), see()), expect=lambda: pg.locator("#sl-items li").count() == 2, wait=2600)
+            t.step("Set the rectangle, then the text item, to Appear on click", lambda: (pg.select_option("#sl-anim", "appear"), pg.locator("#sl-items li").first.click(), pg.select_option("#sl-anim", "appear"), pg.locator("#sl-anim-list").scroll_into_view_if_needed()), expect=lambda: len(alist()) == 2, wait=3200)
+            before = alist()
+            t.step("With the text item selected, One click earlier moves it to Click 1 (list before: " + " | ".join(before) + ")", lambda: (pg.click("#sl-anim-up"), pg.wait_for_timeout(400), pg.locator("#sl-anim-list").scroll_into_view_if_needed()), expect=lambda: len(alist()) == 2 and alist() == ["Click 1: appears: Text: Alpha title", "Click 2: appears: Rectangle"] and "Animation moved one click earlier." in st(), wait=3600)
+            order = alist()
+            t.cap("Next: Present. Step 1 should show the text item, because it is now first; step 2 the rectangle")
+            t.step("Present opens at step 0 with nothing animated drawn", lambda: pg.click("#sl-present"), expect=lambda: cnt() == "Slide 1 of 1, step 0 of 2" and groups() == 0, wait=3000)
+            t.step("Click 1: one item is drawn and it is the text item", lambda: pg.keyboard.press("ArrowRight"), expect=lambda: cnt() == "Slide 1 of 1, step 1 of 2" and groups() == 1 and shown_text(), wait=3000)
+            t.step("Click 2: both items are drawn", lambda: pg.keyboard.press("ArrowRight"), expect=lambda: cnt() == "Slide 1 of 1, step 2 of 2" and groups() == 2 and shown_text(), wait=3000)
+            t.step("Leave the show with Escape", lambda: pg.keyboard.press("Escape"), expect=lambda: not pg.locator("#sl-show").evaluate("e=>e.open"), wait=2000)
+            t.cap("Next: store a damaged deck (the text {bad) and reload the page")
+            pg.evaluate("([k])=>localStorage.setItem(k,'{bad')", [KEY])
+            pg.reload()
+            pg.wait_for_timeout(600)
+            pg.locator("#sl-unreadable").scroll_into_view_if_needed()
+            t.step("The page says the stored deck could not be read, editing is paused and the data is untouched", expect=lambda: pg.is_visible("#sl-unreadable") and "Your stored deck could not be read" in pg.inner_text("#sl-unreadable") and pg.is_disabled("#sl-present") and pg.evaluate("k=>localStorage.getItem(k)", KEY) == "{bad" and st() == "Your stored deck could not be read, so it was left untouched.", wait=4000)
+
+            def dl():
+                with pg.expect_download(timeout=15000) as d:
+                    pg.click("#sl-dl-raw")
+                d.value.save_as("/tmp/vid/dl/unreadable-deck.json")
+            t.step("Download the unreadable data: the file holds exactly what was stored", dl, expect=lambda: open("/tmp/vid/dl/unreadable-deck.json").read() == "{bad", wait=2000)
+            t.step("Start a new deck: the status line says the data is kept as a backup", lambda: (pg.click("#sl-start-new"), pg.locator("#sl-status").scroll_into_view_if_needed()), expect=lambda: st() == "Started a new deck. The unreadable data is kept in this browser under a backup key and is replaced only if you start another new deck." and not pg.is_visible("#sl-unreadable") and pg.evaluate("k=>localStorage.getItem(k+'.backup')", KEY) == "{bad", wait=3400)
+            t.step("Editing works again: add a text item and it is stored in a readable deck", lambda: (pg.click("#sl-add-text"), pg.fill("#sl-text", "Fresh"), pg.press("#sl-text", "Tab"), see()), expect=lambda: pg.locator("#sl-items li").count() == 1 and "Fresh" in (pg.evaluate("k=>localStorage.getItem(k)", KEY) or "") and pg.evaluate("k=>localStorage.getItem(k+'.backup')", KEY) == "{bad", wait=3000)
+
+        run_tour(ctx, "85_slides_order_recovery", body, notes="Device-local deck; secure-context test flag. Headless Chromium 390x844 emulated. The damaged deck is a test-written string in browser storage; the files checked are the one download saved off video.", unshown=["a real touch screen", "animation Fade timing", "a damaged deck from a newer app version"])
+
+    g["DRILLS"]["tour_slides_order_recovery"] = tour
+
+
+def register_sheets_import_recovery(g):
+    APP = g["APP"]
+
+    def tour(ctx):
+        import os
+
+        os.makedirs("/tmp/vid/dl", exist_ok=True)
+        open("/tmp/vid/dl/not_cells.json", "w").write("this is not json")
+        open("/tmp/vid/dl/ok_cells.json", "w").write('{"A1": "Imported", "B1": "7"}')
+        val = lambda pg, a: pg.input_value('input[data-addr="%s"]' % a)
+
+        def put(pg, a, v):
+            sel = 'input[data-addr="%s"]' % a
+            pg.click(sel)
+            pg.fill(sel, v)
+            pg.press(sel, "Tab")
+
+        def sc(pg, sel):
+            pg.evaluate("s=>{var e=document.querySelector(s);if(e)e.scrollIntoView({block:'center'})}", sel)
+
+        def body(t, pg):
+            pg.goto(APP + "/sheets/")
+            pg.evaluate("localStorage.clear()")
+            pg.goto(APP + "/sheets/")
+            pg.wait_for_timeout(500)
+            KEY = pg.evaluate("document.getElementById('sheet-root').dataset.storeKey")
+            st = lambda: pg.inner_text("#sheet-status").strip()
+            vs = lambda: pg.inner_text("#val-status").strip()
+            t.step("Type 5 in A1", lambda: (put(pg, "A1", "5"), sc(pg, 'input[data-addr="A1"]')), expect=lambda: val(pg, "A1") == "5", wait=2400)
+            t.step("Import a file that is not JSON: the status says there are no usable cells and A1 is still 5", lambda: (pg.set_input_files("#sheet-import", "/tmp/vid/dl/not_cells.json"), pg.wait_for_timeout(700), sc(pg, "#sheet-status")), expect=lambda: st() == "That file has no usable cells. Your sheet was not changed." and val(pg, "A1") == "5", wait=3400)
+            pg.once("dialog", lambda d: d.dismiss())
+            t.step("Import a good file but answer No to the replace question: the status says cancelled and A1 is still 5", lambda: (pg.set_input_files("#sheet-import", "/tmp/vid/dl/ok_cells.json"), pg.wait_for_timeout(900), sc(pg, "#sheet-status")), expect=lambda: st() == "Import cancelled. Your sheet was not changed." and val(pg, "A1") == "5" and val(pg, "B1") == "", wait=3400)
+            t.step("Add a validation rule: C1:C3 may only hold yes or no", lambda: (pg.fill("#val-range", "C1:C3"), pg.select_option("#val-kind", "list"), pg.fill("#val-items", "yes, no"), pg.click("#val-add"), sc(pg, "#val-list")), expect=lambda: pg.locator("#val-list li").count() == 1, wait=3000)
+            t.step("Type maybe in C1: it is refused and C1 stays empty", lambda: (put(pg, "C1", "maybe"), sc(pg, 'input[data-addr="C1"]')), expect=lambda: val(pg, "C1") == "", wait=3000)
+            t.step("Remove the rule: the validation status line says so exactly", lambda: (pg.locator("#val-list button").first.click(), sc(pg, "#val-status")), expect=lambda: vs() == "Removed the rule for C1:C3." and pg.locator("#val-list li").count() == 0, wait=3000)
+            t.step("Type maybe in C1 again: now it is accepted", lambda: (put(pg, "C1", "maybe"), sc(pg, 'input[data-addr="C1"]')), expect=lambda: val(pg, "C1") == "maybe", wait=3000)
+            t.cap("Next: store damaged rules (the text {bad) for this tab and reload")
+            pg.evaluate("([k])=>localStorage.setItem(k+'.rules','{bad')", [KEY])
+            pg.reload()
+            pg.wait_for_timeout(600)
+            sc(pg, "#val-status")
+            t.step("The rules area says they could not be read and Add rule is off", expect=lambda: vs() == "This tab's validation rules could not be read, so they are not checked and cannot be changed. They were left untouched." and pg.is_disabled("#val-add") and pg.evaluate("k=>localStorage.getItem(k+'.rules')", KEY) == "{bad", wait=3400)
+            t.step("Type 99 in C2: refused with the exact reason, C2 stays empty", lambda: (put(pg, "C2", "99"), sc(pg, "#sheet-status")), expect=lambda: val(pg, "C2") == "" and st() == "This tab's validation rules could not be read, so edits are off until they are fixed or removed. Use Download unreadable rules to keep a copy. The edit was not applied.", wait=3400)
+
+            def dl():
+                with pg.expect_download(timeout=15000) as d:
+                    pg.click("#val-raw")
+                d.value.save_as("/tmp/vid/dl/unreadable-validation-rules.txt")
+            t.step("Download unreadable rules: the file holds exactly what was stored", dl, expect=lambda: open("/tmp/vid/dl/unreadable-validation-rules.txt").read() == "{bad", wait=2000)
+
+        run_tour(ctx, "86_sheets_import_recovery", body, notes="Device-local sheet; nothing stored on the server. Headless Chromium 390x844 emulated. The import files are filled in by the test (no real file picker window); the replace question is answered by the test. The damaged rules are a test-written string in browser storage.", unshown=["the native file picker window", "a file over 1 MB", "damaged rules from a newer app version"])
+
+    g["DRILLS"]["tour_sheets_import_recovery"] = tour
