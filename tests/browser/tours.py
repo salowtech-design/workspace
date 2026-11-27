@@ -282,6 +282,7 @@ def register(g):
     register_drive_device(g)
     register_cal_all_day(g)
     register_tasks_restore(g)
+    register_tasks_rename(g)
     register_attendance_csv(g)
     register_post_review_notice(g)
     register_notice_open(g)
@@ -2355,6 +2356,23 @@ def register_tasks_restore(g):
         run_tour(ctx, "tasks_restore", body, notes="Real Django on TiDB (unistore) under uvicorn, headless Chromium 390x844 emulated. One synthetic employee. Stages are separate moments: set up, delete, restore the task, delete and restore the list. Not shown: another person's view, an assigned task, or the refusals (unit tests cover them).", unshown=["an assignee's view", "stale forms", "refusals"])
 
     g["DRILLS"]["tour_tasks_restore"] = tour
+
+
+def register_tasks_rename(g):
+    APP = g["APP"]
+
+    def tour(ctx):
+        def body(t, pg):
+            txt = lambda: pg.inner_text("body")  # noqa: E731
+            tabs = lambda: pg.locator(".tasks-lists").inner_text()  # noqa: E731
+            pg.goto(APP + "/tasks/")
+            pg.wait_for_timeout(500)
+            t.step("STAGE 1 SET UP: make a list called Sprint", lambda: (pg.fill("input[name=name]", "Sprint"), pg.click("button:has-text('Add list')")), expect=lambda: "Sprint" in tabs())
+            t.step("STAGE 2 RENAME: type a name that is too long. The error shows and the typed name stays in the box", lambda: (pg.fill("input[aria-label='List name']", "x" * 121 if False else "Q" * 120 + "!"), pg.evaluate("document.querySelector(\"input[aria-label='List name']\").removeAttribute('maxlength')"), pg.fill("input[aria-label='List name']", "Q" * 121), pg.click("button:has-text('Rename')")), expect=lambda: "up to 120 characters" in txt() and pg.input_value("input[aria-label='List name']") == "Q" * 121)
+            t.step("STAGE 3 RENAME: type Launch plan and press Rename. The list tab shows the new name", lambda: (pg.goto(APP + "/tasks/"), pg.click(".tasks-lists a:has-text('Sprint')"), pg.fill("input[aria-label='List name']", "Launch plan"), pg.click("button:has-text('Rename')")), expect=lambda: "List renamed." in txt() and "Launch plan" in tabs() and "Sprint" not in tabs(), wait=1500)
+        run_tour(ctx, "tasks_rename", body, notes="Real Django on TiDB (unistore) under uvicorn, headless Chromium 390x844 emulated. One synthetic employee. Stages: set up, a refused too-long name (the page's own length limit is removed in the browser to reach the server rule), then a successful rename. Not shown: another person's view or a deleted list (unit tests cover them).", unshown=["another person's view", "deleted list"])
+
+    g["DRILLS"]["tour_tasks_rename"] = tour
 
 
 def register_drive_device(g):

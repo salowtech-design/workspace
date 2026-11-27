@@ -11,6 +11,7 @@ urlpatterns = [
     path("due/", views.due_soon_view, name="due_soon"),
     path("new-list/", views.new_list, name="new_list"),
     path("list/<uuid:list_id>/add/", views.add_task, name="add"),
+    path("list/<uuid:list_id>/rename/", views.rename_list, name="rename_list"),
     path("list/<uuid:list_id>/delete/", views.delete_list, name="delete_list"),
     path("task/<uuid:task_id>/done/", views.toggle, name="toggle"),
     path("task/<uuid:task_id>/edit/", views.edit, name="edit"),

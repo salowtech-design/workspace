@@ -46,6 +46,21 @@ def create_list(user, name):
     return tl
 
 
+@transaction.atomic
+def rename_list(user, task_list, name):
+    """The owner renames a list. Same name rule as creating one; no uniqueness rule, as there is none for creating."""
+    name = (name or "").strip()
+    if not name or len(name) > 120:
+        raise ValidationError("A list needs a name of up to 120 characters.")
+    tl = _lock_list(task_list)
+    require(user, "edit", "task_list", tl)
+    if tl.name != name:
+        TaskList.objects.filter(pk=tl.pk).update(name=name)
+        audit(user, "tasks.list.rename", "task_list", tl.pk)
+    tl.refresh_from_db()
+    return tl
+
+
 def _pause():
     """Test hook, called after a mutation has checked its rules and before it writes."""
 

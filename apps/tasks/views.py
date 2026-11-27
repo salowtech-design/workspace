@@ -55,7 +55,7 @@ def home(request):
 
 
 @login_required
-def list_view(request, list_id):
+def list_view(request, list_id, rename_value=None):
     tl = _list_or_404(request.user, list_id)
     rows = list(svc.tasks_in(request.user, tl).select_related("assignee"))
     tops = [t for t in rows if t.parent_id is None]
@@ -67,7 +67,8 @@ def list_view(request, list_id):
     return render(
         request,
         "tasks/list.html",
-        {"lists": svc.lists_for(request.user), "tl": tl, "tree": tree, "tab": "mine"},
+        {"lists": svc.lists_for(request.user), "tl": tl, "tree": tree, "tab": "mine",
+         "rename_value": tl.name if rename_value is None else rename_value},
     )
 
 
@@ -92,6 +93,16 @@ def new_list(request):
         request, svc.create_list, request.user, request.POST.get("name", ""), ok="List created."
     )
     return redirect("tasks:list", list_id=tl.public_id) if tl else redirect("tasks:home")
+
+
+@login_required
+@require_POST
+def rename_list(request, list_id):
+    tl = _list_or_404(request.user, list_id, "edit")
+    entered = request.POST.get("name", "")
+    if _run(request, svc.rename_list, request.user, tl, entered, ok="List renamed.") is None:
+        return list_view(request, list_id, rename_value=entered)  # keep what was typed, with the error shown
+    return redirect("tasks:list", list_id=tl.public_id)
 
 
 @login_required

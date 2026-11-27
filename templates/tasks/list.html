@@ -49,6 +49,9 @@
     <button class="btn btn-outline btn-small" type="submit">Add</button></form>
   {% endif %}
   {% empty %}<div class="tasks-empty">No tasks yet.</div>{% endfor %}
+  <form method="post" action="{% url 'tasks:rename_list' tl.public_id %}" class="tasks-inline tasks-add">{% csrf_token %}
+    <input type="text" name="name" maxlength="120" value="{{ rename_value }}" aria-label="List name" required>
+    <button class="btn btn-outline btn-small" type="submit">Rename</button></form>
   <div class="tasks-foot"><a class="btn btn-outline btn-small" href="{% url 'tasks:delete_list' tl.public_id %}">Delete this list</a></div>
   {% else %}<div class="tasks-empty">Create a list to start.</div>{% endif %}
 </div>
