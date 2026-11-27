@@ -286,6 +286,7 @@ def register(g):
     register_tasks_move(g)
     register_tasks_overdue(g)
     register_project_restore(g)
+    register_project_rename(g)
     register_subtask_edit(g)
     register_task_reorder(g)
     register_clear_completed(g)
@@ -2437,6 +2438,26 @@ def register_project_restore(g):
         run_tour(ctx, "project_restore", body, notes="Real Django on TiDB (unistore) under uvicorn, headless Chromium 390x844 emulated. One synthetic employee who leads the project. Stages: set up, delete, restore from the project trash. Not shown: a plain member's view (404 in unit tests), stale forms, or a deleted project.", unshown=["a member's view", "stale forms", "deleted project"])
 
     g["DRILLS"]["tour_project_restore"] = tour
+
+
+def register_project_rename(g):
+    APP = g["APP"]
+
+    def tour(ctx):
+        def body(t, pg):
+            txt = lambda: pg.inner_text("body")  # noqa: E731
+            head = lambda: pg.inner_text(".tasks-head h2")  # noqa: E731
+            pg.goto(APP + "/tasks/projects/")
+            pg.wait_for_timeout(500)
+            t.step("STAGE 1 SET UP: make a project called Launch", lambda: (pg.fill("input[name=name]", "Launch"), pg.click("button:has-text('Add project')")), expect=lambda: head() == "Launch")
+            t.step("STAGE 2 RENAME: the lead sees a Project name box with Launch and a Rename button", lambda: pg.locator("input[aria-label='Project name']").scroll_into_view_if_needed(), expect=lambda: pg.input_value("input[aria-label='Project name']") == "Launch", wait=1500)
+            t.step("STAGE 2 RENAME: type Launch 2027. Not saved yet", lambda: pg.fill("input[aria-label='Project name']", "Launch 2027"), expect=lambda: pg.input_value("input[aria-label='Project name']") == "Launch 2027" and head() == "Launch", wait=1800)
+            t.step("STAGE 2 RENAME: press Rename. The banner says Project renamed. and the heading reads Launch 2027", lambda: (pg.click("button:has-text('Rename')"), pg.wait_for_timeout(300), pg.evaluate("window.scrollTo(0, 0)")), expect=lambda: "Project renamed." in txt() and head() == "Launch 2027", wait=2000)
+            t.step("STAGE 3 RESULT: the project list shows Launch 2027", lambda: pg.goto(APP + "/tasks/projects/"), expect=lambda: "Launch 2027" in txt(), wait=1500)
+            t.step("STAGE 3 RESULT: a blank name is refused and the name stays", lambda: (pg.click("a:has-text('Launch 2027')"), pg.wait_for_timeout(500), pg.evaluate("document.querySelector(\"input[aria-label='Project name']\").removeAttribute('required')"), pg.fill("input[aria-label='Project name']", "  "), pg.click("button:has-text('Rename')"), pg.wait_for_timeout(300), pg.evaluate("window.scrollTo(0, 0)")), expect=lambda: "up to 120 characters" in txt() and head() == "Launch 2027", wait=2200)
+        run_tour(ctx, "project_rename", body, notes="Real Django on TiDB (unistore) under uvicorn, headless Chromium 390x844 emulated. One synthetic employee who leads the project. Stages: set up, rename, see the new name, refuse a blank name (the page's required attribute removed so the server rule is what answers). Not shown: a plain member's view (hidden form, refusal in unit tests), another person's view.", unshown=["a member's view", "another person's view"])
+
+    g["DRILLS"]["tour_project_rename"] = tour
 
 
 def register_subtask_edit(g):

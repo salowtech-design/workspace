@@ -59,10 +59,11 @@ def home(request):
 def list_view(request, list_id, rename_value=None):
     tl = _list_or_404(request.user, list_id)
     rows = list(svc.tasks_in(request.user, tl).select_related("assignee"))
+    done_ids = {t.pk for t in rows if t.status == "completed"}
+    done_count = sum(1 for t in rows if t.pk in done_ids and t.parent_id not in done_ids)  # the heads Clear completed would move, from rows already loaded
     hide_done = request.GET.get("show") == "open"
     if hide_done:  # a view only: a completed task is hidden with its subtasks, a completed subtask of an open task is hidden alone
         rows = [t for t in rows if t.status != "completed"]
-    done_count = len(svc.clear_plan(tl))  # completed tasks Clear completed would move (included subtasks not counted)
     tops = [t for t in rows if t.parent_id is None]
     subs = {}
     for t in rows:

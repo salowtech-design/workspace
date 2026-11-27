@@ -137,3 +137,32 @@ def test_views_confirm_page_lists_heads_and_included_subtasks_then_clears(setup)
     assert b"Moved 3 completed tasks and 1 included subtask to the Trash." in r.content and _live(tl) == ["Pending"]
     r = _c(a).get(clr, follow=True)
     assert b"no completed tasks to clear" in r.content and b"Clear completed" not in r.content
+
+
+def test_list_page_query_count_does_not_grow_with_completed_tasks_and_the_count_matches_the_plan(setup, django_assert_max_num_queries):
+    from django.db import connection
+    from django.test.utils import CaptureQueriesContext
+
+    a, b, tl = setup
+    url = reverse("tasks:list", args=[tl.public_id])
+
+    def load():
+        c = _c(a)
+        c.get(url)  # warm session and caches
+        with CaptureQueriesContext(connection) as q:
+            body = c.get(url).content.decode()
+        return len(q), body
+
+    for i in range(2):
+        t = svc.create_task(a, tl, f"H{i}")
+        svc.create_task(a, tl, f"K{i}", parent=t)
+        _done(a, t)
+    few, body = load()
+    assert "Clear completed (2)" in body
+    for i in range(2, 8):
+        t = svc.create_task(a, tl, f"H{i}")
+        svc.create_task(a, tl, f"K{i}", parent=t)
+        _done(a, t)
+    many, body = load()
+    assert "Clear completed (8)" in body and many == few  # 6 more completed heads, same number of queries
+    assert svc.clear_plan(tl).__len__() == 8  # the button count equals what the review page lists
