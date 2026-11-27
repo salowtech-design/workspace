@@ -51,7 +51,7 @@ ok("a source below the range top copies from the first row only (A1 empty clears
 r = fs({ A1: "=A1000+1", A2: "x" }, "A1:A3", "down");
 ok("moving past row 1000 gives #REF! and is counted", r.cells.A2 === "=#REF!+1" && r.refErrs === 2);
 r = fs({ B1: "=A1+1" }, "B1:C1", "right");
-ok("moving left of column A is not possible on a right fill; col stays valid", r.cells.C1 === "=B1+1" && !r.refErrs);
+ok("shifter unit (not fill proof): a right fill never moves left, so columns stay valid", r.cells.C1 === "=B1+1" && !r.refErrs);
 r = fs({ Z1: "=Z2" }, "Z1:Z2", "down");
 ok("no #REF! when it stays on the grid", r.cells.Z2 === "=Z3" && !r.refErrs);
 r = fs({ Y1: "=Z1" }, "Y1:Z1", "right");
@@ -63,6 +63,10 @@ ok("an already out of range reference is left as written", r.cells.A2 === "=ZZ9+
 r = fs({ A1: "hello B1" }, "A1:A2", "down");
 ok("plain text is never shifted", r.cells.A2 === "hello B1");
 ok("shiftFormula: source not starting with = is returned as is", sh("B1", 0, 1) === "B1");
+r = fs({ A1: "=$B$1+1" }, "A1:A3", "down");
+ok("fully pinned formula: copied, adjusted count is 0", r.formulas === 2 && r.adjusted === 0);
+r = fs({ A1: "=B1+1" }, "A1:A3", "down");
+ok("relative formula: adjusted count equals formulas shifted", r.adjusted === 2);
 // evaluation: the engine reads $ and #REF!
 const G = (cells, a) => String(new F.Sheet(mk(cells)).get(a));
 ok("engine: $A$1 evaluates", G({ A1: "5", B1: "=$A$1+1" }, "B1") === "6");
@@ -72,6 +76,7 @@ ok("engine: #REF! in a formula shows #REF!", G({ B1: "=#REF!+1" }, "B1") === "#R
 ok("engine: a lone $ or $ in the middle of a name still fails", G({ B1: "=$+1" }, "B1") === "#PARSE!" && G({ B1: "=A$+1" }, "B1") === "#PARSE!");
 ok("engine: LOG10( is a name with a number, not a cell (LOG is not built, so #NAME?)", G({ B1: "=LOG10(100)" }, "B1") === "#NAME?");
 ok("engine: A1B2 style names are not cells", G({ B1: "=A1B2" }, "B1") === "#NAME?");
+ok("engine: SUM(#REF!) and a ref_err inside IF/IFERROR evaluate without throwing", G({ B1: "=SUM(#REF!)", B2: "=IFERROR(#REF!,7)", B3: "=IF(1,2,#REF!)", B4: "=B1+B2" }, "B1") === "#REF!" && G({ B2: "=IFERROR(#REF!,7)" }, "B2") === "7" && G({ B3: "=IF(1,2,#REF!)" }, "B3") === "2" && G({ B1: "=SUM(#REF!)", B4: "=B1+1" }, "B4") === "#REF!");
 // end to end: fill then evaluate
 r = fs({ A1: "10", A2: "20", A3: "30", B1: "=A1*$C$1", C1: "2" }, "B1:B3", "down");
 ok("fill then evaluate: B3 = A3*$C$1 = 60", G(r.cells, "B3") === "60" && r.cells.B3 === "=A3*$C$1");

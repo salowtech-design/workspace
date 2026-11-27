@@ -2445,7 +2445,7 @@ def sheets_fill(ctx):  # noqa: C901
     )
     check(
         "fill: the status line counts and mentions formulas",
-        "formulas copied with relative references adjusted" in status(),
+        "formulas copied, 3 with references adjusted" in status(),
         status(),
     )
     pg.click("#sheet-undo")

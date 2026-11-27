@@ -1870,7 +1870,7 @@ def register_sheets_refs(g):
             pg.wait_for_timeout(500)
             t.step("A small table: prices in A1:A3, a rate in C1, a formula with $C$1 in B1", lambda: put(pg, [("A1", "10"), ("A2", "20"), ("A3", "30"), ("C1", "2"), ("B1", "=A1*$C$1")]), expect=lambda: shown(pg, "B1") == "20")
             t.step("Copy first row down over B1:B3: A moves, $C$1 stays", lambda: fill(pg, "B1:B3", "down"), expect=lambda: bar(pg, "B3") == "=A3*$C$1" and shown(pg, "B3") == "60" and shown(pg, "B2") == "40")
-            t.step("The status line says references were adjusted", expect=lambda: "relative references adjusted" in pg.inner_text("#sheet-status"))
+            t.step("The status line says references were adjusted", expect=lambda: "2 with references adjusted" in pg.inner_text("#sheet-status"))
             t.step("Fill right over D1:E1: columns move, B$1 keeps its row", lambda: (put(pg, [("D1", "=A1+B$1")]), fill(pg, "D1:E1", "right")), expect=lambda: bar(pg, "E1") == "=B1+C$1")
             t.step("A reference that moves off the grid becomes #REF!", lambda: (put(pg, [("G1", "=A1000+1")]), fill(pg, "G1:G2", "down")), expect=lambda: bar(pg, "G2") == "=#REF!+1" and shown(pg, "G2") == "#REF!" and "#REF!" in pg.inner_text("#sheet-status"))
             t.step("One Undo takes the last fill back", lambda: pg.click("#sheet-undo"), expect=lambda: pg.input_value('input[data-addr="G2"]') == "")

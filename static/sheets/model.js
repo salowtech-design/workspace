@@ -428,18 +428,18 @@
   // Copy the first row of a range down over the rest (dir "down") or its first column right over the rest ("right").
   // Text is copied as written, except that with a shift function a formula's relative references move with the fill ($ pins). Empty source cells clear the targets.
   function fillRange(cells, rg, dir, check, addrOf, maxCell, shift) {
-    var n = copy(cells), refErrs = 0, set = 0, cleared = 0, refused = 0, tooLong = 0, formulas = 0, down = dir === "down";
+    var n = copy(cells), refErrs = 0, adjusted = 0, set = 0, cleared = 0, refused = 0, tooLong = 0, formulas = 0, down = dir === "down";
     var rows = rg.r2 - rg.r1 + 1, cols = rg.c2 - rg.c1 + 1;
     if (down ? rows < 2 : cols < 2) return { error: down ? "Pick a range with at least two rows. The first row is copied down." : "Pick a range with at least two columns. The first column is copied right." };
     for (var r = rg.r1; r <= rg.r2; r++) for (var c = rg.c1; c <= rg.c2; c++) {
       if (down ? r === rg.r1 : c === rg.c1) continue;
       var v = cells[addrOf(down ? c : rg.c1, down ? rg.r1 : r)] || "", a = addrOf(c, r);
-      if (shift && v.charAt(0) === "=") { v = shift(v, down ? 0 : c - rg.c1, down ? r - rg.r1 : 0); if (v.indexOf("#REF!") >= 0 && cells[addrOf(down ? c : rg.c1, down ? rg.r1 : r)].indexOf("#REF!") < 0) refErrs++; }
+      if (shift && v.charAt(0) === "=") { var v0 = v; v = shift(v, down ? 0 : c - rg.c1, down ? r - rg.r1 : 0); if (v !== v0) adjusted++; if (v.indexOf("#REF!") >= 0 && cells[addrOf(down ? c : rg.c1, down ? rg.r1 : r)].indexOf("#REF!") < 0) refErrs++; }
       if (v.length > maxCell) { tooLong++; continue; }
       if (check && check(a, v)) { refused++; continue; }
       if (v === "") { if (a in n) { delete n[a]; cleared++; } } else { if (n[a] !== v) set++; n[a] = v; if (v.charAt(0) === "=") formulas++; }
     }
-    return { cells: n, set: set, cleared: cleared, refused: refused, tooLong: tooLong, formulas: formulas, refErrs: refErrs };
+    return { cells: n, set: set, cleared: cleared, refused: refused, tooLong: tooLong, formulas: formulas, refErrs: refErrs, adjusted: adjusted };
   }
   // ---- Pivot: group rows of a range by one column and total another. Read only: it never writes to cells. ----
   var PIVOT_AGGS = ["count", "sum", "average", "min", "max"], MAX_GROUPS = 20;
