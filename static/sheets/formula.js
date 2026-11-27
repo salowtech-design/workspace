@@ -534,18 +534,21 @@
   FNX.SUMIFS = function (a) { return multiCrit("SUMIFS", a); };
   FNX.COUNTIFS = function (a) { return multiCrit("COUNTIFS", a); };
   FNX.AVERAGEIFS = function (a) { return multiCrit("AVERAGEIFS", a); };
+  function shift10(v, d) {  // v * 10^d on the decimal digits, also for exponent forms such as 1e-7 or 1e+25
+    var t = String(v), m = t, e = 0, i = t.indexOf("e");
+    if (i >= 0) { m = t.slice(0, i); e = parseInt(t.slice(i + 1), 10); }
+    return Number(m + "e" + (e + d));
+  }
   function roundDir(a, up) {
     var x = num(sc2(a[0])), d = a.length > 1 ? num(sc2(a[1])) : 0;
     if (isErr(x)) return x; if (isErr(d)) return d;
     d = Math.max(-15, Math.min(15, Math.trunc(d)));
-    var ax = Math.abs(x), str = String(ax);
-    if (str.indexOf("e") >= 0) return x;
-    var sc = Number(str + "e" + d);
-    if (!isFinite(sc)) return x;
+    var ax = Math.abs(x), sc = shift10(ax, d);
+    if (!isFinite(sc)) return x;  // only above about 1e293 with a positive digit count: no fraction digit left, so unchanged
     var r = up ? Math.ceil(sc) : Math.floor(sc);
-    var out = Number(r + "e" + (-d));
+    var out = shift10(r, -d);
     if (!isFinite(out)) return x;
-    return x < 0 ? -out : out;
+    return out === 0 ? 0 : x < 0 ? -out : out;
   }
   FNX.ROUNDUP = function (a) { return roundDir(a, true); };
   FNX.ROUNDDOWN = function (a) { return roundDir(a, false); };
