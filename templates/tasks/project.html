@@ -5,6 +5,7 @@
 <div class="card tasks">
   <div class="tasks-head"><h2>{{ project.name }}</h2></div>
   {% include "tasks/_nav.html" %}
+  {% if is_lead %}<p class="task-meta"><a href="{% url 'tasks:project_trash' project.public_id %}">Project trash</a>, for restoring deleted tasks</p>{% endif %}
   <form method="get" class="tasks-inline board-filter" role="search" aria-label="Filter this board">
     <input type="search" name="q" value="{{ f_q }}" maxlength="100" placeholder="Search titles" aria-label="Search task titles">
     <select name="milestone" aria-label="Milestone filter"><option value="">Any milestone</option><option value="none"{% if f_milestone == "none" %} selected{% endif %}>No milestone</option>{% for ms in milestones %}<option value="{{ ms.pk }}"{% if ms.pk == f_milestone %} selected{% endif %}>{{ ms.name }}</option>{% endfor %}</select>

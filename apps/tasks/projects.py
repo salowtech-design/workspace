@@ -117,6 +117,38 @@ def _fresh_task(p, task):
     return t
 
 
+def deleted_tasks(user, project):
+    """The project's deleted tasks, newest first. Same role as delete: a lead only."""
+    p = get_project(user, project.public_id)
+    m = _membership(user, p)
+    if m is None or m.role != ProjectMember.LEAD:
+        raise PermissionDenied
+    return list(
+        ProjectTask.objects.filter(project=p, deleted_at__isnull=False)
+        .select_related("column", "assignee")
+        .order_by("-deleted_at", "-id")
+    )
+
+
+@transaction.atomic
+def restore_task(user, task):
+    """Undo one delete. Same lead right as delete, judged on fresh rows under the project lock. The task comes back at the end of its own column
+    with its notes, due date, assignee and milestone as they were; the version rises so a form opened before the delete is stale. A live task
+    is refused, and a deleted project refuses everything (_lock_as_lead)."""
+    p = _lock_as_lead(user, task.project)
+    t = ProjectTask.objects.filter(pk=task.pk, project=p).first()
+    if t is None:
+        raise Http404
+    if t.deleted_at is None:
+        raise ValidationError("That task is not in the trash.")
+    top = ProjectTask.objects.filter(column_id=t.column_id, deleted_at__isnull=True).aggregate(m=Max("position"))["m"]
+    _pause()
+    ProjectTask.objects.filter(pk=t.pk, deleted_at__isnull=False).update(
+        deleted_at=None, position=0 if top is None else top + 1, version=F("version") + 1, updated_at=timezone.now()
+    )
+    audit(user, "tasks.project_task.restore", "project_task", t.pk, project=p.pk)
+
+
 @transaction.atomic
 def move_task(user, task, column_id, expected_version):
     p = _lock_as_lead(user, task.project)
@@ -251,7 +283,7 @@ def edit_task(user, task, expected_version, **changes):
 
 @transaction.atomic
 def delete_task(user, task):
-    """Soft delete under the project lock. Nothing is erased and no restore exists yet."""
+    """Soft delete under the project lock. Nothing is erased; a lead restores it from the project's Trash."""
     p = _lock_as_lead(user, task.project)
     t = _fresh_task(p, task)
     _pause()

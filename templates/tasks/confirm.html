@@ -6,7 +6,7 @@
   <div class="tasks-head"><h2>Delete this {{ what }}?</h2></div>
   <p><strong>{{ name }}</strong></p>
   <p class="task-meta">{% if what == "list" %}This removes the list and every task in it (about {{ extra }} right now; anything added before you confirm goes too) from view for everyone, including anyone a task was given to.{% else %}This removes the task{% if extra %} and its subtasks (about {{ extra }} right now){% endif %} from view for everyone, including anyone it was given to. It is removed as it is when you confirm, including any edits made in the meantime.{% endif %}
-  Nothing is permanently erased by this. You can restore it from the Trash tab.</p>
+  Nothing is permanently erased by this. {% if project_trash %}A project lead can restore it from <a href="{{ project_trash }}">this project's Trash</a>.{% else %}You can restore it from the Trash tab.{% endif %}</p>
   <form method="post" action="{{ post_url }}" class="tasks-inline">{% csrf_token %}<input type="hidden" name="confirm" value="yes">
     <button class="btn btn-small" type="submit">Delete</button>
     <a class="btn btn-outline btn-small" href="{{ back }}">Keep it</a></form>

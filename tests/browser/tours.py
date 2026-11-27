@@ -285,6 +285,7 @@ def register(g):
     register_tasks_rename(g)
     register_tasks_move(g)
     register_tasks_overdue(g)
+    register_project_restore(g)
     register_attendance_csv(g)
     register_post_review_notice(g)
     register_notice_open(g)
@@ -2414,6 +2415,25 @@ def register_tasks_overdue(g):
         run_tour(ctx, "tasks_overdue", body, notes="Real Django on TiDB (unistore) under uvicorn, headless Chromium 390x844 emulated. One synthetic employee. Dates use the workspace date (India time). Stages: set up, a past due date is marked, a future date is not, completing clears the mark. Not shown: the Assigned view (unit test covers it).", unshown=["assigned view"])
 
     g["DRILLS"]["tour_tasks_overdue"] = tour
+
+
+def register_project_restore(g):
+    APP = g["APP"]
+
+    def tour(ctx):
+        def body(t, pg):
+            txt = lambda: pg.inner_text("body")  # noqa: E731
+            pg.goto(APP + "/tasks/projects/")
+            pg.wait_for_timeout(500)
+            t.step("STAGE 1 SET UP: make a project called Launch", lambda: (pg.fill("input[name=name]", "Launch"), pg.click("button:has-text('Add project')")), expect=lambda: "Launch" in txt())
+            t.step("STAGE 1 SET UP: the new project opens; add the task Write plan to the first column", lambda: (pg.fill("form[action$='/add/'] input[name=title] >> nth=0", "Write plan"), pg.click("form[action$='/add/'] button >> nth=0")), expect=lambda: "Write plan" in txt())
+            t.step("STAGE 2 DELETE: press Delete on the task. The page says a lead can restore it from this project's Trash", lambda: pg.click(".task-card:has-text('Write plan') a:has-text('Delete')"), expect=lambda: "this project's Trash" in txt())
+            t.step("STAGE 2 DELETE: confirm. The board no longer shows the task", lambda: pg.click("button:has-text('Delete')"), expect=lambda: "Task deleted." in txt() and "Write plan" not in pg.locator(".board, .tasks").first.inner_text().replace("Task deleted.", ""), wait=1500)
+            t.step("STAGE 3 RESTORE: open Project trash. Write plan is listed with a Restore button", lambda: pg.click("a:has-text('Project trash')"), expect=lambda: "Write plan" in txt() and pg.locator("button:has-text('Restore')").count() == 1)
+            t.step("STAGE 3 RESTORE: press Restore. The board shows Write plan again with the banner Task restored.", lambda: pg.click("button:has-text('Restore')"), expect=lambda: "Task restored." in txt() and "Write plan" in txt(), wait=2000)
+        run_tour(ctx, "project_restore", body, notes="Real Django on TiDB (unistore) under uvicorn, headless Chromium 390x844 emulated. One synthetic employee who leads the project. Stages: set up, delete, restore from the project trash. Not shown: a plain member's view (404 in unit tests), stale forms, or a deleted project.", unshown=["a member's view", "stale forms", "deleted project"])
+
+    g["DRILLS"]["tour_project_restore"] = tour
 
 
 def register_drive_device(g):

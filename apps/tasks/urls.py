@@ -36,6 +36,8 @@ urlpatterns = [
         project_views.delete_project_task,
         name="project_delete",
     ),
+    path("projects/<uuid:project_id>/trash/", project_views.project_trash, name="project_trash"),
+    path("projects/task/<uuid:task_id>/restore/", project_views.restore_project_task, name="project_restore"),
     path(
         "projects/<uuid:project_id>/milestones/new/",
         project_views.add_milestone,

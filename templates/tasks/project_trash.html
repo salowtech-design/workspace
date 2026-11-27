@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block title %}Trash: {{ project.name }}: Salow Tasks{% endblock %}
+{% block extra_head %}<link rel="stylesheet" href="/static/css/tasks.css">{% endblock %}
+{% block content %}
+<div class="card tasks">
+  <div class="tasks-head"><h2>Tasks</h2></div>
+  {% include "tasks/_nav.html" %}
+  <h3 class="tasks-sub">{{ project.name }}: Trash</h3>
+  <p class="task-meta">Deleted tasks of this project, shown to project leads only. Nothing is deleted automatically. A restored task goes back to the end of its column with its notes, due date, person and milestone.</p>
+  {% for t in items %}<div class="task-row">
+    <span class="task-title">{{ t.title }}</span>
+    <span class="task-meta">In {{ t.column.name }}{% if t.due_date %}, due {{ t.due_date|date:"j M Y" }}{% endif %}</span>
+    <form method="post" action="{% url 'tasks:project_restore' t.public_id %}" class="tasks-inline">{% csrf_token %}<button class="btn btn-outline btn-small" type="submit">Restore</button></form>
+  </div>{% empty %}<div class="tasks-empty">Nothing in the trash.</div>{% endfor %}
+  <div class="tasks-foot"><a class="btn btn-outline btn-small" href="{% url 'tasks:project' project.public_id %}">Back to the board</a></div>
+</div>
+{% endblock %}

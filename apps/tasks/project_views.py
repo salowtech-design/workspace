@@ -191,7 +191,7 @@ def delete_project_task(request, task_id):
             request,
             "tasks/confirm.html",
             {"what": "task", "name": t.title, "extra": 0, "post_url": request.path,
-             "back": back, "tab": "projects"},
+             "back": back, "tab": "projects", "project_trash": reverse("tasks:project_trash", args=[t.project.public_id])},
         )  # fmt: skip
     try:
         pj.delete_task(request.user, t)
@@ -199,6 +199,35 @@ def delete_project_task(request, task_id):
         raise Http404 from None
     messages.success(request, "Task deleted.")
     return redirect(back)
+
+
+@login_required
+@require_http_methods(["GET"])
+def project_trash(request, project_id):
+    p = pj.get_project(request.user, project_id)
+    try:
+        items = pj.deleted_tasks(request.user, p)
+    except PermissionDenied:
+        raise Http404 from None
+    return render(request, "tasks/project_trash.html", {"project": p, "items": items, "tab": "projects"})
+
+
+@login_required
+@require_POST
+def restore_project_task(request, task_id):
+    t = ProjectTask.objects.filter(public_id=task_id).select_related("project").first()
+    if t is None or not pj.can_view(request.user, t.project):
+        raise Http404
+    back = reverse("tasks:project_trash", args=[t.project.public_id])
+    try:
+        pj.restore_task(request.user, t)
+    except (PermissionDenied, Http404):
+        raise Http404 from None
+    except ValidationError as exc:
+        messages.error(request, " ".join(exc.messages))
+        return redirect(back)
+    messages.success(request, "Task restored.")
+    return redirect(reverse("tasks:project", args=[t.project.public_id]))
 
 
 @login_required
