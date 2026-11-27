@@ -245,20 +245,6 @@ def _visible(ev, me):
     return ev.organizer_id == me.pk or Guest.objects.filter(event=ev, person=me).exists()
 
 
-def _tell_guests(ev, me, kind, what):
-    """One notice per guest who has not declined, never the organizer. Like the invitation notice, the text carries the organizer's name
-    only (never the event title) and the link is the opaque event id, which notify checks the guest may view (a cancelled event is skipped by that view policy, and the guest can still open its detail page, so the cancel notice has no check). A notice that fails for a
-    non-database reason is logged and skipped; a DatabaseError is re-raised so the change fails with it."""
-    for g in Guest.objects.filter(event=ev).exclude(response=Guest.DECLINED).exclude(person_id=me.pk).select_related("person"):
-        try:
-            with transaction.atomic():
-                notify(g.person, kind, f"{me.full_name or me.employee_id} {what}", reverse("events:detail", args=[ev.public_id]), check=None if ev.status == Event.CANCELLED else ("event", ev))
-        except DatabaseError:
-            raise
-        except Exception:  # noqa: BLE001
-            logger.exception("event change notification skipped")
-
-
 def update_event(actor, public_id, expected_version, title, local_start, local_end, tz_name, location=None, description=None):
     """Organiser only. A guest or stranger gets 404 (existence is not revealed)."""
     try:
@@ -295,7 +281,6 @@ def update_event(actor, public_id, expected_version, title, local_start, local_e
                 "count": ev.count, "until": ev.until,
             })  # fmt: skip
         _pause()
-        moved = (ev.start_utc, ev.end_utc, ev.tz, ev.location) != (start, end, tz_name.strip(), new_loc)
         ev.title, ev.start_utc, ev.end_utc, ev.tz = title, start, end, tz_name.strip()
         ev.location, ev.description = new_loc, new_desc
         if ev.freq:
@@ -304,8 +289,6 @@ def update_event(actor, public_id, expected_version, title, local_start, local_e
         ev.save()
         # Guest responses are NOT reset on a time change: that is a policy choice, not made.
         audit(me, "events.update", "event", ev.pk)
-        if moved:
-            _tell_guests(ev, me, "events.changed", "changed the time or place of an event you were invited to")
     return ev
 
 
@@ -320,7 +303,6 @@ def cancel_event(actor, public_id):
         ev.version += 1
         ev.save()
         audit(me, "events.cancel", "event", ev.pk)
-        _tell_guests(ev, me, "events.cancelled", "cancelled an event you were invited to")
     return ev
 
 
