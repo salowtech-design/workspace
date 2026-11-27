@@ -52,3 +52,13 @@ def test_a_person_not_invited_gets_nothing_and_a_failed_notice_does_not_undo_the
     monkeypatch.setattr(es, "notify", boom)
     ev = _make(org, [g1], title="Second event")
     assert ev.pk is not None and es.Guest.objects.filter(event=ev, person=g1).exists()
+
+
+@pytest.mark.django_db
+def test_repeated_guest_ids_and_the_organizers_own_id_give_one_notice_and_none():
+    org, g1, off = _u("IN-O3", "Org Three"), _u("IN-5", "Guest Five"), _u("IN-6", "Gone Six")
+    CustomUser.objects.filter(pk=off.pk).update(status="suspended")
+    ev = es.create_event(org, "Dup test", D(2026, 12, 4, 10), D(2026, 12, 4, 11), IST, [g1.pk, g1.pk, org.pk, g1.pk])
+    assert Notification.objects.filter(user=g1).count() == 1
+    assert Notification.objects.filter(user=org).count() == 0
+    assert es.Guest.objects.filter(event=ev).count() == 1
