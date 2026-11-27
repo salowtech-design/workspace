@@ -38,4 +38,4 @@ def test_formula_batch2_passes_in_node():
         timeout=60,
     )
     assert r.returncode == 0, r.stdout + r.stderr
-    assert "62/62 rows passed" in r.stdout
+    assert "63/63 rows passed" in r.stdout
