@@ -865,8 +865,22 @@ def register_manager_assign(g):
                     employee_id=eid,
                     defaults={"full_name": nm, "email": eid.lower() + "@salowtech.com", "email_verified": True,
                               "role": CustomUser.Role.EMPLOYEE, "status": CustomUser.Status.ACTIVE, "is_active": True})
+            from apps.directory.models import ReportingRelationship
+
+            ReportingRelationship.objects.filter(subordinate__employee_id__in=["ST-LIVE-2", "ST-LIVE-3"]).delete()  # a clean start, whatever ran before in this store
+            prior["role"] = CustomUser.objects.get(employee_id="ST-LIVE-1").role
             CustomUser.objects.filter(employee_id="ST-LIVE-1").update(role=CustomUser.Role.ADMIN)
 
+        def restore():
+            # undo this tour's fixture so a tour that runs later in the same store starts from the state it found, also after a failure
+            from apps.accounts.models import CustomUser
+            from apps.directory.models import ReportingRelationship
+
+            ReportingRelationship.objects.filter(subordinate__employee_id__in=["ST-LIVE-2", "ST-LIVE-3"]).delete()
+            if prior.get("role"):
+                CustomUser.objects.filter(employee_id="ST-LIVE-1").update(role=prior["role"])
+
+        prior = {}
         with concurrent.futures.ThreadPoolExecutor(1) as ex:
             ex.submit(mk).result()
 
@@ -882,7 +896,11 @@ def register_manager_assign(g):
             t.step("STAGE 3 LOOP: open Third Synthetic and try to make Second Synthetic their manager", lambda: (pg.goto(APP + "/directory/profile/ST-LIVE-3/"), pg.select_option(sel, "ST-LIVE-2")), expect=lambda: pg.input_value(sel) == "ST-LIVE-2", wait=1800)
             t.step("STAGE 3 LOOP: press Set manager. The page refuses with Reporting cycle detected and nothing changes", lambda: (pg.click("button:has-text('Set manager')"), pg.wait_for_timeout(300), pg.evaluate("window.scrollTo(0, 0)")), expect=lambda: "Reporting cycle detected" in txt() and "No manager set" in txt(), wait=2400)
             t.step("STAGE 4 ORG CHART: the org chart lists Second Synthetic under Third Synthetic", lambda: pg.goto(APP + "/directory/org/"), expect=lambda: "ST-LIVE-2" in txt() and "ST-LIVE-3" in txt(), wait=2200)
-        run_tour(ctx, "manager_assign", body, notes="Real Django on TiDB (unistore) under uvicorn, headless Chromium 390x844 emulated. Fixtures (ORM, not product features): ST-LIVE-1 is given the Admin role, plus two other people. Stages: before, set a manager, a loop is refused, org chart. Not shown: a non-administrator's view (no form, refusal in unit tests), inactive people.", unshown=["a non-administrator's view", "inactive people"])
+        try:
+            run_tour(ctx, "manager_assign", body, notes="Real Django on TiDB (unistore) under uvicorn, headless Chromium 390x844 emulated. Fixtures (ORM, not product features): ST-LIVE-1 is given the Admin role, plus two other people. Stages: before, set a manager, a loop is refused, org chart. Not shown: a non-administrator's view (no form, refusal in unit tests), inactive people.", unshown=["a non-administrator's view", "inactive people"])
+        finally:
+            with concurrent.futures.ThreadPoolExecutor(1) as ex:
+                ex.submit(restore).result()
 
     g["DRILLS"]["tour_manager_assign"] = tour
 
@@ -905,8 +923,22 @@ def register_manager_blank(g):
                     employee_id=eid,
                     defaults={"full_name": nm, "email": eid.lower() + "@salowtech.com", "email_verified": True,
                               "role": CustomUser.Role.EMPLOYEE, "status": CustomUser.Status.ACTIVE, "is_active": True})
+            from apps.directory.models import ReportingRelationship
+
+            ReportingRelationship.objects.filter(subordinate__employee_id__in=["ST-LIVE-2", "ST-LIVE-3"]).delete()  # a clean start, whatever ran before in this store
+            prior["role"] = CustomUser.objects.get(employee_id="ST-LIVE-1").role
             CustomUser.objects.filter(employee_id="ST-LIVE-1").update(role=CustomUser.Role.ADMIN)
 
+        def restore():
+            # undo this tour's fixture so a tour that runs later in the same store starts from the state it found, also after a failure
+            from apps.accounts.models import CustomUser
+            from apps.directory.models import ReportingRelationship
+
+            ReportingRelationship.objects.filter(subordinate__employee_id__in=["ST-LIVE-2", "ST-LIVE-3"]).delete()
+            if prior.get("role"):
+                CustomUser.objects.filter(employee_id="ST-LIVE-1").update(role=prior["role"])
+
+        prior = {}
         with concurrent.futures.ThreadPoolExecutor(1) as ex:
             ex.submit(mk).result()
 
@@ -917,7 +949,11 @@ def register_manager_blank(g):
             pg.wait_for_timeout(500)
             t.step("The list starts on Choose a person. Nobody is preselected", lambda: pg.locator(sel).scroll_into_view_if_needed(), expect=lambda: pg.input_value(sel) == "" and "No manager set" in txt(), wait=2200)
             t.step("Press Set manager without choosing. The page says Choose a person from the list. and still No manager set", lambda: (pg.click("button:has-text('Set manager')"), pg.wait_for_timeout(300), pg.evaluate("window.scrollTo(0, 0)")), expect=lambda: "Choose a person from the list." in txt() and "No manager set" in txt(), wait=2400)
-        run_tour(ctx, "manager_blank", body, notes="Real Django on TiDB (unistore) under uvicorn, headless Chromium 390x844 emulated. Fixtures (ORM, not product features): ST-LIVE-1 is given the Admin role, plus two other people. Two steps: the list has no preselection, and pressing Set manager untouched changes nothing. Not shown: a non-administrator's view (no form, refusal in unit tests), inactive people.", unshown=["a non-administrator's view", "inactive people"])
+        try:
+            run_tour(ctx, "manager_blank", body, notes="Real Django on TiDB (unistore) under uvicorn, headless Chromium 390x844 emulated. Fixtures (ORM, not product features): ST-LIVE-1 is given the Admin role, plus two other people. Two steps: the list has no preselection, and pressing Set manager untouched changes nothing. Not shown: a non-administrator's view (no form, refusal in unit tests), inactive people.", unshown=["a non-administrator's view", "inactive people"])
+        finally:
+            with concurrent.futures.ThreadPoolExecutor(1) as ex:
+                ex.submit(restore).result()
 
     g["DRILLS"]["tour_manager_blank"] = tour
 
