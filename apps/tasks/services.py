@@ -234,6 +234,58 @@ def delete_list(user, task_list):
     audit(user, "tasks.list.delete", "task_list", tl.pk, tasks_deleted=n or None)
 
 
+def trash_for(user):
+    """The owner's deleted lists and deleted tasks in live lists, newest first. A task deleted together with its parent comes back with the
+    parent, so only the head of each deletion is listed: a task whose parent is live or was deleted at another moment. Tasks inside a deleted
+    list are not listed until that list is restored."""
+    lists = list(TaskList.objects.filter(owner=user, deleted_at__isnull=False).order_by("-deleted_at"))
+    tasks = [
+        t for t in Task.objects.filter(task_list__owner=user, task_list__deleted_at__isnull=True, deleted_at__isnull=False)
+        .select_related("task_list", "parent").order_by("-deleted_at", "id")
+        if t.parent is None or t.parent.deleted_at is None or t.parent.deleted_at != t.deleted_at
+    ]
+    return lists, tasks
+
+
+@transaction.atomic
+def restore_task(user, task):
+    """Undo one task deletion: the task and the subtasks deleted in the same delete come back. Same owner right as delete. A subtask whose
+    parent is still deleted is refused (restore the parent first). Versions move so an old form is stale."""
+    tl = _lock_list(task.task_list)
+    fresh = _fresh(task)
+    fresh.task_list = tl
+    require(user, "restore", "task", fresh)
+    batch = fresh.deleted_at
+    if fresh.parent_id is not None:
+        parent = Task.objects.get(pk=fresh.parent_id)
+        if parent.deleted_at is not None:
+            raise ValidationError("Restore its parent task first.")
+        if parent.assignee_id:  # the same rule as adding a subtask: a task given to someone cannot hold subtasks
+            raise ValidationError("A subtask must sit directly under a task of your own in the same list.")
+    now = timezone.now()
+    ids = [fresh.pk, *Task.objects.filter(parent=fresh, deleted_at=batch).values_list("pk", flat=True)]
+    Task.objects.filter(pk__in=ids).update(deleted_at=None, updated_at=now, version=F("version") + 1)
+    if fresh.parent_id is not None and fresh.status != Task.DONE:
+        # the same build default as adding a subtask: a completed task never holds an open subtask
+        Task.objects.filter(pk=fresh.parent_id, status=Task.DONE).update(
+            status=Task.OPEN, completed_at=None, version=F("version") + 1, updated_at=now
+        )
+    audit(user, "tasks.task.restore", "task", fresh.pk, subtasks_restored=len(ids) - 1 or None)
+
+
+@transaction.atomic
+def restore_list(user, task_list):
+    """Undo one list deletion: the list and the tasks deleted with it (the same moment) come back. Tasks deleted earlier stay in the trash."""
+    tl = _lock_list(task_list)
+    require(user, "restore", "task_list", tl)
+    batch = tl.deleted_at
+    now = timezone.now()
+    n = Task.objects.filter(task_list=tl, deleted_at=batch).update(deleted_at=None, updated_at=now, version=F("version") + 1)
+    tl.deleted_at = None
+    tl.save(update_fields=["deleted_at"])
+    audit(user, "tasks.list.restore", "task_list", tl.pk, tasks_restored=n or None)
+
+
 def lists_for(user):
     return TaskList.objects.filter(owner=user, deleted_at__isnull=True).order_by("created_at")
 

@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% block title %}Trash: Salow Tasks{% endblock %}
+{% block extra_head %}<link rel="stylesheet" href="/static/css/tasks.css">{% endblock %}
+{% block content %}
+<div class="card tasks">
+  <div class="tasks-head"><h2>Tasks</h2></div>
+  {% include "tasks/_nav.html" %}
+  <p class="task-meta">Deleted lists and tasks you own stay here until you restore them. Nothing is deleted automatically. Restoring a list brings back the tasks deleted with it. Restoring a task brings back its subtasks and gives the task back to whoever it was given to.</p>
+  {% for l in lists %}<div class="task-row"><strong>{{ l.name }}</strong> <span class="task-meta">List</span>
+    <form method="post" action="{% url 'tasks:restore_list' l.public_id %}" class="tasks-inline">{% csrf_token %}<button class="btn btn-outline btn-small" type="submit">Restore</button></form></div>{% endfor %}
+  {% for t in tasks %}<div class="task-row"><strong>{{ t.title }}</strong> <span class="task-meta">Task{% if t.parent_id %}, a subtask{% endif %} in {{ t.task_list.name }}</span>
+    <form method="post" action="{% url 'tasks:restore_task' t.public_id %}" class="tasks-inline">{% csrf_token %}<button class="btn btn-outline btn-small" type="submit">Restore</button></form></div>{% endfor %}
+  {% if not lists and not tasks %}<p class="task-meta">The trash is empty.</p>{% endif %}
+</div>
+{% endblock %}

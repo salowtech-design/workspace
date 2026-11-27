@@ -236,6 +236,32 @@ def delete_task(request, task_id):
 
 
 @login_required
+def trash_view(request):
+    lists, tasks = svc.trash_for(request.user)
+    return render(request, "tasks/trash.html", {"lists": lists, "tasks": tasks, "tab": "trash"})
+
+
+@login_required
+@require_POST
+def restore_task(request, task_id):
+    t = Task.objects.filter(public_id=task_id).select_related("task_list").first()
+    if t is None or not can(request.user, "restore", "task", t):
+        raise Http404
+    _run(request, svc.restore_task, request.user, t, ok="Task restored.")
+    return redirect("tasks:trash")
+
+
+@login_required
+@require_POST
+def restore_list(request, list_id):
+    tl = TaskList.objects.filter(public_id=list_id).first()
+    if tl is None or not can(request.user, "restore", "task_list", tl):
+        raise Http404
+    _run(request, svc.restore_list, request.user, tl, ok="List restored.")
+    return redirect("tasks:trash")
+
+
+@login_required
 def due_soon_view(request):
     from django.utils import timezone
 

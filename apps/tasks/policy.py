@@ -5,6 +5,8 @@ from apps.core.foundation.permissions import register_policy
 
 
 def _task_policy(user, action, task):
+    if action == "restore":  # the list owner who may delete may bring a deleted task back; only while its list is live
+        return task.deleted_at is not None and task.task_list.deleted_at is None and task.task_list.owner_id == user.pk
     if task.deleted_at is not None or task.task_list.deleted_at is not None:
         return False
     owner = task.task_list.owner_id == user.pk
@@ -19,6 +21,8 @@ def _task_policy(user, action, task):
 
 
 def _list_policy(user, action, task_list):
+    if action == "restore":
+        return task_list.deleted_at is not None and task_list.owner_id == user.pk
     if task_list.deleted_at is not None:
         return False
     return task_list.owner_id == user.pk and action in ("view", "edit", "delete", "add")

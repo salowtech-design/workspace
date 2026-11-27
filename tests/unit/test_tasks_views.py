@@ -92,7 +92,7 @@ def test_delete_needs_confirmation_and_says_what_happens():
     page = ca.get(reverse("tasks:delete", args=[t.public_id]))
     assert (
         page.status_code == 200
-        and b"not built yet" in page.content
+        and b"restore it from the Trash tab" in page.content
         and Task.objects.filter(deleted_at=None).count() == 1
     )
     ca.post(reverse("tasks:delete", args=[t.public_id]))  # no confirm field: nothing happens
