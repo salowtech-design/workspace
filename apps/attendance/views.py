@@ -179,6 +179,43 @@ def history_view(request):
 
 
 @login_required
+def history_csv_view(request):
+    """My own attendance for one month as a CSV download: the same rows the history page shows for me
+    (get_month_history), nothing else. No user id is read from the request. ?month=YYYY-MM."""
+    import csv
+    import re
+
+    from django.http import Http404, HttpResponse
+
+    from apps.attendance.selectors import get_month_history
+
+    if getattr(request.user, "status", "active") != "active":
+        raise Http404
+    today = get_current_kolkata_date(timezone.now())
+    year, month = today.year, today.month
+    raw = request.GET.get("month", "")
+    if raw:
+        m = re.fullmatch(r"(\d{4})-(\d{2})", raw)
+        if not m or not (2000 <= int(m.group(1)) <= 2100 and 1 <= int(m.group(2)) <= 12):
+            return HttpResponse("Pick a month like 2026-11.", status=400, content_type="text/plain")
+        year, month = int(m.group(1)), int(m.group(2))
+    h = get_month_history(request.user, year, month)
+
+    def cell(v):
+        v = "" if v is None else str(v)
+        return "'" + v if v[:1] in ("=", "+", "-", "@", "\t", "\r") else v
+
+    resp = HttpResponse(content_type="text/csv; charset=utf-8")
+    resp["Content-Disposition"] = f'attachment; filename="my-attendance-{year:04d}-{month:02d}.csv"'
+    resp["Cache-Control"] = "private, no-store"
+    w = csv.writer(resp)
+    w.writerow(["Date", "Check in (Asia/Kolkata)", "Check out (Asia/Kolkata)", "Hours", "Method", "State"])
+    for r in h["rows"]:
+        w.writerow([r["date"].isoformat(), r["check_in"], cell(r["check_out"]), cell(r["hours"]), cell(r["method"]), cell(r["state"])])
+    return resp
+
+
+@login_required
 def report_view(request):
     """
     Aggregated attendance report view for the user.

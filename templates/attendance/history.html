@@ -3,7 +3,7 @@
 {% block extra_head %}<link rel="stylesheet" href="/static/css/events.css">{% endblock %}
 {% block content %}
 <div class="card cal"><div class="cal-head"><h2>My attendance: {{ h.first|date:"F Y" }}</h2></div>
-<div class="cal-tabs"><a href="{% url 'attendance:history' %}?month={{ h.prev }}">Earlier month</a> <a href="{% url 'attendance:history' %}?month={{ h.next }}">Later month</a> <a href="{% url 'attendance:panel' %}">Attendance home</a></div>
+<div class="cal-tabs"><a href="{% url 'attendance:history' %}?month={{ h.prev }}">Earlier month</a> <a href="{% url 'attendance:history' %}?month={{ h.next }}">Later month</a> <a href="{% url 'attendance:panel' %}">Attendance home</a> <a href="{% url 'attendance:history_csv' %}?month={{ h.first|date:'Y-m' }}">Download this month (CSV)</a></div>
 <p class="cal-meta">Days with a completed session: {{ h.days_worked }}. Hours in completed sessions: {{ h.total_hours }}. Times are Asia/Kolkata. An open session shows no hours until it is closed.</p>
 {% for r in h.rows %}<div class="cal-row"><span class="cal-title">{{ r.date|date:"D j M" }}: {{ r.check_in }} to {% if r.check_out %}{{ r.check_out }}{% else %}still open{% endif %}</span> <span class="cal-meta">{% if r.hours is not None %}{{ r.hours }} h, {% endif %}{{ r.method }}, {{ r.state }}</span></div>
 {% empty %}<p class="cal-meta">No sessions in this month.</p>{% endfor %}
