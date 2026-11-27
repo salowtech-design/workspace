@@ -327,6 +327,7 @@ def register(g):
     register_sheets_csv_import(g)
     register_sheets_freeze(g)
     register_sheets_versions(g)
+    register_sheets_xtab(g)
     register_pdf_alltext_stop(g)
     register_pdf_roundtrip(g)
     register_slides_order_recovery(g)
@@ -5527,6 +5528,66 @@ def register_sheets_freeze(g):
         run_tour(ctx, "sheets_freeze", body, notes="Headless Chromium 390x844 emulated, one run. Pinning is measured from element positions after scrolling and shown in the frames. Not shown: rename, Export and Import leaving the setting alone, damaged stored setting.", unshown=["rename", "export and import", "damaged setting"])
 
     g["DRILLS"]["tour_sheets_freeze"] = tour
+
+
+def register_sheets_xtab(g):
+    APP = g["APP"]
+
+    def tour(ctx):
+        val = lambda pg, a: pg.input_value('input[data-addr="%s"]' % a)
+        cell = lambda a: 'input[data-addr="%s"]' % a
+
+        def body(t, pg):
+            dlg = {"accept": True, "msgs": []}
+            pg.on("dialog", lambda d: (dlg["msgs"].append(d.message), d.accept() if dlg["accept"] else d.dismiss()))
+            pg.goto(APP + "/sheets/")
+            pg.evaluate("localStorage.clear()")
+            pg.goto(APP + "/sheets/")
+            pg.wait_for_timeout(500)
+            put = lambda a, v: (pg.click(cell(a)), pg.keyboard.type(v), pg.keyboard.press("Enter"))
+            grid = lambda: pg.evaluate("()=>{document.getElementById('sheet-root').scrollIntoView({block:'start'});scrollBy(0,-(document.getElementById('sheet-barrow').getBoundingClientRect().height+6))}")
+            tabs = lambda: pg.evaluate("document.getElementById('sheet-tabs').scrollIntoView({block:'center'})")
+            go = lambda n: (pg.locator("#sheet-tabs button", has_text=n).first.click(), pg.wait_for_timeout(500))
+            tst = lambda: pg.inner_text("#tab-status")
+            sst = lambda: pg.inner_text("#sheet-status")
+            def rename(n):
+                tabs(); pg.fill("#tab-name", n); pg.click("#tab-rename"); pg.wait_for_timeout(500)
+            put("A1", "5"); put("A2", "7")
+            pg.click("#tab-add"); pg.wait_for_timeout(500)
+            rename("Sales Q1")
+            put("B1", "100"); put("B2", "200")
+            t.step("Second tab renamed Sales Q1 with B1 100 and B2 200", lambda: grid(), expect=lambda: val(pg, "B1") == "100" and val(pg, "B2") == "200", wait=2500)
+            go("Sheet 1")
+            put("C1", "='Sales Q1'!B1+A1"); put("C2", "=SUM('Sales Q1'!B1:B2)"); put("C3", "=Sheet9!A1"); put("C4", "=sales q1!B2")
+            t.step("Sheet 1: C1 ='Sales Q1'!B1+A1 shows 105, C2 =SUM('Sales Q1'!B1:B2) shows 300, C3 names a tab that does not exist (#REF!), C4 =sales q1!B2 (an unquoted name with a space) is an error", lambda: grid(), expect=lambda: val(pg, "C1") == "105" and val(pg, "C2") == "300" and val(pg, "C3") == "#REF!" and val(pg, "C4").startswith("#"), wait=2500)
+            go("Sales Q1"); put("B1", "1000")
+            go("Sheet 1")
+            t.step("B1 on Sales Q1 changed to 1000: C1 on Sheet 1 now 1005 and C2 1200", lambda: grid(), expect=lambda: val(pg, "C1") == "1005" and val(pg, "C2") == "1200", wait=2500)
+            go("Sales Q1"); pg.click(cell("B2")); pg.evaluate("document.getElementById('row-ins').scrollIntoView({block:'center'})"); pg.click("#row-ins"); pg.wait_for_timeout(500)
+            t.step("Insert row on Sales Q1 is refused: other formulas refer to this tab by name. Nothing changed (B2 still 200)", expect=lambda: "Nothing was changed" in sst() and "refer to this tab by name" in sst() and val(pg, "B2") == "200", wait=3000)
+            go("Sheet 1")
+            dlg["accept"] = False; dlg["msgs"].clear()
+            go("Sales Q1"); rename("Q1")
+            c1 = len(dlg["msgs"]) == 1 and "#REF!" in dlg["msgs"][0] and "Sales Q1" in dlg["msgs"][0] and "Rename cancelled" in tst()
+            go("Sales Q1")
+            t.step("Rename Sales Q1 to Q1 and dismiss the question (it names the formulas that would show #REF!): the tab keeps its name", expect=lambda: c1 and pg.locator("#sheet-tabs button", has_text="Sales Q1").count() == 1, wait=3000)
+            dlg["accept"] = True; rename("Q1")
+            go("Sheet 1")
+            t.step("Rename and accept: C1 and C2 show #REF! because no tab is called Sales Q1", lambda: grid(), expect=lambda: val(pg, "C1") == "#REF!" and val(pg, "C2") == "#REF!", wait=3000)
+            go("Q1"); rename("Sales Q1"); go("Sheet 1")
+            t.step("Rename it back to Sales Q1: C1 shows 1005 and C2 1200 again", lambda: grid(), expect=lambda: val(pg, "C1") == "1005" and val(pg, "C2") == "1200", wait=3000)
+            go("Sales Q1"); dlg["msgs"].clear(); tabs(); pg.click("#tab-del"); pg.wait_for_timeout(600)
+            go("Sheet 1")
+            t.step("Delete the tab Sales Q1 (the question counts the formulas that will show #REF!): C1 and C2 show #REF!", lambda: grid(), expect=lambda: val(pg, "C1") == "#REF!" and any("refer to it by name" in m for m in dlg["msgs"]), wait=3000)
+            tabs(); pg.click("#tab-restore"); pg.wait_for_timeout(700); go("Sheet 1")
+            t.step("Restore deleted tab (it comes back as a tab; go to Sheet 1): C1 shows 1005 and C2 1200 again", lambda: grid(), expect=lambda: val(pg, "C1") == "1005" and val(pg, "C2") == "1200", wait=3000)
+            put("D1", "='Sales Q1'!D1"); go("Sales Q1"); put("D1", "='Sheet 1'!D1"); go("Sheet 1")
+            t.step("A loop across two tabs (D1 on each points at the other) shows #CIRC! on Sheet 1", lambda: grid(), expect=lambda: val(pg, "D1") == "#CIRC!", wait=3000)
+            pg.reload(); pg.wait_for_timeout(700)
+            t.step("After a reload C1 still shows 1005 and C2 1200 (read from the stored tab)", lambda: grid(), expect=lambda: val(pg, "C1") == "1005" and val(pg, "C2") == "1200", wait=3000)
+        run_tour(ctx, "sheets_xtab", body, notes="Headless Chromium 390x844 emulated, one run. Not shown: a tab changed in another window, an unreadable tab (#TAB!), Export or CSV of cross-tab formulas.", unshown=["another window", "unreadable tab", "export and csv"])
+
+    g["DRILLS"]["tour_sheets_xtab"] = tour
 
 
 def register_sheets_versions(g):

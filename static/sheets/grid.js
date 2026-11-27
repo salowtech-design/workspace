@@ -69,6 +69,36 @@
   var barRow = document.getElementById("sheet-barrow");
   function setBarH() { if (barRow) root.style.setProperty("--sheet-bar-h", barRow.offsetHeight + "px"); }
   setBarH(); window.addEventListener("resize", function () { setBarH(); }); if (window.ResizeObserver && barRow) new ResizeObserver(function () { setBarH(); placeFreeze(); }).observe(barRow);
+  // ---- Cross-tab references: Name!A1, 'My tab'!A1:B3 (see formula.js). A tab is found by its name, ignoring case. The tab you are on is read as shown. Another tab is read from this page's copy of it, but only
+  // when that copy is exactly what is stored (otherwise #TAB!, so a value is never taken from a copy that was not saved or was changed in another window). ----
+  function tabCellsFor(t, own) {
+    if (t.id === meta.active) return own;
+    var bs = "none"; try { bs = M.structRecovery(localStorage, bakKeyOf(t.id), structKeys(t.id)); } catch (e) { bs = "storage"; }
+    if (bs !== "none") return null;
+    var hh = histFor(t.id); if (unreadableTabs[t.id]) return null;
+    var rc = null; try { rc = localStorage.getItem(tabKey(t.id)); } catch (e) { return null; }
+    var same = rc === null ? !Object.keys(hh.cells).length : (function () { try { var st0 = clean(JSON.parse(rc)); return !!st0 && sameCells(st0.cells, hh.cells); } catch (e) { return false; } })();
+    return same ? hh.cells : null;
+  }
+  function mkSheet(c) {
+    var memo = Object.create(null);
+    return new F.Sheet(c, { self: meta.active, tab: function (name) {
+      var k = String(name).toLowerCase(); if (k in memo) return memo[k];
+      var t = null; for (var i = 0; i < meta.tabs.length; i++) if (meta.tabs[i].name.toLowerCase() === k) { t = meta.tabs[i]; break; }
+      return (memo[k] = t ? { id: t.id, cells: tabCellsFor(t, c) } : null);
+    } });
+  }
+  // Formulas, on any tab, that refer to the tab called name. unknown: a tab whose cells cannot be read, so the count may be short.
+  function refsToTab(name) {
+    var low = String(name).toLowerCase(), out = { formulas: 0, tabs: 0, unknown: false, example: "" };
+    meta.tabs.forEach(function (t) {
+      var cs = t.id === meta.active ? H.cells : (function () { var hh = histFor(t.id); return unreadableTabs[t.id] ? null : hh.cells; })();
+      if (!cs) { out.unknown = true; return; }
+      var hit = 0; Object.keys(cs).forEach(function (a) { var v = cs[a]; if (typeof v === "string" && v.charAt(0) === "=" && F.tabRefs(v).some(function (x) { return x.toLowerCase() === low; })) { hit++; if (!out.example) out.example = t.name + " " + a; } });
+      if (hit) { out.formulas += hit; out.tabs++; }
+    });
+    return out;
+  }
   function sync() { cells = H.cells; reloadRules(); reloadCf(); reloadFmt(); if (typeof clearPivot === "function") clearPivot(); show(); refreshSelected(); buttons(); drawChart(); applyFilter(); if (typeof applyFreeze === "function") applyFreeze(); if (typeof renderVers === "function") renderVers(); status.textContent = H.note; }
   // After any whole-sheet change (import, undo, redo, fill, sort, clear, tab switch) the focused cell and the formula bar must show the new content, not what was there before. A focused cell is refreshed here too, so a later blur cannot write the old text back. The formula bar keeps what the user typed in it (barDirty) and is refreshed when untouched.
   var barDirty = false;
@@ -104,13 +134,13 @@
     var v = $("sheet-val"); if (!v) return;
     var raw = cur ? cells[cur] : null;
     if (typeof raw !== "string" || raw[0] !== "=") { v.textContent = ""; return; }
-    var sv = new F.Sheet(cells).get(cur), shown = F.isErr(sv) ? sv.code : String(sv);
+    var sv = mkSheet(cells).get(cur), shown = F.isErr(sv) ? sv.code : String(sv);
     var f = fmtLocked ? {} : M.fmtFor(fmtRules, cur, F.parseAddr);
     v.textContent = "Result: " + (F.isErr(sv) ? shown : M.fmtText(f.nf, shown));
   }
   function show() {
     showVal();
-    var sh = new F.Sheet(cells);
+    var sh = mkSheet(cells);
     Object.keys(inputs).forEach(function (a) {
       var sv = sh.get(a), shown = F.isErr(sv) ? sv.code : String(sv), col = cfLocked ? null : M.cfColor(cfRules, a, shown, F.parseAddr);
       if (col) inputs[a].dataset.cf = col; else delete inputs[a].dataset.cf;
@@ -169,7 +199,7 @@
   }
   var findStat = $("find-status");
   function findOpts(repl) { return { find: $("find-text").value, repl: repl, matchCase: $("find-case").checked, formulas: $("find-formulas").checked }; }
-  function findCtx(check) { var sh = new F.Sheet(cells); return { parseAddr: F.parseAddr, shown: function (a) { var v = sh.get(a); return F.isErr(v) ? v.code : String(v); }, check: check, maxCell: MAXCELL, cols: COLS, rows: ROWS, badFormula: function (a, t) { try { F.parse(t.slice(1)); return false; } catch (e) { return !!(e && e.code === "#PARSE!"); } } };
+  function findCtx(check) { var sh = mkSheet(cells); return { parseAddr: F.parseAddr, shown: function (a) { var v = sh.get(a); return F.isErr(v) ? v.code : String(v); }, check: check, maxCell: MAXCELL, cols: COLS, rows: ROWS, badFormula: function (a, t) { try { F.parse(t.slice(1)); return false; } catch (e) { return !!(e && e.code === "#PARSE!"); } } };
   }
   $("find-next").addEventListener("click", function () {
     var r = M.findReplace(cells, findOpts(null), findCtx(null));
@@ -223,7 +253,7 @@
     l.href = u; l.download = "sheet.json"; document.body.appendChild(l); l.click(); l.remove(); URL.revokeObjectURL(u);
   });
   document.getElementById("sheet-csv").addEventListener("click", function () {
-    var sh = new F.Sheet(cells), r = M.toCsv(cells, F.parseAddr, function (a) { return sh.get(a); }, F.isErr);
+    var sh = mkSheet(cells), r = M.toCsv(cells, F.parseAddr, function (a) { return sh.get(a); }, F.isErr);
     if (!r) { status.textContent = "The sheet is empty, so nothing was downloaded."; return; }
     var u = URL.createObjectURL(new Blob([r.text], { type: "text/csv;charset=utf-8" })), l = document.createElement("a");
     l.href = u; l.download = "sheet.csv"; document.body.appendChild(l); l.click(); l.remove(); setTimeout(function () { URL.revokeObjectURL(u); }, 4000);
@@ -283,7 +313,7 @@
   var outP = null, chartKind = "bar";
   function drawChart() {
     out.textContent = ""; if (!chartRange) return;
-    var rg = chartRange, sh = new F.Sheet(cells), vals = [], rr, cc;
+    var rg = chartRange, sh = mkSheet(cells), vals = [], rr, cc;
     for (rr = rg.r1; rr <= rg.r2; rr++) for (cc = rg.c1; cc <= rg.c2; cc++) { var ad = String.fromCharCode(64 + cc) + rr; vals.push({ a: ad, v: sh.get(ad) }); }
     var ch = M.chartPoints(vals);
     if (!ch) { out.textContent = "No numbers in " + rg.label + " right now."; return; }
@@ -459,7 +489,7 @@
     pvOut.textContent = "";
     var sp = M.makePivot($("pivot-range").value, $("pivot-key").value, $("pivot-val").value, $("pivot-agg").value, $("pivot-header").checked, F.parseAddr);
     if (sp.error) { pvSt.textContent = sp.error; return; }
-    var spec = sp.spec, sh = new F.Sheet(cells), pairs = [];
+    var spec = sp.spec, sh = mkSheet(cells), pairs = [];
     for (var r = spec.r1; r <= spec.r2; r++) {
       var ka = String.fromCharCode(64 + spec.kc) + r, va = String.fromCharCode(64 + spec.vc) + r, kv = sh.get(ka), vv = sh.get(va);
       pairs.push({ k: F.isErr(kv) ? kv.code : String(kv), v: F.isErr(vv) ? vv.code : vv });
@@ -490,7 +520,7 @@
   function applyFilter() {
     showAllRows(); $("filter-clear").disabled = !filt;
     if (!filt) { fstat.textContent = ""; return; }
-    var last = lastRow(), sh = new F.Sheet(cells), res = M.filterRows(function (a) { return sh.get(a); }, F.isErr, 1, Math.max(1, last), filt.col, filt.op, filt.val, filt.header);
+    var last = lastRow(), sh = mkSheet(cells), res = M.filterRows(function (a) { return sh.get(a); }, F.isErr, 1, Math.max(1, last), filt.col, filt.op, filt.val, filt.header);
     if (res.error) { fstat.textContent = res.error; return; }
     for (var i = 1; i <= last; i++) table.rows[i].hidden = !res.vis[i];
     fstat.textContent = "Showing " + res.shown + " of " + res.total + " rows. Hidden rows are only hidden on screen: nothing is deleted and the filter is not saved." + (res.shown === 0 ? " No rows match." : "");
@@ -508,7 +538,7 @@
     if (!col || col > COLS) { fstat.textContent = "Enter a column from A to " + String.fromCharCode(64 + COLS) + "."; return; }
     if (frz.r) { fstat.textContent = "This tab has " + frz.r + " frozen row(s). A filter would hide rows between frozen and scrolling rows, so it is refused. Set frozen rows to 0 first."; return; }
     var f = { col: col, op: $("filter-op").value, val: $("filter-val").value, header: $("filter-header").checked };
-    var sh = new F.Sheet(cells), test = M.filterRows(function (a) { return sh.get(a); }, F.isErr, 1, Math.max(1, lastRow()), f.col, f.op, f.val, f.header);
+    var sh = mkSheet(cells), test = M.filterRows(function (a) { return sh.get(a); }, F.isErr, 1, Math.max(1, lastRow()), f.col, f.op, f.val, f.header);
     if (test.error) { fstat.textContent = test.error; return; }
     filt = f; applyFilter();
   });
@@ -643,11 +673,17 @@
     var next = M.addTab(meta, keyUsed); if (!next) { tabMsg.textContent = "A file holds up to " + M.MAX_TABS + " tabs."; return; }
     if (!commitMeta(next)) return;
     H = histFor(meta.active); chartRange = null; out.textContent = ""; cur = null; filt = null; sync(); renderTabs();
-    tabMsg.textContent = "Added a tab. Formulas read only cells on their own tab."; tabName.focus(); tabName.select();
+    tabMsg.textContent = "Added a tab. A formula can read it by name, like =Name!A1."; tabName.focus(); tabName.select();
   });
   $("tab-rename").addEventListener("click", function () {
     var r = M.renameTab(meta, meta.active, tabName.value); if (r.error) { tabMsg.textContent = r.error; return; }
-    if (!commitMeta(r.meta)) return; renderTabs(); tabMsg.textContent = "Renamed to " + r.name + "." + (r.cut ? " The name was shortened to 30 characters." : "");
+    var oldName = meta.tabs.filter(function (t) { return t.id === meta.active; })[0].name;
+    if (oldName.toLowerCase() !== r.name.toLowerCase()) {
+      var rf = refsToTab(oldName);
+      if (rf.unknown) { tabMsg.textContent = "Another tab's cells could not be read, so it cannot be checked for formulas that use the name " + oldName + ". Nothing was renamed."; return; }
+      if (rf.formulas && !window.confirm(rf.formulas + " formula(s) on " + rf.tabs + " tab(s) (for example " + rf.example + ") refer to this tab by the name " + oldName + ". They are not rewritten, so after renaming they show #REF! until a tab is named " + oldName + " again. Rename anyway?")) { tabMsg.textContent = "Rename cancelled. Nothing was changed."; return; }
+    }
+    if (!commitMeta(r.meta)) return; renderTabs(); sync(); tabMsg.textContent = "Renamed to " + r.name + "." + (r.cut ? " The name was shortened to 30 characters." : "");
   });
   tabName.addEventListener("keydown", function (e) { if (e.key === "Enter") { e.preventDefault(); $("tab-rename").click(); } });
   $("tab-del").addEventListener("click", function () {
@@ -658,6 +694,9 @@
     if (bad) q += "The stored cells of the tab " + nm + " could not be read. They stay in this browser's storage but will no longer be shown, and cannot be restored here. Use Download unreadable cells first if you want a copy. ";
     else if (n) q += "Delete the tab " + nm + " and its " + n + " cells? ";
     if (lastDeleted && !bad) q += (q ? "" : "Delete the tab " + nm + "? ") + "Only the most recently deleted tab can be restored, so this replaces the restorable tab " + lastDeleted.name + ", which will be lost. ";
+    var rfd = bad ? { formulas: 0 } : refsToTab(nm);
+    if (!bad && rfd.unknown) { tabMsg.textContent = "Another tab's cells could not be read, so it cannot be checked for formulas that use the name " + nm + ". Nothing was deleted."; return; }
+    if (!bad && rfd.formulas) q += (q ? "" : "Delete the tab " + nm + "? ") + rfd.formulas + " formula(s) on " + rfd.tabs + " tab(s) (for example " + rfd.example + ") refer to it by name and will show #REF! until it is restored. ";
     if (q && !bad) q += "You can bring this tab back with Restore deleted tab until you reload this page. After a reload it cannot be brought back.";
     if (q && !window.confirm(q)) { tabMsg.textContent = "Delete cancelled."; return; }
     var saved = bad ? null : M.copy(H.cells);
@@ -754,6 +793,13 @@
     status.textContent = "The " + what + " could not be completed and the stored sheet may be partly changed. Not known to be as before: " + r.bad.map(function (k) { return SNAMES[structKeysIndex(k)]; }).join(", ") + ". A recovery copy was kept. Editing is off until you use Restore in the notice above."; renderRecovery();
   }
   function structKeysIndex(k) { return structKeys(meta.active).indexOf(k); }
+  // Formulas that refer to this tab by name would point at the wrong cells after cells move, and they are not rewritten. So moving cells is refused while any exist.
+  function xrefBlock() {
+    var nm = meta.tabs.filter(function (t) { return t.id === meta.active; })[0].name, rf = refsToTab(nm);
+    if (rf.unknown) { status.textContent = "Another tab's cells could not be read, so it cannot be checked for formulas that refer to this tab. Nothing was changed."; return true; }
+    if (rf.formulas) { status.textContent = "Nothing was changed: " + rf.formulas + " formula(s) on " + rf.tabs + " tab(s) (for example " + rf.example + ") refer to this tab by name, and moving rows or columns would leave them pointing at the wrong cells. Change or remove those formulas first."; return true; }
+    return false;
+  }
   function structGo(axis, kind) {
     var id = meta.active, row = axis === "row";
     if (heldMsg()) return;
@@ -762,6 +808,7 @@
     if (rulesLocked || cfLocked || fmtLocked) { status.textContent = "This tab's validation, colour or format rules could not be read, so nothing was changed. The rules were left untouched."; return; }
     if (filt) { status.textContent = "A filter is on, so nothing was changed (it would also change rows you cannot see). Clear the filter first."; return; }
     if (!tabStillListed(id)) { status.textContent = "This tab was deleted or changed in another window, so nothing was changed. Reload this page."; return; }
+    if (xrefBlock()) return;
     var a = F.parseAddr(cur); if (!a) return; var at = row ? a.row : a.col;
     var seen = JSON.stringify([rules, cfRules, fmtRules]); reloadRules(); reloadCf(); reloadFmt();
     if (rulesLocked || cfLocked || fmtLocked || JSON.stringify([rules, cfRules, fmtRules]) !== seen) { status.textContent = "The rules for this tab were changed in another window or could not be read, so nothing was changed. Reload this page."; return; }
@@ -790,6 +837,7 @@
   function structStep(redo, m) {
     var id = meta.active, what = redo ? "redo" : "undo";
     if (!tabStillListed(id)) { status.textContent = "This tab was deleted or changed in another window, so nothing was changed. Reload this page."; return; }
+    if (xrefBlock()) return;
     var r = M.structApply(localStorage, structKeys(id), bakKeyOf(id), redo ? m.before : m.after, redo ? m.after : m.before);
     if (r.status === "refused" && r.reason === "stale") { status.textContent = "Nothing was changed: the cells or rules were changed after the row, column or restore step (" + SNAMES[structKeysIndex(r.key)] + "), so it cannot be " + (redo ? "redone" : "undone") + " safely. Reload the page to see what is stored."; return; }
     if (r.status !== "done") { structFail(r, what); return; }

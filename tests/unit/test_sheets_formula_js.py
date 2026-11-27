@@ -99,3 +99,15 @@ def test_versions_table_passes_in_node():
     )
     assert r.returncode == 0, r.stdout + r.stderr
     assert "20/20 version rows passed" in r.stdout
+
+
+def test_xtab_table_passes_in_node():
+    assert shutil.which("node"), "node is required to run the cross-tab table"
+    r = subprocess.run(  # noqa: S603 - fixed argv, repo-owned script
+        [shutil.which("node"), str(ROOT / "tests/js/sheets_xtab.js")],
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert "34/34 cross-tab rows passed" in r.stdout

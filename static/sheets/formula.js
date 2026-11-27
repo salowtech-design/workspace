@@ -34,6 +34,8 @@
         if (j >= src.length) throw new Err("#PARSE!");
         t.push({ k: "str", v: s }); i = j + 1; continue;
       }
+      if (ch === "'") { if ((m = /^'((?:[^']|'')+)'!/.exec(src.slice(i)))) { t.push({ k: "sheet", v: m[1].replace(/''/g, "'") }); i += m[0].length; continue; } throw new Err("#PARSE!"); }
+      if ((m = /^([A-Za-z_][A-Za-z0-9_]*)!/.exec(src.slice(i)))) { t.push({ k: "sheet", v: m[1] }); i += m[0].length; continue; }
       if ((m = /^\$?([A-Za-z]{1,3})\$?([0-9]+)(?![A-Za-z0-9_.(])/.exec(src.slice(i)))) { t.push({ k: "id", v: (m[1] + m[2]).toUpperCase() }); i += m[0].length; continue; }
       if (src.substr(i, 5) === "#REF!") { t.push({ k: "id", v: "#REF!" }); i += 5; continue; }
       if ((m = /^[A-Za-z_][A-Za-z0-9_.]*/.exec(src.slice(i)))) { t.push({ k: "id", v: m[0].toUpperCase() }); i += m[0].length; continue; }
@@ -69,6 +71,19 @@
       if (!x) throw new Err("#PARSE!");
       if (x.k === "num" || x.k === "str") return { n: "lit", v: x.v };
       if (x.k === "op" && x.v === "(") { enter(); var e = cmp(); if (!isOp(")")) throw new Err("#PARSE!"); p++; depth--; return e; }
+      if (x.k === "sheet") {
+        var y0 = t[p++];
+        if (!y0 || y0.k !== "id") throw new Err("#PARSE!");
+        if (y0.v === "#REF!") return { n: "ref_err" };
+        var qa = parseAddr(y0.v);
+        if (!qa) { if (/^[A-Z]{1,3}[0-9]+$/.test(y0.v)) return { n: "ref_err" }; throw new Err("#NAME?"); }
+        if (isOp(":")) {
+          p++; var y1 = t[p++], qb = y1 && y1.k === "id" ? parseAddr(y1.v) : null;
+          if (!qb) throw new Err("#REF!");
+          return { n: "xrange", t: x.v, a: qa, b: qb };
+        }
+        return { n: "xcell", t: x.v, a: qa };
+      }
       if (x.k === "id") {
         if (isOp("(")) {
           p++; enter(); var args = [];
@@ -594,12 +609,25 @@
   }
 
   /* cells: { "A1": "5" | "=A1+2" | "text" }. Returns a function get(addr) -> value (number, string, boolean, Err). */
-  function Sheet(input) {
-    var cells = Object.create(null), cache = Object.create(null), stack = Object.create(null), trees = Object.create(null), work = 0, depth = 0;
+  function Sheet(input, opts) {
+    opts = opts || {};
+    // shared across the tabs of one recalculation: the loop guard, the work budget, the depth and the sheet of each tab already opened
+    var sh = opts.shared || { stack: Object.create(null), work: 0, depth: 0, sheets: Object.create(null) }, me = typeof opts.self === "string" ? opts.self : "";
+    var cells = Object.create(null), cache = Object.create(null), trees = Object.create(null);
     if (input && typeof input === "object") Object.keys(input).forEach(function (k) {  // own keys only, valid addresses, plain bounded text
       var v = input[k];
       if (parseAddr(k) && (typeof v === "string" ? v.length <= MAX_CELL_TEXT : typeof v === "number" ? isFinite(v) : typeof v === "boolean")) cells[k] = v;
     });
+    // The sheet of another tab, or an Err: #REF! when the name is not a tab, #TAB! when the tab cannot be read right now.
+    function other(name) {
+      if (typeof opts.tab !== "function") return new Err("#REF!");
+      var t = null; try { t = opts.tab(name); } catch (e) { return new Err("#TAB!"); }
+      if (!t) return new Err("#REF!");
+      if (!t.cells || typeof t.cells !== "object") return new Err("#TAB!");
+      var o = sh.sheets[t.id];
+      if (!o) o = new Sheet(t.cells, { self: t.id, tab: opts.tab, shared: sh });
+      return o;
+    }
     function raw(a) { if (typeof a !== "string" || !parseAddr(a)) return null; var v = cells[a]; return v === undefined ? null : v; }
     function literal(s) {
       if (typeof s !== "string") return s;
@@ -614,15 +642,15 @@
       if (cache[a] !== undefined) return cache[a];
       var r = raw(a);
       if (typeof r !== "string" || r[0] !== "=") return (cache[a] = literal(r));
-      if (stack[a]) return new Err("#CIRC!");      // not cached: every cell on the loop reports it
-      if (depth >= MAX_DEPTH_EVAL) return new Err("#LIMIT!");
-      stack[a] = true; depth++;
+      if (sh.stack[me + "!" + a]) return new Err("#CIRC!");      // not cached: every cell on the loop reports it
+      if (sh.depth >= MAX_DEPTH_EVAL) return new Err("#LIMIT!");
+      sh.stack[me + "!" + a] = true; sh.depth++;
       var out;
       try {
         if (!trees[a]) trees[a] = parse(r.slice(1));
         out = ev(trees[a]);
       } catch (e) { out = e instanceof Err ? e : new Err("#VALUE!"); }
-      delete stack[a]; depth--;
+      delete sh.stack[me + "!" + a]; sh.depth--;
       return (cache[a] = out);
     }
     function cellValue(c) { var v = get(addr(c.col, c.row)); return v; }
@@ -631,10 +659,21 @@
         case "lit": return n.v;
         case "ref_err": return new Err("#REF!");
         case "cell": return cellValue(n.a);
+        case "xcell": { var os = other(n.t); return isErr(os) ? os : os.val(addr(n.a.col, n.a.row)); }
+        case "xrange": {
+          var os2 = other(n.t); if (isErr(os2)) return os2;
+          var xc1 = Math.min(n.a.col, n.b.col), xc2 = Math.max(n.a.col, n.b.col), xr1 = Math.min(n.a.row, n.b.row), xr2 = Math.max(n.a.row, n.b.row);
+          if ((xc2 - xc1 + 1) * (xr2 - xr1 + 1) > MAX_RANGE) return new Err("#REF!");
+          if ((sh.work += (xc2 - xc1 + 1) * (xr2 - xr1 + 1)) > BUDGET) return new Err("#LIMIT!");
+          var xv = [];
+          for (var xr = xr1; xr <= xr2; xr++) for (var xc = xc1; xc <= xc2; xc++) xv.push(os2.val(addr(xc, xr)));
+          xv.rows = xr2 - xr1 + 1; xv.cols = xc2 - xc1 + 1;
+          return xv;
+        }
         case "range": {
           var c1 = Math.min(n.a.col, n.b.col), c2 = Math.max(n.a.col, n.b.col), r1 = Math.min(n.a.row, n.b.row), r2 = Math.max(n.a.row, n.b.row);
           if ((c2 - c1 + 1) * (r2 - r1 + 1) > MAX_RANGE) return new Err("#REF!");
-          if ((work += (c2 - c1 + 1) * (r2 - r1 + 1)) > BUDGET) return new Err("#LIMIT!");
+          if ((sh.work += (c2 - c1 + 1) * (r2 - r1 + 1)) > BUDGET) return new Err("#LIMIT!");
           var vals = [];
           for (var r = r1; r <= r2; r++) for (var c = c1; c <= c2; c++) vals.push(get(addr(c, r)));
           vals.rows = r2 - r1 + 1; vals.cols = c2 - c1 + 1;  // shape, for INDEX, MATCH and VLOOKUP
@@ -670,7 +709,7 @@
           // a direct cell reference counts as a reference (text and blanks ignored), like a one-cell range
           var args = n.a.map(function (x) { var v = ev(x); return agg && x.n === "cell" ? [v] : v; });
           var res;
-          meter = function (k) { work += k; return work > BUDGET; };
+          meter = function (k) { sh.work += k; return sh.work > BUDGET; };
           try { res = (OWN.call(FNX, n.f) ? FNX[n.f] : FN[n.f])(args); }
           catch (e) { if (e instanceof Err) return e; throw e; }
           finally { meter = null; }
@@ -704,12 +743,14 @@
         if (!f[1]) f[1] = deps(f[0]);
         if (f[2] < f[1].length) {
           var d = f[1][f[2]++];
-          if (cache[d] === undefined && !path[d] && ++work <= BUDGET) { path[d] = true; st.push([d, null, 0]); }
+          if (cache[d] === undefined && !path[d] && ++sh.work <= BUDGET) { path[d] = true; st.push([d, null, 0]); }
         } else { st.pop(); delete path[f[0]]; get(f[0]); }
       }
       return get(a);
     }
-    return { get: function (a) { var v = resolve(a); return v === null ? "" : v; }, raw: raw };
+    var self = { get: function (a) { var v = resolve(a); return v === null ? "" : v; }, raw: raw, val: resolve };
+    if (me) sh.sheets[me] = self;
+    return self;
   }
 
 
@@ -721,7 +762,10 @@
   // Walk formula text and call cb(a, b) for each cell reference (b is null) or range (a and b are the two ends). An end is
   // { col, row, ac, ar } (ac, ar: pinned with $) or { keep: true } when it is already out of range. cb returns the new text.
   // Quoted text, function names, numbers and anything that is not a whole cell reference are copied as they are.
-  function rewriteRefs(src, cb) {
+  // A reference with a tab name in front (Name!A1, 'My tab'!A1:B2) belongs to that tab. With qshift it is passed to cb like any other
+  // reference (Fill moves it); without, it is copied as written, because inserting or deleting on this tab does not move another tab.
+  var SHEETPFX = /^(?:'(?:[^']|'')+'|[A-Za-z_][A-Za-z0-9_]*)!/;
+  function rewriteRefs(src, cb, qshift) {
     if (typeof src !== "string" || src.charAt(0) !== "=") return src;
     var out = "", i = 0, n = src.length;
     function end(m) {
@@ -735,13 +779,15 @@
         while (j < n) { if (src[j] === '"') { if (src[j + 1] === '"') { j += 2; continue; } break; } j++; }
         out += src.slice(i, Math.min(j + 1, n)); i = j + 1; continue;
       }
+      var qp = null, hold = ch === "'" || /[A-Za-z_]/.test(ch) ? SHEETPFX.exec(src.slice(i)) : null;
+      if (hold) { out += hold[0]; i += hold[0].length; qp = true; ch = src[i]; if (ch === undefined) break; }
       if ((ch === "$" || /[A-Za-z]/.test(ch)) && (m = REFRE.exec(src.slice(i)))) {
-        var a = end(m), len = m[0].length, m2 = null;
+        var a = end(m), len = m[0].length, m2 = null, keepQ = qp && !qshift;
         if (src[i + len] === ":" && (m2 = REFRE.exec(src.slice(i + len + 1)))) {
           var b = end(m2), all = len + 1 + m2[0].length;
-          out += (a.keep || b.keep) ? src.slice(i, i + all) : cb(a, b); i += all; continue;
+          out += (a.keep || b.keep || keepQ) ? src.slice(i, i + all) : cb(a, b); i += all; continue;
         }
-        out += a.keep ? m[0] : cb(a, null); i += len; continue;
+        out += (a.keep || keepQ) ? m[0] : cb(a, null); i += len; continue;
       }
       if (/[A-Za-z0-9_.$]/.test(ch)) { var w = /^[A-Za-z0-9_.$]+/.exec(src.slice(i))[0]; out += w; i += w.length; continue; }
       out += ch; i++;
@@ -757,7 +803,7 @@
       var x = mv(a), y = b ? mv(b) : "";
       if (x === null || y === null) return "#REF!";
       return b ? x + ":" + y : x;
-    });
+    }, true);
   }
   // Rewrite references for inserting or deleting one row or column. axis "row" or "col", kind "insert" or "delete", at is the
   // 1-based row or column number. $ makes no difference: the cell a reference points at moves, so the reference follows it.
@@ -784,6 +830,18 @@
     });
   }
 
-  var api = { shiftFormula: shiftFormula, structFormula: structFormula, Sheet: Sheet, parse: parse, Err: Err, isErr: isErr, parseAddr: parseAddr, MAX_LEN: MAX_LEN };
+  // The tab names a formula text refers to (as written, in order, repeats kept). Text that does not tokenize gives none.
+  function tabRefs(src) {
+    if (typeof src !== "string" || src.charAt(0) !== "=" || src.length > MAX_LEN) return [];
+    var tk; try { tk = tokenize(src.slice(1)); } catch (e) { return []; }
+    var out = []; tk.forEach(function (x) { if (x.k === "sheet") out.push(x.v); });
+    return out;
+  }
+  // Formula text for a reference to a tab: the name is quoted unless it is a plain word that cannot be read as a cell.
+  function tabName(name) {
+    var plain = /^[A-Za-z_][A-Za-z0-9_]*$/.test(name) && !/^\$?[A-Za-z]{1,3}\$?[0-9]+$/.test(name);
+    return plain ? name : "'" + String(name).replace(/'/g, "''") + "'";
+  }
+  var api = { tabRefs: tabRefs, tabName: tabName, shiftFormula: shiftFormula, structFormula: structFormula, Sheet: Sheet, parse: parse, Err: Err, isErr: isErr, parseAddr: parseAddr, MAX_LEN: MAX_LEN };
   if (typeof module !== "undefined" && module.exports) module.exports = api; else root.SalowFormula = api;
 })(typeof self !== "undefined" ? self : this);
