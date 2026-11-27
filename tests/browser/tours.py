@@ -264,6 +264,7 @@ def register(g):
     register_chat_gaps(g)
     register_chat_search(g)
     register_forbidden(g)
+    register_drive_creator(g)
     register_task_conflict(g)
     register_sessions_scroll(g, users)
     register_drive_move(g)
@@ -4389,3 +4390,44 @@ def register_forbidden(g):
         run_tour(ctx, "73_forbidden_page", body, notes="Real Django on TiDB, headless Chromium 390x844 emulated. The signed-in fixture account has the Employee role.", unshown=["other 403 sources", "404 page (unchanged)"])
 
     g["DRILLS"]["tour_forbidden"] = tour
+
+
+def register_drive_creator(g):
+    APP = g["APP"]
+
+    def tour(ctx):
+        import concurrent.futures
+
+        import django
+
+        django.setup()
+        ids = {}
+
+        def make():
+            from apps.accounts.models import CustomUser
+            from apps.drive import services as svc
+            from apps.drive.models import DriveFile
+
+            me = CustomUser.objects.get(employee_id="ST-LIVE-1")
+            two = CustomUser.objects.get_or_create(employee_id="ST-LIVE-2", defaults={"full_name": "Second Synthetic", "email": "st-live-2@salowtech.com", "email_verified": True,
+                                                   "role": CustomUser.Role.EMPLOYEE, "status": CustomUser.Status.ACTIVE, "is_active": True})[0]
+            top = svc.create_folder(me, "Joint plans", None)
+            svc.share(me, top, two, "editor")
+            svc.create_folder(two, "Made by second", top)
+            svc.create_folder(me, "Made by me", top)
+            DriveFile.objects.create(owner=me, folder=top, name="second-notes.txt", created_by=two)
+            ids["top"] = str(top.public_id)
+
+        with concurrent.futures.ThreadPoolExecutor(1) as ex:
+            ex.submit(make).result()
+
+        def body(t, pg):
+            txt = lambda: pg.inner_text("body")
+            pg.goto(APP + "/drive/folder/%s/" % ids["top"])
+            t.step("Owner opens the shared folder: the folder and the file made by Second Synthetic say 'Created by Second Synthetic'", lambda: pg.evaluate("document.querySelector('.drive-row').scrollIntoView({block:'start'})"), expect=lambda: txt().count("Created by Second Synthetic") == 2, wait=5000)
+            t.step("The folder the owner made herself has no Created by line", expect=lambda: "Created by Live Employee" not in txt() and "Made by me" in txt(), wait=3000)
+            t.note("Not shown: the view from the second account (checked in the unit test, not on video), files uploaded by a person (upload is not built; the file row here is made by script).", 3)
+
+        run_tour(ctx, "74_drive_creator", body, notes="Real Django on TiDB, headless Chromium 390x844 emulated. Fixture by script: a shared folder with a folder and a file created by a second synthetic account (editor) and a folder made by the signed-in owner.", unshown=["second account view", "real upload"])
+
+    g["DRILLS"]["tour_drive_creator"] = tour
