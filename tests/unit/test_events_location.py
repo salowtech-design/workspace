@@ -125,8 +125,13 @@ def test_repeating_series_and_cancelled_events_follow_existing_rules():
     new = es.update_event(org, ev.public_id, ev.version, "Daily", S, E, IST, location="Hall B", description="d")
     assert new.location == "Hall B" and new.freq == "daily"
     es.cancel_event(org, ev.public_id)
-    with pytest.raises(ValidationError):
-        es.update_event(org, ev.public_id, new.version + 1, "Daily", S, E, IST, location="after cancel", description="d")
+    ev.refresh_from_db()  # the real stored version after the cancel (it bumps the version), not a guess
+    assert ev.status == "cancelled"
+    with pytest.raises(ValidationError) as ei:
+        es.update_event(org, ev.public_id, ev.version, "Daily", S, E, IST, location="after cancel", description="d")
+    assert not isinstance(ei.value, es.StaleEvent) and "cancelled" in " ".join(ei.value.messages).lower()
+    ev.refresh_from_db()
+    assert ev.location == "Hall B"
 
 
 @pytest.mark.django_db
@@ -134,3 +139,23 @@ def test_invite_notice_does_not_carry_location_or_description():
     org, g, x, ev = _ev(location="Vault room", description="Budget cuts")
     n = Notification.objects.get(user=g, kind="events.invited")
     assert "Vault" not in n.title and "Budget" not in n.title and "Vault" not in n.link
+
+
+@pytest.mark.django_db
+def test_rejected_new_and_edit_forms_keep_what_was_typed_and_show_the_error():
+    org = _u("LC-K")
+    c = _c(org)
+    base = {"title": "Keep me", "start": "2026-11-27T10:00", "end": "2026-11-27T11:00", "tz": IST}
+    long_loc, long_desc = "L" * 201, "D" * 1999 + "\nEND-MARK-" + "z" * 30  # over the 2000 limit
+    r = c.post(reverse("events:new"), {**base, "location": long_loc, "description": long_desc})
+    html = r.content.decode()
+    assert r.status_code == 400 and es.Event.objects.count() == 0
+    assert long_loc in html and "END-MARK-" in html and "Keep me" in html  # nothing typed is lost
+    assert "at most 200 characters" in html  # the first error is shown (location is checked first)
+    ev = es.create_event(org, "Saved", S, E, IST, [], location="Old place", description="Old text")
+    ed = {**base, "title": "Saved", "version": ev.version}
+    r2 = c.post(reverse("events:edit", args=[ev.public_id]), {**ed, "location": "ok", "description": long_desc})
+    h2 = r2.content.decode()
+    assert r2.status_code == 400 and "END-MARK-" in h2 and 'value="ok"' in h2 and "at most 2000" in h2
+    ev.refresh_from_db()
+    assert (ev.location, ev.description) == ("Old place", "Old text")  # the stored event is untouched
