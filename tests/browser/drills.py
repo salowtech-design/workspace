@@ -9504,6 +9504,65 @@ def task_assign_second(ctx):
     pg2.close()
 
 
+def drive_trash_restore(ctx):  # noqa: C901
+    """Real browser: a file with a copy on this device is moved to trash, the trash page offers only Restore (no Open, picker or new version),
+    the version endpoint refuses the trashed file, Restore brings the row back with the same device state and Open downloads the same bytes,
+    a new version then works; a name collision refuses Restore and the file stays in trash. Real IndexedDB, headless Chromium 390 wide.
+    Not covered: another device, offline, folder trash batches (unit tests cover those)."""
+    pg = ctx.pages[0]
+    pg.set_viewport_size({"width": 390, "height": 844})
+    pg.goto(APP + "/drive/")
+    pg.evaluate("localStorage.clear()")
+    data = b"restore me\n"
+    row = lambda name: pg.locator(".drive-file", has_text=name)  # noqa: E731
+    st = lambda: pg.inner_text("#drive-upload-status")  # noqa: E731
+    pg.set_input_files("#drive-pick", {"name": "keep.txt", "mimeType": "text/plain", "buffer": data})
+    pg.locator("#drive-upload-status", has_text="1 of 1 saved").wait_for(timeout=8000)
+    pg.reload()
+    pg.wait_for_timeout(800)
+    check("trash drill: the new file says a copy is on this device", "A copy is on this device" in row("keep.txt").inner_text(), row("keep.txt").inner_text())
+    fid = row("keep.txt").get_attribute("data-id")
+    row("keep.txt").locator("form[action*='/trash/'] button").click()
+    pg.wait_for_load_state()
+    pg.goto(APP + "/drive/trash/")
+    body = pg.inner_text("body")
+    check("trash drill: trash page lists keep.txt", "keep.txt" in body, body[:200])
+    check("trash drill: trashed row has Restore only: no Open, picker, new-version or reattach control", pg.locator(".drive-open, .drive-newver, .drive-reattach, input[type=file]").count() == 0 and pg.locator("button:has-text('Restore')").count() == 1)
+    shot(pg, "drive_trash_page")
+    pg.goto(APP + "/drive/")
+    res = pg.evaluate("""async (id) => {const t=document.querySelector('input[name=csrfmiddlewaretoken]').value;
+      const r=await fetch('/drive/file/'+id+'/version/',{method:'POST',headers:{'X-CSRFToken':t,'Content-Type':'application/x-www-form-urlencoded'},credentials:'same-origin',
+      body:'base_version=1&size=3&sha256='+'a'.repeat(64)}); return [r.status, await r.text()]}""", fid)
+    check("trash drill: the version endpoint refuses a trashed file with 403 (the policy blocks editing a trashed item; the service's own restore-first message is the second guard)", res[0] == 403 and "do not have permission" in res[1], str(res)[:200])
+    check("trash drill: the browse page no longer lists it", row("keep.txt").count() == 0)
+    pg.goto(APP + "/drive/trash/")
+    pg.click("button:has-text('Restore')")
+    pg.wait_for_load_state()
+    pg.goto(APP + "/drive/")
+    pg.wait_for_timeout(800)
+    check("trash drill: restored row is back with the same copy-on-this-device state", "A copy is on this device" in row("keep.txt").inner_text(), row("keep.txt").inner_text())
+    with pg.expect_download() as d:
+        row("keep.txt").locator(".drive-open").click()
+    check("trash drill: Open downloads the same bytes", open(d.value.path(), "rb").read() == data and d.value.suggested_filename == "keep.txt")
+    row("keep.txt").locator(".drive-newver").set_input_files({"name": "keep.txt", "mimeType": "text/plain", "buffer": b"second\n"})
+    pg.wait_for_timeout(3000)
+    check("trash drill: a new version works after restore (version 2)", "now version 2" in row("keep.txt").inner_text(), row("keep.txt").inner_text())
+    shot(pg, "drive_restored_row")
+    # name collision: trash it, add another file with the same name, Restore is refused and it stays in the trash
+    row("keep.txt").locator("form[action*='/trash/'] button").click()
+    pg.wait_for_load_state()
+    pg.set_input_files("#drive-pick", {"name": "keep.txt", "mimeType": "text/plain", "buffer": b"new same name\n"})
+    pg.locator("#drive-upload-status", has_text="1 of 1 saved").wait_for(timeout=8000)
+    pg.goto(APP + "/drive/trash/")
+    pg.click("button:has-text('Restore')")
+    pg.wait_for_load_state()
+    body = pg.inner_text("body")
+    check("trash drill: a name collision refuses Restore with a message", "already exists" in body, body[:300])
+    pg.goto(APP + "/drive/trash/")
+    check("trash drill: the file is still in the trash after the refusal", "keep.txt" in pg.inner_text("body") and pg.locator("button:has-text('Restore')").count() == 1)
+    shot(pg, "drive_trash_collision")
+
+
 def drive_shared_second(ctx):
     """A second REAL login (own context, random password and authenticator secret, never printed) opens the Shared with me page for a file
     shared to it directly, with its parent folder not shared. Real IndexedDB, headless Chromium 390 wide. Viewer: no new-version picker,
@@ -9774,6 +9833,7 @@ DRILLS = {
     "iam_audit_filters": iam_audit_filters,
     "task_assign_second": task_assign_second,
     "drive_shared_second": drive_shared_second,
+    "drive_trash_restore": drive_trash_restore,
     "finder_projects": finder_projects,
     "task_filters": task_filters,
     "task_comments": task_comments,
