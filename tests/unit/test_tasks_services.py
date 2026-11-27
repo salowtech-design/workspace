@@ -263,7 +263,7 @@ def _race(monkeypatch, locked, parties, fns):
 
 
 @pytest.mark.django_db(transaction=True)
-@pytest.mark.parametrize("locked", [True, False])
+@pytest.mark.parametrize("locked", [True])  # the unlocked control is the deterministic test below
 def test_race_assign_vs_new_subtask(monkeypatch, locked):
     _need_mysql()
     broken = 0
@@ -286,7 +286,7 @@ def test_race_assign_vs_new_subtask(monkeypatch, locked):
 
 
 @pytest.mark.django_db(transaction=True)
-@pytest.mark.parametrize("locked", [True, False])
+@pytest.mark.parametrize("locked", [True])  # the unlocked control is the deterministic test below
 def test_race_complete_parent_vs_new_subtask(monkeypatch, locked):
     _need_mysql()
     broken = 0
@@ -344,3 +344,73 @@ def test_race_positions_and_list_delete(monkeypatch, locked):
     )
     orphan = Task.objects.filter(task_list=tl2, deleted_at__isnull=True).exists()
     assert (not orphan) if locked else orphan
+
+
+def _unlocked_interleave(monkeypatch, first, second):
+    """Local TiDB 8.5.1 unistore evidence only, not production-cluster concurrency. With the list lock removed, `first` runs in a thread and
+    stops after its checks, before its write; `second` then runs to completion on the main thread; then `first` is released and finishes.
+    Returns the thread's outcome so a database abort is reported, not mistaken for a broken state."""
+    import threading
+
+    from django.db import connection
+
+    from apps.tasks.models import TaskList
+
+    checked, go = threading.Event(), threading.Event()
+    worker = {}
+    monkeypatch.setattr(svc, "_lock_list", lambda tl: TaskList.objects.get(pk=tl.pk))
+
+    def pause():
+        if threading.get_ident() == worker.get("id"):
+            checked.set()
+            assert go.wait(timeout=30)
+
+    monkeypatch.setattr(svc, "_pause", pause)
+    out = []
+
+    def run():
+        worker["id"] = threading.get_ident()
+        try:
+            first()
+            out.append("ok")
+        except Exception as exc:  # noqa: BLE001
+            out.append(f"error:{type(exc).__name__}:{exc}")
+        finally:
+            connection.close()
+
+    t = threading.Thread(target=run)
+    t.start()
+    assert checked.wait(timeout=30), f"the first operation never reached its pause: {out}"
+    second()
+    go.set()
+    t.join(timeout=30)
+    return out
+
+
+@pytest.mark.django_db(transaction=True)
+def test_unlocked_assign_then_subtask_breaks_the_invariant_in_a_forced_interleaving(monkeypatch):
+    _need_mysql()
+    a, b = _u("D1-A"), _u("D1-B")
+    tl = svc.create_list(a, "L")
+    top = svc.create_task(a, tl, "top")
+    out = _unlocked_interleave(
+        monkeypatch, lambda: svc.assign(a, top, b), lambda: svc.create_task(a, tl, "kid", parent=top)
+    )
+    assert out == ["ok"], out  # a database abort would show here instead of a claim
+    top.refresh_from_db()
+    assert top.assignee_id == b.pk and top.subtasks.filter(deleted_at__isnull=True).count() == 1
+
+
+@pytest.mark.django_db(transaction=True)
+def test_unlocked_complete_then_subtask_breaks_the_invariant_in_a_forced_interleaving(monkeypatch):
+    _need_mysql()
+    a = _u("D2-A")
+    tl = svc.create_list(a, "L")
+    top = svc.create_task(a, tl, "top")
+    out = _unlocked_interleave(
+        monkeypatch, lambda: svc.set_status(a, top, True), lambda: svc.create_task(a, tl, "kid", parent=top)
+    )
+    assert out == ["ok"], out
+    top.refresh_from_db()
+    assert top.status == "completed"
+    assert top.subtasks.filter(deleted_at__isnull=True, status="open").count() == 1
