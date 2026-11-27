@@ -63,8 +63,9 @@ def _tz(name):
         raise ValidationError("Unknown time zone.") from None
 
 
-def _utc(local_start, local_end, tz_name):
-    """Naive local datetimes in tz_name to aware UTC; refuses a missing or non-existent time."""
+def _utc(local_start, local_end, tz_name, whole_days=False):
+    """Naive local datetimes in tz_name to aware UTC; refuses a missing or non-existent time. whole_days (an all-day event): the limit counts
+    local calendar days (at most 14), not elapsed time, so a span across a clock change is not cut by an hour."""
     tz = _tz(tz_name)
     if local_start.tzinfo or local_end.tzinfo:
         raise ValidationError("Give local times without an offset, plus a time zone.")
@@ -73,11 +74,17 @@ def _utc(local_start, local_end, tz_name):
         aware = t.replace(tzinfo=tz)
         back = aware.astimezone(datetime.timezone.utc).astimezone(tz).replace(tzinfo=None)
         if back != t:
-            raise ValidationError("That local time does not exist in the time zone.")
+            raise ValidationError(
+                "A clock change removes midnight on that day in this time zone, so a whole-day event cannot start or end there."
+                if whole_days else "That local time does not exist in the time zone."
+            )
         out.append(aware.astimezone(datetime.timezone.utc))
     if out[1] <= out[0]:
         raise ValidationError("The end must be after the start.")
-    if out[1] - out[0] > MAX_DURATION:
+    if whole_days:
+        if (local_end.date() - local_start.date()).days > MAX_DURATION.days:
+            raise ValidationError("An event can last at most 14 days.")
+    elif out[1] - out[0] > MAX_DURATION:
         raise ValidationError("An event can last at most 14 days.")
     return out
 
@@ -200,7 +207,7 @@ def create_event(actor, title, local_start, local_end, tz_name, guest_ids=(), ru
         if local_end.date() < local_start.date():
             raise ValidationError("The last day must not be before the first day.")
         local_start, local_end = _whole_days(local_start, local_end)
-    start, end = _utc(local_start, local_end, tz_name)
+    start, end = _utc(local_start, local_end, tz_name, whole_days=bool(all_day))
     fields = _rule(start, end, tz_name, rule)
     guest_ids = list(dict.fromkeys(guest_ids))
     if len(guest_ids) > MAX_GUESTS:
@@ -273,7 +280,7 @@ def update_event(actor, public_id, expected_version, title, local_start, local_e
         if local_end.date() < local_start.date():
             raise ValidationError("The last day must not be before the first day.")
         local_start, local_end = _whole_days(local_start, local_end)
-    start, end = _utc(local_start, local_end, tz_name)
+    start, end = _utc(local_start, local_end, tz_name, whole_days=bool(all_day))
     new_loc = None if location is None else _location(location)  # None: leave the stored value as it is
     new_desc = None if description is None else _description(description)
     with transaction.atomic():

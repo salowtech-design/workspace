@@ -115,5 +115,5 @@ def describe(ev):
     if ev.count is not None:
         s += f", {ev.count} times"
     if ev.until is not None:
-        s += f", until {ev.until:%-d %b %Y}"
+        s += f", until {ev.until.day} {ev.until:%b %Y}"
     return s + "."

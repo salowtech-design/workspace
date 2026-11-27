@@ -22,9 +22,29 @@ AGENDA_DAYS = 30
 PAGE_OCC = 20  # occurrences listed per page on a series detail
 
 
-def _dt(raw):
+def _typed(post, date_only):
+    """What a form is shown again with after an error or a stale save: exactly what the person typed. For date boxes only the date part is kept
+    (a date box cannot hold a time, and the browser would blank it); nothing is moved, so the last day is never turned into the exclusive end."""
+    out = post.dict()
+    if date_only:
+        for k in ("start", "end"):
+            out[k] = (out.get(k) or "")[:10]
+    return out
+
+
+def _dt(raw, all_day=False):
+    """Date and time from a datetime-local box. An all-day event takes a plain date (its date box) and also still accepts a full
+    date and time (a browser without script keeps the date and time boxes), where the time is ignored."""
+    raw = (raw or "").strip()
+    if all_day:
+        for fmt in ("%Y-%m-%d", "%Y-%m-%dT%H:%M"):
+            try:
+                return dt.datetime.strptime(raw, fmt)
+            except ValueError:
+                continue
+        raise ValidationError("Enter the first and last day as dates.") from None
     try:
-        return dt.datetime.strptime((raw or "").strip(), "%Y-%m-%dT%H:%M")
+        return dt.datetime.strptime(raw, "%Y-%m-%dT%H:%M")
     except ValueError:
         raise ValidationError("Enter the start and end as date and time.") from None
 
@@ -78,13 +98,17 @@ def _limited(request):
     return False
 
 
+def _dm(x, time=False, year=False):
+    """'Tue 8 Dec', optionally with the year and the 24-hour time. No platform-only strftime codes: the day has no leading zero on every OS."""
+    return f"{x:%a} {x.day} {x:%b}" + (f" {x.year}" if year else "") + (f" {x:%H:%M}" if time else "")
+
+
 def _days_text(s, f, with_year=False):
     """All-day wording. f is the stored (exclusive) end, so the last shown day is the day before it."""
     last = (f - dt.timedelta(days=1)).date()
-    y = " %Y" if with_year else ""
     if last == s.date():
-        return f"{s:%a %-d %b{y}}, all day"
-    return f"{s:%a %-d %b{y}} to {last:%a %-d %b{y}}, all day"
+        return f"{_dm(s, year=with_year)}, all day"
+    return f"{_dm(s, year=with_year)} to {_dm(last, year=with_year)}, all day"
 
 
 def _span(s, f, tz, all_day=False):
@@ -202,11 +226,11 @@ def _by_day(user, first, ndays):
                     {
                         "e": e,
                         "time": s.strftime("%H:%M") if first_day else "cont.",
-                        "when": f"{s:%a %-d %b %H:%M} to {f:%a %-d %b %H:%M}",
+                        "when": f"{_dm(s, True)} to {_dm(f, True)}",
                         "label": (
-                            f"{e.title}, continues from an earlier day, until {f:%a %-d %b %H:%M}"
+                            f"{e.title}, continues from an earlier day, until {_dm(f, True)}"
                             if not first_day
-                            else f"{e.title}, {s:%a %-d %b %H:%M} to {f:%a %-d %b %H:%M}"
+                            else f"{e.title}, {_dm(s, True)} to {_dm(f, True)}"
                         ),
                     }
                 )
@@ -300,22 +324,24 @@ def new_event(request):
     ctx = {"tz": DEFAULT_TZ, "form": {"tz": DEFAULT_TZ}, "action": "Create event",
            "freqs": FREQ_CHOICES, "weekdays": WEEKDAY_CHOICES, "form_weekdays": ""}  # fmt: skip
     if request.method == "POST":
-        ctx["form"] = request.POST
+        ctx["form"] = _typed(request.POST, request.POST.get("all_day") == "on")
         ctx["form_weekdays"] = request.POST.getlist("weekday")
+        all_day = request.POST.get("all_day") == "on"
+        ctx["date_only"] = all_day
         if _limited(request):
             return render(request, "events/form.html", ctx, status=429)
         try:
             ev = es.create_event(
                 request.user,
                 request.POST.get("title"),
-                _dt(request.POST.get("start")),
-                _dt(request.POST.get("end")),
+                _dt(request.POST.get("start"), all_day),
+                _dt(request.POST.get("end"), all_day),
                 request.POST.get("tz", DEFAULT_TZ),
                 _ids_to_pks(request.POST.get("guests")),
                 rule=_rule_from(request.POST),
                 location=request.POST.get("location", ""),
                 description=request.POST.get("description", ""),
-                all_day=request.POST.get("all_day") == "on",
+                all_day=all_day,
             )
         except ValidationError as exc:
             messages.error(request, " ".join(exc.messages))
@@ -408,16 +434,16 @@ def edit(request, event_id):
     s, f = _local(ev, ev.tz)
     form = {
         "title": ev.title,
-        "start": s.strftime("%Y-%m-%dT%H:%M"),
-        "end": (f - dt.timedelta(days=1) if ev.all_day else f).strftime("%Y-%m-%dT%H:%M"),
+        "start": s.strftime("%Y-%m-%d" if ev.all_day else "%Y-%m-%dT%H:%M"),
+        "end": (f - dt.timedelta(days=1)).strftime("%Y-%m-%d") if ev.all_day else f.strftime("%Y-%m-%dT%H:%M"),
         "tz": ev.tz,
         "location": ev.location,
         "description": ev.description,
         "version": ev.version,
     }
-    ctx = {"e": ev, "form": form, "action": "Save changes", "editing": True, "tz": ev.tz}
+    ctx = {"e": ev, "form": form, "action": "Save changes", "editing": True, "tz": ev.tz, "date_only": ev.all_day}
     if request.method == "POST":
-        ctx["form"] = request.POST
+        ctx["form"] = _typed(request.POST, ev.all_day)
         if _limited(request):
             return render(request, "events/form.html", ctx, status=429)
         try:
@@ -426,8 +452,8 @@ def edit(request, event_id):
                 event_id,
                 request.POST.get("version", ""),
                 request.POST.get("title"),
-                _dt(request.POST.get("start")),
-                _dt(request.POST.get("end")),
+                _dt(request.POST.get("start"), ev.all_day),
+                _dt(request.POST.get("end"), ev.all_day),
                 request.POST.get("tz", ev.tz),
                 location=request.POST.get("location"),
                 description=request.POST.get("description"),
@@ -484,7 +510,7 @@ def skip_view(request, event_id):
     try:
         d = dt.datetime.strptime(request.POST.get("date", ""), "%Y-%m-%d").date()
         es.skip_occurrence(request.user, event_id, d)
-        messages.success(request, f"{d:%a %-d %b %Y} cancelled. The other occurrences are unchanged.")
+        messages.success(request, f"{_dm(d, year=True)} cancelled. The other occurrences are unchanged.")
     except ValueError:
         messages.error(request, "Choose an occurrence to cancel.")
     except ValidationError as exc:

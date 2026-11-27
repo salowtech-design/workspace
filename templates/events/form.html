@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block extra_head %}<link rel="stylesheet" href="/static/css/events.css">{% endblock %}
+{% block extra_head %}<link rel="stylesheet" href="/static/css/events.css"><script src="/static/calendar/all-day.js" defer></script>{% endblock %}
 {% block title %}{{ action }}: Salow Calendar{% endblock %}
 {% block content %}
 <div class="card cal"><div class="cal-head"><h2>{% if editing %}Edit event{% else %}New event{% endif %}</h2></div>
@@ -11,10 +11,11 @@
 {% if editing and e.freq %}<p class="cal-meta">This event repeats. Changes apply to the whole series. The repeat rule cannot be changed here.</p>{% endif %}
 {% if editing %}<input type="hidden" name="version" value="{% if conflict %}{{ conflict.version }}{% else %}{{ form.version }}{% endif %}">{% endif %}
 <label>Title<input type="text" name="title" maxlength="200" value="{{ form.title }}" required></label>
-{% if editing and e.all_day %}<p class="cal-meta">This is an all-day event. Only the dates count: the first day is the Starts date and the last day is the Ends date. The time part is ignored. An event cannot be switched between all-day and timed.</p>
-{% elif not editing %}<label class="cal-inline"><input type="checkbox" name="all_day"{% if form.all_day %} checked{% endif %}> All day (only the dates count and the Ends date is the last day. An all-day event cannot repeat.)</label>{% endif %}
-<label>Starts<input type="datetime-local" name="start" value="{{ form.start }}" required></label>
-<label>Ends<input type="datetime-local" name="end" value="{{ form.end }}" required></label>
+{% if editing and e.all_day %}<p class="cal-meta">This is an all-day event. It covers whole days, from the first day to the last day. It cannot be switched between all-day and timed.</p>
+{% elif not editing %}<label class="cal-check"><input type="checkbox" name="all_day" id="cal-all-day"{% if form.all_day %} checked{% endif %}><span>All day</span></label>
+<p class="cal-meta">An all-day event covers whole days and has no times. It cannot repeat.</p>{% endif %}
+<label><span id="cal-start-label">{% if date_only %}First day{% else %}Starts{% endif %}</span><input type="{% if date_only %}date{% else %}datetime-local{% endif %}" name="start" id="cal-start" value="{{ form.start }}" required></label>
+<label><span id="cal-end-label">{% if date_only %}Last day{% else %}Ends{% endif %}</span><input type="{% if date_only %}date{% else %}datetime-local{% endif %}" name="end" id="cal-end" value="{{ form.end }}" required></label>
 <label>Time zone<input type="text" name="tz" maxlength="40" value="{{ form.tz }}" required></label>
 <label>Location (optional, plain text)<input type="text" name="location" maxlength="200" value="{{ form.location }}"></label>
 <label>Description (optional, plain text)<textarea name="description" rows="3" maxlength="2000">{{ form.description }}</textarea></label>

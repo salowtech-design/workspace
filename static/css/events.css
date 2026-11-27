@@ -30,3 +30,4 @@
 .cal .cal-repeat{border:1px solid #d9c8bf;border-radius:8px;padding:10px 14px;display:flex;flex-direction:column;gap:10px}.cal .cal-form label.cal-inline{display:inline-flex;flex-direction:row;align-items:center;gap:4px;margin-right:8px;font-weight:400}.cal .cal-form label.cal-inline input{width:auto}.cal .cal-repeat input[type=number]{width:100%;box-sizing:border-box;border:1px solid #d9c8bf;border-radius:8px;padding:6px 10px;font:inherit}.cal select{border:1px solid #d9c8bf;border-radius:8px;padding:6px 10px;font:inherit;background:#fff}
 .cal form.notice-open{display:contents}
 .cal .notice-link{background:none;border:0;padding:0;margin:0;font:inherit;font-weight:600;text-align:left;cursor:pointer;color:#3a1d17;text-decoration:underline}
+.cal .cal-form label.cal-check{display:flex;flex-direction:row;align-items:center;gap:10px;font-weight:600;min-height:32px}.cal .cal-form label.cal-check input{width:auto;margin:0;flex:none}

@@ -280,6 +280,7 @@ def register(g):
     register_palette(g)
     register_overlap(g)
     register_drive_device(g)
+    register_cal_all_day(g)
     register_attendance_csv(g)
     register_post_review_notice(g)
     register_notice_open(g)
@@ -2293,6 +2294,44 @@ def register_overlap(g):
         run_tour(ctx, "106_calendar_overlap_warning", body, notes="Real Django on TiDB (unistore) under uvicorn, headless Chromium 390x844 emulated. The warning appears after the save and does not block it.", unshown=["edit flow (covered by a pytest, not this tour)"])
 
     g["DRILLS"]["tour_overlap"] = tour
+
+
+def register_cal_all_day(g):
+    APP = g["APP"]
+
+    def tour(ctx):
+        def body(t, pg):
+            cell = lambda d: pg.evaluate(  # noqa: E731
+                "(d)=>{for(const td of document.querySelectorAll('.cal-month td')){if(td.classList.contains('cal-other'))continue;"
+                "if(td.querySelector('.cal-dn').textContent.trim().split(' ')[0]===d)return td.innerText}return null}", d)
+            pg.goto(APP + "/calendar/new/")
+            pg.wait_for_timeout(500)
+            t.step("STAGE 1 CREATE: type a title and a start and end with times", lambda: (pg.fill("input[name=title]", "Team offsite"), pg.fill("input[name=start]", "2026-12-03T15:40"), pg.fill("input[name=end]", "2026-12-05T02:10")),
+                   expect=lambda: pg.get_attribute("#cal-start", "type") == "datetime-local")
+            t.step("STAGE 1 CREATE: tick All day. The boxes become First day and Last day, dates only", lambda: pg.check("input[name=all_day]"),
+                   expect=lambda: pg.get_attribute("#cal-start", "type") == "date" and pg.input_value("#cal-end") == "2026-12-05" and pg.inner_text("#cal-end-label") == "Last day")
+            t.step("STAGE 1 CREATE: save. The page says Thu 3 Dec to Sat 5 Dec 2026, all day", lambda: pg.click(".cal-form button[type=submit]"),
+                   expect=lambda: "Thu 3 Dec 2026 to Sat 5 Dec 2026, all day" in pg.inner_text("body"), wait=2200)
+            url = {}
+            url["detail"] = pg.url
+            t.step("STAGE 1 CREATE: December month shows an All day chip on 3, 4 and 5 Dec", lambda: pg.goto(APP + "/calendar/month/?m=2026-12"),
+                   expect=lambda: all("Team offsite" in (cell(d) or "") for d in ("3", "4", "5")) and "Team offsite" not in (cell("6") or ""), wait=2600)
+            t.step("STAGE 2 EDIT: open the event's edit page. Date boxes, last day is 5 Dec (not the stored end)", lambda: pg.goto(url["detail"] + "edit/"),
+                   expect=lambda: pg.get_attribute("#cal-end", "type") == "date" and pg.input_value("#cal-end") == "2026-12-05" and pg.locator("input[name=all_day]").count() == 0, wait=2200)
+            t.step("STAGE 2 EDIT: move it to the single day Tue 8 Dec and save", lambda: (pg.fill("input[name=start]", "2026-12-08"), pg.fill("input[name=end]", "2026-12-08"), pg.click(".cal-form button[type=submit]")),
+                   expect=lambda: "Tue 8 Dec 2026, all day" in pg.inner_text("body"), wait=2600)
+            t.step("STAGE 2 EDIT: the month now shows it on 8 Dec only", lambda: pg.goto(APP + "/calendar/month/?m=2026-12"),
+                   expect=lambda: "Team offsite" in (cell("8") or "") and all("Team offsite" not in (cell(d) or "") for d in ("3", "4", "5")), wait=2600)
+            def bad():
+                pg.goto(APP + "/calendar/new/")
+                pg.fill("input[name=title]", "Bad repeat"); pg.check("input[name=all_day]")
+                pg.fill("input[name=start]", "2026-12-10"); pg.fill("input[name=end]", "2026-12-10")
+                pg.select_option("select[name=freq]", "daily"); pg.fill("input[name=count]", "3")
+                pg.click(".cal-form button[type=submit]")
+            t.step("REFUSAL: an all-day event that repeats is refused with a message", bad, expect=lambda: "cannot repeat" in pg.inner_text("body"), wait=2600)
+        run_tour(ctx, "cal_all_day", body, notes="Real Django on TiDB (unistore) under uvicorn, headless Chromium 390x844 emulated. One synthetic employee. Stage 1 (create) and Stage 2 (edit) are different moments: the event is first 3 to 5 Dec, then moved to 8 Dec. Not shown: another time zone, guests, the clock-change cases (covered by unit tests only).", unshown=["another person's calendar", "clock-change days", "guests"])
+
+    g["DRILLS"]["tour_cal_all_day"] = tour
 
 
 def register_drive_device(g):
