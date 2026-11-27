@@ -84,3 +84,20 @@ def test_like_characters_are_literal_and_short_queries_are_refused():
     assert "50% done" in _get(a, q="50%", **{"in": "chat"}).content.decode()
     assert "launch is on Friday" not in _get(a, q="%%", **{"in": "chat"}).content.decode()
     assert _get(a, q="q", **{"in": "chat"}).status_code == 400
+
+
+@pytest.mark.django_db
+def test_late_joiner_sees_the_same_history_as_the_chat_page_and_inactive_account_finds_nothing():
+    from apps.finder.searchers import search_chat
+
+    a, b, c, d, grp, dm, m1, m2, m3 = _seed()
+    # the chat page shows every message of the space to a current member, so search does too
+    late = _u("CS-L")
+    Member.objects.create(space=grp, person=late)
+    page_rows = cs.window(late, grp.public_id)[1]
+    assert any("quokka launch" in r.body for r in page_rows)
+    assert any("quokka launch" in t for _k, _m, t, _u2 in search_chat(late, "quokka", 20))
+    # a suspended account is refused by the page, so search gives it nothing either
+    CustomUser.objects.filter(pk=b.pk).update(status="suspended")
+    b.refresh_from_db()
+    assert list(search_chat(b, "quokka", 20)) == []

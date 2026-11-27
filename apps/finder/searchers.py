@@ -150,6 +150,10 @@ def search_chat(user, query, limit):
 
     from apps.chat.models import Member, Message, Space
 
+    from apps.chat.services import _live
+
+    if _live(user.pk) is None:  # the chat page's own gate: active and not suspended/exited
+        return
     needle = query.upper()
     mine = Member.objects.filter(person=user, left_at__isnull=True).values("space_id")
     rows = (
@@ -179,9 +183,11 @@ def search_chat(user, query, limit):
 
 def _chat_policy(user, action, m):
     from apps.chat.models import Member
+    from apps.chat.services import _live
 
     return (
         action == "view"
+        and _live(user.pk) is not None
         and Member.objects.filter(space_id=m.space_id, person=user, left_at__isnull=True).exists()
     )
 
