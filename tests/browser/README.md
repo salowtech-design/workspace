@@ -21,3 +21,16 @@ What it does not cover: PDF, Drive, IAM and the other modules; phones or touch; 
 Add a drill: write a function in `drills.py` that uses `check(name, condition, detail)` and register it in `DRILLS`. Keep checks to behavior the page can show, and clear storage with `fresh()` first.
 
 Database target: before any migration or seed write, `check_target.py` loads Django's effective settings under the same cleared environment and aborts unless they are config.settings.test_tidb, host 127.0.0.1, the owned port, database drill_db (test name test_drill_db) and a live `SELECT DATABASE()`/`@@port` agrees. It prints those non-secret facts. Migrations run as `python -m django migrate`, not manage.py, so manage.py's .env loading is bypassed. The secret check on output and the app log looks for plain text and URL-encoded, base64 and JSON-escaped forms of the password and TOTP secret; other encodings are not checked. tests/browser is listed in .dockerignore, so the image no longer contains these files (no Dockerfile step uses them; CI runs tests from the checkout).
+
+## load_http: bounded local HTTP load diagnostic (not a capacity test)
+
+`LOAD_LEVELS=10,50,100 LOAD_SECONDS=30 bash tests/browser/run.sh load_http` (same env as the other drills).
+It starts a throwaway TiDB 8.5.1 unistore and a real uvicorn, seeds synthetic users with stored sessions, then runs one thread per
+user over real HTTP with a weighted page mix (tasks, notifications, chat list and space, calendar, attendance, posts, 5% chat sends).
+A success is a 200 that shows the user's own employee id and the expected page text; a redirect or empty page is a failure.
+Report: `/tmp/load_report.json` (override with `LOAD_REPORT`). Stops after a level on fail rate over 10%, p95 over 8 s, or
+MemAvailable under 250 MB, and never escalates after a stop. 250 users only if you set it.
+
+Limits: the generator, uvicorn and TiDB share one box (1 CPU, about 2 GB in the sandbox run); sessions are stored, so login and MFA
+are bypassed; per-user X-Forwarded-For emulates many clients for the per-IP limiter; the first 3 s warmup is included in the stats;
+think time 0.4 to 1.2 s; page text markers are checked, not rendered. It says nothing about 1,000-user capacity or real hardware.

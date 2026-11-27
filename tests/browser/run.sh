@@ -53,6 +53,7 @@ if [ "$PORT_DB" = "$PORT_APP" ] || [ "$PORT_DB" = "$PORT_ST" ] || [ "$PORT_APP" 
 # Clean environment for everything below. Only these variables pass through.
 E=(env -i PATH="$PATH" HOME="${HOME:-/tmp}" LANG=C.UTF-8 TMPDIR="$TMP" NO_PROXY=127.0.0.1,localhost,app.salowtech.com no_proxy=127.0.0.1,localhost,app.salowtech.com
    ${PLAYWRIGHT_BROWSERS_PATH:+PLAYWRIGHT_BROWSERS_PATH="$PLAYWRIGHT_BROWSERS_PATH"}
+   ${LOAD_LEVELS:+LOAD_LEVELS="$LOAD_LEVELS"} ${LOAD_SECONDS:+LOAD_SECONDS="$LOAD_SECONDS"} ${LOAD_REPORT:+LOAD_REPORT="$LOAD_REPORT"}
    AUDIT_CHECKPOINT_DIR="$TMP/audit" DJANGO_SETTINGS_MODULE=drill_settings TIDB_TEST_DB_NAME=drill_db
    TIDB_TEST_USER=root TIDB_TEST_PASSWORD= TIDB_TEST_HOST=127.0.0.1 TIDB_TEST_PORT="$PORT_DB"
    PYTHONPATH="$ROOT:$ROOT/tests/browser${EXTRA_PYTHONPATH:+:$EXTRA_PYTHONPATH}")
@@ -82,7 +83,7 @@ for i in $(seq 1 30); do
   sleep 1
 done
 [ "$ready" = 1 ] || { echo "App not ready"; RC=2; exit 2; }
-"${E[@]}" DRILL_SECRETS="$TMP/secrets.json" DRILL_APP="http://app.salowtech.com:$PORT_APP" DRILL_SHOTS="${DRILL_SHOTS:-}" DRILL_VIDEO="${DRILL_VIDEO:-}" "$PY" tests/browser/drills.py "$@" 2>&1 | tee "$TMP/drills.out"
+"${E[@]}" DRILL_SECRETS="$TMP/secrets.json" DRILL_APP="http://app.salowtech.com:$PORT_APP" DRILL_SHOTS="${DRILL_SHOTS:-}" DRILL_VIDEO="${DRILL_VIDEO:-}" "$PY" "tests/browser/$([ "${1:-}" = load_http ] && echo load_http.py || echo drills.py)" "$@" 2>&1 | tee "$TMP/drills.out"
 RC=${PIPESTATUS[0]}
 # Output must not hold this run's secrets. Checked here, in the shell, against the file that never prints them.
 "$PY" - "$TMP" <<'PYEOF'
@@ -101,4 +102,6 @@ print("secret check on output and app log: clean")
 PYEOF
 SC=$?
 [ "$SC" = 0 ] || RC=3
+# load_http: summarise server-side exceptions (type and message line only), after the secret check came back clean.
+if [ "${1:-}" = load_http ] && [ "$SC" = 0 ]; then echo "server exceptions:"; grep -E "^[A-Za-z_.]+(Error|Exception)[:(]" "$TMP/uvicorn.log" | cut -c1-200 | sort | uniq -c | head -10; echo "log tail:"; tail -c 2500 "$TMP/uvicorn.log"; fi
 exit "$RC"
