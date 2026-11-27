@@ -4,6 +4,7 @@
 {% block content %}
 <div class="card cal"><div class="cal-head"><h2>{{ label }}</h2></div>
 <div class="cal-tabs"><a href="{% url 'chat:home' %}">All conversations</a></div>
+{% if can_rename %}<form method="post" action="{% url 'chat:rename' space.public_id %}" class="cal-form chat-rename">{% csrf_token %}<label>Group name<input type="text" name="name" maxlength="120" value="{{ space.name }}" required></label><button class="btn" type="submit">Rename group</button><p class="cal-meta">Only you, the group's manager, can rename it. Nobody is notified; members see the new name when they next open Chat.</p></form>{% endif %}
 {% if older %}<p><a href="{% url 'chat:space' space.public_id %}?before={{ older }}">Earlier messages</a></p>{% endif %}
 <div class="chat-list" id="chat-list" data-last="{{ last }}" data-first="{{ first }}" data-reactions="{% url 'chat:reactions' space.public_id %}"{% if live %} data-poll="{% url 'chat:poll' space.public_id %}"{% endif %}>{% include "chat/_messages.html" %}</div>
 {% if not rows %}<p class="cal-meta">No messages yet.</p>{% endif %}

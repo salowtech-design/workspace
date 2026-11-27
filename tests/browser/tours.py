@@ -272,6 +272,7 @@ def register(g):
     register_invite_notice(g)
     register_chat_badge(g)
     register_chat_mention(g)
+    register_chat_rename(g)
     register_cal_location(g)
     register_slides_dup_sheets_fx(g)
     register_slides_bg(g)
@@ -2838,6 +2839,65 @@ def register_slides_bg(g):
                  unshown=["PDF download (secure context, checked in node)", "dismissing the theme question", "master items", "hand-edited unreadable import"])
 
     g["DRILLS"]["tour_slides_bg"] = tour
+
+
+def register_chat_rename(g):
+    APP = g["APP"]
+
+    def tour(ctx):
+        import concurrent.futures
+
+        import django
+
+        django.setup()
+
+        def run(fn):
+            with concurrent.futures.ThreadPoolExecutor(1) as ex:
+                return ex.submit(fn).result()
+
+        def make():
+            from apps.accounts.models import CustomUser
+            from apps.chat import services as cs
+            from apps.chat.models import Space
+
+            Space.objects.filter(name__startswith="Rename demo").delete()
+            others = []
+            for eid, nm in (("ST-LIVE-2", "Second Synthetic"), ("ST-LIVE-3", "Third Synthetic")):
+                others.append(CustomUser.objects.get_or_create(employee_id=eid, defaults={"full_name": nm, "email": eid.lower() + "@salowtech.com", "email_verified": True,
+                                                              "role": CustomUser.Role.EMPLOYEE, "status": CustomUser.Status.ACTIVE, "is_active": True})[0])
+            me = CustomUser.objects.get(employee_id="ST-LIVE-1")
+            sp = cs.create_group(me, "Rename demo old", [o.pk for o in others])
+            cs.post_message(others[0], sp.public_id, "Welcome to the group", "rn-1")
+
+        def counts():
+            from apps.chat.models import Message
+            from apps.core.models import Notification
+
+            return Message.objects.count(), Notification.objects.count()
+
+        def cleanup():
+            from apps.chat.models import Space
+
+            Space.objects.filter(name__startswith="Rename demo").delete()
+
+        run(make)
+        before = {}
+
+        def body(t, pg):
+            nm = "input[name=name]"
+            pg.goto(APP + "/chat/")
+            t.step("Open the group. As its manager there is a Group name box with a Rename group button", lambda: pg.click("a:has-text('Rename demo old')"), expect=lambda: pg.input_value(nm) == "Rename demo old" and pg.is_visible("button:has-text('Rename group')"), wait=2200)
+            before["n"] = run(counts)
+            t.step("Type the new name", lambda: (pg.fill(nm, "Rename demo new"), pg.locator(nm).scroll_into_view_if_needed()), expect=lambda: pg.input_value(nm) == "Rename demo new", wait=2000)
+            t.step("Press Rename group. The title and the box show the new name and the page says nobody is notified", lambda: (pg.click("button:has-text('Rename group')"), pg.wait_for_timeout(500), pg.evaluate("window.scrollTo(0, 0)")), expect=lambda: pg.inner_text("h2") == "Rename demo new" and pg.input_value(nm) == "Rename demo new" and "Nobody is notified" in pg.inner_text("body"), wait=2600)
+            t.step("No message and no notice was created (checked in the database)", expect=lambda: run(counts) == before["n"], wait=1500)
+            t.step("The conversation list shows only the new name", lambda: pg.goto(APP + "/chat/"), expect=lambda: pg.is_visible("a:has-text('Rename demo new')") and not pg.is_visible("a:has-text('Rename demo old')"), wait=2200)
+        try:
+            run_tour(ctx, "chat_rename", body, notes="Real Django on TiDB (unistore) under uvicorn, headless Chromium 390x844 emulated. Fixtures (ORM): a group with ST-LIVE-1 as its manager and two other people. Not shown: a non-manager member's view (no form, refusal in unit tests) and a direct message.", unshown=["a non-manager member's view", "a direct message"])
+        finally:
+            run(cleanup)
+
+    g["DRILLS"]["tour_chat_rename"] = tour
 
 
 def register_chat_mention(g):

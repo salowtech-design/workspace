@@ -129,6 +129,38 @@ def create_group(actor, name, other_pks):
     return sp
 
 
+def rename_group(actor, public_id, name):
+    """A group's manager (its creator) changes its name. This is the rule already written at the top of this file ("only a
+    group's manager changes it"). Nobody is notified and no message is added: members see the new name the next time they
+    open Chat. Two renames at once: the last one saved wins. A non-member gets 404, a member who is not the manager is refused."""
+    name = (name or "").strip()
+    if not name or len(name) > NAME_MAX:
+        raise ValidationError(f"A group needs a name of 1 to {NAME_MAX} characters.")
+    with transaction.atomic():
+        sp = _lock_space(public_id)
+        if sp is None or _live(actor.pk) is None:
+            raise Http404
+        mem = _member(sp, actor.pk)
+        if mem is None:
+            raise Http404
+        if sp.kind != Space.GROUP:
+            raise ValidationError("A direct message has no name to change.")
+        if mem.role != Member.MANAGER:
+            raise PermissionDenied("Only the group's manager can rename it.")
+        if sp.name == name:
+            return sp
+        sp.name = name
+        sp.save(update_fields=["name"])
+        audit(actor, "chat.group.rename", "space", sp.pk)
+    return sp
+
+
+def is_manager(user, sp):
+    return sp.kind == Space.GROUP and Member.objects.filter(
+        space=sp, person_id=user.pk, role=Member.MANAGER, left_at__isnull=True
+    ).exists()
+
+
 def _lock_space(public_id):
     return Space.objects.select_for_update().filter(public_id=public_id).first()
 

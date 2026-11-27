@@ -136,6 +136,7 @@ def _page(request, space_id, *, status=200, draft="", client_msg_id=None, thread
             "draft": draft,
             "reply_to": reply_to,
             "me": request.user,
+            "can_rename": cs.is_manager(request.user, sp),
             "mentionable": cs.mention_choices(sp, request.user),
             "live": not viewing_history and last >= sp.last_seq,
         },
@@ -147,6 +148,21 @@ def _page(request, space_id, *, status=200, draft="", client_msg_id=None, thread
 @active_only
 def space_view(request, space_id):
     return _page(request, space_id)
+
+
+@login_required
+@active_only
+@require_POST
+def rename(request, space_id):
+    try:
+        cs.rename_group(request.user, space_id, request.POST.get("name"))
+    except ValidationError as exc:
+        messages.error(request, " ".join(exc.messages))
+    except PermissionDenied:
+        messages.error(request, "Only the group's manager can rename it.")
+    else:
+        messages.success(request, "Group name saved. Nobody is notified; members see it when they next open Chat.")
+    return redirect("chat:space", space_id=space_id)
 
 
 @login_required
