@@ -270,6 +270,7 @@ def register(g):
     register_chat_badge(g)
     register_attendance_csv(g)
     register_post_review_notice(g)
+    register_notice_open(g)
     register_task_conflict(g)
     register_sessions_scroll(g, users)
     register_drive_move(g)
@@ -4513,7 +4514,7 @@ def register_invite_notice(g):
             txt = lambda: pg.inner_text("body")
             pg.goto(APP + "/notifications/")
             t.step("Notifications: 'Second Synthetic invited you to an event', with no event title in the notice", expect=lambda: "Second Synthetic invited you to an event" in txt(), wait=4500)
-            t.step("Open the notice: the event page opens and shows the event", lambda: pg.click("a:has-text('invited you to an event')"), expect=lambda: "/calendar/event/" in pg.url and "Quarterly planning" in txt(), wait=3500)
+            t.step("Open the notice: the event page opens and shows the event", lambda: pg.click("button:has-text('invited you to an event')"), expect=lambda: "/calendar/event/" in pg.url and "Quarterly planning" in txt(), wait=3500)
             t.note("Not shown: the organizer's own form (the notice is made by the same service the form calls, unit-tested), edits and cancels (no notices for those), email or push (not built).", 3)
 
         run_tour(ctx, "77_calendar_invite_notice", body, notes="Real Django on TiDB, headless Chromium 390x844 emulated. Fixture by script: a second synthetic account creates an event and invites the signed-in account through the Calendar service.", unshown=["organizer form", "edit/cancel notices", "email/push"])
@@ -4648,9 +4649,45 @@ def register_post_review_notice(g):
             txt = lambda: pg.inner_text("body")
             pg.goto(APP + "/notifications/")
             t.step("Notifications: 'Reviewer Synthetic flagged your post', no post title or notes in the notice", expect=lambda: "Reviewer Synthetic flagged your post" in txt() and "Week 47" not in txt() and "add the hours" not in txt(), wait=4500)
-            t.step("Open the notice: the post page opens with the review note", lambda: pg.click("a:has-text('flagged your post')"), expect=lambda: "/posts/" in pg.url and "Week 47 progress log" in txt() and "Please add the hours" in txt(), wait=3500)
+            t.step("Open the notice: the post page opens with the review note", lambda: pg.click("button:has-text('flagged your post')"), expect=lambda: "/posts/" in pg.url and "Week 47 progress log" in txt() and "Please add the hours" in txt(), wait=3500)
             t.note("Not shown: the reviewer's own form (the review is made by the same service the form calls, unit-tested), approved wording (unit-tested), email or push (not built).", 3)
 
         run_tour(ctx, "80_post_review_notice", body, notes="Real Django on TiDB, headless Chromium 390x844 emulated. Fixture by script: a synthetic admin reviews the signed-in account's post through the Posts service.", unshown=["reviewer form", "approved wording", "email/push"])
 
     g["DRILLS"]["tour_post_review_notice"] = tour
+
+
+def register_notice_open(g):
+    APP = g["APP"]
+
+    def tour(ctx):
+        import concurrent.futures
+
+        import django
+
+        django.setup()
+
+        def make():
+            from apps.accounts.models import CustomUser
+            from apps.core.foundation.notify import notify
+
+            me = CustomUser.objects.get(employee_id="ST-LIVE-1")
+            notify(me, "events.invited", "Second Synthetic invited you to an event", "/calendar/")
+            notify(me, "tasks.assigned", "Second Synthetic assigned you a task", "/tasks/assigned/")
+
+        with concurrent.futures.ThreadPoolExecutor(1) as ex:
+            ex.submit(make).result()
+
+        def body(t, pg):
+            nav = lambda: pg.inner_text(".nav-links")
+            show = lambda: pg.evaluate("document.querySelector('.nav-links a[href*=\"/notifications/\"]').scrollIntoView({inline:'center', block:'nearest'})")
+            pg.goto(APP + "/notifications/")
+            t.step("Two unread notices: the nav says Notifications (2)", lambda: show(), expect=lambda: "Notifications (2)" in nav() and pg.inner_text("body").count(", unread") == 2, wait=4500)
+            t.step("Click the invitation notice: its Calendar page opens", lambda: pg.click("button:has-text('invited you to an event')"), expect=lambda: "/calendar/" in pg.url, wait=3500)
+            pg.goto(APP + "/notifications/")
+            t.step("Back in the inbox: the nav says Notifications (1) and only the task notice is still unread", lambda: show(), expect=lambda: "Notifications (1)" in nav() and pg.inner_text("body").count(", unread") == 1, wait=4500)
+            t.note("Not shown: someone else's notice (404, unit-tested), GET and prefetch leave it unread (unit-tested), the CSRF refusal (unit-tested).", 3)
+
+        run_tour(ctx, "81_notice_open", body, notes="Real Django on TiDB, headless Chromium 390x844 emulated. Fixture by script: two unread notices made for the signed-in synthetic account.", unshown=["other person's notice", "GET/prefetch", "CSRF refusal"])
+
+    g["DRILLS"]["tour_notice_open"] = tour
