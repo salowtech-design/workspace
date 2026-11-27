@@ -254,11 +254,24 @@
       if (H !== impH || meta.active !== impTab) { status.textContent = "You switched tabs while the file was loading, so the import was cancelled. Nothing was changed."; return; }
       if (filt) { status.textContent = "A filter is on, so nothing was imported. Clear the filter first. Your sheet was not changed."; return; }
       if (rulesLocked) { status.textContent = "This tab's validation rules could not be read, so the file cannot be checked and was not imported. Your sheet was not changed."; return; }
-      var r = M.csvImport(String(rd.result), function (addr, v) { return M.checkValue(rules, addr, v, F.parseAddr); }, function (c, rr) { return String.fromCharCode(64 + c) + rr; }, COLS, ROWS, MAXCELL);
+      var raw = String(rd.result), bad = (raw.match(/\uFFFD/g) || []).length;
+      var r = M.csvImport(raw, function (addr, v) { return M.checkValue(rules, addr, v, F.parseAddr); }, function (c, rr) { return String.fromCharCode(64 + c) + rr; }, COLS, ROWS, MAXCELL);
       if (r.error) { status.textContent = r.error; return; }
       if (!r.set) { status.textContent = "That file has no cells to import. Your sheet was not changed."; return; }
-      if (Object.keys(cells).length && !window.confirm("Replace the " + Object.keys(cells).length + " cells in this tab with the " + r.set + " cells in this CSV file? You can undo it afterwards.")) { status.textContent = "Import cancelled. Your sheet was not changed."; return; }
-      var bits = [r.set + " cells imported from " + r.rows + " rows by " + r.cols + " columns"]; if (r.clipped) bits.push(r.clipped + " outside Z100 left out"); if (r.refused) bits.push(r.refused + " refused by validation rules"); if (r.tooLong) bits.push(r.tooLong + " too long (over " + MAXCELL + " characters) left out"); if (r.breaks) bits.push(r.breaks + " line breaks inside cells became spaces"); if (r.literal) bits.push(r.literal + " cells started with = and were kept as text with a leading apostrophe, not run as formulas");
+      var notes = [];
+      if (r.clipped) notes.push(r.clipped + " cells past column Z or row 100 will be left out");
+      if (r.refused) notes.push(r.refused + " cells a validation rule refuses will be left out");
+      if (r.tooLong) notes.push(r.tooLong + " cells over " + MAXCELL + " characters will be left out");
+      if (r.breaks) notes.push(r.breaks + " cells with a line break will have it turned into a space");
+      if (r.literal) notes.push(r.literal + " cells in the file start with = and will be kept as text with a leading apostrophe, not run as formulas");
+      if (bad) notes.push(bad + " characters could not be read as UTF-8 and show as the replacement character. This page reads UTF-8 only, so the file may be in another encoding and some text may be damaged");
+      var have = Object.keys(cells).length;
+      if (have || notes.length) {
+        var q = "Import " + r.set + " cells from this CSV file (" + r.rows + " rows by " + r.cols + " columns)?" + (have ? " This replaces all " + have + " cells in this tab, including cells in places the file does not fill, which become blank." : "") + (notes.length ? "\n\n" + notes.join(".\n") + "." : "") + "\n\nUndo works afterwards.";
+        if (!window.confirm(q)) { status.textContent = "Import cancelled. Your sheet was not changed."; return; }
+        if (H !== impH || meta.active !== impTab) { status.textContent = "The tab changed while the question was open, so the import was cancelled. Nothing was changed."; return; }
+      }
+      var bits = [r.set + " cells imported from " + r.rows + " rows by " + r.cols + " columns"]; if (r.clipped) bits.push(r.clipped + " outside Z100 left out"); if (r.refused) bits.push(r.refused + " refused by validation rules"); if (r.tooLong) bits.push(r.tooLong + " too long (over " + MAXCELL + " characters) left out"); if (r.breaks) bits.push(r.breaks + " line breaks inside cells became spaces"); if (r.literal) bits.push(r.literal + " cells in the file started with = and were kept as text with a leading apostrophe, not run as formulas"); if (bad) bits.push(bad + " replacement characters were in the text (not valid UTF-8)");
       change(r.cells, bits.join(", ") + ". Everything is text as written in the file, numbers are not converted. This replaced the tab's cells. Undo works.");
     };
     rd.readAsText(f); e.target.value = "";

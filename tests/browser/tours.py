@@ -5360,45 +5360,66 @@ def register_sheets_csv_import(g):
     APP = g["APP"]
 
     def tour(ctx):
-        import os as _os
-
-        _os.makedirs("/tmp/vid/dl", exist_ok=True)
         csv_text = 'item,qty,note\r\napple,3,"red, sweet"\r\npear,4,"say ""hi"""\r\n=SUM(B2:B3),7,formula text\r\n'
         val = lambda pg, a: pg.input_value('input[data-addr="%s"]' % a)
 
-        def sc(pg, sel):
-            pg.evaluate("s=>{var e=document.querySelector(s);if(e)e.scrollIntoView({block:'center'})}", sel)
+        def sc(pg, sel, inline="center"):
+            pg.evaluate("a=>{var e=document.querySelector(a[0]);if(e)e.scrollIntoView({block:'center',inline:a[1]})}", [sel, inline])
 
         def body(t, pg):
-            seen = []
-            pg.on("dialog", lambda d: (seen.append(d.message), d.accept()))
+            seen, ans = [], [True]
+            pg.on("dialog", lambda d: (seen.append(d.message), d.accept() if ans[0] else d.dismiss()))
             pg.goto(APP + "/sheets/")
             pg.evaluate("localStorage.clear()")
             pg.goto(APP + "/sheets/")
             pg.wait_for_timeout(500)
             st = lambda: pg.inner_text("#sheet-status")
-            pg.click('input[data-addr="E5"]')
+            cell = lambda a: 'input[data-addr="%s"]' % a
+            pg.click(cell("E5"))
             pg.keyboard.type("old")
             pg.keyboard.press("Enter")
             pg.wait_for_timeout(300)
+            t.step("A validation rule: C3 may only hold yes or no", lambda: (pg.fill("#val-range", "C3:C3"), pg.select_option("#val-kind", "list"), pg.fill("#val-items", "yes, no"), pg.click("#val-add"), sc(pg, "#val-list")), expect=lambda: pg.locator("#val-list li").count() == 1, wait=2600)
             sc(pg, "#sheet-import-csv")
-            t.cap("Next: Import CSV, choosing a 4 line file with a comma inside quotes, a doubled quote and a cell that starts with =")
+            ans[0] = False
+            t.cap("Next: Import CSV, choose the file, and answer Cancel to the question")
             pg.set_input_files("#sheet-import-csv", files=[{"name": "demo.csv", "mimeType": "text/csv", "buffer": csv_text.encode()}])
             pg.wait_for_timeout(900)
-            sc(pg, 'input[data-addr="A1"]')
-            t.step("The cells hold the file: A1 item, C2 'red, sweet' with its comma, C3 say \"hi\" with its quotes", expect=lambda: val(pg, "A1") == "item" and val(pg, "C2") == "red, sweet" and val(pg, "C3") == 'say "hi"' and val(pg, "B3") == "4", wait=3200)
-            t.step("A4 holds the typed =SUM(B2:B3) as text with a leading apostrophe and was not calculated; the old cell E5 is gone", expect=lambda: val(pg, "A4") == "'=SUM(B2:B3)" and val(pg, "E5") == "", wait=3200)
+            sc(pg, cell("E5"))
+            t.step("The question listed the counts first (1 cell the rule refuses, 1 starting with =, all 1 old cells replaced and blanks); Cancel left the sheet alone: E5 is old, A1 empty", expect=lambda: len(seen) == 1 and "1 cells a validation rule refuses will be left out" in seen[0] and "1 cells in the file start with =" in seen[0] and "replaces all 1 cells in this tab, including cells in places the file does not fill, which become blank" in seen[0] and "Import cancelled" in st() and val(pg, "E5") == "old" and val(pg, "A1") == "", wait=3600)
+            ans[0] = True
+            pg.set_input_files("#sheet-import-csv", files=[{"name": "demo.csv", "mimeType": "text/csv", "buffer": csv_text.encode()}])
+            pg.wait_for_timeout(900)
+            sc(pg, cell("A1"), "start")
+            t.step("Same file again, answered OK: A1 item, A2 apple, B3 is 4, and the old E5 is gone", expect=lambda: val(pg, "A1") == "item" and val(pg, "A2") == "apple" and val(pg, "B3") == "4" and val(pg, "E5") == "", wait=3000)
             sc(pg, "#sheet-status")
-            t.step("The status counts 12 cells, says 1 started with = and was kept as text, and says it replaced the tab", expect=lambda: "12 cells imported from 4 rows by 3 columns" in st() and "1 cells started with =" in st() and "replaced the tab" in st() and any("Replace the 1 cells" in m for m in seen), wait=3200)
-            pg.click("#sheet-undo")
+            t.step("The status counts 11 cells and says 1 refused and 1 started with = and was kept as text", expect=lambda: "11 cells imported from 4 rows by 3 columns" in st() and "1 refused by validation rules" in st() and "1 cells in the file started with =" in st(), wait=3200)
+            sc(pg, cell("C2")); pg.click(cell("C2")); pg.wait_for_timeout(300)
+            t.step("Column C in view, C2 selected: the cell and the formula bar both show red, sweet with its comma", expect=lambda: val(pg, "C2") == "red, sweet" and pg.input_value("#sheet-bar") == "red, sweet", wait=3200)
+            sc(pg, cell("C3")); pg.click(cell("C3")); pg.wait_for_timeout(300)
+            t.step("C3 is empty: the rule refused say \"hi\" and the formula bar is empty", expect=lambda: val(pg, "C3") == "" and pg.input_value("#sheet-bar") == "", wait=3200)
+            sc(pg, cell("A4"), "start"); pg.click(cell("A4")); pg.wait_for_timeout(300)
+            t.step("A4 selected: the cell and the formula bar show '=SUM(B2:B3) with the apostrophe as real text, not calculated", expect=lambda: val(pg, "A4") == "'=SUM(B2:B3)" and pg.input_value("#sheet-bar") == "'=SUM(B2:B3)", wait=3200)
+            pg.keyboard.press("End"); pg.keyboard.type("x"); pg.keyboard.press("Enter"); pg.wait_for_timeout(400)
+            t.step("Edited by typing x at the end: it stays text, '=SUM(B2:B3)x, the apostrophe stays and nothing is calculated", expect=lambda: val(pg, "A4") == "'=SUM(B2:B3)x", wait=3200)
+            pg.click("#sheet-undo"); pg.wait_for_timeout(300); pg.click("#sheet-undo"); pg.wait_for_timeout(500)
+            sc(pg, cell("E5"))
+            t.step("Undo (twice, the edit then the import) brings the old sheet back: E5 holds old and A1 is empty", expect=lambda: val(pg, "E5") == "old" and val(pg, "A1") == "", wait=3200)
+            seen.clear(); ans[0] = False
+            pg.set_input_files("#sheet-import-csv", files=[{"name": "latin.csv", "mimeType": "text/csv", "buffer": b"caf\xe9\n"}])
+            pg.wait_for_timeout(800)
+            sc(pg, "#sheet-status")
+            t.step("A file saved in another encoding (a byte that is not UTF-8): the question warns 1 character could not be read as UTF-8; Cancel keeps E5", expect=lambda: len(seen) == 1 and "1 characters could not be read as UTF-8" in seen[0] and "UTF-8 only" in seen[0] and val(pg, "E5") == "old", wait=3400)
+            ans[0] = True
+            pg.evaluate("""()=>{var i=document.getElementById('sheet-import-csv'),dt=new DataTransfer();dt.items.add(new File(['x,y\\n1,2\\n'],'t.csv',{type:'text/csv'}));i.files=dt.files;i.dispatchEvent(new Event('change',{bubbles:true}));document.getElementById('tab-add').click();}""")
+            pg.wait_for_timeout(1000)
+            sc(pg, "#sheet-status")
+            t.step("The tab was switched (Add tab) while the file was loading: the import is cancelled and says so", expect=lambda: "You switched tabs while the file was loading" in st(), wait=3400)
+            pg.evaluate("document.querySelector('#sheet-tabs button').click()")
             pg.wait_for_timeout(500)
-            sc(pg, 'input[data-addr="E5"]')
-            t.step("Undo brings the old sheet back: E5 holds old and A1 is empty", expect=lambda: val(pg, "E5") == "old" and val(pg, "A1") == "", wait=3200)
-            pg.set_input_files("#sheet-import-csv", files=[{"name": "bad.csv", "mimeType": "text/csv", "buffer": b'a,"unclosed\nb,c\n'}])
-            pg.wait_for_timeout(700)
-            sc(pg, "#sheet-status")
-            t.step("A file with a quote that never closes is refused and the sheet is unchanged", expect=lambda: "quoted cell that does not close" in st() and "was not imported" in st() or "not changed" in st() and val(pg, "E5") == "old", wait=3200)
-        run_tour(ctx, "sheets_csv_import", body, notes="Headless Chromium 390x844 emulated, one run. Hand-made CSV files only, not files from Google Sheets or Excel. The confirm dialog is auto-accepted off camera and its text is checked. Not shown: the 5,000 row limit, validation-rule refusal, import while a filter is on, switching tabs while a file loads.", unshown=["limits", "validation refusal", "filter on", "tab switch while loading"])
+            sc(pg, cell("E5"))
+            t.step("Back on the first tab its cell E5 is still old and nothing from t.csv landed there; the new tab was left empty", expect=lambda: val(pg, "E5") == "old" and val(pg, "A1") == "", wait=3200)
+        run_tour(ctx, "sheets_csv_import", body, notes="Headless Chromium 390x844 emulated, one run. Hand-made CSV files only, not files from Google Sheets or Excel. Confirm dialogs are answered off camera and their text is checked. Not shown: the 5,000 row limit, import while a filter is on.", unshown=["row limit", "filter on"])
 
     g["DRILLS"]["tour_sheets_csv_import"] = tour
 
