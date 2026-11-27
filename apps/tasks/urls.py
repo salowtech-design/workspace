@@ -16,6 +16,7 @@ urlpatterns = [
     path("task/<uuid:task_id>/done/", views.toggle, name="toggle"),
     path("task/<uuid:task_id>/edit/", views.edit, name="edit"),
     path("task/<uuid:task_id>/assign/", views.assign_task, name="assign"),
+    path("task/<uuid:task_id>/move/", views.move_task, name="move"),
     path("task/<uuid:task_id>/delete/", views.delete_task, name="delete"),
     path("trash/", views.trash_view, name="trash"),
     path("trash/task/<uuid:task_id>/restore/", views.restore_task, name="restore_task"),

@@ -147,6 +147,24 @@ def _back(request, task):
 
 @login_required
 @require_POST
+def move_task(request, task_id):
+    task = svc.get_task(request.user, task_id, "edit")
+    try:
+        target_id = uuid.UUID(request.POST.get("to", ""))
+    except ValueError:
+        raise Http404 from None
+    target = _list_or_404(request.user, target_id, "add")
+    try:
+        version = int(request.POST.get("version", ""))
+    except ValueError:
+        raise Http404 from None
+    if _run(request, svc.move_task, request.user, task, version, target, ok="Task moved.") is None:
+        return redirect("tasks:list", list_id=task.task_list.public_id)
+    return redirect("tasks:list", list_id=target.public_id)
+
+
+@login_required
+@require_POST
 def toggle(request, task_id):
     task = svc.get_task(request.user, task_id, "complete")
     _run(request, svc.set_status, request.user, task, task.status != Task.DONE)

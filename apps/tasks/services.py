@@ -229,6 +229,35 @@ def assign(user, task, person):
 
 
 @transaction.atomic
+def move_task(user, task, expected_version, target_list):
+    """The owner moves a top-level task, with all its subtasks (deleted ones too, so a later restore still finds the parent in its own list), to
+    the end of another list of their own. A subtask alone is refused: it must stay in its parent's list. An assigned task keeps its assignee, whose
+    right comes from the assignment and not the list. Both lists are locked in primary-key order so two opposite moves cannot deadlock; the task
+    is re-read under the locks and a changed version or list is refused as stale."""
+    source_id = Task.objects.values_list("task_list_id", flat=True).get(pk=task.pk)
+    locked = {tl.pk: tl for tl in TaskList.objects.select_for_update().filter(pk__in={source_id, target_list.pk}).order_by("pk")}
+    source, target = locked[source_id], locked[target_list.pk]
+    fresh = _fresh(task)
+    if fresh.task_list_id != source_id or fresh.version != expected_version:
+        raise StaleVersion("This task changed while you were working.")
+    fresh.task_list = source
+    require(user, "edit", "task", fresh)
+    require(user, "add", "task_list", target)
+    if source.pk == target.pk:
+        return fresh
+    if fresh.parent_id:
+        raise ValidationError("A subtask stays in its parent task's list. Move the parent task instead.")
+    pos = (Task.objects.filter(task_list=target, parent=None, deleted_at__isnull=True).aggregate(m=Max("position"))["m"] or 0) + 1
+    _pause()
+    now = timezone.now()
+    kids = Task.objects.filter(parent=fresh).update(task_list=target, version=F("version") + 1, updated_at=now)
+    Task.objects.filter(pk=fresh.pk).update(task_list=target, position=pos, version=F("version") + 1, updated_at=now)
+    audit(user, "tasks.task.move", "task", fresh.pk, to=target.pk, subtasks_moved=kids or None)
+    fresh.refresh_from_db()
+    return fresh
+
+
+@transaction.atomic
 def delete_task(user, task):
     task = _locked_task(user, task, "delete")
     now = timezone.now()

@@ -283,6 +283,7 @@ def register(g):
     register_cal_all_day(g)
     register_tasks_restore(g)
     register_tasks_rename(g)
+    register_tasks_move(g)
     register_attendance_csv(g)
     register_post_review_notice(g)
     register_notice_open(g)
@@ -2373,6 +2374,26 @@ def register_tasks_rename(g):
         run_tour(ctx, "tasks_rename", body, notes="Real Django on TiDB (unistore) under uvicorn, headless Chromium 390x844 emulated. One synthetic employee. Stages: set up, a refused too-long name (the page's own length limit is removed in the browser to reach the server rule), then a successful rename. Not shown: another person's view or a deleted list (unit tests cover them).", unshown=["another person's view", "deleted list"])
 
     g["DRILLS"]["tour_tasks_rename"] = tour
+
+
+def register_tasks_move(g):
+    APP = g["APP"]
+
+    def tour(ctx):
+        def body(t, pg):
+            txt = lambda: pg.inner_text("body")  # noqa: E731
+            tabs = lambda: pg.locator(".tasks-lists").inner_text()  # noqa: E731
+            pg.goto(APP + "/tasks/")
+            pg.wait_for_timeout(500)
+            t.step("STAGE 1 SET UP: make a list called Alpha", lambda: (pg.fill("input[name=name]", "Alpha"), pg.click("button:has-text('Add list')")), expect=lambda: "Alpha" in tabs())
+            t.step("STAGE 1 SET UP: make a second list called Beta", lambda: (pg.fill("input[name=name]", "Beta"), pg.click("button:has-text('Add list')")), expect=lambda: "Beta" in tabs())
+            t.step("STAGE 1 SET UP: open Alpha and add the task Ship report", lambda: (pg.click(".tasks-lists a:has-text('Alpha')"), pg.fill("input[aria-label='Task title']", "Ship report"), pg.click(".tasks-add button")), expect=lambda: "Ship report" in txt())
+            t.step("STAGE 2 MOVE: pick Beta in the task's Move box (shown scrolled into view)", lambda: (pg.select_option(".tasks-move select", label="Beta"), pg.locator(".tasks-move button").scroll_into_view_if_needed(), pg.evaluate("window.scrollBy(0, 260)")), expect=lambda: pg.locator(".tasks-move select").input_value() != "", wait=1200)
+            t.step("STAGE 2 MOVE: press Move. Beta opens with the task in it and the banner Task moved.", lambda: pg.click(".tasks-move button"), expect=lambda: "Task moved." in txt() and "Ship report" in txt() and pg.locator(".tasks-lists a.active").inner_text() == "Beta", wait=2200)
+            t.step("STAGE 3 CHECK: open Alpha. It no longer has the task", lambda: pg.click(".tasks-lists a:has-text('Alpha')"), expect=lambda: "Ship report" not in txt() and "No tasks yet." in txt(), wait=2500)
+        run_tour(ctx, "tasks_move", body, notes="Real Django on TiDB (unistore) under uvicorn, headless Chromium 390x844 emulated. One synthetic employee. Stages: set up two lists and a task, move it, check the source list. Not shown: assigned tasks, subtasks, stale forms or refusals (unit tests cover them).", unshown=["assigned tasks", "subtasks", "stale forms", "refusals"])
+
+    g["DRILLS"]["tour_tasks_move"] = tour
 
 
 def register_drive_device(g):
