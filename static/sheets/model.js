@@ -652,10 +652,11 @@
     });
     res.cells = out; return res;
   }
-  function fillRange(cells, rg, dir, check, addrOf, maxCell, shift) {
+  function fillRange(cells, rg, dir, check, addrOf, maxCell, shift, isVirtual) {
     var n = copy(cells), refErrs = 0, adjusted = 0, set = 0, cleared = 0, refused = 0, tooLong = 0, formulas = 0, down = dir === "down";
     var rows = rg.r2 - rg.r1 + 1, cols = rg.c2 - rg.c1 + 1;
     if (down ? rows < 2 : cols < 2) return { error: down ? "Pick a range with at least two rows. The first row is copied down." : "Pick a range with at least two columns. The first column is copied right." };
+    if (isVirtual) for (var s = 0; s < (down ? cols : rows); s++) { if (isVirtual(addrOf(down ? rg.c1 + s : rg.c1, down ? rg.r1 : rg.r1 + s))) return { error: "Nothing was filled: the " + (down ? "first row" : "first column") + " includes a cell that only shows a SORT result. Fill copies what is typed, not what is shown, so it would clear the cells it fills. Pick a range whose " + (down ? "first row" : "first column") + " holds typed cells." }; }
     for (var r = rg.r1; r <= rg.r2; r++) for (var c = rg.c1; c <= rg.c2; c++) {
       if (down ? r === rg.r1 : c === rg.c1) continue;
       var v = cells[addrOf(down ? c : rg.c1, down ? rg.r1 : r)] || "", a = addrOf(c, r);

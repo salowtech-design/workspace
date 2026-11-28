@@ -35,9 +35,26 @@ const addrOf = (c, rr) => String.fromCharCode(64 + c) + rr, R = (a, b, c2, d) =>
 let f = M.fillRange(mk({ B1: "3", B2: "1", B3: "2", C1: "=SORT(B1:B3)" }), R(3, 1, 3, 3), "down", null, addrOf, 2000, F.shiftFormula);
 eq("fill the anchor down: formulas are stored in the block cells", [f.cells.C2, f.cells.C3], ["=SORT(B2:B4)", "=SORT(B3:B5)"]);
 eq("fill the anchor down: the first anchor is then blocked", val(new F.Sheet(f.cells), "C1"), "#REF!");
-f = M.fillRange(mk({ B1: "3", B2: "1", B3: "2", C1: "=SORT(B1:B3)", C3: "typed" }), R(3, 2, 3, 3), "down", null, addrOf, 2000, F.shiftFormula);
-eq("fill down from a virtual empty cell (C2) copies empty: the typed C3 is cleared, nothing spilled is copied", [f.cells.C3, f.cleared], [undefined, 1]);
-eq("after that clear the block is back", col(new F.Sheet(f.cells), "C", 1, 3), [1, 2, 3]);
-f = M.fillRange(mk({ B1: "3", B2: "1", B3: "2", C1: "=SORT(B1:B3)", D2: "hello" }), R(3, 2, 4, 2), "right", null, addrOf, 2000, F.shiftFormula);
-eq("fill right from a virtual empty cell: D2 is cleared, C2 is not stored", [f.cells.D2, f.cells.C2], [undefined, undefined]);
+const virt = (c) => { const sh = new F.Sheet(mk(c)); return sh.isVirtual; };
+let c1 = { B1: "3", B2: "1", B3: "2", C1: "=SORT(B1:B3)", D2: "hello", D3: "keep" };
+f = M.fillRange(mk(c1), R(3, 2, 4, 3), "down", null, addrOf, 2000, F.shiftFormula, virt(c1));
+eq("fill down whose first row has a virtual SORT cell (C2): refused, message says why", [!!f.error, /only shows a SORT result/.test(f.error || ""), f.cells], [true, true, undefined]);
+f = M.fillRange(mk(c1), R(3, 2, 4, 2), "right", null, addrOf, 2000, F.shiftFormula, virt(c1));
+eq("fill right whose first column has a virtual cell: refused", !!f.error, true);
+f = M.fillRange(mk(c1), R(3, 1, 3, 3), "down", null, addrOf, 2000, F.shiftFormula, virt(c1));
+eq("a first row that is the stored anchor itself is not virtual: that fill still runs (stores formulas in the block, as typing would)", [!!f.error, f.cells.C2], [false, "=SORT(B2:B4)"]);
+f = M.fillRange(mk({ A1: "x", A2: "", A3: "", D1: "k" }), R(1, 1, 1, 3), "down", null, addrOf, 2000, F.shiftFormula, virt({ A1: "x" }));
+eq("a sheet with no SORT fills as before", f.cells.A2, "x");
+// the refused fill leaves stored targets unchanged
+eq("refused fill: the stored cells are as they were", c1.D2 + c1.D3, "hellokeep");
+// stored empty text inside a block counts as empty (the grid never stores it; an import or an old save could)
+const se = new F.Sheet(mk({ B1: "3", B2: "1", C1: "=SORT(B1:B2)", C2: "" }));
+eq("stored empty text in the block: not content, the block shows", [val(se, "C1"), val(se, "C2")], [1, 3]);
+eq("stored empty text counts as virtual for fill and CSV", [se.isVirtual("C2"), se.blockCells().join()], [true, "C2"]);
+// true cycles of the SORT itself, in both asking orders
+let cy1 = { A1: "=SORT(A1:A3)" }, cy2 = { A1: "=SORT(A2:A4)", A2: "5" };
+eq("SORT over a range that includes its own cell: #CIRC!, either order", [val(new F.Sheet(mk(cy1)), "A1"), val(new F.Sheet(mk(cy1)), "A3")], ["#CIRC!", "#CIRC!"]);
+eq("SORT whose source is its own future block (A2:A4 in A1): A2 holds a typed value so the anchor is blocked", val(new F.Sheet(mk(cy2)), "A1"), "#REF!");
+cy2 = { A1: "=SORT(A2:A4)" };
+eq("SORT whose source is its own future block, nothing typed: #CIRC! from A1 or from A3, either order", [val(new F.Sheet(mk(cy2)), "A1"), val(new F.Sheet(mk(cy2)), "A3")], ["#CIRC!", "#CIRC!"]);
 console.log(n + " rows, " + fails + " failed"); process.exit(fails ? 1 : 0);

@@ -989,7 +989,7 @@
     function get(a) {
       if (cache[a] !== undefined) return cache[a];
       var r = raw(a);
-      if (r === null) { var ow = blockOwner(a); if (ow) return blockValue(a, ow); }
+      if (r === null || r === "") { var ow = blockOwner(a); if (ow) return blockValue(a, ow); }  // a stored empty text counts as empty
       if (typeof r !== "string" || r[0] !== "=") return (cache[a] = literal(r));
       if (sh.stack[me + "!" + a]) return new Err("#CIRC!");      // not cached: every cell on the loop reports it
       if (sh.depth >= MAX_DEPTH_EVAL) return new Err("#LIMIT!");
@@ -1040,7 +1040,7 @@
     function anchorOf(a) {  // the anchor record for a, with blocked set when its block runs past row 1000 or holds any stored cell
       var sp = anchorShape(a); if (!sp) return null;
       if (sp.row + sp.h - 1 > MAX_ROW) sp.blocked = true;
-      else for (var r2 = sp.row + 1; r2 <= sp.row + sp.h - 1 && !sp.blocked; r2++) if (cells[addr(sp.col, r2)] !== undefined) sp.blocked = true;
+      else for (var r2 = sp.row + 1; r2 <= sp.row + sp.h - 1 && !sp.blocked; r2++) if (cells[addr(sp.col, r2)] !== undefined && cells[addr(sp.col, r2)] !== "") sp.blocked = true;
       return sp;
     }
     function blockValue(a, ow) {
@@ -1051,7 +1051,7 @@
     }
     function blockCells() {  // every empty address inside a block, for the CSV export
       var out = [], ix = anchorIndex();
-      Object.keys(ix).forEach(function (c) { ix[c].forEach(function (x) { for (var r2 = x.row + 1; r2 <= Math.min(MAX_ROW, x.row + x.h - 1); r2++) { var k = addr(x.col, r2); if (cells[k] === undefined) out.push(k); } }); });
+      Object.keys(ix).forEach(function (c) { ix[c].forEach(function (x) { for (var r2 = x.row + 1; r2 <= Math.min(MAX_ROW, x.row + x.h - 1); r2++) { var k = addr(x.col, r2); if (cells[k] === undefined || cells[k] === "") out.push(k); } }); });
       return out;
     }
     function cellValue(c) { var v = get(addr(c.col, c.row)); return v; }
@@ -1153,7 +1153,7 @@
     function deps(a) {
       var r = raw(a), m = typeof r === "string" ? depsMemo[r] : null;
       if (m) return m.out;
-      if (r === null) { var ow = parseAddr(a) ? blockOwner(a) : null; if (ow) return [ow.addr]; }
+      if (r === null || r === "") { var ow = parseAddr(a) ? blockOwner(a) : null; if (ow) return [ow.addr]; }
       var out = deps0(a, r), seen = Object.create(null); out = out.filter(function (x) { return seen[x] ? false : (seen[x] = true); }); if (typeof r === "string" && out.length > 1000 && Object.keys(depsMemo).length < 50) depsMemo[r] = { out: out }; return out;
     }
     function deps0(a, r) {
@@ -1194,7 +1194,7 @@
       }
       return get(a);
     }
-    var self = { get: function (a) { var v = resolve(a); return v === null ? "" : v; }, raw: raw, val: resolve, blockCells: blockCells };
+    var self = { get: function (a) { var v = resolve(a); return v === null ? "" : v; }, raw: raw, val: resolve, blockCells: blockCells, isVirtual: function (a) { var r = parseAddr(a) ? raw(a) : undefined; return (r === null || r === "") && !!blockOwner(a); } };
     if (me) sh.sheets[me] = self;
     return self;
   }

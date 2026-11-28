@@ -8977,6 +8977,10 @@ def register_sheets_spill(g):
                 return pg.evaluate("() => Object.keys(localStorage).map(k => localStorage.getItem(k)).filter(v => v && v.indexOf('SORT(') >= 0)")
             t.step("Click into the block cell C2 and leave it without typing: nothing is stored for C2 and the block still shows", lambda: (pg.click('input[data-addr="C2"]'), pg.wait_for_timeout(300), pg.click('input[data-addr="B1"]'), pg.wait_for_timeout(500)),
                    expect=lambda: len(stored()) == 1 and '"C2"' not in stored()[0] and val("C2") == "20" and val("C1") == "10", wait=1200)
+            def tryfill():
+                typ("D3", "keep"); pg.fill("#fill-range", "C2:D3"); pg.click("#fill-down"); pg.wait_for_timeout(500)
+            t.step("Type keep in D3, then Copy first row down over C2:D3 (its first row has the virtual cell C2): refused with a message, D3 still holds keep", tryfill,
+                   expect=lambda: "only shows a SORT result" in pg.inner_text("#sheet-status") and val("D3") == "keep" and val("C2") == "20", wait=1200)
             saved = {}
             def dl():
                 with pg.expect_download() as d:
@@ -8984,6 +8988,6 @@ def register_sheets_spill(g):
                 saved["text"] = open(d.value.path(), encoding="utf-8", newline="").read()
                 saved["stored"] = pg.evaluate("() => Object.keys(localStorage).map(k => localStorage.getItem(k)).filter(v => v && v.indexOf('SORT(') >= 0)")
             t.step("Download values (.csv): the file has the sorted block C1 to C5 (10, 20, 30, 99, blank) and nothing from the block is stored", dl,
-                   expect=lambda: saved.get("text") == "30,,10\r\n10,,20\r\n20,,30\r\n99,,99\r\n,,\r\n" and len(saved["stored"]) == 1 and all(('"C2"' not in v and '"C4"' not in v and '"C5"' not in v) for v in saved["stored"]), wait=1500)
+                   expect=lambda: saved.get("text") == "30,,10,\r\n10,,20,\r\n20,,30,keep\r\n99,,99,\r\n,,,\r\n" and len(saved["stored"]) == 1 and all(('"C2"' not in v and '"C4"' not in v and '"C5"' not in v) for v in saved["stored"]), wait=1500)
         run_tour(ctx, "sheets_spill", body, notes="Headless Chromium 390x844 emulated. SORT typed into the real Sheets page. One run.")
     g["DRILLS"]["tour_sheets_spill"] = tour
