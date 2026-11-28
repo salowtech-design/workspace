@@ -332,6 +332,7 @@ def register(g):
     register_slides_layout(g)
     register_sheets_charts(g)
     register_slides_tspeed(g)
+    register_sheets_profile(g)
     register_pdf_alltext_stop(g)
     register_pdf_roundtrip(g)
     register_slides_order_recovery(g)
@@ -5777,6 +5778,30 @@ def register_slides_tspeed(g):
             t.note("Shown: the speed select, stored values, reload, and the running animation duration read from the browser. Reduced motion was emulated in headless Chromium for both fades; real devices were not tried. Not shown: the PDF and editor (they do not animate by design).", 3)
         run_tour(ctx, "slides_tspeed", body, notes="Device-local deck. Headless Chromium 390x844 emulated.")
     g["DRILLS"]["tour_slides_tspeed"] = tour
+
+
+def register_sheets_profile(g):
+    """Measures, not proves: load, one edit and a recalculation on a sheet whose rows are filled (a before/after profile for the grid)."""
+    APP = g["APP"]
+
+    def tour(ctx):
+        def body(t, pg):
+            rows = int(os.environ.get("PROFILE_ROWS", "100"))
+            pg.goto(APP + "/sheets/")
+            pg.evaluate("localStorage.clear()")
+            pg.goto(APP + "/sheets/")
+            pg.wait_for_timeout(400)
+            seed = """(rows) => { const k = document.getElementById('sheet-root').dataset.storeKey; const c = {};
+              for (let col = 0; col < 26; col++) { const L = String.fromCharCode(65 + col); for (let r = 1; r <= rows; r++) c[L + r] = r === 1 ? (col === 0 ? '1' : '=' + String.fromCharCode(64 + col) + rows + '+1') : '=' + L + (r - 1) + '+1'; }
+              localStorage.setItem(k, JSON.stringify(c)); return Object.keys(c).length; }"""
+            n = pg.evaluate(seed, rows)
+            t0 = time.time(); pg.reload(); pg.wait_for_selector("#sheet-root input"); pg.wait_for_function("document.querySelector('input[data-addr=\"A2\"]') && document.querySelector('input[data-addr=\"A2\"]').value === '2'")
+            load = (time.time() - t0) * 1000
+            m = pg.evaluate("""() => { const inp = document.querySelector('input[data-addr="A1"]'); const t = performance.now(); inp.focus(); inp.value = '5'; inp.blur(); const dt = performance.now() - t; const mem = performance.memory ? Math.round(performance.memory.usedJSHeapSize / 1048576) : null; return { ms: dt, a2: document.querySelector('input[data-addr="A2"]').value, inputs: document.querySelectorAll('#sheet-root input').length, dom: document.getElementsByTagName('*').length, mem }; }""")
+            print("PROFILE rows=%d cells=%d load_ms=%.0f edit_ms=%.1f a2_after_edit=%s inputs=%d dom_nodes=%d heap_mb=%s" % (rows, n, load, m["ms"], m["a2"], m["inputs"], m["dom"], m["mem"]))
+            t.step("Profile recorded (see the log line)", lambda: None, expect=lambda: True)
+        run_tour(ctx, "sheets_profile", body, notes="Measurement only.")
+    g["DRILLS"]["tour_sheets_profile"] = tour
 
 
 def register_sheets_charts(g):

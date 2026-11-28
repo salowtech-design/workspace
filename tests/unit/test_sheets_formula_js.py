@@ -146,4 +146,4 @@ def test_chain_table_passes_in_node():
         timeout=60,
     )
     assert r.returncode == 0, r.stdout + r.stderr
-    assert "7/7 chain rows passed" in r.stdout
+    assert "14/14 chain rows passed" in r.stdout
