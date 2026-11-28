@@ -3459,7 +3459,7 @@ def register_drive_editor(g):
             t.step("Share it with ST-LIVE-2 as Editor", lambda: (pg.fill("input[placeholder='Employee ID']", "ST-LIVE-2"), pg.select_option("select[name=role]", "editor"), pg.click("button:has-text('Share folder')")), expect=lambda: "Editor" in pg.locator(".drive-share").inner_text() and "Second Synthetic" in pg.locator(".drive-share").inner_text(), wait=3500)
 
         run_tour(ctx, "26_drive_editor", body, notes="Real Django on TiDB under uvicorn, headless Chromium 390x844 emulated. The folder shared with Editor access was created by a script as a fixture colleague.",
-                 unshown=["what the second person sees after my Editor share (one signed-in user in this clip)", "folder move (no UI)", "files (not built)"])
+                 unshown=["what the second person sees after my Editor share (one signed-in user in this clip)", "folder move (no UI)", "sending files to another person (not built)"])
 
     g["DRILLS"]["tour_drive_editor"] = tour
 
