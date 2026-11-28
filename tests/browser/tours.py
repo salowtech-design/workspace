@@ -881,7 +881,7 @@ def register_automation(g):
             t.note("Not shown: event triggers, scheduled runs, delete, the 20-workflow cap, 10-run-per-minute limit, another person's workflow.", 3)
 
         run_tour(ctx, "14_automation_notifications", body, notes="Real Django on TiDB, headless Chromium 390x844 emulated. Runs execute inside the web request. No fixtures.",
-                 unshown=["event triggers (not connected)", "scheduled runs (not built)", "delete workflow (not built)", "20 workflow cap", "10 runs per minute limit", "another person's workflow (404)", "10 steps maximum", "edit refusal for non-round-trip workflow"])
+                 unshown=["event triggers (not connected)", "scheduled runs (no schedule trigger; the background runner command exists but is not running)", "delete workflow (not built)", "20 workflow cap", "10 runs per minute limit", "another person's workflow (404)", "10 steps maximum", "edit refusal for non-round-trip workflow"])
 
     g["DRILLS"]["tour_auto"] = auto_tour
 
