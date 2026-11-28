@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+{% block title %}Forms: Salow Workspace{% endblock %}
+{% block content %}
+<div class="card"><h2>Forms</h2>
+<p>Private drafts and preview only. Collecting answers from other people is switched off until the owner approves who may answer and who sees answers.</p>
+<form method="post">{% csrf_token %}<label>Title<input type="text" name="title" maxlength="200" required></label>
+<label>Description (optional)<textarea name="description" rows="2" maxlength="2000"></textarea></label>
+<button class="btn" type="submit">New form</button></form>
+<h3>Your forms</h3><ul>{% for f in mine %}<li><a href="{% url 'forms:editor' f.public_id %}">{{ f.title }}</a> ({{ f.status }})</li>{% empty %}<li>No forms yet.</li>{% endfor %}</ul></div>
+{% endblock %}

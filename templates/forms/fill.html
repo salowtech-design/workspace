@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% block title %}{{ f.title }}: Forms{% endblock %}
+{% block content %}
+<div class="card"><h2>{{ f.title }}</h2>{% if preview %}<p><strong>Preview.</strong> Only you can see this. Nothing is saved.</p><p><a href="{% url 'forms:editor' f.public_id %}">Back to editor</a></p>{% endif %}
+{% if f.description %}<p>{{ f.description }}</p>{% endif %}{% if note %}<p>{{ note }}</p>{% endif %}
+{% if mine %}<h3>Your answers</h3><ol>{% for q, v in mine %}<li>{{ q.text }}: {{ v|default:"(no answer)" }}</li>{% endfor %}</ol>
+{% elif not preview and f.status != 'open' %}<p>This form is not open.</p>
+{% else %}<form method="post">{% csrf_token %}{% for q in questions %}<p><label>{{ q.position }}. {{ q.text }}{% if q.required %} *{% endif %}
+{% if q.kind == 'long_text' %}<textarea name="q{{ q.pk }}" rows="3" maxlength="2000"></textarea>
+{% elif q.kind == 'single_choice' %}<select name="q{{ q.pk }}"><option value=""></option>{% for c in q.choices %}<option>{{ c }}</option>{% endfor %}</select>
+{% elif q.kind == 'multi_choice' %}</label>{% for c in q.choices %}<label><input type="checkbox" name="q{{ q.pk }}" value="{{ c }}"> {{ c }}</label> {% endfor %}<label>
+{% elif q.kind == 'scale_1_5' %}<select name="q{{ q.pk }}"><option value=""></option>{% for n in "12345" %}<option>{{ n }}</option>{% endfor %}</select>
+{% elif q.kind == 'date' %}<input type="date" name="q{{ q.pk }}">
+{% else %}<input type="text" name="q{{ q.pk }}" maxlength="300">{% endif %}</label></p>{% endfor %}
+<button class="btn" type="submit">{% if preview %}Check answers{% else %}Submit{% endif %}</button></form>{% endif %}</div>{% endblock %}

@@ -1,6 +1,7 @@
 # Salow Forms: design pass (internal forms first)
 
-Status: design only, nothing built. Source of the requirement: the owner named Google Forms on 24 and 25 Nov 2026 as a related
+Status: private owner-only creation, editing and preview are built. Collecting answers from other people is built behind
+FORMS_COLLECTION_APPROVED (False) and is OFF: publish and submit are refused until the owner scopes audience and identity privacy. Source of the requirement: the owner named Google Forms on 24 and 25 Nov 2026 as a related
 module (blueprint section 10.3 records it as "not researched, a design pass is needed before any claim"). Forms is not one of
 the 13 listed modules and is not in the blueprint build order. This note is the design pass the blueprint asks for.
 
@@ -26,15 +27,32 @@ question text 300, choice text 100, 20 choices, answer text 2000 (build defaults
 No delete path until retention is decided. No cascade delete.
 
 ## Services and rules
-- create_form, edit_question (draft only), publish (draft to open: needs at least one question and one audience member),
-  close, submit_response, list_results. Each takes the actor and uses can() with a registered "forms.form" policy:
-  owner edits and sees results; an audience member of an open form may submit once and sees only their own answer; everyone
-  else gets 404. Default deny, as elsewhere.
-- Locking: the form row first, then re-read. Publishing freezes the questions: editing an open form is refused (a new version
-  of the schema is a later decision). Submit validates each answer against its question server-side and rejects extras.
-- Build default (labelled, like Calendar's): the owner may add any active person to the audience. Nothing notifies anyone and
-  no email is sent.
-- Audit rows for publish, close, submit.
+- Working now (owner only): create_form, update_details, add_question, change_question (remove, move up, move down), set_audience
+  (a PROPOSED list, not in effect), preview_check (validates like a real submit and stores nothing). Draft only; removal of
+  questions and audience entries is allowed before publish. Position swaps run in two passes so UNIQUE(form, position) holds.
+- Built but switched off: publish, submit_response, close, results, csv_text. After publish or close, questions and audience are
+  frozen; to change them close the form and make a new one. Nothing changes the audience silently.
+- Submit: lock the form row first, re-read, recheck open status and audience through the "forms.form" policy, validate every
+  answer against its question, reject question ids that are not on the form, create the response, and map a duplicate-key error to
+  "already answered". Number, date and scale answers are stored normalised (7.50 is stored as 7.5; ASCII digits only).
+- Every check is in the service code. The tests were run on real TiDB; no rule depends on a database CHECK.
+- CSV: cells starting with = + - @ tab or CR get a leading apostrophe. Generated on the server from the rows the owner sees.
+- Audit rows for create, update, audience, publish, close, submit, export. Nothing notifies anyone. No email.
+
+## Privacy defaults are PROPOSED, not decided
+These shape who can see people's answers, so they are the owner's to approve before any real collection:
+- Audience: an owner-chosen list of active people (no "everyone").
+- Owner sees each response with the respondent's employee ID (not anonymous). No admin or other access to responses.
+- A respondent sees only their own answers, also after the form closes.
+- Retention: indefinite, no delete path (every foreign key is PROTECT).
+- Nothing notifies respondents.
+
+## Smallest decision needed for a working internal pilot
+One question: may the form owner see which person gave which answer? Recommendation: yes, named responses, owner only, with the
+form screen telling each respondent before they submit that the owner sees their name and answers. Reason: it matches how
+Calendar and Tasks already show a named person to the owner, and anonymous responses need a separate design (no join from answer to
+person, which also removes one-response-per-person unless done with a token). Public fill, retention, Sheets export and
+notifications are not part of this decision and stay out of the first slice, not abandoned.
 
 ## UI
 List (my forms, forms for me), editor (questions in order, move up and down, one page), fill page, results table with counts
@@ -45,6 +63,5 @@ Owner and non-audience refusal with owner same-payload controls and full-row sna
 tests), one response per person under a repeated submit, required and type validation, closed and draft forms refuse fills,
 results visible to the owner only, no file-type question exists.
 
-## Open user-owned choices, none needed for this slice
-Public or anonymous fill; link sharing; response retention and deletion; whether responses are anonymous to the owner;
-export into Sheets; notifications. None are built or defaulted.
+## Later, owner-owned, not in the first slice
+Public or anonymous fill; link sharing; retention and deletion; Sheets export; notifications. None are built.

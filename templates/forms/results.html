@@ -1,0 +1,6 @@
+{% extends "base.html" %}
+{% block title %}Results: {{ f.title }}{% endblock %}
+{% block content %}
+<div class="card"><h2>Results: {{ f.title }}</h2><p><a href="{% url 'forms:editor' f.public_id %}">Back</a> | <a href="{% url 'forms:csv' f.public_id %}">Download CSV</a></p>
+{% for q, tally in counts %}<h4>{{ q.text }}</h4><ul>{% for o, n in tally %}<li>{{ o }}: {{ n }}</li>{% endfor %}</ul>{% endfor %}
+<table><tr><th>Person</th>{% for q in questions %}<th>{{ q.text }}</th>{% endfor %}</tr>{% for r, vals in rows %}<tr><td>{{ r.person.employee_id }}</td>{% for v in vals %}<td>{{ v }}</td>{% endfor %}</tr>{% empty %}<tr><td>No responses.</td></tr>{% endfor %}</table></div>{% endblock %}

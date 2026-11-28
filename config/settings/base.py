@@ -30,6 +30,7 @@ LOCAL_APPS = [
     "apps.drive.apps.DriveConfig",
     "apps.tasks.apps.TasksConfig",
     "apps.events.apps.EventsConfig",
+    "apps.forms.apps.FormsConfig",
     "apps.finder.apps.FinderConfig",
     "apps.chat.apps.ChatConfig",
     "apps.sheets.apps.SheetsConfig",
@@ -158,3 +159,6 @@ AUDIT_ACTIVE_KEY_ID = os.environ.get("AUDIT_ACTIVE_KEY_ID", "k1")
 IAM_HOSTNAME = os.environ.get("IAM_HOSTNAME", "iam.salowtech.com")
 WORKSPACE_HOSTNAME = os.environ.get("WORKSPACE_HOSTNAME", "app.salowtech.com")
 MAX_CONCURRENT_DEVICES = int(os.environ.get("MAX_CONCURRENT_DEVICES", "3"))
+
+# Forms: real respondent collection (publish and submit) stays off until the owner scopes audience and identity privacy.
+FORMS_COLLECTION_APPROVED = False
