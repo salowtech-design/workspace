@@ -26,7 +26,7 @@ People, Work Logs, Chat), IAM and Admin consoles, Sheets and Slides (device-loca
 One run each, headless Chromium 390x844 emulated, TiDB 8.5.1 unistore, one machine, frames watched by the executor:
 Chat main (17 steps), Chat mentions (5), Chat search (9), Calendar main (14), Tasks lists (17), Tasks projects (8),
 Drive main (15). All 0 failed, no page errors, no outside requests. Closing captions of Chat, Drive, Projects and
-Calendar series said "not built" for things that exist; fixed in tests/browser/tours.py (Drive and Projects clips were
+Calendar series said "not built" for things that exist (for Calendar only the guest notice; un-cancel and single-occurrence edit are still not built); fixed in tests/browser/tours.py (Drive and Projects clips were
 corrected by overlay on the existing recording, not re-recorded).
 
 Existing tours that were run on earlier heads and not re-run at this head: project_restore, project_rename,
