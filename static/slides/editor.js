@@ -367,7 +367,7 @@
       var li = document.createElement("li"), nm = document.createElement("span"), r = document.createElement("button"), d = document.createElement("button"), armed = delArm === v.n;
       nm.textContent = v.n + " "; r.type = d.type = "button"; r.className = d.className = "btn"; r.textContent = "Restore"; d.textContent = armed ? "Confirm delete" : "Delete";
       r.setAttribute("aria-label", "Restore version " + v.n); d.setAttribute("aria-label", (armed ? "Confirm delete of version " : "Delete version ") + v.n);
-      r.addEventListener("click", function () { vrestore(v.n); }); d.addEventListener("click", function () { vdelete(v.n); });
+      r.addEventListener("click", function () { vrestore(v.n, v.d); }); d.addEventListener("click", function () { vdelete(v.n, v.d); });
       li.appendChild(nm); li.appendChild(r); li.appendChild(document.createTextNode(" ")); li.appendChild(d); ul.appendChild(li);
     });
     $("sl-ver-save").disabled = vers.unreadable;
@@ -389,18 +389,20 @@
     if (!vsave(r.items)) { vsay("This browser would not store the version, so nothing was saved. The deck and the earlier versions are unchanged."); return; }
     vers.items = r.items; delArm = null; $("sl-ver-name").value = ""; vdraw(); vsay("Saved the version " + r.items[r.items.length - 1].n + ".");
   });
-  function vrestore(name) {
+  function vrestore(name, shown) {
     if (!vlive()) return; var i = S.verIndex(vers.items, name);
+    if (i >= 0 && vers.items[i].d !== shown) { vdraw(); vsay("The version " + name + " was replaced in another tab after this list was drawn. Nothing was changed. Check the list and try again."); return; }
     if (i < 0) { vsay("That version is no longer in the list (another tab changed it). Nothing was changed."); return; }
     var d = S.verDeck(vers.items, i);
     if (!d) { vsay("That version could not be read, so nothing was changed."); return; }
     if (JSON.stringify(d) === JSON.stringify(H.deck)) { vsay("The deck already matches " + name + ". Nothing changed."); return; }
     if (apply(d, "Restored the version " + name + ". You can undo this.")) { syncProps(); vsay("Restored " + name + ". Undo brings the previous deck back until you reload." + (H.saveFailed ? " This browser would not store the restored deck, so it is on screen only." : "")); }
   }
-  function vdelete(name) {
+  function vdelete(name, shown) {
     if (delArm !== name) { delArm = name; vdraw(); vsay("Click Confirm delete to remove " + name + ". A deleted version cannot be brought back."); return; }
     delArm = null; if (!vfresh()) return; var i = S.verIndex(vers.items, name);
     if (i < 0) { vdraw(); vsay("That version is already gone. Nothing was changed."); return; }
+    if (vers.items[i].d !== shown) { vdraw(); vsay("The version " + name + " was replaced in another tab after this list was drawn. Nothing was deleted. Check the list and try again."); return; }
     var n = S.delVer(vers.items, i);
     if (!vsave(n)) { vdraw(); vsay("This browser would not update the version list, so nothing was deleted."); return; }
     vers.items = n; vdraw(); vsay("Deleted " + name + ".");
