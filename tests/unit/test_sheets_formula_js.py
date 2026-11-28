@@ -50,7 +50,7 @@ def test_structure_table_passes_in_node():
         timeout=60,
     )
     assert r.returncode == 0, r.stdout + r.stderr
-    assert "60/60 structure rows passed" in r.stdout
+    assert "65/65 structure rows passed" in r.stdout
 
 
 def test_structure_storage_table_passes_in_node():
@@ -146,4 +146,4 @@ def test_chain_table_passes_in_node():
         timeout=60,
     )
     assert r.returncode == 0, r.stdout + r.stderr
-    assert "14/14 chain rows passed" in r.stdout
+    assert "34/34 chain rows passed" in r.stdout

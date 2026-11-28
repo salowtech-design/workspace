@@ -2,7 +2,7 @@
   "use strict";
   var root = document.getElementById("sheet-root");
   if (!root || !window.SalowFormula) return;
-  var F = SalowFormula, KEY = root.getAttribute("data-store-key"), COLS = 26, ROWS = 100, MAXCELL = 2000, HIST = 100;
+  var F = SalowFormula, KEY = root.getAttribute("data-store-key"), COLS = 26, ROWS = 1000, MAXCELL = 2000, HIST = 100;
   var status = document.getElementById("sheet-status"), bar = document.getElementById("sheet-bar"), sel = document.getElementById("sheet-sel");
   var undoBtn = document.getElementById("sheet-undo"), redoBtn = document.getElementById("sheet-redo");
   var M = SalowSheetModel, has = function (o, k) { return Object.prototype.hasOwnProperty.call(o, k); };
@@ -121,15 +121,96 @@
   var table = document.createElement("table"), inputs = Object.create(null), cur = null, orig = "";
   var head = table.insertRow(), corner = document.createElement("th"); corner.setAttribute("aria-hidden", "true"); head.appendChild(corner);  // a th, so the blank corner pins like the headers and covers a row number that scrolls under it
   for (var c = 1; c <= COLS; c++) { var th = document.createElement("th"); th.textContent = String.fromCharCode(64 + c); head.appendChild(th); }
+  // Virtualised rows: all ROWS rows exist, but only the rows near the view hold their 26 inputs. The others are a row header and a fixed-height gap, so a
+  // 1000-row sheet costs about 80 rows of inputs, not 26,000. A row that holds the focus, the selected cell or a frozen row is never emptied.
+  var ROWH = 38, mat = Object.create(null), nMat = 0, frzTop = 0, frzLefts = null, frzTops = null;
   for (var r = 1; r <= ROWS; r++) {
-    var tr = table.insertRow(), rh = document.createElement("th"); rh.textContent = r; tr.appendChild(rh);
-    for (c = 1; c <= COLS; c++) {
-      var a = String.fromCharCode(64 + c) + r, inp = document.createElement("input");
+    var tr = table.insertRow(), rh = document.createElement("th"); rh.textContent = r; tr.appendChild(rh); tr.style.height = ROWH + "px";
+  }
+  function inGridAddr(k) { var p = F.parseAddr(k); return !!p && p.row >= 1 && p.row <= ROWS && p.col >= 1 && p.col <= COLS; }
+  function buildRow(r) {
+    if (mat[r]) return; var tr = table.rows[r]; if (!tr) return;
+    for (var c = 1; c <= COLS; c++) {
+      var L = String.fromCharCode(64 + c), a = L + r, inp = document.createElement("input");
       inp.type = "text"; inp.maxLength = MAXCELL; inp.setAttribute("aria-label", "Cell " + a); inp.dataset.addr = a;
+      if (typeof cwMap !== "undefined" && cwMap[L]) inp.style.width = cwMap[L] + "px";
       inputs[a] = inp; tr.insertCell().appendChild(inp);
     }
+    mat[r] = true; nMat++; tr.style.height = "";
+    if (typeof frzCellsOf === "function") frzCellsOf(r);
   }
+  function inpFor(a) { if (!inputs[a] && inGridAddr(a)) { buildRow(F.parseAddr(a).row); paintRows([F.parseAddr(a).row]); } return inputs[a]; }
+  function keepRow(r) {
+    if (r <= Math.max(1, frzTop)) return true;
+    var ae = document.activeElement; if (ae && ae.dataset && ae.dataset.addr && F.parseAddr(ae.dataset.addr).row === r) return true;
+    return !!cur && F.parseAddr(cur).row === r;
+  }
+  function dropRow(r) {
+    if (!mat[r] || keepRow(r)) return; var tr = table.rows[r], h = tr.offsetHeight;
+    for (var c = 1; c <= COLS; c++) delete inputs[String.fromCharCode(64 + c) + r];
+    while (tr.cells.length > 1) tr.deleteCell(1);
+    tr.style.height = (h || ROWH) + "px"; delete mat[r]; nMat--;
+  }
+  // Painting is time-sliced: cells are worked out in slices of about SLICE_MS and the page yields between slices, so a sheet of very heavy formulas
+  // cannot block it. A cell still waiting shows "..." and is marked data-calc (never its old value as if current). Every whole-sheet repaint
+  // (show) starts a new generation: the queue, and the Sheet it reads, are replaced, so a slice of an older generation cannot run. A queued
+  // address is looked up when it is painted, so a row dropped and rebuilt meanwhile gets its own value and an old value cannot land in a recycled input.
+  var SLICE_MS = 40, pGen = 0, pQ = [], pAt = 0, pSh = null, pTimer = 0;
+  function pNow() { return (window.performance && performance.now) ? performance.now() : Date.now(); }
+  function pRun(gen) {
+    pTimer = 0; if (gen !== pGen) return;
+    var t0 = pNow();
+    while (pAt < pQ.length) {
+      var a = pQ[pAt++], inp = inputs[a];
+      if (inp) paintAddr(pSh, a);
+      if (pNow() - t0 > SLICE_MS) break;
+    }
+    if (pAt >= pQ.length) { pQ = []; pAt = 0; return; }
+    for (var i = pAt; i < pQ.length; i++) { var w = inputs[pQ[i]]; if (w && !w.dataset.calc && document.activeElement !== w) { w.dataset.calc = "1"; w.value = "\u2026"; w.title = "Calculating"; } }
+    pTimer = setTimeout(function () { pRun(gen); }, 0);
+  }
+  function pStart(addrs, fresh) {
+    if (fresh) { pGen++; root.dataset.paintGen = String(pGen); pQ = []; pAt = 0; pSh = mkSheet(cells); if (pTimer) { clearTimeout(pTimer); pTimer = 0; } }
+    else if (!pSh) pSh = mkSheet(cells);
+    if (pAt) { pQ = pQ.slice(pAt); pAt = 0; }
+    for (var i = 0; i < addrs.length; i++) pQ.push(addrs[i]);
+    if (pTimer) return;
+    pRun(pGen);
+  }
+  function pFront(a) { if (!pSh) pSh = mkSheet(cells); pQ.splice(pAt, 0, a); if (pTimer) { clearTimeout(pTimer); pTimer = 0; } pRun(pGen); }
+  function paintRows(list) { var q = []; list.forEach(function (r) { for (var c = 1; c <= COLS; c++) { var a = String.fromCharCode(64 + c) + r; if (inputs[a]) q.push(a); } }); pStart(q, false); }
+  // Which rows are in view: the rows whose box meets the part of the grid box that is on screen, found by halving over the real row positions (hidden rows have no height).
+  function winRange() {
+    var sc = table.parentNode.getBoundingClientRect(), top = sc.top, bot = sc.bottom;
+    if (bot <= top) return null;
+    var rows = table.rows, lo = 1, hi = ROWS, mid, p;
+    // first row whose bottom reaches the top of the grid box. A hidden row has no box, so the probe moves to the next shown row.
+    while (lo < hi) {
+      mid = (lo + hi) >> 1; p = mid; while (p <= hi && rows[p].hidden) p++;
+      if (p > hi) { hi = mid; continue; }
+      if (rows[p].getBoundingClientRect().bottom < top) lo = p + 1; else hi = p > mid ? mid : p;
+    }
+    var first = lo; hi = ROWS;
+    // last row whose top is above the bottom of the grid box
+    while (lo < hi) {
+      mid = (lo + hi + 1) >> 1; p = mid; while (p >= lo && rows[p].hidden) p--;
+      if (p < lo) { lo = mid; continue; }
+      if (rows[p].getBoundingClientRect().top > bot) hi = Math.max(lo, p - 1); else lo = mid;
+    }
+    return { first: first, last: lo };
+  }
+  var WBUF = 12, WKEEP = 50, winRaf = 0;
+  function winUpdate() {
+    winRaf = 0; var w = winRange(); if (!w) return;
+    var from = Math.max(1, w.first - WBUF), to = Math.min(ROWS, w.last + WBUF), made = [], r, nShown = 0;
+    for (r = from; r <= to; r++) if (!table.rows[r].hidden) { nShown++; if (!mat[r]) { buildRow(r); made.push(r); } }  // a hidden row has no box, so it gets no inputs until the filter shows it
+    if (made.length) paintRows(made);
+    if (nMat > nShown + 2 * WKEEP) Object.keys(mat).forEach(function (k) { k = +k; if (k < from - WKEEP || k > to + WKEEP) dropRow(k); });  // sparse filter: the window is many index rows wide, so count the shown ones
+  }
+  function winSoon() { if (!winRaf) winRaf = requestAnimationFrame(winUpdate); }
   root.appendChild(table);
+  window.addEventListener("scroll", winSoon, { passive: true }); table.parentNode.addEventListener("scroll", winSoon, { passive: true }); window.addEventListener("resize", winSoon);
+  buildRow(1); ROWH = table.rows[1].offsetHeight || ROWH; for (var rr0 = 2; rr0 <= ROWS; rr0++) table.rows[rr0].style.height = ROWH + "px";
   function showVal() {
     var v = $("sheet-val"); if (!v) return;
     var raw = cur ? cells[cur] : null;
@@ -140,8 +221,11 @@
   }
   function show() {
     showVal();
-    var sh = mkSheet(cells);
-    Object.keys(inputs).forEach(function (a) {
+    pStart(Object.keys(inputs), true);
+  }
+  function paintAddr(sh, a) {
+    {
+      delete inputs[a].dataset.calc;
       var sv = sh.get(a), shown = F.isErr(sv) ? sv.code : String(sv), col = cfLocked ? null : M.cfColor(cfRules, a, shown, F.parseAddr);
       if (col) inputs[a].dataset.cf = col; else delete inputs[a].dataset.cf;
       var f = fmtLocked ? {} : M.fmtFor(fmtRules, a, F.parseAddr), inp = inputs[a];
@@ -150,7 +234,7 @@
       if (document.activeElement === inp) return;
       var text = F.isErr(sv) ? shown : M.fmtText(f.nf, shown);
       inp.value = text; inp.title = (cells[a] || "") + (typeof cells[a] === "string" && cells[a][0] === "=" && text === shown ? " (result " + shown + ")" : "") + (col ? (cells[a] ? " " : "") + "(highlighted " + col + " by a colour rule)" : "") + (text !== shown ? (cells[a] || col ? " " : "") + "(shown with a number format; value " + shown + ")" : "");
-    });
+    }
   }
   function commit(a, v) {
     if (rulesLocked && v !== (cells[a] || "")) { status.textContent = "This tab's validation rules could not be read, so edits are off until they are fixed or removed. Use Download unreadable rules to keep a copy. The edit was not applied."; return; }
@@ -161,13 +245,19 @@
     if (!cur) return; var p = F.parseAddr(cur), nc = Math.min(COLS, Math.max(1, p.col + dc)), nr = Math.min(ROWS, Math.max(1, p.row + dr));
     while (dr && rowHidden(nr) && nr + (dr > 0 ? 1 : -1) >= 1 && nr + (dr > 0 ? 1 : -1) <= ROWS) nr += dr > 0 ? 1 : -1;
     if (rowHidden(nr)) return;
-    inputs[String.fromCharCode(64 + nc) + nr].focus();
+    inpFor(String.fromCharCode(64 + nc) + nr).focus();
   }
   table.addEventListener("focusin", function (e) {
     var a = e.target.dataset && e.target.dataset.addr; if (!a) return;
-    cur = a; barDirty = false; orig = cells[a] || ""; e.target.value = orig; bar.value = orig; sel.textContent = a; showVal(); e.target.select();
+    cur = a; barDirty = false; orig = cells[a] || ""; delete e.target.dataset.calc; e.target.value = orig; bar.value = orig; sel.textContent = a; showVal(); e.target.select();
   });
-  table.addEventListener("focusout", function (e) { var a = e.target.dataset && e.target.dataset.addr; if (a) commit(a, e.target.value); show(); });
+  table.addEventListener("focusout", function (e) {
+    var a = e.target.dataset && e.target.dataset.addr, c0 = cells;
+    if (a) commit(a, e.target.value);
+    // Nothing changed (the same cells object): do not restart the whole queue, only bring this cell's own value back (it was showing its raw text).
+    if (a && cells === c0 && inputs[a] === e.target) { showVal(); pFront(a); return; }
+    show();
+  });
   table.addEventListener("input", function (e) { if (e.target.dataset && e.target.dataset.addr === cur) bar.value = e.target.value; });
   // Paste a block (tabs and line breaks) from another spreadsheet at the focused cell. A single value pastes normally.
   table.addEventListener("paste", function (e) {
@@ -179,7 +269,7 @@
     var parsed = M.parsePaste(text, F.parseAddr); if (parsed.error) { status.textContent = parsed.error; return; }
     var p = F.parseAddr(a);
     var res = M.applyPaste(cells, parsed, p.col, p.row, COLS, ROWS, MAXCELL, function (addr, v) { return M.checkValue(rules, addr, v, F.parseAddr); }, function (c, r) { return String.fromCharCode(64 + c) + r; });
-    var bits = [res.set + " cells filled"]; if (res.cleared) bits.push(res.cleared + " cleared"); if (res.clipped) bits.push(res.clipped + " outside Z100 left out"); if (res.refused) bits.push(res.refused + " refused by validation rules"); if (res.tooLong) bits.push(res.tooLong + " too long (over " + MAXCELL + " characters) left out"); if (res.breaks) bits.push(res.breaks + " with a line break inside, shown with a space instead"); if (res.formulas) bits.push(res.formulas + " start with = and are formulas");
+    var bits = [res.set + " cells filled"]; if (res.cleared) bits.push(res.cleared + " cleared"); if (res.clipped) bits.push(res.clipped + " outside Z1000 left out"); if (res.refused) bits.push(res.refused + " refused by validation rules"); if (res.tooLong) bits.push(res.tooLong + " too long (over " + MAXCELL + " characters) left out"); if (res.breaks) bits.push(res.breaks + " with a line break inside, shown with a space instead"); if (res.formulas) bits.push(res.formulas + " start with = and are formulas");
     if (!res.set && !res.cleared) { status.textContent = "Nothing was pasted: " + bits.slice(1).join(", ") + "."; return; }
     if (!change(res.cells, "Pasted " + parsed.rows + " rows by " + parsed.cols + " columns at " + a + ": " + bits.join(", ") + ". Undo works.")) return;
     orig = cells[a] || ""; t.value = orig; bar.value = orig;
@@ -187,7 +277,7 @@
   function fill(dir) {
     var rg = parseRange($("fill-range").value);
     if (!rg) { status.textContent = "Enter a range like A1:A10."; return; }
-    if (rg.c2 > COLS || rg.r2 > ROWS) { status.textContent = "A fill range must stay inside A1:Z100."; return; }
+    if (rg.c2 > COLS || rg.r2 > ROWS) { status.textContent = "A fill range must stay inside A1:Z1000."; return; }
     if (filt) { status.textContent = "A filter is on, so nothing was filled (it would also fill rows you cannot see). Clear the filter first."; return; }
     if (rulesLocked) { status.textContent = "This tab's validation rules could not be read, so a fill cannot be checked and nothing was filled. The rules were left untouched."; return; }
     var res = M.fillRange(cells, rg, dir, function (addr, v) { return M.checkValue(rules, addr, v, F.parseAddr); }, function (c, r) { return String.fromCharCode(64 + c) + r; }, MAXCELL, F.shiftFormula);
@@ -204,13 +294,13 @@
   $("find-next").addEventListener("click", function () {
     var r = M.findReplace(cells, findOpts(null), findCtx(null));
     if (r.error) { findStat.textContent = r.error; return; }
-    if (!r.hits.length) { findStat.textContent = "No match in A1:Z100." + (r.outside ? " " + r.outside + " matches outside it are counted but not listed or changed." : ""); return; }
+    if (!r.hits.length) { findStat.textContent = "No match in A1:Z1000." + (r.outside ? " " + r.outside + " matches outside it are counted but not listed or changed." : ""); return; }
     var cp = cur ? F.parseAddr(cur) : null, pick = r.hits[0];
     if (cp) for (var i = 0; i < r.hits.length; i++) { var q = F.parseAddr(r.hits[i]); if (q.row > cp.row || (q.row === cp.row && q.col > cp.col)) { pick = r.hits[i]; break; } }
     var pq = F.parseAddr(pick);
     if (pq.row > ROWS || pq.col > COLS) { findStat.textContent = "The match " + pick + " is outside the visible grid."; return; }
-    if (inputs[pick].closest("tr") && inputs[pick].closest("tr").hidden) { findStat.textContent = "The next match " + pick + " is in a row hidden by the filter."; return; }
-    inputs[pick].focus(); findStat.textContent = "Match in " + pick + " (" + (r.hits.indexOf(pick) + 1) + " of " + r.hits.length + ")" + (r.resultOnly ? ", " + r.resultOnly + " of them in formula results" : "") + ".";
+    if (table.rows[pq.row].hidden) { findStat.textContent = "The next match " + pick + " is in a row hidden by the filter."; return; }
+    inpFor(pick).focus(); findStat.textContent = "Match in " + pick + " (" + (r.hits.indexOf(pick) + 1) + " of " + r.hits.length + ")" + (r.resultOnly ? ", " + r.resultOnly + " of them in formula results" : "") + ".";
   });
   $("find-all").addEventListener("click", function () {
     if (heldMsg()) return;
@@ -218,8 +308,8 @@
     if (rulesLocked) { findStat.textContent = "This tab's validation rules could not be read, so a replacement cannot be checked and nothing was replaced. The rules were left untouched."; return; }
     var r = M.findReplace(cells, findOpts($("find-repl").value), findCtx(function (addr, v) { return M.checkValue(rules, addr, v, F.parseAddr); }));
     if (r.error) { findStat.textContent = r.error; return; }
-    var bits = [r.changed + " cells changed"]; if (r.cleared) bits.push(r.cleared + " emptied"); if (r.resultOnly) bits.push(r.resultOnly + " formula results matched and left alone"); if (r.becameFormula) bits.push(r.becameFormula + " skipped (would become a formula)"); if (r.lostEquals) bits.push(r.lostEquals + " skipped (formula would lose its =)"); if (r.badFormula) bits.push(r.badFormula + " skipped (formula would no longer parse)"); if (r.outside) bits.push(r.outside + " matches outside A1:Z100 counted, not listed or changed"); if (r.tooLong) bits.push(r.tooLong + " too long"); if (r.refused) bits.push(r.refused + " refused by validation rules");
-    if (!r.changed && !r.cleared) { var why = bits.slice(1).join(", "); findStat.textContent = "Nothing changed" + (why ? ": " + why : r.matched ? ": the text is already what you asked for" : r.outside ? "" : ": no match") + (r.outside && !why ? ": " + r.outside + " matches outside A1:Z100 counted, not listed or changed" : "") + "."; return; }
+    var bits = [r.changed + " cells changed"]; if (r.cleared) bits.push(r.cleared + " emptied"); if (r.resultOnly) bits.push(r.resultOnly + " formula results matched and left alone"); if (r.becameFormula) bits.push(r.becameFormula + " skipped (would become a formula)"); if (r.lostEquals) bits.push(r.lostEquals + " skipped (formula would lose its =)"); if (r.badFormula) bits.push(r.badFormula + " skipped (formula would no longer parse)"); if (r.outside) bits.push(r.outside + " matches outside A1:Z1000 counted, not listed or changed"); if (r.tooLong) bits.push(r.tooLong + " too long"); if (r.refused) bits.push(r.refused + " refused by validation rules");
+    if (!r.changed && !r.cleared) { var why = bits.slice(1).join(", "); findStat.textContent = "Nothing changed" + (why ? ": " + why : r.matched ? ": the text is already what you asked for" : r.outside ? "" : ": no match") + (r.outside && !why ? ": " + r.outside + " matches outside A1:Z1000 counted, not listed or changed" : "") + "."; return; }
     if (!change(r.cells, "Replaced in " + (r.changed + r.cleared) + " cells. Undo works.")) return;
     findStat.textContent = bits.join(", ") + ". Undo works."; if (cur) { orig = cells[cur] || ""; bar.value = orig; }
   });
@@ -247,17 +337,32 @@
     if (!change(Object.create(null), "Sheet cleared. Undo works until you reload this page.")) { status.textContent = "Nothing to clear."; return; }
     if (!H.saveFailed) status.textContent += " The stored copy is now empty; after a reload the cleared content cannot be brought back.";
   });
-  function outside(c) { return Object.keys(c).filter(function (k) { return !has(inputs, k); }).length; }
+  function outside(c) { return Object.keys(c).filter(function (k) { return !inGridAddr(k); }).length; }
   document.getElementById("sheet-export").addEventListener("click", function () {
     var u = URL.createObjectURL(new Blob([JSON.stringify(cells)], { type: "application/json" })), l = document.createElement("a");
     l.href = u; l.download = "sheet.json"; document.body.appendChild(l); l.click(); l.remove(); URL.revokeObjectURL(u);
   });
+  var csvBusy = false;
+  function csvSame(snap) { var k1 = Object.keys(snap), k2 = Object.keys(cells); return k1.length === k2.length && k1.every(function (k) { return cells[k] === snap[k]; }); }
   document.getElementById("sheet-csv").addEventListener("click", function () {
-    var sh = mkSheet(cells), r = M.toCsv(cells, F.parseAddr, function (a) { return sh.get(a); }, F.isErr);
+    if (csvBusy) { status.textContent = "The CSV is still being calculated."; return; }
+    var snap = Object.assign({}, cells), sh = mkSheet(snap), g0 = pGen, tab0 = meta.active, keys = Object.keys(snap).filter(function (k) { var q = F.parseAddr(k); return q && q.col <= 26 && q.row <= 1000; }), vals = Object.create(null), i = 0, btn = document.getElementById("sheet-csv");
+    csvBusy = true; btn.disabled = true; btn.dataset.csv = "calculating";
+    function step() {
+      if (meta.active !== tab0 || (pGen !== g0 && !csvSame(snap))) { csvBusy = false; btn.disabled = false; btn.dataset.csv = "cancelled"; status.textContent = "The sheet changed while the CSV was being calculated, so nothing was downloaded. Press Download CSV again."; return; }
+      var t0 = pNow();
+      while (i < keys.length) { vals[keys[i]] = sh.get(keys[i]); i++; if (pNow() - t0 > SLICE_MS) break; }
+      if (i < keys.length) { status.textContent = "Calculating the CSV: " + Math.floor(100 * i / keys.length) + "% (" + i + " of " + keys.length + " cells)."; setTimeout(step, 0); return; }
+      csvBusy = false; btn.disabled = false; btn.dataset.csv = "done"; finish();
+    }
+    function finish() {
+    var r = M.toCsv(snap, F.parseAddr, function (a) { return vals[a]; }, F.isErr);
     if (!r) { status.textContent = "The sheet is empty, so nothing was downloaded."; return; }
     var u = URL.createObjectURL(new Blob([r.text], { type: "text/csv;charset=utf-8" })), l = document.createElement("a");
     l.href = u; l.download = "sheet.csv"; document.body.appendChild(l); l.click(); l.remove(); setTimeout(function () { URL.revokeObjectURL(u); }, 4000);
     status.textContent = "Downloaded sheet.csv: " + r.rows + " rows by " + r.cols + " columns, with the values shown (not formulas)." + (filt ? " It includes the rows the filter hides." : "") + (r.broken ? " " + r.broken + " half emoji character(s) from LEFT, RIGHT or MID cannot be saved in a file and were written as the replacement character (U+FFFD)." : "") + " The file is UTF-8 without a byte-order mark, so some programs may need you to pick UTF-8 when importing. It has not been tried in a spreadsheet program." + (r.guarded ? " " + r.guarded + " text cell(s) looked like formulas (they start with = + - or @), so a leading apostrophe was added. The apostrophe is part of the text in the file, so it shows up when you open it. That lowers the chance a spreadsheet program runs them, but it is not a guarantee for every program." : "");
+      }
+    step();
   });
   document.getElementById("sheet-import").addEventListener("change", function (e) {
     var f = e.target.files[0]; if (!f) return;
@@ -270,7 +375,7 @@
       if (!p || !p.count) { status.textContent = "That file has no usable cells. Your sheet was not changed."; return; }
       if (Object.keys(cells).length && !window.confirm("Replace the " + Object.keys(cells).length + " cells in this tab with the " + p.count + " cells in this file? You can undo it afterwards.")) { status.textContent = "Import cancelled. Your sheet was not changed."; return; }
       var o = outside(p.cells);
-      change(p.cells, "Imported " + p.count + " cells" + (p.skipped ? ", skipped " + p.skipped + " entries that were not valid cells" : "") + (o ? ". " + o + " cells are outside the visible grid (A1:Z100): they are kept, used by formulas and exported, but not shown" : "") + ". You can undo this import.");
+      change(p.cells, "Imported " + p.count + " cells" + (p.skipped ? ", skipped " + p.skipped + " entries that were not valid cells" : "") + (o ? ". " + o + " cells are outside the visible grid (A1:Z1000): they are kept, used by formulas and exported, but not shown" : "") + ". You can undo this import.");
     };
     rd.readAsText(f); e.target.value = "";
   });
@@ -289,7 +394,7 @@
       if (r.error) { status.textContent = r.error; return; }
       if (!r.set) { status.textContent = "That file has no cells to import. Your sheet was not changed."; return; }
       var notes = [];
-      if (r.clipped) notes.push(r.clipped + " cells past column Z or row 100 will be left out");
+      if (r.clipped) notes.push(r.clipped + " cells past column Z or row 1000 will be left out");
       if (r.refused) notes.push(r.refused + " cells a validation rule refuses will be left out");
       if (r.tooLong) notes.push(r.tooLong + " cells over " + MAXCELL + " characters will be left out");
       if (r.breaks) notes.push(r.breaks + " cells with a line break will have it turned into a space");
@@ -301,7 +406,7 @@
         if (!window.confirm(q)) { status.textContent = "Import cancelled. Your sheet was not changed."; return; }
         if (H !== impH || meta.active !== impTab) { status.textContent = "The tab changed while the question was open, so the import was cancelled. Nothing was changed."; return; }
       }
-      var bits = [r.set + " cells imported from " + r.rows + " rows by " + r.cols + " columns"]; if (r.clipped) bits.push(r.clipped + " outside Z100 left out"); if (r.refused) bits.push(r.refused + " refused by validation rules"); if (r.tooLong) bits.push(r.tooLong + " too long (over " + MAXCELL + " characters) left out"); if (r.breaks) bits.push(r.breaks + " line breaks inside cells became spaces"); if (r.literal) bits.push(r.literal + " cells in the file started with = and were kept as text with a leading apostrophe, not run as formulas"); if (bad) bits.push(bad + " replacement characters were in the text (not valid UTF-8)");
+      var bits = [r.set + " cells imported from " + r.rows + " rows by " + r.cols + " columns"]; if (r.clipped) bits.push(r.clipped + " outside Z1000 left out"); if (r.refused) bits.push(r.refused + " refused by validation rules"); if (r.tooLong) bits.push(r.tooLong + " too long (over " + MAXCELL + " characters) left out"); if (r.breaks) bits.push(r.breaks + " line breaks inside cells became spaces"); if (r.literal) bits.push(r.literal + " cells in the file started with = and were kept as text with a leading apostrophe, not run as formulas"); if (bad) bits.push(bad + " replacement characters were in the text (not valid UTF-8)");
       change(r.cells, bits.join(", ") + ". Everything is text as written in the file, numbers are not converted. This replaced the tab's cells. Undo works.");
     };
     rd.readAsText(f); e.target.value = "";
@@ -543,7 +648,8 @@
   function showAllRows() { for (var i = 1; i <= ROWS; i++) table.rows[i].hidden = false; }
   // the filter covers rows down to the last one that holds anything; empty rows below stay visible
   function lastRow() { var m = 0; Object.keys(cells).forEach(function (k) { var p = F.parseAddr(k); if (p && p.row <= ROWS && p.row > m) m = p.row; }); return m; }
-  function applyFilter() {
+  function applyFilter() { applyFilter0(); if (table.parentNode) winUpdate(); }  // rows a filter just showed must get their inputs
+  function applyFilter0() {
     showAllRows(); $("filter-clear").disabled = !filt;
     if (!filt) { fstat.textContent = ""; return; }
     var last = lastRow(), sh = mkSheet(cells), res = M.filterRows(function (a) { return sh.get(a); }, F.isErr, 1, Math.max(1, last), filt.col, filt.op, filt.val, filt.header);
@@ -555,7 +661,7 @@
       var hr = aeRow || curRow, best = 0, d;
       for (d = 1; d <= ROWS && !best; d++) { if (hr - d >= 1 && !rowHidden(hr - d)) best = hr - d; else if (hr + d <= ROWS && !rowHidden(hr + d)) best = hr + d; }
       var colL = cur ? cur.replace(/[0-9]+$/, "") : "A";
-      if (best) { inputs[colL + best].focus(); fstat.textContent = "Row " + hr + " no longer matches the filter and is hidden. Focus moved to row " + best + ". " + fstat.textContent; }
+      if (best) { inpFor(colL + best).focus(); fstat.textContent = "Row " + hr + " no longer matches the filter and is hidden. Focus moved to row " + best + ". " + fstat.textContent; }
       else { $("filter-clear").focus(); fstat.textContent = "Row " + hr + " no longer matches the filter and is hidden, and no row matches. " + fstat.textContent; }
     }
   }
@@ -598,23 +704,30 @@
     var m = cur.map; if (fzMap[meta.active] && (fzMap[meta.active].r || fzMap[meta.active].c)) m[meta.active] = fzMap[meta.active]; else delete m[meta.active];
     try { var j = M.freezeJson(m); if (j === null) localStorage.removeItem(fzKey); else localStorage.setItem(fzKey, j); fzMap = m; return true; } catch (e) { return false; }
   }
+  // Sticky left or top for the cells of one drawn row; also called when a row is drawn later.
+  function frzCellsOf(r) {
+    if (!frzLefts || (!frz.r && !frz.c)) return; var row = table.rows[r];
+    for (var c = 1; c <= COLS; c++) {
+      var inR = r <= frz.r, inC = c <= frz.c; if (!inR && !inC) continue;
+      var td = row.cells[c]; if (!td) continue; td.classList.add("sheet-frz"); td.style.position = "sticky";
+      if (inR) td.style.top = (frzTops[r - 1] + fzOff) + "px";
+      if (inC) td.style.left = frzLefts[c - 1] + "px";
+      td.style.zIndex = inR && inC ? "2" : "1";
+    }
+  }
   function applyFreeze() {
     Array.prototype.forEach.call(table.querySelectorAll(".sheet-frz"), function (n) { n.classList.remove("sheet-frz"); n.style.position = ""; n.style.top = ""; n.style.left = ""; n.style.zIndex = ""; });
     Array.prototype.forEach.call(table.rows[0].cells, function (n) { n.style.top = ""; });
     fzBase = null; table.parentNode.style.scrollPaddingTop = ""; table.parentNode.style.scrollPaddingLeft = "";
-    var f = fzMap[meta.active] || { r: 0, c: 0 }; frz = { r: f.r, c: f.c };
+    var f = fzMap[meta.active] || { r: 0, c: 0 }; frz = { r: f.r, c: f.c }; frzTop = frz.r; frzLefts = null; frzTops = null;
+    if (frz.r) { var fr0 = []; for (var fi = 1; fi <= frz.r; fi++) if (!mat[fi]) { buildRow(fi); fr0.push(fi); } if (fr0.length) paintRows(fr0); }
     $("frz-rows").value = String(frz.r); $("frz-cols").value = String(frz.c);
     if (!frz.r && !frz.c) return;
     var hh = table.rows[0].offsetHeight, rw = table.rows[1].cells[0].offsetWidth, tops = [hh], lefts = [rw], i;
     for (i = 1; i <= frz.r; i++) tops.push(tops[i - 1] + table.rows[i].offsetHeight);
     for (i = 1; i <= frz.c; i++) lefts.push(lefts[i - 1] + table.rows[1].cells[i].offsetWidth);
-    for (var r = 1; r <= ROWS; r++) for (var c = 1; c <= COLS; c++) {
-      var inR = r <= frz.r, inC = c <= frz.c; if (!inR && !inC) continue;
-      var td = table.rows[r].cells[c]; td.classList.add("sheet-frz"); td.style.position = "sticky";
-      if (inR) td.style.top = tops[r - 1] + "px";
-      if (inC) td.style.left = lefts[c - 1] + "px";
-      td.style.zIndex = inR && inC ? "2" : "1";
-    }
+    frzTops = tops; frzLefts = lefts;
+    Object.keys(mat).forEach(function (k) { frzCellsOf(+k); });
     for (c = 1; c <= frz.c; c++) { var th = table.rows[0].cells[c]; th.style.left = lefts[c - 1] + "px"; th.style.zIndex = "4"; th.classList.add("sheet-frz"); }
     for (r = 1; r <= frz.r; r++) { var rh = table.rows[r].cells[0]; rh.style.top = tops[r - 1] + "px"; rh.style.zIndex = "3"; rh.classList.add("sheet-frz"); }
     fzBase = tops; fzLeft = lefts[lefts.length - 1]; placeFreeze();
@@ -657,7 +770,7 @@
   function paintCw() {
     for (var c = 1; c <= COLS; c++) {
       var L = String.fromCharCode(64 + c), px = cwMap[L] ? cwMap[L] + "px" : "";
-      for (var r = 1; r <= ROWS; r++) inputs[L + r].style.width = px;
+      for (var r in mat) inputs[L + r].style.width = px;
     }
   }
   function reloadCw() {
@@ -1006,5 +1119,5 @@
   if (heldTab() !== null) status.textContent = "A row or column change or a version restore did not finish. See the notice above.";
   if (tabsLocked) tabMsg.textContent = "The stored tab list could not be read, so tab changes are off. Your cells were not touched.";
   renderTabs();
-  show(); buttons();
+  winUpdate(); show(); buttons();
 })();

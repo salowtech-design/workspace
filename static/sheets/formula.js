@@ -5,7 +5,9 @@
   "use strict";
   var MAX_LEN = 2000, MAX_DEPTH = 50, MAX_RANGE = 10000, MAX_ROW = 1000, MAX_COL = 26, MAX_STR = 10000, BUDGET = 500000, MAX_CELL_TEXT = 10000, MAX_DEPTH_EVAL = 400;
 
-  function Err(code) { this.code = code; }
+  // limitHits counts every #LIMIT! made. A cell whose evaluation made one is not cached (see get), so a work-budget stop never becomes a stored answer.
+  var limitHits = 0, reqId = 0;  // reqId: one number per top-level request, for the per-request range memo
+  function Err(code) { this.code = code; if (code === "#LIMIT!") limitHits++; }
   Err.prototype.toString = function () { return this.code; };
   var isErr = function (v) { return v instanceof Err; };
 
@@ -613,6 +615,7 @@
     opts = opts || {};
     // shared across the tabs of one recalculation: the loop guard, the work budget, the depth and the sheet of each tab already opened
     var sh = opts.shared || { stack: Object.create(null), work: 0, depth: 0, sheets: Object.create(null) }, me = typeof opts.self === "string" ? opts.self : "";
+    var rmemo = { id: -1, v: null, n: 0 };
     var cells = Object.create(null), cache = Object.create(null), trees = Object.create(null);
     if (input && typeof input === "object") Object.keys(input).forEach(function (k) {  // own keys only, valid addresses, plain bounded text
       var v = input[k];
@@ -645,12 +648,13 @@
       if (sh.stack[me + "!" + a]) return new Err("#CIRC!");      // not cached: every cell on the loop reports it
       if (sh.depth >= MAX_DEPTH_EVAL) return new Err("#LIMIT!");
       sh.stack[me + "!" + a] = true; sh.depth++;
-      var out;
+      var out, h0 = limitHits;
       try {
         if (!trees[a]) trees[a] = parse(r.slice(1));
         out = ev(trees[a]);
       } catch (e) { out = e instanceof Err ? e : new Err("#VALUE!"); }
       delete sh.stack[me + "!" + a]; sh.depth--;
+      if (limitHits !== h0) return out;  // a work-budget stop happened inside: the answer may be wrong (for example IFERROR hid it), so it is not kept
       return (cache[a] = out);
     }
     function cellValue(c) { var v = get(addr(c.col, c.row)); return v; }
@@ -674,9 +678,15 @@
           var c1 = Math.min(n.a.col, n.b.col), c2 = Math.max(n.a.col, n.b.col), r1 = Math.min(n.a.row, n.b.row), r2 = Math.max(n.a.row, n.b.row);
           if ((c2 - c1 + 1) * (r2 - r1 + 1) > MAX_RANGE) return new Err("#REF!");
           if ((sh.work += (c2 - c1 + 1) * (r2 - r1 + 1)) > BUDGET) return new Err("#LIMIT!");
-          var vals = [];
-          for (var r = r1; r <= r2; r++) for (var c = c1; c <= c2; c++) vals.push(get(addr(c, r)));
+          // The work above is charged on every use. Only the reading is shared: the same range of this tab asked again inside the same
+          // request returns the same list. Never across requests (reqId changes), never across tabs (each tab has its own memo),
+          // and a range that holds any error is not kept (a #CIRC! or #LIMIT! can depend on where in the request it was read).
+          var mk = c1 + ":" + r1 + ":" + c2 + ":" + r2;
+          if (rmemo.id === reqId && rmemo.v[mk]) return rmemo.v[mk];
+          var vals = [], clean = true, gv;
+          for (var r = r1; r <= r2; r++) for (var c = c1; c <= c2; c++) { gv = get(addr(c, r)); if (isErr(gv)) clean = false; vals.push(gv); }
           vals.rows = r2 - r1 + 1; vals.cols = c2 - c1 + 1;  // shape, for INDEX, MATCH and VLOOKUP
+          if (clean) { if (rmemo.id !== reqId) { rmemo.id = reqId; rmemo.v = Object.create(null); rmemo.n = 0; } if (rmemo.n < 50) { rmemo.v[mk] = vals; rmemo.n++; } }
           return vals;
         }
         case "un": { var x = num(sc(ev(n.e))); if (isErr(x)) return x; return n.o === "-" ? -x : x; }
@@ -720,8 +730,14 @@
     function sc(v) { return Array.isArray(v) ? (v.length === 1 ? v[0] : new Err("#VALUE!")) : v; }
     // Dependencies are evaluated first in an explicit-stack post-order, so a long chain never
     // recurses deeply and the result does not depend on which cell is asked for first.
+    var depsMemo = Object.create(null);  // a heavy formula's dependency list is built once, so asking again (after a stop) is cheap
     function deps(a) {
-      var r = raw(a), out = [];
+      var r = raw(a), m = typeof r === "string" ? depsMemo[r] : null;
+      if (m) return m.out;
+      var out = deps0(a, r), seen = Object.create(null); out = out.filter(function (x) { return seen[x] ? false : (seen[x] = true); }); if (typeof r === "string" && out.length > 1000 && Object.keys(depsMemo).length < 50) depsMemo[r] = { out: out }; return out;
+    }
+    function deps0(a, r) {
+      var out = [], seenR = Object.create(null);
       if (typeof r !== "string" || r[0] !== "=") return out;
       try { if (!trees[a]) trees[a] = parse(r.slice(1)); } catch (e) { return out; }
       (function walk(n) {
@@ -729,12 +745,22 @@
         if (n.n === "cell") out.push(addr(n.a.col, n.a.row));
         else if (n.n === "range") {
           var c1 = Math.min(n.a.col, n.b.col), c2 = Math.max(n.a.col, n.b.col), r1 = Math.min(n.a.row, n.b.row), r2 = Math.max(n.a.row, n.b.row);
+          var rk = c1 + ":" + r1 + ":" + c2 + ":" + r2; if (seenR[rk]) return; seenR[rk] = true;  // the same range written again adds nothing new
           if ((c2 - c1 + 1) * (r2 - r1 + 1) <= MAX_RANGE) for (var rr = r1; rr <= r2; rr++) for (var cc = c1; cc <= c2; cc++) out.push(addr(cc, rr));
         } else { walk(n.l); walk(n.r); walk(n.e); if (n.a && n.a.length) n.a.forEach(walk); }
       })(trees[a]);
       return out;
     }
+    // One top-level request gets its own work budget (BUDGET), so what a cell shows does not depend on how many other cells were asked for before it.
+    // If anything inside the request stopped on the budget, the answer is #LIMIT! (never a number that a hidden stop could have changed).
     function resolve(a) {
+      if (sh.req) return resolveIn(a);
+      sh.req = true; reqId++; var h0 = limitHits, v;
+      sh.work = 0;
+      try { v = resolveIn(a); } finally { sh.req = false; }
+      return limitHits !== h0 && !(isErr(v) && v.code === "#LIMIT!") ? new Err("#LIMIT!") : v;
+    }
+    function resolveIn(a) {
       if (!parseAddr(a)) return new Err("#REF!");
       var path = Object.create(null), st = [[a, null, 0]];
       path[a] = true;

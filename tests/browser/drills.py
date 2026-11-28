@@ -72,12 +72,56 @@ def login(pg):
     pg.wait_for_timeout(1200)
 
 
+_REACH_JS = """(a) => {
+  const root = document.getElementById('sheet-root'); if (!root) return true;
+  const m = /^([A-Z])([0-9]+)$/.exec(a); if (!m) return true;
+  if (root.querySelector('input[data-addr="' + a + '"]')) return true;
+  const r = +m[2]; if (r > 1000) return true;
+  const tr = root.querySelector('table').rows[r]; root.scrollTop = tr.offsetTop - 40;
+  window.scrollTo(0, root.getBoundingClientRect().top + window.scrollY - 60); window.dispatchEvent(new Event('scroll')); root.dispatchEvent(new Event('scroll'));
+  return false; }"""
+
+
+def _reach(pg, selector):
+    """The Sheets grid draws only the rows near the view (1000 rows exist). A drill that names a cell far down the sheet first brings its row into view,
+    as a person would by scrolling. This changes how the drill gets to the cell, not what it asserts."""
+    import re as _re
+
+    m = _re.search(r'data-addr="([A-Z][0-9]+)"', selector) if isinstance(selector, str) else None
+    if not m:
+        return
+    a = m.group(1)
+    if pg.evaluate(_REACH_JS, a):
+        return
+    pg.wait_for_selector('#sheet-root input[data-addr="%s"]' % a, state="attached", timeout=5000)
+    pg.wait_for_timeout(120)
+
+
+def _wrap_reach(pg):
+    if getattr(pg, "_reach_wrapped", False):
+        return
+    pg._reach_wrapped = True
+    for name in ("click", "fill", "press", "input_value", "locator", "dblclick", "focus", "type", "check", "uncheck", "text_content"):
+        orig = getattr(pg, name)
+
+        def mk(orig):
+            def w(selector, *a, **k):
+                _reach(pg, selector)
+                return orig(selector, *a, **k)
+
+            return w
+
+        setattr(pg, name, mk(orig))
+
+
 def fresh(ctx, path):
     pg = ctx.pages[0]
     pg.goto(APP + path)
     pg.evaluate("localStorage.clear()")
     pg.goto(APP + path)
     pg.wait_for_timeout(500)
+    if path.startswith("/sheets"):
+        _wrap_reach(pg)
     return pg
 
 
@@ -2203,12 +2247,12 @@ def sheets_paste(ctx):  # noqa: C901
         "paste: the pasted cells are stored",
         val("B2") == "name" and val("C3") == "5" and val("C4") == "10",
     )
-    paste("Z99", "a\tb\n1\t2\n3\t4")
+    paste("Z999", "a\tb\n1\t2\n3\t4")
     check(
-        "paste: cells past Z or row 100 are left out and counted",
-        val("Z99") == "a"
-        and val("Z100") == "1"
-        and "outside Z100 left out" in pg.inner_text("#sheet-status"),
+        "paste: cells past Z or row 1000 are left out and counted (boundary moved from row 100 to 1000 on purpose)",
+        val("Z999") == "a"
+        and val("Z1000") == "1"
+        and "outside Z1000 left out" in pg.inner_text("#sheet-status"),
         pg.inner_text("#sheet-status"),
     )
     paste("E1", "x\n\ty")
@@ -2485,9 +2529,18 @@ def sheets_fill(ctx):  # noqa: C901
         val("E5") == "left" and val("F5") == "left" and val("E6") == "",
         val("E5") + val("F5"),
     )
-    pg.fill("#fill-range", "A1:A101")
+    fill_before = stored()
+    pg.fill("#fill-range", "A1:A1001")
     pg.click("#fill-down")
-    check("fill: a range outside A1:Z100 is refused", "A1:Z100" in status(), status())
+    check("fill: A1:A1001 is refused (row 1001 is not a cell address at all, so the page says Enter a range; the old A1:Z100 wording came from a separate range check that A1:A101 reached; boundary moved from 100 to 1000 on purpose)", "Enter a range" in status() or "A1:Z1000" in status(), status())
+    check("fill: the refused A1:A1001 fill left the stored cells exactly as they were", stored() == fill_before, "")
+    pg.fill("#fill-range", "A1:A1000")
+    pg.click("#fill-down")
+    pg.wait_for_timeout(500)
+    check("fill: positive control, A1:A1000 is accepted and fills down to row 1000 (stored A1000 equals A1)", json.loads(stored() or "{}").get("A1000") == json.loads(stored() or "{}").get("A1") and json.loads(stored() or "{}").get("A1000") is not None, status())
+    pg.click("#sheet-undo")
+    pg.wait_for_timeout(500)
+    check("fill: Undo puts the stored cells back as they were before the 1000-row fill", stored() == fill_before, "")
     # a reversed range means the same as the forward one, and junk is rejected
     setc("A20", "r1")
     setc("B20", "r2")
@@ -3769,17 +3822,17 @@ def sheets_grid(ctx):  # noqa: C901
         return pg.evaluate("document.activeElement.dataset.addr || ''")
 
     n = pg.evaluate("document.querySelectorAll('input[data-addr]').length")
-    check("grid: 26 columns by 100 rows are on the page", n == 2600, n)
+    check("grid: 1000 rows exist but only the rows near the view hold inputs (26 per row, under 1500 in all; was 2600 for 100 rows, changed on purpose)", n % 26 == 0 and 26 <= n < 1500 and pg.evaluate("document.querySelector('#sheet-root table').rows.length") == 1001, n)
     check(
-        "grid: the first and last cells are A1 and Z100",
+        "grid: the first and last cells are A1 and Z1000 (reached by scrolling), and AA1 and A1001 do not exist",
         pg.locator('input[data-addr="A1"]').count() == 1
-        and pg.locator('input[data-addr="Z100"]').count() == 1
+        and pg.locator('input[data-addr="Z1000"]').count() == 1
         and pg.locator('input[data-addr="AA1"]').count() == 0
-        and pg.locator('input[data-addr="A101"]').count() == 0,
+        and pg.locator('input[data-addr="A1001"]').count() == 0,
     )
     check(
-        "grid: the page says the visible grid is A1 to Z100",
-        "A1 to Z100" in pg.text_content("body"),
+        "grid: the page says the visible grid is A1 to Z1000",
+        "A1 to Z1000" in pg.text_content("body"),
     )
     setc("Z100", "far")
     setc("A100", "deep")
@@ -3793,9 +3846,12 @@ def sheets_grid(ctx):  # noqa: C901
         val("E50") == "24",
         val("E50"),
     )
+    pg.click('input[data-addr="A1000"]')
+    pg.press('input[data-addr="A1000"]', "ArrowDown")
+    check("grid: ArrowDown at row 1000 stays on row 1000 (the last row moved from 100 on purpose)", active() == "A1000", active())
     pg.click('input[data-addr="A100"]')
     pg.press('input[data-addr="A100"]', "ArrowDown")
-    check("grid: ArrowDown at row 100 stays on row 100", active() == "A100", active())
+    check("grid: ArrowDown at row 100 now moves to row 101", active() == "A101", active())
     pg.click('input[data-addr="Z1"]')
     pg.press('input[data-addr="Z1"]', "ArrowRight")
     check("grid: ArrowRight at column Z stays on column Z", active() == "Z1", active())

@@ -67,5 +67,12 @@ r = edit({}, row("insert", 4), [{ range: "A1:A3", kind: "number", min: 0, max: 1
 ok("rewritten rules load back and stay disjoint", (() => { const l = M.loadRules(M.rulesJson(r.rules), F.parseAddr); return !l.unreadable && l.rules.length === 3 && l.rules[1].range === "A5:A7"; })());
 r = edit({}, row("delete", 3), [], [CF, { range: "B2:B6", kind: "less", color: "blue", value: 1 }], [FM]);
 ok("rewritten colour and format rules load back", !M.loadCf(M.cfJson(r.cf), F.parseAddr).unreadable && !M.loadFmt(M.fmtJson(r.fmt), F.parseAddr).unreadable);
+// the real grid is 1000 rows: the same checks at the real bound
+const G1 = { rows: 1000, cols: 26 }, edit1 = (cells, op) => M.structEdit({ cells: mk(cells), rules: [], cf: [], fmt: [] }, op, F.parseAddr, sf, G1, 2000);
+ok("1000-row grid: insert above row 500 with row 1000 empty works and moves A999 to A1000", (() => { const x = edit1({ A999: "k", A500: "m" }, row("insert", 500)); return !x.error && x.cells.A1000 === "k" && x.cells.A501 === "m" && !x.cells.A500; })());
+ok("1000-row grid: insert refused when row 1000 holds a value (it would be pushed out)", (() => { const x = edit1({ A1000: "k" }, row("insert", 500)); return !!x.error; })());
+ok("1000-row grid: insert refused when a formula cell sits on row 1000", !!edit1({ Z1000: "=1" }, row("insert", 1)).error);
+ok("1000-row grid: insert at row 1000 with row 1000 empty works", !edit1({ A5: "k" }, row("insert", 1000)).error);
+ok("1000-row grid: a value on row 100 is NOT treated as the edge (moves to row 101)", (() => { const x = edit1({ A100: "k" }, row("insert", 1)); return !x.error && x.cells.A101 === "k"; })());
 console.log(n - fails + "/" + n + " structure rows passed");
 process.exit(fails ? 1 : 0);

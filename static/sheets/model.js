@@ -560,7 +560,7 @@
     return { cells: n, set: set, cleared: cleared, refused: refused, tooLong: tooLong, formulas: formulas, refErrs: refErrs, adjusted: adjusted };
   }
   // ---- Insert or delete one row or column. Pure: takes the cells and the three rule lists, returns the moved copies or { error }. ----
-  // op: { axis: "row"|"col", kind: "insert"|"delete", at }. grid: { rows, cols } is the editable grid (A1:Z100). Nothing is changed when an error is
+  // op: { axis: "row"|"col", kind: "insert"|"delete", at }. grid: { rows, cols } is the editable grid (A1:Z1000). Nothing is changed when an error is
   // returned. Insert is refused when a filled cell, or a rule range, in the last row or column would be pushed off the grid. Delete drops the cells
   // on that line (counted), shrinks rule ranges, and drops a rule whose whole range was deleted (counted).
   function structRange(g, axis, kind, at) {

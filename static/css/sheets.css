@@ -41,3 +41,4 @@
 /* frozen rows and columns: positions are set from script; the cell needs a solid background so scrolling cells do not show through */
 .sheet-scroll td.sheet-frz { background: #fbf8f3; }
 .sheet-scroll th.sheet-frz { background: #eadfce; }
+.sheet-scroll input[data-calc] { color: #6b6b6b; font-style: italic; }

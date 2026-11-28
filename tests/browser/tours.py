@@ -333,6 +333,10 @@ def register(g):
     register_sheets_charts(g)
     register_slides_tspeed(g)
     register_sheets_profile(g)
+    register_sheets_virtual(g)
+    register_sheets_slices(g)
+    register_sheets_virtual2(g)
+    register_sheets_heavy8(g)
     register_pdf_alltext_stop(g)
     register_pdf_roundtrip(g)
     register_slides_order_recovery(g)
@@ -5786,7 +5790,9 @@ def register_sheets_profile(g):
 
     def tour(ctx):
         def body(t, pg):
-            rows = int(os.environ.get("PROFILE_ROWS", "100"))
+            rows = int(os.environ.get("PROFILE_ROWS", "1000"))
+            pg.on("console", lambda m: print("CONSOLE", m.type, m.text[:200]))
+            pg.on("pageerror", lambda e: print("PAGEERROR", str(e)[:300]))
             pg.goto(APP + "/sheets/")
             pg.evaluate("localStorage.clear()")
             pg.goto(APP + "/sheets/")
@@ -5795,13 +5801,341 @@ def register_sheets_profile(g):
               for (let col = 0; col < 26; col++) { const L = String.fromCharCode(65 + col); for (let r = 1; r <= rows; r++) c[L + r] = r === 1 ? (col === 0 ? '1' : '=' + String.fromCharCode(64 + col) + rows + '+1') : '=' + L + (r - 1) + '+1'; }
               localStorage.setItem(k, JSON.stringify(c)); return Object.keys(c).length; }"""
             n = pg.evaluate(seed, rows)
-            t0 = time.time(); pg.reload(); pg.wait_for_selector("#sheet-root input"); pg.wait_for_function("document.querySelector('input[data-addr=\"A2\"]') && document.querySelector('input[data-addr=\"A2\"]').value === '2'")
+            pg.reload(); pg.wait_for_timeout(1500)
+            print("DIAG", pg.evaluate("() => { const r = document.getElementById('sheet-root'); const t = r.querySelector('table'); const ins = r.querySelectorAll('input'); const a2 = r.querySelector('input[data-addr=' + String.fromCharCode(34) + 'A2' + String.fromCharCode(34) + ']'); const sc = r.getBoundingClientRect(); return {inputs: ins.length, rows: t.rows.length, a2: a2 ? a2.value : null, a1: ins[0] ? ins[0].value : null, top: sc.top, bottom: sc.bottom, ih: innerHeight, h2: t.rows[2].offsetHeight, hh: t.rows[1].offsetHeight}; }"))
+            t0 = time.time(); pg.reload(); pg.wait_for_selector("#sheet-root input"); pg.wait_for_function("() => { const i = document.querySelector('#sheet-root input[aria-label=' + String.fromCharCode(34) + 'Cell A2' + String.fromCharCode(34) + ']'); return !!i && i.value === '2'; }")
             load = (time.time() - t0) * 1000
             m = pg.evaluate("""() => { const inp = document.querySelector('input[data-addr="A1"]'); const t = performance.now(); inp.focus(); inp.value = '5'; inp.blur(); const dt = performance.now() - t; const mem = performance.memory ? Math.round(performance.memory.usedJSHeapSize / 1048576) : null; return { ms: dt, a2: document.querySelector('input[data-addr="A2"]').value, inputs: document.querySelectorAll('#sheet-root input').length, dom: document.getElementsByTagName('*').length, mem }; }""")
             print("PROFILE rows=%d cells=%d load_ms=%.0f edit_ms=%.1f a2_after_edit=%s inputs=%d dom_nodes=%d heap_mb=%s" % (rows, n, load, m["ms"], m["a2"], m["inputs"], m["dom"], m["mem"]))
+            sc = pg.evaluate("""() => { const r = document.getElementById('sheet-root'); const t = performance.now(); r.scrollTop = r.scrollHeight; return new Promise((res) => setTimeout(() => { const ins = r.querySelectorAll('input'); const a = r.querySelector('input[aria-label=' + String.fromCharCode(34) + 'Cell A1000' + String.fromCharCode(34) + ']'); res({ms: performance.now() - t, inputs: ins.length, a1000: a ? a.value : null, z1000: (r.querySelector('input[aria-label=' + String.fromCharCode(34) + 'Cell Z1000' + String.fromCharCode(34) + ']') || {}).value, first: ins[0] ? ins[0].dataset.addr : null}); }, 600)); }""")
+            print("SCROLL_BOTTOM", sc)
             t.step("Profile recorded (see the log line)", lambda: None, expect=lambda: True)
         run_tour(ctx, "sheets_profile", body, notes="Measurement only.")
     g["DRILLS"]["tour_sheets_profile"] = tour
+
+
+def register_sheets_virtual(g):
+    APP = g["APP"]
+
+    def tour(ctx):
+        def body(t, pg):
+            pg.on("pageerror", lambda e: print("PAGEERROR", str(e)[:300]))
+            dl = []
+            pg.goto(APP + "/sheets/")
+            pg.evaluate("localStorage.clear()")
+            pg.goto(APP + "/sheets/")
+            pg.wait_for_timeout(400)
+            Q = chr(34)
+            seed = """() => { const k = document.getElementById('sheet-root').dataset.storeKey; const c = {};
+              for (let r = 1; r <= 1000; r++) { c['A' + r] = String(r); c['B' + r] = '=A' + r + '*2'; }
+              c.A777 = 'needle'; localStorage.setItem(k, JSON.stringify(c)); return k; }"""
+            key = pg.evaluate(seed)
+            pg.reload(); pg.wait_for_timeout(900)
+            root = lambda: pg.evaluate("() => document.getElementById('sheet-root')")  # noqa: E731
+            cnt = lambda: pg.evaluate("() => document.querySelectorAll('#sheet-root input').length")
+            val = lambda a: pg.evaluate("(a) => { const i = document.querySelector('#sheet-root input[data-addr=' + String.fromCharCode(34) + a + String.fromCharCode(34) + ']'); return i ? i.value : null; }", a)
+            stored = lambda: pg.evaluate("(k) => localStorage.getItem(k)", key)
+            toprow = lambda r: pg.evaluate("(r) => { const sc = document.getElementById('sheet-root'); const tr = sc.querySelector('table').rows[r]; sc.scrollTop = tr.offsetTop - 40; window.scrollTo(0, sc.getBoundingClientRect().top + window.scrollY - 60); }", r)
+            put = lambda a, v: (pg.click('#sheet-root input[data-addr=' + Q + a + Q + ']'), pg.keyboard.press("Control+A"), pg.keyboard.type(v), pg.keyboard.press("Enter"))
+            before = stored()
+            t.step("Page loads a 1000-row sheet: only the rows near the top are drawn (A1000 is not in the page yet)", lambda: pg.evaluate("document.getElementById('sheet-root').scrollIntoView({block:'start'})"), expect=lambda: val("A1") == "1" and val("B2") == "4" and val("A1000") is None and cnt() < 1500, wait=1500)
+            t.step("Scroll to the bottom: A1000 and B1000 are drawn with the right values and the number of inputs stays bounded", lambda: toprow(1000), expect=lambda: val("A1000") == "1000" and val("B1000") == "2000" and cnt() < 4000, wait=1500)
+            t.step("Scrolling changed nothing that is stored", lambda: None, expect=lambda: stored() == before, wait=300)
+            t.step("Scroll to row 500 and type 7 into A500", lambda: (toprow(500), pg.wait_for_timeout(500), put("A500", "7")), expect=lambda: val("A500") == "7" and val("B500") == "14", wait=1200)
+            t.step("Scroll to the top and back: A500 is still 7 and B500 still 14, and the stored sheet has A500 = 7", lambda: (toprow(1), pg.wait_for_timeout(700), toprow(500), pg.wait_for_timeout(700)), expect=lambda: val("A500") == "7" and val("B500") == "14" and json.loads(stored())["A500"] == "7", wait=800)
+            def exp(sel):
+                with pg.expect_download() as d:
+                    pg.click(sel)
+                dl.append(open(d.value.path()).read())
+            t.step("Export (.json) from row 500: the file holds A500 = 7 and A1000 = 1000 though A1000 is not drawn now", lambda: ([(toprow(x), pg.wait_for_timeout(500)) for x in (250, 600, 900, 1)], exp("#sheet-export")), expect=lambda: json.loads(dl[-1])["A500"] == "7" and json.loads(dl[-1])["A1000"] == "1000" and val("A1000") is None, wait=500)
+            t.step("CSV export holds 1000 rows with row 500 as 7 (the file is checked, not the screen)", lambda: exp("#sheet-csv"), expect=lambda: len([x for x in dl[-1].strip().split(chr(10)) if x]) == 1000 and dl[-1].strip().split(chr(10))[499].startswith("7,14"), wait=300)
+            t.step("Find needle: A777 is far from the view, it is drawn, focused and reported", lambda: (toprow(1), pg.fill("#find-text", "needle"), pg.click("#find-next"), pg.wait_for_timeout(600)), expect=lambda: "A777" in pg.inner_text("#find-status") and pg.evaluate("() => document.activeElement && document.activeElement.dataset.addr") == "A777", wait=1200)
+            t.step("Arrow Down from A777 forty times walks through undrawn rows to A817 with focus on a real cell", lambda: [pg.keyboard.press("ArrowDown") for _ in range(40)], expect=lambda: pg.evaluate("() => document.activeElement && document.activeElement.dataset.addr") == "A817", wait=1500)
+            t.step("Undo undoes the A500 edit even though row 500 is far from view", lambda: (toprow(1), pg.wait_for_timeout(500), pg.click("#sheet-undo"), pg.wait_for_timeout(500)), expect=lambda: json.loads(stored()).get("A500") == "500" and (toprow(500) or True) and val("A500") == "500", wait=1200)
+        run_tour(ctx, "sheets_virtual", body, notes="Headless Chromium 390x844 emulated. Rows are drawn near the view only; stored data and exports are the whole sheet.")
+    g["DRILLS"]["tour_sheets_virtual"] = tour
+
+
+def register_sheets_slices(g):
+    APP = g["APP"]
+
+    def tour(ctx):
+        def body(t, pg):
+            pg.on("pageerror", lambda e: print("PAGEERROR", str(e)[:300]))
+            dl = []
+            ndl = []
+            pg.on("download", lambda d: ndl.append(1))
+            pg.add_init_script("window.__noheavy = %s;" % ("true" if os.path.exists("/tmp/slice_noheavy") else "false"))
+            pg.add_init_script("window.__lt = []; try { new PerformanceObserver((l) => l.getEntries().forEach((e) => window.__lt.push(Math.round(e.duration)))).observe({ entryTypes: ['longtask'] }); } catch (e) {}")
+            pg.goto(APP + "/sheets/")
+            pg.evaluate("localStorage.clear()")
+            pg.goto(APP + "/sheets/")
+            pg.wait_for_timeout(400)
+            Q = chr(34)
+            seed = """() => { const k = document.getElementById('sheet-root').dataset.storeKey; const c = {};
+              for (let r = 1; r <= 1000; r++) for (let q = 0; q < 10; q++) c[String.fromCharCode(65 + q) + r] = '1';
+              const f = '=' + Array(49).fill('SUM($A$1:$J$1000)').join('+');
+              if (!window.__noheavy) for (let r = 1; r <= 150; r++) c['L' + r] = f;
+              c.Z1000 = 'end'; localStorage.setItem(k, JSON.stringify(c)); return k; }"""
+            key = pg.evaluate(seed)
+            val = lambda a: pg.evaluate("(a) => { const i = document.querySelector('#sheet-root input[data-addr=' + String.fromCharCode(34) + a + String.fromCharCode(34) + ']'); return i ? i.value : null; }", a)
+            calc = lambda: pg.evaluate("() => document.querySelectorAll('#sheet-root input[data-calc]').length")
+            lt0 = lambda: pg.evaluate("() => Math.max(0, ...window.__lt)")
+            lt = lambda: pg.evaluate("() => Math.max(0, ...window.__lt.slice(2))")  # the first two long tasks are the page load itself (parse, first rows), also present without any heavy formula
+            stored = lambda: pg.evaluate("(k) => localStorage.getItem(k)", key)
+            put = lambda a, v: (pg.click('#sheet-root input[data-addr=' + Q + a + Q + ']'), pg.keyboard.press("Control+A"), pg.keyboard.type(v), pg.keyboard.press("Enter"))
+            cdp = {}
+            def prof_start():
+                if not os.path.exists("/tmp/slice_prof"):
+                    return
+                pg.evaluate("""() => { window.__tm = {}; const w = (o, n, k) => { const f = o[n]; o[n] = function () { const t = performance.now(); try { return f.apply(this, arguments); } finally { window.__tm[k] = (window.__tm[k] || 0) + performance.now() - t; } }; }; w(Storage.prototype, 'setItem', 'setItem'); w(JSON, 'stringify', 'stringify'); w(JSON, 'parse', 'parse'); w(Object, 'keys', 'keys'); }""")
+                cdp["s"] = pg.context.new_cdp_session(pg); cdp["s"].send("Profiler.enable"); cdp["s"].send("Profiler.setSamplingInterval", {"interval": 200}); cdp["s"].send("Profiler.start")
+            def prof_stop():
+                if not cdp.get("s"):
+                    return
+                print("TM", pg.evaluate("() => JSON.stringify(window.__tm)"), flush=True)
+                pr = cdp["s"].send("Profiler.stop")["profile"]; idx = {n["id"]: n for n in pr["nodes"]}; self_t = {}
+                for sid, dt in zip(pr["samples"], pr["timeDeltas"]):
+                    cf = idx[sid]["callFrame"]; k = "%s %s:%s" % (cf["functionName"] or "(anon)", cf["url"].split("/")[-1], cf["lineNumber"] + 1); self_t[k] = self_t.get(k, 0) + dt
+                print("PROF", [(k, round(v / 1000)) for k, v in sorted(self_t.items(), key=lambda x: -x[1])[:12]], flush=True)
+            seen = {}
+            def reload():
+                pg.reload(wait_until="commit")
+                pg.wait_for_selector("#sheet-root input", timeout=20000)
+                seen["calc"] = calc()
+            def exp(sel):
+                with pg.expect_download(timeout=60000) as d:
+                    pg.click(sel)
+                dl.append(open(d.value.path()).read())
+            t.step("Load a sheet with 150 near-budget formulas (49 whole-block SUMs each, 10,000 constants): the page draws, cells still working show a grey ... marker", reload, expect=lambda: seen["calc"] > 0, wait=500)
+            t.step("Pending cells are marked data-calc and show ... (not a number)", lambda: None, expect=lambda: calc() == 0 or val("L10") in ("\u2026", "490000"), wait=100)
+            t.step("When the work finishes every marker is gone and L1 and L10 are exactly 490000", lambda: pg.wait_for_function("() => !document.querySelector('#sheet-root input[data-calc]') && document.querySelector('#sheet-root input[data-addr=' + String.fromCharCode(34) + 'L10' + String.fromCharCode(34) + ']').value === '490000'", timeout=60000), expect=lambda: val("L1") == "490000" and val("L10") == "490000" and calc() == 0, wait=400)
+            t.step("Page load itself (parse and first rows, same with no heavy cell): the long tasks are only recorded here, see LOAD_TASKS_MS in the log", lambda: print("LOAD_TASKS_MS", pg.evaluate("() => JSON.stringify(window.__lt)"), flush=True), expect=lambda: True, wait=100)
+            t.step("Edit A1 to 2 after the load has settled: a new calculation of the 150 heavy cells starts; long tasks are counted from here", lambda: (pg.evaluate("() => { window.__lt = []; }"), prof_start(), put("A1", "2"), pg.wait_for_timeout(1200), prof_stop()), expect=lambda: True, wait=100)
+            t.step("After it settles L1, L5 and L10 are 490049, nothing is marked, and the longest browser task during the recalculation stayed below 300 ms (actual max printed as RECALC_LONGEST_TASK_MS)", lambda: (pg.wait_for_function("() => !document.querySelector('#sheet-root input[data-calc]')", timeout=90000), print("RECALC_LONGEST_TASK_MS", lt0(), pg.evaluate("() => JSON.stringify(window.__lt)"), flush=True)), expect=lambda: lt0() < 300 and val("L1") == "490049" and val("L5") == "490049" and val("L10") == "490049" and calc() == 0, wait=300)
+            t.step("Focus L3: the cell shows its raw formula, and a repaint from another edit does not overwrite it", lambda: (pg.click('#sheet-root input[data-addr=' + Q + 'L3' + Q + ']'), pg.evaluate("() => { const b = document.getElementById('sheet-undo'); b.click(); }"), pg.wait_for_timeout(300)), expect=lambda: val("L3").startswith("=SUM("), wait=200)
+            t.step("Rapid scroll (top, bottom, top, 600, top) then settle: drawn A/B cells equal the stored data and no marker is left", lambda: (pg.evaluate("() => { const s = document.getElementById('sheet-root'); const t = s.querySelector('table'); [1000, 1, 600, 1].forEach((r, i) => setTimeout(() => { s.scrollTop = t.rows[r].offsetTop - 40; window.dispatchEvent(new Event('scroll')); }, i * 40)); }"), pg.wait_for_timeout(1500)), expect=lambda: pg.evaluate("() => { const st = JSON.parse(localStorage.getItem(document.getElementById('sheet-root').dataset.storeKey)); let bad = 0, n = 0; document.querySelectorAll('#sheet-root input').forEach((i) => { if (document.activeElement === i) return; const a = i.dataset.addr; if (/^[A-J]/.test(a)) { n++; if (i.value !== (st[a] || '')) bad++; } }); return n > 50 && bad === 0 && !document.querySelector('#sheet-root input[data-calc]'); }"), wait=300)
+            snap = {}
+            def pend_focus():
+                pg.reload(wait_until="commit"); pg.wait_for_selector("#sheet-root input", timeout=20000)
+                snap["before"] = stored()
+                snap["r"] = pg.evaluate("""() => { const out = [];
+                  const els = ['L', 'S'].map((pre) => document.querySelector('#sheet-root input[data-calc][data-addr^=' + String.fromCharCode(34) + pre + String.fromCharCode(34) + ']'));  // both found first: leaving the first cell paints a slice of the queue
+                  const pends = els.map((i) => i ? [i.value, !!i.dataset.calc] : null);  // read for both BEFORE any action: leaving one cell paints a slice of the queue
+                  for (const [ix, i] of els.entries()) {
+                    if (!i) { out.push(null); continue; }
+                    const a = i.dataset.addr, pend = pends[ix][0]; i.focus(); const focused = i.value; const calcGone = !i.dataset.calc;
+                    i.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true })); i.blur(); out.push({ a: a, pend: pend, focused: focused, calcGone: calcGone, after: i.value }); }
+                  return out; }""")
+            def pf_ok():
+                print("PF", snap["r"], flush=True)
+                raw = json.loads(snap["before"])
+                return all(x and x["pend"] == "\u2026" and x["calcGone"] and x["focused"] == raw.get(x["a"], "") for x in snap["r"]) and snap["r"][0]["focused"].startswith("=SUM(") and snap["r"][1]["focused"] == ""
+            t.step("Focus a still-pending NON-EMPTY formula cell (L) and a pending empty cell (S) then leave without typing: each shows its stored raw content while focused (the formula text, and empty), never ...", pend_focus, expect=pf_ok, wait=300)
+            t.step("Nothing was written: stored equals what it was, and no stored value is ... or empty-for-formula", lambda: None, expect=lambda: stored() == snap["before"] and "\u2026" not in stored(), wait=100)
+            pg.wait_for_function("() => !document.querySelector('#sheet-root input[data-calc]')", timeout=90000)
+            def undo_fill():
+                put("A5", "9"); pg.click("#sheet-undo"); pg.click("#sheet-redo")
+                pg.fill("#fill-range", "L1:L3"); pg.click("#fill-down")
+            t.step("Edit A5, Undo and Redo while the repaint is pending, then copy L1 down to L3 from a pending row: the stored cells are the formula (never ...), A5 is 9", undo_fill, expect=lambda: json.loads(stored()).get("A5") == "9" and json.loads(stored())["L3"] == json.loads(stored())["L1"] and json.loads(stored())["L1"].startswith("=SUM(") and "\u2026" not in stored(), wait=500)
+            pg.wait_for_function("() => !document.querySelector('#sheet-root input[data-calc]')", timeout=90000)
+            gen = lambda: int(pg.evaluate("() => document.getElementById('sheet-root').dataset.paintGen || '0'"))
+            noph = lambda: pg.evaluate("() => Array.from(document.querySelectorAll('#sheet-root input')).filter((i) => i.value === '\\u2026').length")
+            settle = lambda: pg.wait_for_function("() => !document.querySelector('#sheet-root input[data-calc]')", timeout=90000)
+            def twenty():
+                pg.reload(wait_until="commit"); pg.wait_for_selector("#sheet-root input", timeout=20000); settle()
+                snap["g0"] = gen(); snap["raw0"] = stored()
+                cells = ["A3", "B3", "C3", "D3", "E3", "F3", "G3", "H3", "I3", "J3", "A4", "B4", "C4", "D4", "E4", "F4", "G4", "H4", "I4", "J4"]
+                for n, a in enumerate(cells):
+                    pg.click('#sheet-root input[data-addr=' + Q + a + Q + ']')
+                    k = n % 4
+                    if k == 0:
+                        pg.keyboard.press("Enter")
+                    elif k == 1:
+                        pg.keyboard.press("Tab")
+                    elif k == 2:
+                        pg.evaluate("() => document.activeElement.blur()")
+                    # k == 3: leave by the next click
+                pg.evaluate("() => document.activeElement.blur()")
+                snap["g1"] = gen()
+            t.step("Click through 20 cells (Enter, Tab, blur, next click) with no typing on the heavy sheet: no new calculation generation starts, the sheet settles, nothing is marked, no ... is left, stored is byte-identical", twenty, expect=lambda: (settle() or True) and snap["g1"] == snap["g0"] and calc() == 0 and noph() == 0 and stored() == snap["raw0"], wait=300)
+            def same_text():
+                snap["g2"] = gen()
+                put("B3", "1")
+                snap["g3"] = gen()
+            t.step("Type the same text (1) into B3 and press Enter: nothing changed, so no new generation and the stored sheet is identical", same_text, expect=lambda: snap["g3"] == snap["g2"] and stored() == snap["raw0"], wait=300)
+            t.step("Type a different value (5) into B3: a new generation starts, the sheet settles, no marker or ... left, B3 is 5 in the stored sheet", lambda: (put("B3", "5"), settle()), expect=lambda: gen() > snap["g3"] and calc() == 0 and noph() == 0 and json.loads(stored())["B3"] == "5", wait=300)
+            def rejected():
+                pg.fill("#val-range", "A7:A7"); pg.select_option("#val-kind", "number"); pg.fill("#val-min", "0"); pg.fill("#val-max", "10"); pg.click("#val-add"); pg.wait_for_timeout(300)
+                snap["g4"] = gen(); snap["raw4"] = stored()
+                put("A7", "99"); pg.wait_for_timeout(500)
+            t.step("A validation rule on A7 (number 0 to 10): typing 99 is refused, the cell shows its old value again (1) instead of the refused text, the stored sheet is unchanged and no new generation starts", rejected, expect=lambda: val("A7") == "1" and stored() == snap["raw4"] and gen() == snap["g4"] and "not applied" in pg.inner_text("#sheet-status"), wait=300)
+            t.step("JSON export does not wait for painting: a click right after a reload downloads at once with all 10,151 cells", lambda: (pg.reload(wait_until="commit"), pg.wait_for_selector("#sheet-root input", timeout=20000), exp("#sheet-export")), expect=lambda: len(json.loads(dl[-1])) == 10151, wait=100)
+            pg.wait_for_function("() => !document.querySelector('#sheet-root input[data-calc]')", timeout=60000)
+            def csv_cancel():
+                ndl.clear(); pg.click("#sheet-csv")
+                pg.wait_for_function("() => document.getElementById('sheet-csv').dataset.csv === 'calculating'", timeout=5000)
+                snap["inprog"] = pg.evaluate("() => document.getElementById('sheet-csv').dataset.csv + ' | ' + document.getElementById('sheet-status').textContent.slice(0, 40)")
+                put("A2", "3")
+                pg.wait_for_function("() => ['cancelled', 'done'].indexOf(document.getElementById('sheet-csv').dataset.csv) >= 0", timeout=20000)
+                snap["end"] = pg.evaluate("() => document.getElementById('sheet-csv').dataset.csv")
+            t.step("CSV: click and wait until the button state is calculating (known in progress), then edit A2: the CSV is cancelled (button state), with no download event", csv_cancel, expect=lambda: snap["inprog"].startswith("calculating") and snap["end"] == "cancelled" and not ndl and pg.evaluate("() => !document.getElementById('sheet-csv').disabled"), wait=300)
+            pg.wait_for_function("() => !document.querySelector('#sheet-root input[data-calc]')", timeout=60000)
+            t.step("CSV again with no edit: the file is a full recompute (A1 is back to 1 after the undo, A2 is 3, A5 is 9, B3 is 5, so every L is 49 x 10014 = 490686 on all 150 formula rows)", lambda: (pg.wait_for_function("() => !document.getElementById('sheet-csv').disabled", timeout=90000), exp("#sheet-csv")), expect=lambda: (print("CSV1", [dl[-1].split(chr(10))[k][:40] for k in (0, 1, 4, 149, 499)], repr(dl[-1].split(chr(10))[999][-30:]), len(dl[-1].split(chr(10))), flush=True) or True) and dl[-1].split(chr(10))[0].startswith("1,1,1,1,1,1,1,1,1,1,,490686") and dl[-1].split(chr(10))[1].startswith("3,1,1,1,1,1,1,1,1,1,,490686") and len([x for x in dl[-1].split(chr(10)) if x]) == 1000 and all(x.split(",")[11] == "490686" for x in dl[-1].split(chr(10))[:150]) and "undefined" not in dl[-1] and dl[-1].split(chr(10))[999] == ",".join(["1"] * 10) + "," * 16 + "end" and dl[-1].split(chr(10))[499] == ",".join(["1"] * 10) + "," * 16, wait=300)
+        run_tour(ctx, "sheets_slices", body, notes="Headless Chromium 390x844 emulated. 40 cells of 490,000 work units each; the page paints in slices.")
+    g["DRILLS"]["tour_sheets_slices"] = tour
+
+
+def register_sheets_heavy8(g):
+    APP = g["APP"]
+
+    def tour(ctx):
+        def body(t, pg):
+            pg.on("pageerror", lambda e: print("PAGEERROR", str(e)[:300]))
+            dl = []
+            pg.add_init_script("window.__lt = []; try { new PerformanceObserver((l) => l.getEntries().forEach((e) => window.__lt.push(Math.round(e.duration)))).observe({ entryTypes: ['longtask'] }); } catch (e) {}")
+            pg.goto(APP + "/sheets/")
+            pg.evaluate("localStorage.clear()")
+            pg.goto(APP + "/sheets/")
+            pg.wait_for_timeout(400)
+            Q = chr(34)
+            # 10,000 ones in A1:J1000. L1:L8 are eight ADJACENT heavy cells (49 whole-block SUMs = 490,000 units each).
+            # M1 repeats the whole block 60 times (over the 500k guard). Q1 = 1, Qn = Q(n-1)+1 down to Q200 (a chain).
+            seed = """() => { const k = document.getElementById('sheet-root').dataset.storeKey; const c = {};
+              for (let r = 1; r <= 1000; r++) for (let q = 0; q < 10; q++) c[String.fromCharCode(65 + q) + r] = '1';
+              const f = '=' + Array(49).fill('SUM($A$1:$J$1000)').join('+');
+              for (let r = 1; r <= 8; r++) c['L' + r] = f;
+              c.M1 = '=' + Array(60).fill('SUM($A$1:$J$1000)').join('+');
+              c.Q1 = '1'; for (let r = 2; r <= 200; r++) c['Q' + r] = '=Q' + (r - 1) + '+1';
+              localStorage.setItem(k, JSON.stringify(c)); return k; }"""
+            key = pg.evaluate(seed)
+            val = lambda a: pg.evaluate("(a) => { const i = document.querySelector('#sheet-root input[data-addr=' + String.fromCharCode(34) + a + String.fromCharCode(34) + ']'); return i ? i.value : null; }", a)
+            toprow = lambda r: pg.evaluate("(r) => { const s = document.getElementById('sheet-root'); const t = s.querySelector('table'); s.scrollTop = t.rows[r].offsetTop - 40; window.dispatchEvent(new Event('scroll')); }", r)
+            settle = lambda: pg.wait_for_function("() => !document.querySelector('#sheet-root input[data-calc]')", timeout=90000)
+            lt = lambda: pg.evaluate("() => Math.max(0, ...window.__lt)")
+            put = lambda a, v: (pg.click('#sheet-root input[data-addr=' + Q + a + Q + ']'), pg.keyboard.press("Control+A"), pg.keyboard.type(v), pg.keyboard.press("Enter"))
+            def exp(sel):
+                with pg.expect_download(timeout=90000) as d:
+                    pg.click(sel)
+                dl.append(open(d.value.path()).read())
+            t.step("Load: 8 adjacent heavy cells L1:L8 (49 whole-block SUMs each), M1 (60 repeats, over the guard), a 200-cell chain in Q; after it settles L1..L8 = 490000, M1 = #LIMIT!, Q200 = 200", lambda: (pg.reload(wait_until="commit"), pg.wait_for_selector("#sheet-root input", timeout=20000), settle(), toprow(190), pg.wait_for_timeout(600)), expect=lambda: all(val("L%d" % r) is None or val("L%d" % r) == "490000" for r in range(1, 9)) and val("Q200") == "200", wait=300)
+            toprow(1); pg.wait_for_timeout(600)
+            t.step("Top again: L1..L8 each exactly 490000 and M1 is #LIMIT!", lambda: None, expect=lambda: all(val("L%d" % r) == "490000" for r in range(1, 9)) and val("M1") == "#LIMIT!", wait=200)
+            def edit():
+                pg.evaluate("() => { window.__lt = []; }")
+                put("A1", "2"); pg.wait_for_timeout(1200); settle()
+            def vals_ok():
+                return all(val("L%d" % r) == "490049" for r in range(1, 9))
+            def bound_ok():
+                return lt() < 300
+            t.step("Edit A1 to 2: eight adjacent heavy cells recalculate. Values (each L1..L8 = 490049, M1 still #LIMIT!) and the 300 ms long-task bound are checked and printed as two separate parts (actual maximum and task list printed)", edit, expect=lambda: (toprow(1), pg.wait_for_timeout(400), print("HEAVY8 M1_screen_after_edit", val("M1"), flush=True), print("HEAVY8 values_ok", vals_ok(), "bound_ok", bound_ok(), "max_ms", lt(), pg.evaluate("() => JSON.stringify(window.__lt)"), flush=True) or True) and vals_ok() and bound_ok() and val("M1") == "#LIMIT!", wait=300)
+            def csvgo():
+                exp("#sheet-csv")
+            t.step("CSV export matches the screen: L1..L8 = 490049, M1 = #LIMIT!, and the chain Q1..Q200 is 1..200 in the file, with Q200 on screen also 200", csvgo, expect=lambda: (lambda rows: all(rows[r - 1].split(",")[11] == "490049" for r in range(1, 9)) and rows[0].split(",")[12] == "#LIMIT!" and all(rows[r - 1].split(",")[16] == str(r) for r in range(1, 201)) and "undefined" not in dl[-1])(dl[-1].split(chr(10))) and (toprow(190), pg.wait_for_timeout(600), val("Q200") == "200")[-1], wait=300)
+        run_tour(ctx, "sheets_heavy8", body, notes="Headless Chromium 390x844 emulated. Eight adjacent cells of 490,000 work units each, a 60-repeat cell over the guard, a 200-cell chain; screen against CSV.")
+    g["DRILLS"]["tour_sheets_heavy8"] = tour
+
+
+
+def register_sheets_virtual2(g):
+    APP = g["APP"]
+
+    def tour(ctx):
+        def body(t, pg):
+            pg.on("pageerror", lambda e: print("PAGEERROR", str(e)[:300]))
+            dl = []
+            pg.goto(APP + "/sheets/")
+            pg.evaluate("localStorage.clear()")
+            pg.goto(APP + "/sheets/")
+            pg.wait_for_timeout(400)
+            Q = chr(34)
+            seed = """() => { const k = document.getElementById('sheet-root').dataset.storeKey; const c = {};
+              for (let r = 1; r <= 1000; r++) { c['A' + r] = r % 2 ? 'x' : 'y'; c['B' + r] = String(r); }
+              localStorage.setItem(k, JSON.stringify(c)); return k; }"""
+            key = pg.evaluate(seed)
+            pg.reload(); pg.wait_for_timeout(900)
+            val = lambda a: pg.evaluate("(a) => { const i = document.querySelector('#sheet-root input[data-addr=' + String.fromCharCode(34) + a + String.fromCharCode(34) + ']'); return i ? i.value : null; }", a)
+            cnt = lambda: pg.evaluate("() => document.querySelectorAll('#sheet-root input').length")
+            stored = lambda: pg.evaluate("(k) => localStorage.getItem(k)", key)
+            toprow = lambda r: pg.evaluate("(r) => { const sc = document.getElementById('sheet-root'); const tr = sc.querySelector('table').rows[r]; sc.scrollTop = tr.offsetTop - 40; window.scrollTo(0, sc.getBoundingClientRect().top + window.scrollY - 60); }", r)
+            drawn = lambda: pg.evaluate("() => { const rs = new Set(); document.querySelectorAll('#sheet-root input').forEach((i) => rs.add(+i.dataset.addr.slice(1))); return Array.from(rs).sort((a, b) => a - b); }")
+            vis = lambda: pg.evaluate("() => { const t = document.querySelector('#sheet-root table'); const o = []; for (let r = 1; r <= 1000; r++) if (!t.rows[r].hidden && t.rows[r].querySelector('input')) o.push(r); return o; }")
+            before = stored()
+            t.step("Filter column A equals x: every even row is hidden, the odd rows alternate with hidden ones", lambda: (pg.fill("#filter-col", "A"), pg.select_option("#filter-op", "equals"), pg.fill("#filter-val", "x"), pg.uncheck("#filter-header"), pg.click("#filter-go"), pg.wait_for_timeout(600)), expect=lambda: all(r % 2 == 1 for r in vis()) and len(vis()) > 3, wait=400)
+            def shown_in_win():
+                return pg.evaluate("() => { const s = document.getElementById('sheet-root'), t = s.querySelector('table'); let n = 0; for (let i = 1; i < t.rows.length; i++) { const tr = t.rows[i]; if (tr.hidden) continue; const o = tr.offsetTop; if (o + tr.offsetHeight > s.scrollTop && o < s.scrollTop + s.clientHeight) n++; } return n; }")
+            def hidden_drawn_near(r):
+                return pg.evaluate("(r) => { const t = document.getElementById('sheet-root').querySelector('table'); let n = 0; for (let i = Math.max(1, r - 100); i <= Math.min(1000, r + 100); i++) { const tr = t.rows[i]; if (tr.hidden && tr.querySelector('input')) n++; } return n; }", r)
+            def far(r):
+                toprow(r); pg.wait_for_timeout(700)
+                print("DIAG far", r, "drawn", (lambda d: (d[:3], d[-3:], len(d)))(drawn()), "vis", (lambda d: (d[:3], d[-3:], len(d)))(vis()), "scrollTop", pg.evaluate("() => document.getElementById('sheet-root').scrollTop"), "B%d" % r, val("B%d" % r), "CONJ val", val("B%d" % r) == str(r), "inVis", r in vis(), "allOdd", all(x % 2 == 1 for x in vis()), "cnt", cnt(), "near", any(abs(x - r) < 6 for x in vis()), "shownInWin", shown_in_win(), "hiddenDrawnNear", hidden_drawn_near(r), flush=True)
+            t.step("Scroll to row 801 with the alternating filter on: the shown rows around it are drawn, all odd, with their real values (B801 = 801), and drawn shown rows stay within the design limit (shown rows in the window + 2 x the 12-row buffer + 2 x the 50-row keep), and no hidden row within 100 rows of the target has inputs", lambda: far(801), expect=lambda: val("B801") == "801" and 801 in vis() and all(r % 2 == 1 for r in vis()) and len(vis()) <= shown_in_win() + 2 * 12 + 2 * 50 and hidden_drawn_near(801) == 0 and any(abs(r - 801) < 6 for r in vis()), wait=300)
+            t.step("Scroll to the last shown row (999) with the filter on: B999 is drawn and correct, drawn shown rows within the design limit, no hidden row within 100 rows has inputs", lambda: far(999), expect=lambda: val("B999") == "999" and len(vis()) <= shown_in_win() + 2 * 12 + 2 * 50 and hidden_drawn_near(999) == 0 and all(r % 2 == 1 for r in vis()), wait=300)
+            fk = {}
+            def filt_keys():
+                far(501)
+                last = 501
+                pg.evaluate("(r) => { document.querySelector('#sheet-root input[data-addr=' + String.fromCharCode(34) + 'Z' + r + String.fromCharCode(34) + ']').focus(); }", last)
+                pg.keyboard.press("Tab"); pg.wait_for_timeout(600)
+                fk["tab"] = pg.evaluate("() => document.activeElement.dataset.addr"); fk["last"] = last
+                pg.evaluate("(r) => { document.querySelector('#sheet-root input[data-addr=' + String.fromCharCode(34) + 'B' + r + String.fromCharCode(34) + ']').focus(); }", 501)
+                fk["a0"] = pg.evaluate("() => document.activeElement.dataset.addr")
+                for _ in range(5):
+                    pg.keyboard.press("ArrowDown"); pg.wait_for_timeout(120)
+                fk["down"] = pg.evaluate("() => document.activeElement.dataset.addr")
+                fk["downhidden"] = pg.evaluate("() => { const e = document.activeElement; const tr = e.closest('tr'); return !!tr.hidden; }")
+                print("FILTKEYS", fk, flush=True)
+            t.step("Filter on, native keys without the helper: Tab from Z501 (the next row, 502, is hidden) goes to A503, a shown row, and ArrowDown x5 from B501 moves down onto shown rows only", filt_keys, expect=lambda: fk["tab"].startswith("A") and fk["tab"] == "A503" and not fk["downhidden"] and int(fk["down"][1:]) > 501 and int(fk["down"][1:]) % 2 == 1, wait=300)
+            t.step("Clear the filter while scrolled to row 801: the rows it shows again (800, 802) get inputs on the spot with their real values (winUpdate after a filter change), and no row stays hidden", lambda: (toprow(801), pg.wait_for_timeout(500), pg.click("#filter-clear"), pg.wait_for_timeout(800)), expect=lambda: val("B800") == "800" and val("B802") == "802" and val("B801") == "801" and pg.evaluate("() => document.querySelectorAll('#sheet-root tr[hidden]').length") == 0, wait=300)
+            t.step("Back to the top (the filter was cleared in the previous step): every row is shown and stored data is unchanged by the filter and the scrolling", lambda: (toprow(1), pg.wait_for_timeout(900)), expect=lambda: stored() == before and len(vis()) > 10 and any(r % 2 == 0 for r in vis()), wait=300)
+            t.step("Freeze row 1 and scroll to row 600: row 1 stays drawn and pinned at the top of the grid box while row 600 is drawn", lambda: (pg.fill("#frz-rows", "1"), pg.fill("#frz-cols", "0"), pg.click("#frz-apply"), pg.wait_for_timeout(500), far(600)), expect=lambda: val("A1") == "x" and val("B600") == "600" and pg.evaluate("() => { const sc = document.getElementById('sheet-root').getBoundingClientRect(); const i = document.querySelector('#sheet-root input[data-addr=' + String.fromCharCode(34) + 'A1' + String.fromCharCode(34) + ']').getBoundingClientRect(); return i.top >= sc.top - 1 && i.top < sc.top + 120; }"), wait=300)
+            def edge_tab():
+                far(300)
+                last = drawn()[-1]
+                pg.evaluate("(r) => { const i = document.querySelector('#sheet-root input[data-addr=' + String.fromCharCode(34) + 'Z' + r + String.fromCharCode(34) + ']'); i.focus(); }", last)
+                pg.keyboard.press("Tab"); pg.wait_for_timeout(500)
+                pg.evaluate("(r) => { window.__edge = r; }", last)
+            t.step("Native Tab from Z of the last drawn row (no helper): focus lands on A of the next row, which is drawn on demand and shows its real value", edge_tab, expect=lambda: pg.evaluate("() => document.activeElement.dataset.addr") == "A%d" % (pg.evaluate("() => window.__edge") + 1) and val(pg.evaluate("() => document.activeElement.dataset.addr")) in ("x", "y"), wait=300)
+            def edge_arrow():
+                nxt = pg.evaluate("() => +document.activeElement.dataset.addr.slice(1)")
+                for _ in range(30):
+                    pg.keyboard.press("ArrowDown")
+                snap = pg.evaluate("() => document.activeElement.dataset.addr")
+                pg.evaluate("(s) => { window.__arr = s; }", snap); pg.wait_for_timeout(500)
+            t.step("Native ArrowDown x30 from there walks through undrawn rows, focus stays on a real cell in column A", edge_arrow, expect=lambda: pg.evaluate("() => document.activeElement.dataset.addr").startswith("A") and pg.evaluate("() => +document.activeElement.dataset.addr.slice(1)") >= 330, wait=300)
+            def edge_paste():
+                a = pg.evaluate("() => document.activeElement.dataset.addr")
+                pg.evaluate("(function(a,t){var e=document.querySelector('input[data-addr='+a+']');var dt=new DataTransfer();dt.setData('text/plain',t);e.dispatchEvent(new ClipboardEvent('paste',{clipboardData:dt,bubbles:true,cancelable:true}));})(%s,%s)" % (json.dumps(a), json.dumps("p1\tp2\np3\tp4\np5\tp6\n")))
+                pg.wait_for_timeout(400); pg.evaluate("(a) => { window.__pa = a; }", a)
+            t.step("Paste a 3 x 2 block at the focused cell: it fills across rows that were not drawn a moment ago, and the stored sheet has all six cells", edge_paste, expect=lambda: (lambda a, st: st.get(a) == "p1" and st.get("B" + a[1:]) == "p2" and st.get("A%d" % (int(a[1:]) + 2)) == "p5" and st.get("B%d" % (int(a[1:]) + 2)) == "p6")(pg.evaluate("() => window.__pa"), json.loads(stored())), wait=300)
+            def desk():
+                pg.set_viewport_size({"width": 1280, "height": 800}); pg.wait_for_timeout(600); far(1); far(500); pg.wait_for_timeout(500)
+            t.step("Desktop 1280x800: the grid box is shorter than the window (max 70% of the height), inputs stay bounded, row 500 is drawn", desk, expect=lambda: pg.evaluate("() => document.getElementById('sheet-root').getBoundingClientRect().height") <= 800 * 0.7 + 2 and cnt() < 1500 and val("B500") == "500", wait=300)
+            t.step("Desktop: the Freeze controls are visible and the Chart panel works with the grid scrolled to row 500 (bar chart of B495:B500 draws 6 bars). Versions panel is not exercised here", lambda: (pg.fill("#chart-range", "B495:B500"), pg.select_option("#chart-type", "bar"), pg.click("#chart-draw"), pg.wait_for_timeout(600)), expect=lambda: pg.locator("#chart-out svg rect").count() >= 6 and pg.locator("#frz-apply").is_visible(), wait=300)
+            def hit():
+                far(500)
+                return pg.evaluate("() => { const s = document.getElementById('sheet-root'); let bad = 0, n = 0; document.querySelectorAll('#sheet-root input').forEach((i) => { const r = i.getBoundingClientRect(), b = s.getBoundingClientRect(); if (r.bottom <= b.top + 90 || r.top >= b.bottom - 2 || r.right > b.right || r.left < b.left + 40) return; n++; const e = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2); if (e !== i) { bad++; (window.__badh = window.__badh || []).push(i.dataset.addr + ':' + Math.round(r.top - b.top) + ':' + Math.round(r.left - b.left) + ':' + (e ? e.tagName + (e.dataset && e.dataset.addr || '') : 'null')); } }); return [n, bad]; }")
+            hres = {}
+            t.step("Rows stay aligned after the resize from 390 to 1280 wide (row 1 is still frozen and pinned, so the top 90 px under the pinned header and row 1 are excluded): every drawn input in the rest of the grid box (row 500 view) is the element hit at its own centre, and the row 1 height equals the height set on every row", lambda: hres.update(r=hit()), expect=lambda: (print("HIT n,bad", hres["r"], pg.evaluate("() => window.__badh"), "h1,h900", pg.evaluate("() => { const t = document.querySelector('#sheet-root table'); return [t.rows[1].offsetHeight, t.rows[900].offsetHeight]; }"), flush=True) or True) and hres["r"][0] > 20 and hres["r"][1] == 0 and pg.evaluate("() => { const t = document.querySelector('#sheet-root table'); return t.rows[1].offsetHeight === t.rows[900].offsetHeight; }"), wait=200)
+            pg.on("dialog", lambda d: d.accept())
+            def vers():
+                pg.fill("#ver-name", "v500"); pg.click("#ver-save"); pg.wait_for_timeout(500)
+                far(500)
+                pg.click('#sheet-root input[data-addr="B500"]'); pg.keyboard.press("Control+A"); pg.keyboard.type("changed"); pg.keyboard.press("Enter"); pg.wait_for_timeout(400)
+                hres["mid"] = val("B500")
+                pg.click('button[aria-label="Restore the version v500"]'); pg.wait_for_timeout(1500)
+                far(500)
+            t.step("Versions panel on the 1000-row sheet: save a version, change B500 to changed, Restore it: B500 is 500 again, B999 and A1000-free data intact, stored sheet equals what it was before", vers, expect=lambda: hres["mid"] == "changed" and val("B500") == "500" and json.loads(stored())["B999"] == "999" and "B500" in json.loads(stored()) and json.loads(stored())["B500"] == "500" and len(json.loads(stored())) == 2000, wait=300)
+            def shots():
+                out = os.environ.get("DRILL_VIDEO", "") or "/tmp"
+                pg.evaluate("() => document.getElementById('ver-list').scrollIntoView({block: 'center'})"); pg.wait_for_timeout(400)
+                pg.screenshot(path=os.path.join(out, "desktop_versions_1280.png"))
+                far(500); pg.wait_for_timeout(500)
+                pg.evaluate("() => document.getElementById('sheet-root').scrollIntoView({block: 'start'})"); pg.wait_for_timeout(400)
+                pg.screenshot(path=os.path.join(out, "desktop_grid_1280.png"))
+            t.step("True 1280x800 screenshots of the Versions list (the saved v500 version) and of the grid at row 500 are saved for inspection", shots, expect=lambda: True, wait=100)
+        run_tour(ctx, "sheets_virtual2", body, notes="Headless Chromium 390x844 emulated, then 1280x800. Rows are drawn near the view only.")
+    g["DRILLS"]["tour_sheets_virtual2"] = tour
 
 
 def register_sheets_charts(g):
