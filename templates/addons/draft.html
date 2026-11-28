@@ -1,0 +1,9 @@
+{% extends "base.html" %}
+{% block extra_head %}<link rel="stylesheet" href="/static/css/forms.css">{% endblock %}
+{% block title %}{{ a.name }}: Add-ons{% endblock %}
+{% block content %}
+<div class="card frm"><h2>{{ a.name }} <small>(draft)</small></h2><p><a href="{% url 'addons:home' %}">All drafts</a></p>
+<p class="frm-note">Saving checks the manifest and keeps it as a draft. It does not submit it, turn it on or send it anywhere. Scopes and events cannot be named yet: the approved lists are empty. Card text is plain text only.</p>
+<form method="post">{% csrf_token %}<label>Manifest (JSON)<textarea name="manifest" rows="14" spellcheck="false">{{ text }}</textarea></label><button type="submit">Check and save draft</button></form>
+<h3>Saved versions</h3><ul>{% for v in versions %}<li><a href="{% url 'addons:review' a.public_id v.version %}">{{ v.version }}</a> ({{ v.review_state }}) <a href="{% url 'addons:draft' a.public_id %}?v={{ v.version }}">Edit</a></li>{% empty %}<li>None yet.</li>{% endfor %}</ul></div>
+{% endblock %}

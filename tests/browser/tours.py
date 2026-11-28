@@ -233,6 +233,7 @@ def register(g):
     register_tasks(g, users)
     register_calendar(g, users)
     register_forms_prep(g)
+    register_addons_prep(g)
     register_sheets(g)
     register_slides(g)
     register_pdf(g)
@@ -8866,3 +8867,44 @@ def register_forms_prep(g):
         json.dump(out, open("/downloads/forms_layout_check.json", "w"), indent=1)
 
     g["DRILLS"]["tour_forms_prep"] = tour
+
+
+def register_addons_prep(g):
+    """Add-ons private drafts at phone width: invalid JSON, a scope refusal, a saved checked draft, the view-only review page
+    with escaped text and no action control. Not a completed module; nothing is submitted or installed."""
+    APP = g["APP"]
+
+    def tour(ctx):
+        out = {}
+
+        def fit(pg, label):
+            pg.evaluate("() => { const c = document.getElementById('__cap'); if (c) c.style.display = 'none'; const d = document.getElementById('__dot'); if (d) d.style.display = 'none'; }")
+            bad = pg.evaluate(
+                """() => { const W = document.documentElement.clientWidth, r = []; const card = document.querySelector('.frm');
+                if (card.scrollWidth > card.clientWidth + 1) r.push('card wider than itself');
+                for (const e of card.querySelectorAll('button, a, input, select, textarea')) {
+                  const b = e.getBoundingClientRect(); if (b.width && (b.left < -1 || b.right > W + 1)) r.push((e.innerText || e.name || e.tagName).slice(0, 20) + ' outside'); }
+                out_controls = card.querySelectorAll('button, form').length; return r.concat(['controls:' + out_controls]); }"""
+            )
+            out[label] = bad
+            pg.screenshot(path="/downloads/addons_%s.png" % label, full_page=True)
+            pg.evaluate("() => { const c = document.getElementById('__cap'); if (c) c.style.display = ''; const d = document.getElementById('__dot'); if (d) d.style.display = ''; }")
+            return not [b for b in bad if not b.startswith("controls:")]
+
+        valid = '{"name": "Lunch", "version": "1.0.0", "cards": [{"title": "Menu", "blocks": [{"type": "text", "text": "Rice & dal"}, {"type": "keyvalue", "key": "Price", "value": "50"}, {"type": "divider"}]}]}'
+
+        def body(t, pg):
+            pg.goto(APP + "/addons/")
+            t.step("Add-ons home: private drafts, not a completed module", expect=lambda: "Not a completed module" in pg.inner_text("body") and fit(pg, "1_home"), wait=1500)
+            t.step("Create a draft called Lunch", lambda: (pg.fill("input[name=name]", "Lunch"), pg.click("button:has-text('New draft')")), expect=lambda: "Lunch" in pg.inner_text("h2") and fit(pg, "2_draft"))
+            t.step("Invalid JSON is refused", lambda: (pg.fill("textarea[name=manifest]", "{nope"), pg.click("button:has-text('Check and save')")), expect=lambda: "not valid JSON" in pg.inner_text("body") and fit(pg, "3_badjson"))
+            t.step("A scope name is refused (approved list is empty)", lambda: (pg.fill("textarea[name=manifest]", valid.replace('"cards"', '"scopes": ["files.read"], "cards"')), pg.click("button:has-text('Check and save')")), expect=lambda: "is not in the reviewed list" in pg.inner_text("body") and "None yet." in pg.inner_text(".frm"))
+            t.step("A valid manifest saves as a draft", lambda: (pg.fill("textarea[name=manifest]", valid), pg.click("button:has-text('Check and save')")), expect=lambda: "Draft 1.0.0 saved. Nothing was submitted or turned on." in pg.inner_text("body") and "(draft)" in pg.inner_text(".frm") and fit(pg, "4_saved"))
+            t.step("Open the view-only review page", lambda: pg.click("a:has-text('1.0.0')"), expect=lambda: "View only" in pg.inner_text("body") and "Rice & dal" in pg.inner_text(".frm") and "Price" in pg.inner_text(".frm") and fit(pg, "5_review"))
+            t.step("The review card has no button or form", expect=lambda: pg.locator(".frm button, .frm form").count() == 0)
+            t.note("Nothing was submitted, approved, installed or sent. Headless Chromium 390x844 emulated.", 2.5)
+
+        run_tour(ctx, "96_addons_drafts", body, notes="Real Django on TiDB, headless Chromium 390x844 emulated, synthetic owner ST-LIVE-1. Private drafts only, not a completed module. Screenshots are taken with the caption bar and pointer hidden. One run.", unshown=["submit, approve, install (not built)", "other people's view (covered by unit tests)"])
+        json.dump(out, open("/downloads/addons_layout_check.json", "w"), indent=1)
+
+    g["DRILLS"]["tour_addons_prep"] = tour

@@ -66,6 +66,7 @@ class HostSecurityIsolationMiddleware:
                 "/tasks",
                 "/calendar",
                 "/forms",
+                "/addons",
                 "/search",
                 "/chat",
                 "/sheets",

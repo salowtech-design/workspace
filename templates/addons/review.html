@@ -1,0 +1,9 @@
+{% extends "base.html" %}
+{% block extra_head %}<link rel="stylesheet" href="/static/css/forms.css">{% endblock %}
+{% block title %}{{ a.name }} {{ v.version }}: Add-ons{% endblock %}
+{% block content %}
+<div class="card frm"><h2>{{ a.name }} {{ v.version }}</h2><p><a href="{% url 'addons:draft' a.public_id %}">Back to the draft</a></p>
+<p class="frm-note">View only. State: {{ v.review_state }}. Submit, approve and install are not available: who may do them has not been decided.</p>
+<p>Scopes: {{ m.scopes|join:", "|default:"none" }}<br>Events: {{ m.hooks|join:", "|default:"none" }}<br>Webhook address: {{ m.webhook_url|default:"none" }} (stored text only, never called)</p>
+{% for c in m.cards %}<h3>{{ c.title }}</h3>{% for b in c.blocks %}{% if b.type == "divider" %}<hr>{% elif b.type == "keyvalue" %}<p><strong>{{ b.key }}</strong>: {{ b.value }}</p>{% else %}<p>{{ b.text }}</p>{% endif %}{% endfor %}{% endfor %}</div>
+{% endblock %}

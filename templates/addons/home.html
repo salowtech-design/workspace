@@ -1,0 +1,9 @@
+{% extends "base.html" %}
+{% block extra_head %}<link rel="stylesheet" href="/static/css/forms.css">{% endblock %}
+{% block title %}Add-ons: Salow Workspace{% endblock %}
+{% block content %}
+<div class="card frm"><h2>Add-ons</h2>
+<p class="frm-note">Private drafts only. Not a completed module: nothing can be submitted, approved, installed or run, and no other person can see your drafts. Who may do those things has not been decided. Any signed-in active person can start a private draft: an implementation default, not an approved role policy.</p>
+<form method="post">{% csrf_token %}<label>Add-on name<input type="text" name="name" maxlength="80" required></label><button type="submit">New draft</button></form>
+<h3>Your drafts</h3><ul>{% for a in items %}<li><a href="{% url 'addons:draft' a.public_id %}">{{ a.name }}</a></li>{% empty %}<li>None yet.</li>{% endfor %}</ul></div>
+{% endblock %}

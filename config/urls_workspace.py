@@ -57,6 +57,7 @@ urlpatterns = [
     path("tasks/", include("apps.tasks.urls", namespace="tasks")),
     path("calendar/", include("apps.events.urls", namespace="events")),
     path("forms/", include("apps.forms.urls", namespace="forms")),
+    path("addons/", include("apps.addons.urls", namespace="addons")),
     path("search/", include("apps.finder.urls", namespace="finder")),
     path("chat/", include("apps.chat.urls", namespace="chat")),
     path("sheets/", include("apps.sheets.urls", namespace="sheets")),
