@@ -353,6 +353,7 @@ def register(g):
     register_slides_stack(g)
     register_sheets_trim(g)
     register_sheets_case(g)
+    register_sheets_blank(g)
     register_drive_link_version_fail(g)
     register_drive_link_slides_retry(g)
     register_sheets_frozenfocus(g)
@@ -3187,6 +3188,34 @@ def register_sheets_case(g):
             t.step("Undo twice brings the original text back exactly", lambda: (pg.click("#sheet-undo"), pg.wait_for_timeout(300), pg.click("#sheet-undo"), pg.wait_for_timeout(400), grid("4_undo")), expect=lambda: stored() == seed, wait=1800)
         run_tour(ctx, "sheets_case", body, notes="Device-local sheet. Headless Chromium 390x844 emulated, real Django on TiDB unistore. Change case of typed text.")
     g["DRILLS"]["tour_sheets_case"] = tour
+
+
+def register_sheets_blank(g):
+    APP = g["APP"]
+
+    def tour(ctx):
+        def body(t, pg):
+            pg.on("pageerror", lambda e: print("PAGEERROR", str(e)[:300]))
+            pg.goto(APP + "/sheets/")
+            pg.evaluate("localStorage.clear()")
+            pg.goto(APP + "/sheets/")
+            pg.wait_for_selector("#sheet-root input", timeout=15000)
+            key = pg.evaluate("() => document.getElementById('sheet-root').dataset.storeKey")
+            seed = {"A1": "Item", "B1": "Qty", "A2": "pen", "B2": "1", "A4": "ink", "B4": "2", "A5": "  ", "A7": "cap", "B7": "3", "A9": "outside"}
+            pg.evaluate("([k, v]) => localStorage.setItem(k, JSON.stringify(v))", [key, seed])
+            pg.reload(); pg.wait_for_selector("#sheet-root input", timeout=15000); pg.wait_for_timeout(600)
+            stored = lambda: json.loads(pg.evaluate("(k) => localStorage.getItem(k)", key))
+            out = os.environ.get("DRILL_VIDEO", "/tmp")
+            grid = lambda name: pg.locator("#sheet-root").screenshot(path=out + "/blank_grid_" + name + ".png")
+            def run():
+                grid("1_before"); pg.fill("#sort-range", "A1:B8"); pg.click("#blank-go"); pg.wait_for_timeout(500)
+                pg.locator("#sheet-status").scroll_into_view_if_needed(); pg.locator("#sheet-status").screenshot(path=out + "/blank_status.png"); grid("2_after")
+            want = {"A1": "Item", "B1": "Qty", "A2": "pen", "B2": "1", "A3": "ink", "B3": "2", "A4": "  ", "A5": "cap", "B5": "3", "A9": "outside"}
+            t.step("Remove blank rows moves the rows up, keeps the spaces-only row, and leaves A9 outside the range", run, expect=lambda: stored() == want and "Removed 3 blank rows from 7" in pg.inner_text("#sheet-status"), wait=1800)
+            t.step("Undo brings every row back as stored", lambda: (pg.click("#sheet-undo"), pg.wait_for_timeout(400), grid("3_undo")), expect=lambda: stored() == seed, wait=1800)
+            t.step("A range with no blank rows says so and changes nothing", lambda: (pg.fill("#sort-range", "A1:B2"), pg.click("#blank-go"), pg.wait_for_timeout(400)), expect=lambda: "No blank rows found" in pg.inner_text("#sheet-status") and stored() == seed, wait=1500)
+        run_tour(ctx, "sheets_blank", body, notes="Device-local sheet. Headless Chromium 390x844 emulated, real Django on TiDB unistore. Remove blank rows in a range of typed values.")
+    g["DRILLS"]["tour_sheets_blank"] = tour
 
 
 def register_slides_bg(g):

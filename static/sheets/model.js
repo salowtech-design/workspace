@@ -220,6 +220,28 @@
     }
     return { cells: changed ? next : cells, changed: changed, formulas: formulas, kept: kept, long: long };
   }
+  // Remove blank rows in a range: a row is blank when every cell of it in the range is missing or empty text. Later rows move up and the freed
+  // rows at the bottom of the range are emptied. Formulas in the range are refused, as in sort, because rows move. With header, the first row stays.
+  function blankRowsRange(cells, rg, header) {
+    if (!rg) return { error: "Enter a range like A1:C10." };
+    var first = header ? rg.r1 + 1 : rg.r1;
+    if (first > rg.r2) return { error: "There are no rows to check." };
+    var r, c, formulas = 0, keep = [], removed = 0;
+    for (r = rg.r1; r <= rg.r2; r++) for (c = rg.c1; c <= rg.c2; c++) { var rv = cells[colName(c) + r]; if (typeof rv === "string" && rv.charAt(0) === "=") formulas++; }
+    if (formulas) return { error: "The range holds " + formulas + " formula" + (formulas === 1 ? "" : "s") + ". Removing rows would change what they refer to, so nothing was removed. Use a range of typed values." };
+    for (r = first; r <= rg.r2; r++) {
+      var vals = {}, any = false;
+      for (c = rg.c1; c <= rg.c2; c++) { var a = colName(c) + r; if (has(cells, a) && String(cells[a]) !== "") { vals[c] = cells[a]; any = true; } }
+      if (!any) { removed++; continue; }
+      keep.push(vals);
+    }
+    var rows = rg.r2 - first + 1;
+    if (!removed) return { cells: cells, removed: 0, rows: rows };
+    var next = copy(cells);
+    for (r = first; r <= rg.r2; r++) for (c = rg.c1; c <= rg.c2; c++) delete next[colName(c) + r];
+    keep.forEach(function (vals, i) { Object.keys(vals).forEach(function (cc) { next[colName(Number(cc)) + (first + i)] = vals[cc]; }); });
+    return { cells: next, removed: removed, rows: rows };
+  }
   // Which rows a filter shows. get(addr) gives the displayed value. The header row, if any, is always shown.
   // ops: contains, equals, gt, lt, nonblank, blank. gt and lt compare numbers only, so text never matches them.
   function filterRows(get, isErr, r1, r2, col, op, val, header) {
@@ -830,6 +852,6 @@
     if (!/^[0-9]{1,4}$/.test(t) || Number(t) < MIN_CW || Number(t) > MAX_CW) return { error: "The width must be a whole number of pixels from " + MIN_CW + " to " + MAX_CW + " (the standard width is " + DEFAULT_CW + ")." };
     return { col: c, px: Number(t) };
   }
-  var api = { caseRange: caseRange, trimRange: trimRange, dedupRange: dedupRange, moveTab: moveTab, duplicateTab: duplicateTab, scatterPoints: scatterPoints, loadWidths: loadWidths, widthsJson: widthsJson, parseWidth: parseWidth, MIN_CW: MIN_CW, MAX_CW: MAX_CW, DEFAULT_CW: DEFAULT_CW, loadVers: loadVers, versJson: versJson, addVer: addVer, dropVer: dropVer, verName: verName, MAX_VERS: MAX_VERS, structApply: structApply, structRecover: structRecover, structRecovery: structRecovery, structRecoveryInfo: structRecoveryInfo, structEdit: structEdit, structRange: structRange, fillRange: fillRange, findReplace: findReplace, parseRange: parseRange, makeRule: makeRule, addRule: addRule, removeRule: removeRule, loadRules: loadRules, rulesJson: rulesJson, checkValue: checkValue, makePivot: makePivot, pivot: pivot, MAX_GROUPS: MAX_GROUPS, makeCf: makeCf, addCf: addCf, loadCf: loadCf, cfJson: cfJson, cfColor: cfColor, parsePaste: parsePaste, loadFreeze: loadFreeze, freezeJson: freezeJson, parseFreeze: parseFreeze, MAX_FREEZE: MAX_FREEZE, parseCsv: parseCsv, csvImport: csvImport, isBlock: isBlock, applyPaste: applyPaste, MAX_PASTE_CELLS: MAX_PASTE_CELLS, makeFmt: makeFmt, addFmt: addFmt, loadFmt: loadFmt, fmtJson: fmtJson, fmtFor: fmtFor, fmtText: fmtText, MAX_FMT: MAX_FMT, MAX_RULES: MAX_RULES, loadTabs: loadTabs, addTab: addTab, markFmt: markFmt, renameTab: renameTab, deleteTab: deleteTab, setActive: setActive, cleanName: cleanName, MAX_TABS: MAX_TABS, sortRange: sortRange, filterRows: filterRows, toNum: toNum, toCsv: toCsv, clean: clean, History: History, chartPoints: chartPoints, pieSlices: pieSlices, isComposing: isComposing, keyMove: keyMove, copy: copy, same: same };
+  var api = { blankRowsRange: blankRowsRange, caseRange: caseRange, trimRange: trimRange, dedupRange: dedupRange, moveTab: moveTab, duplicateTab: duplicateTab, scatterPoints: scatterPoints, loadWidths: loadWidths, widthsJson: widthsJson, parseWidth: parseWidth, MIN_CW: MIN_CW, MAX_CW: MAX_CW, DEFAULT_CW: DEFAULT_CW, loadVers: loadVers, versJson: versJson, addVer: addVer, dropVer: dropVer, verName: verName, MAX_VERS: MAX_VERS, structApply: structApply, structRecover: structRecover, structRecovery: structRecovery, structRecoveryInfo: structRecoveryInfo, structEdit: structEdit, structRange: structRange, fillRange: fillRange, findReplace: findReplace, parseRange: parseRange, makeRule: makeRule, addRule: addRule, removeRule: removeRule, loadRules: loadRules, rulesJson: rulesJson, checkValue: checkValue, makePivot: makePivot, pivot: pivot, MAX_GROUPS: MAX_GROUPS, makeCf: makeCf, addCf: addCf, loadCf: loadCf, cfJson: cfJson, cfColor: cfColor, parsePaste: parsePaste, loadFreeze: loadFreeze, freezeJson: freezeJson, parseFreeze: parseFreeze, MAX_FREEZE: MAX_FREEZE, parseCsv: parseCsv, csvImport: csvImport, isBlock: isBlock, applyPaste: applyPaste, MAX_PASTE_CELLS: MAX_PASTE_CELLS, makeFmt: makeFmt, addFmt: addFmt, loadFmt: loadFmt, fmtJson: fmtJson, fmtFor: fmtFor, fmtText: fmtText, MAX_FMT: MAX_FMT, MAX_RULES: MAX_RULES, loadTabs: loadTabs, addTab: addTab, markFmt: markFmt, renameTab: renameTab, deleteTab: deleteTab, setActive: setActive, cleanName: cleanName, MAX_TABS: MAX_TABS, sortRange: sortRange, filterRows: filterRows, toNum: toNum, toCsv: toCsv, clean: clean, History: History, chartPoints: chartPoints, pieSlices: pieSlices, isComposing: isComposing, keyMove: keyMove, copy: copy, same: same };
   if (typeof module !== "undefined" && module.exports) module.exports = api; else root.SalowSheetModel = api;
 })(typeof self !== "undefined" ? self : this);

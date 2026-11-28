@@ -1,0 +1,23 @@
+// Sheets remove blank rows: model rows for M.blankRowsRange.
+const M = require("../../static/sheets/model.js");
+let n = 0, fails = 0;
+const ok = (d, c) => { n++; if (!c) { fails++; console.log("FAIL", d); } };
+const C = (o) => Object.assign(Object.create(null), o);
+const rg = (c1, c2, r1, r2) => ({ c1, c2, r1, r2 });
+const plain = (c) => JSON.stringify(Object.keys(c).sort().map((k) => [k, c[k]]));
+const src = C({ A1: "h", B1: "h2", A2: "a", B2: "1", A4: "b", A6: "c", B6: "3" });
+let r = M.blankRowsRange(src, rg(1, 2, 1, 7), true);
+ok("blank rows are removed and the rows below move up", r.removed === 3 && plain(r.cells) === plain(C({ A1: "h", B1: "h2", A2: "a", B2: "1", A3: "b", A4: "c", B4: "3" })));
+ok("the source cells are unchanged", src.A6 === "c" && src.A4 === "b");
+ok("the header row stays even when it is blank-looking", (() => { const x = M.blankRowsRange(C({ A2: "a", A4: "b" }), rg(1, 1, 1, 4), true); return x.removed === 1 && x.cells.A2 === "a" && x.cells.A3 === "b"; })());
+ok("without a header the first row takes part", (() => { const x = M.blankRowsRange(C({ A2: "a" }), rg(1, 1, 1, 3), false); return x.removed === 2 && x.cells.A1 === "a" && !("A2" in x.cells); })());
+ok("a row of empty text counts as blank", (() => { const x = M.blankRowsRange(C({ A1: "", A2: "a" }), rg(1, 1, 1, 2), false); return x.removed === 1 && x.cells.A1 === "a" && !("A2" in x.cells); })());
+ok("a row holding only spaces is not blank", M.blankRowsRange(C({ A1: "a", A2: "  ", A3: "b" }), rg(1, 1, 1, 3), false).removed === 0);
+ok("a row is blank only if every range column is empty (a cell outside the range does not count)", (() => { const x = M.blankRowsRange(C({ A1: "a", B2: "side", A3: "b" }), rg(1, 1, 1, 3), false); return x.removed === 1 && x.cells.B2 === "side" && x.cells.A2 === "b"; })());
+ok("a cell with 0 or false text is not blank", M.blankRowsRange(C({ A1: "0", A3: "false" }), rg(1, 1, 1, 3), false).removed === 1);
+ok("cells outside the range are untouched", (() => { const x = M.blankRowsRange(C({ A1: "a", A3: "b", A5: "keep", C2: "far" }), rg(1, 1, 1, 3), false); return x.cells.A5 === "keep" && x.cells.C2 === "far"; })());
+ok("a formula in the range refuses and changes nothing", (() => { const x = M.blankRowsRange(C({ A1: "a", A3: "=1" }), rg(1, 1, 1, 3), false); return !!x.error && !x.cells; })());
+ok("no blank rows returns the same cells object and removed 0", (() => { const c = C({ A1: "a", A2: "b" }); const x = M.blankRowsRange(c, rg(1, 1, 1, 2), false); return x.cells === c && x.removed === 0; })());
+ok("a header-only range and a missing range are refused or empty", !!M.blankRowsRange(C({}), null, true).error && !!M.blankRowsRange(C({ A1: "h" }), rg(1, 1, 1, 1), true).error);
+console.log((fails ? "FAILED " : "") + (n - fails) + "/" + n + " sheets blank rows passed");
+process.exit(fails ? 1 : 0);

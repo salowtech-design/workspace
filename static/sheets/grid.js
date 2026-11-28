@@ -706,6 +706,17 @@
     var note = "Removed " + r.removed + " duplicate row" + (r.removed === 1 ? "" : "s") + " from " + r.rows + "; the rows below moved up and the last " + r.removed + " row" + (r.removed === 1 ? " of the range was" : "s of the range were") + " emptied. Undo brings them back." + (filt ? " The filter is still on." : "") + outsideFormulas(rg);
     if (!change(r.cells, note)) status.textContent = "Nothing changed.";
   });
+  $("blank-go").addEventListener("click", function () {
+    if (heldMsg()) return;
+    var rg = parseRange($("sort-range").value);
+    if (!rg) { status.textContent = "Enter a range like A1:C10."; return; }
+    if ((rg.c2 - rg.c1 + 1) * (rg.r2 - rg.r1 + 1) > 2000 || rg.c2 > 26 || rg.r2 > 1000) { status.textContent = "The range can hold up to 2000 cells."; return; }
+    var r = M.blankRowsRange(cells, rg, $("sort-header").checked);
+    if (r.error) { status.textContent = r.error; return; }
+    if (!r.removed) { status.textContent = "No blank rows found. Nothing changed."; return; }
+    var note = "Removed " + r.removed + " blank row" + (r.removed === 1 ? "" : "s") + " from " + r.rows + "; the rows below moved up and the last " + r.removed + " row" + (r.removed === 1 ? " of the range was" : "s of the range were") + " emptied. Undo brings them back." + (filt ? " The filter is still on." : "") + outsideFormulas(rg);
+    if (!change(r.cells, note)) status.textContent = "Nothing changed.";
+  });
   $("trim-go").addEventListener("click", function () {
     if (heldMsg()) return;
     var rg = parseRange($("sort-range").value);
