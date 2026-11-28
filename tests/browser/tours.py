@@ -5710,7 +5710,7 @@ def register_worklog_team_refusal(g, users):
             t.cap("Next (test fixture: this account is now an ordinary Employee): open the edit page of a post written by Second Synthetic")
             resp = pg.goto(APP + "/posts/%d/edit/" % ids["a"])
             pg.evaluate("window.scrollTo(0,0)")
-            t.step("The app refuses: the edit page answers with status %s and a plain page that reads 403 Forbidden" % (resp.status if resp else "?"), expect=lambda: bool(resp) and resp.status == 403, wait=3400)
+            t.step("The app refuses: the edit page answers with status %s (checked by the tour, not visible) and shows the styled page \"You don't have access to this page\"" % (resp.status if resp else "?"), expect=lambda: bool(resp) and resp.status == 403 and "You don't have access to this page" in txt(), wait=3400)
             t.note("Not shown: other roles' edit rules and moderator edit.", 3)
 
         run_tour(ctx, "69_worklog_team_refusal", body, notes="Real Django on TiDB, headless Chromium 390x844 emulated. Fixture by script: this account is a Manager, lead of Alpha Team and a member of Beta Team, Second Synthetic wrote one post in each; then the account is set back to Employee for the refusal.", unshown=["moderator edit"])
