@@ -170,10 +170,18 @@ def device_email_otp_view(request, request_id: uuid.UUID):
     error = None
     if request.method == "POST":
         otp = request.POST.get("email_otp", "").strip()
-        if verify_device_email_otp(request_id, otp):
-            return redirect("accounts:device_face_verify", request_id=req.request_id)
+        try:
+            verified = verify_device_email_otp(request_id, otp)
+        except AuthException as exc:
+            if getattr(exc, "code", "") != "AUTH-LOG-002":
+                raise  # only the lock case is shown; anything else is not turned into page text
+            verified = False
+            error = exc.user_message  # built in lockout.py from a whole number of minutes only
         else:
-            error = "Invalid or expired email OTP. Please check your inbox and try again."
+            if not verified:
+                error = "Invalid or expired email OTP. Please check your inbox and try again."
+        if verified:
+            return redirect("accounts:device_face_verify", request_id=req.request_id)
 
     return render(
         request,
