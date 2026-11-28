@@ -345,6 +345,7 @@ def register(g):
     register_drive_link_stale(g)
     register_sheets_new_formulas(g)
     register_slides_find(g)
+    register_slides_paste(g)
     register_drive_link_version_fail(g)
     register_drive_link_slides_retry(g)
     register_sheets_frozenfocus(g)
@@ -2919,6 +2920,35 @@ def register_slides_find(g):
             t.step("Typing one more character in that Text box keeps the replaced text", lambda: (pg.click("#sl-text"), pg.press("#sl-text", "End"), pg.keyboard.type("!"), pg.press("#sl-text", "Tab")), expect=lambda: texts()[0][0] == "plum pie plan!", wait=1800)
         run_tour(ctx, "slides_find", body, notes="Device-local deck. Headless Chromium 390x844 emulated, real Django on TiDB unistore. Plain-text find and replace over the slides' own items.")
     g["DRILLS"]["tour_slides_find"] = tour
+
+
+def register_slides_paste(g):
+    APP = g["APP"]
+
+    def tour(ctx):
+        def body(t, pg):
+            pg.on("pageerror", lambda e: print("PAGEERROR", str(e)[:300]))
+            pg.goto(APP + "/slides/")
+            pg.evaluate("localStorage.clear()")
+            pg.goto(APP + "/slides/")
+            pg.wait_for_selector("#sl-add-text", timeout=15000)
+            key = pg.evaluate("() => document.getElementById('slide-root').dataset.storeKey")
+            mk = lambda i, t_: {"id": i, "type": "text", "x": 40, "y": 40, "w": 600, "h": 80, "fill": "theme", "text": t_, "size": 32, "b": True}
+            deck = {"v": 1, "theme": "light", "slides": [{"id": "s0", "notes": "", "elements": [mk("a", "Move me")]}, {"id": "s1", "notes": "", "elements": [mk("c", "Second slide")]}]}
+            pg.evaluate("([k, v]) => localStorage.setItem(k, JSON.stringify(v))", [key, deck])
+            pg.reload(); pg.wait_for_selector("#sl-add-text", timeout=15000); pg.wait_for_timeout(600)
+            stored = lambda: json.loads(pg.evaluate("(k) => localStorage.getItem(k)", key))
+            texts = lambda: [[e["text"] for e in sl["elements"]] for sl in stored()["slides"]]
+            goto = lambda n: (pg.locator("#sl-list button").nth(n).click(), pg.wait_for_timeout(400))
+            pick = lambda n: (pg.evaluate("() => document.getElementById('sl-props').scrollIntoView({block: 'start'})"), pg.locator("#sl-items li button").nth(n).click(), pg.wait_for_timeout(300))
+            t.step("Paste item is off until something is copied", expect=lambda: pg.is_disabled("#sl-paste-el"), wait=1500)
+            t.step("Select the item on slide 1 and Copy item: Paste item turns on", lambda: (pick(0), pg.click("#sl-copy-el")), expect=lambda: not pg.is_disabled("#sl-paste-el") and "Item copied" in pg.inner_text("#sl-status"), wait=1500)
+            t.step("Go to slide 2 and Paste item: slide 2 now holds both, slide 1 keeps its item", lambda: (goto(1), pg.click("#sl-paste-el")), expect=lambda: texts() == [["Move me"], ["Second slide", "Move me"]], wait=1800)
+            t.step("Undo removes the paste in one step", lambda: pg.click("#sl-undo"), expect=lambda: texts() == [["Move me"], ["Second slide"]], wait=1500)
+            t.step("Cut the slide 2 item, go to slide 1 and paste it there", lambda: (pick(0), pg.click("#sl-cut-el"), goto(0), pg.click("#sl-paste-el")), expect=lambda: texts() == [["Move me", "Second slide"], []], wait=1800)
+            t.step("The pasted item is selected and keeps its bold style", expect=lambda: pg.input_value("#sl-text") == "Second slide" and pg.is_checked("#sl-bold"), wait=1500)
+        run_tour(ctx, "slides_paste", body, notes="Device-local deck. Headless Chromium 390x844 emulated, real Django on TiDB unistore. Copy, cut and paste of one item between slides, held in the page only.")
+    g["DRILLS"]["tour_slides_paste"] = tour
 
 
 def register_slides_bg(g):

@@ -232,6 +232,16 @@
       c.x = c.x + 20 <= W - c.w ? c.x + 20 : Math.max(0, c.x - 20); c.y = c.y + 20 <= H - c.h ? c.y + 20 : Math.max(0, c.y - 20);
       n.slides[i].elements.splice(k + 1, 0, c); return { deck: normVersion(n), id: c.id };
     },
+    // Paste an item copied from any slide onto slide i: a fresh id, moved 20 right and 20 down (or left and up at the edge), text, style and a picture's reference kept,
+    // layout link (ph) and animation not carried. item is a plain item as the page holds it; it is checked like any stored item. Null at the 30 item cap, at the 20 picture cap, or for an item that does not check out.
+    pasteElement: function (d, i, item) {
+      var s = d.slides[i]; if (!s || s.elements.length >= MAX_EL || !item || typeof item !== "object") return null;
+      var c = fixEl(copy(item)); if (!c) return null;
+      if (isImg(c)) { var count = 0; d.slides.forEach(function (x) { x.elements.forEach(function (e) { if (isImg(e)) count++; }); }); if (count >= MAX_IMAGES) return null; }
+      c.id = uid();
+      c.x = c.x + 20 <= W - c.w ? c.x + 20 : Math.max(0, c.x - 20); c.y = c.y + 20 <= H - c.h ? c.y + 20 : Math.max(0, c.y - 20);
+      var n = copy(d); n.slides[i].elements.push(c); var v = normVersion(n); return v ? { deck: v, id: c.id } : null;
+    },
     // dir -1 sends the item one step back (drawn earlier, underneath), +1 brings it one step forward. Null at the ends.
     moveElement: function (d, i, id, dir) {
       var s = d.slides[i]; if (!s || (dir !== 1 && dir !== -1)) return null; var k = -1; s.elements.forEach(function (e, x) { if (e.id === id) k = x; });

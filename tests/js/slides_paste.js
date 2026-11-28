@@ -1,0 +1,33 @@
+// Slides copy, cut and paste of one item between slides: model-level rows for ops.pasteElement.
+const S = require("../../static/slides/model.js");
+let n = 0, fails = 0;
+const ok = (d, c) => { n++; if (!c) { fails++; console.log("FAIL", d); } };
+const el = (id, text, extra) => Object.assign({ id, type: "text", x: 100, y: 100, w: 300, h: 50, fill: "theme", size: 20, text }, extra || {});
+const HASH = "a".repeat(64);
+const deck = (...slides) => { const d = S.newDeck(); d.slides = slides.map((els, i) => ({ id: "s" + i, elements: els, notes: "" })); return d; };
+const d0 = deck([el("a", "Hello", { b: true, i: true, u: true, al: "center", fill: "#7a2e22", size: 40 })], [el("z", "Other")]);
+const item = JSON.parse(JSON.stringify(d0.slides[0].elements[0]));
+
+let r = S.ops.pasteElement(d0, 1, item);
+ok("paste puts a copy on the other slide, after the existing item", r && r.deck.slides[1].elements.length === 2 && r.deck.slides[1].elements[1].id === r.id);
+ok("the pasted item has a fresh id", r.id !== "a" && r.id !== "z");
+ok("text, size, fill and style are kept", (() => { const c = r.deck.slides[1].elements[1]; return c.text === "Hello" && c.size === 40 && c.fill === "#7a2e22" && c.b === true && c.i === true && c.u === true && c.al === "center"; })());
+ok("position moves 20 right and 20 down", (() => { const c = r.deck.slides[1].elements[1]; return c.x === 120 && c.y === 120; })());
+ok("the source slide and the source deck are unchanged", r.deck.slides[0].elements.length === 1 && d0.slides[1].elements.length === 1);
+ok("paste on the same slide also works and keeps ids unique", (() => { const x = S.ops.pasteElement(d0, 0, item); const ids = x.deck.slides[0].elements.map((e) => e.id); return ids.length === 2 && ids[0] !== ids[1]; })());
+ok("two pastes of one copy give two different ids", (() => { const a = S.ops.pasteElement(d0, 1, item), b = S.ops.pasteElement(a.deck, 1, item); return a.id !== b.id && b.deck.slides[1].elements.length === 3; })());
+ok("an item at the right edge moves left instead", (() => { const e = Object.assign({}, item, { x: 660, y: 490 }); const c = S.ops.pasteElement(d0, 1, e).deck.slides[1].elements[1]; return c.x === 640 && c.y === 470; })());
+ok("a layout link and an animation are not carried", (() => { const e = Object.assign({}, item, { ph: 0, anim: [{ el: "a", fx: "fade" }] }); const c = S.ops.pasteElement(d0, 1, e).deck.slides[1].elements[1]; return !("ph" in c) && !("anim" in c); })());
+ok("a slide with 30 items refuses the paste", (() => { const full = deck(Array.from({ length: 30 }, (_, i) => el("f" + i, "x")), [el("z", "y")]); return S.ops.pasteElement(full, 0, item) === null && S.ops.pasteElement(full, 1, item) !== null; })());
+ok("an unknown slide, a missing item or a non-object refuse", S.ops.pasteElement(d0, 9, item) === null && S.ops.pasteElement(d0, 0, null) === null && S.ops.pasteElement(d0, 0, "x") === null);
+ok("an item that does not check out (bad type or bad id) is refused", S.ops.pasteElement(d0, 0, Object.assign({}, item, { type: "video" })) === null && S.ops.pasteElement(d0, 0, Object.assign({}, item, { id: "bad id!" })) === null);
+ok("text over the limit in a pasted item is cut by the same rule as a stored item", (() => { const c = S.ops.pasteElement(d0, 1, Object.assign({}, item, { text: "x".repeat(1500) })).deck.slides[1].elements[1]; return c.text.length === S.MAX_TEXT; })());
+const pic = { id: "p", type: "image", x: 10, y: 10, w: 200, h: 100, fill: "theme", size: 32, text: "A chart", img: HASH };
+ok("a picture keeps its stored reference and description", (() => { const c = S.ops.pasteElement(d0, 1, pic).deck.slides[1].elements[1]; return c.type === "image" && c.img === HASH && c.text === "A chart"; })());
+ok("a picture with a bad reference is refused", S.ops.pasteElement(d0, 1, Object.assign({}, pic, { img: "nothex" })) === null);
+ok("at 20 pictures in the deck a picture paste is refused but text is not", (() => { const pics = Array.from({ length: 20 }, (_, i) => Object.assign({}, pic, { id: "q" + i })); const d = deck(pics.slice(0, 15), pics.slice(15)); return S.ops.pasteElement(d, 0, pic) === null && S.ops.pasteElement(d, 0, item) !== null; })());
+ok("paste is one history step and undo removes it", (() => { const h = new S.History(d0, { save() { return true; } }, 100); const x = S.ops.pasteElement(h.deck, 1, item); h.change(x.deck); const one = h.past.length === 1 && h.deck.slides[1].elements.length === 2; h.undo(); return one && h.deck.slides[1].elements.length === 1; })());
+ok("cut then paste moves an item to another slide (delete is one step, paste is one step)", (() => { const h = new S.History(d0, { save() { return true; } }, 100); const keep = S.copy(h.deck.slides[0].elements[0]); h.change(S.ops.deleteElement(h.deck, 0, "a")); const gone = h.deck.slides[0].elements.length === 0; const x = S.ops.pasteElement(h.deck, 1, keep); h.change(x.deck); return gone && h.deck.slides[1].elements.some((e) => e.text === "Hello") && h.past.length === 2; })());
+ok("the pasted deck is a valid deck", S.validate(JSON.parse(JSON.stringify(r.deck))) !== null);
+console.log((fails ? "FAILED " : "") + (n - fails) + "/" + n + " slides paste rows passed");
+process.exit(fails ? 1 : 0);

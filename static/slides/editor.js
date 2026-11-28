@@ -164,7 +164,7 @@
       li.appendChild(b); il.appendChild(li);
     });
     $("sl-items-empty").hidden = tgt().length > 0;
-    var e = sel(), props = $("sl-props"); props.disabled = !e; $("sl-del-el").disabled = !e; $("sl-dup-el").disabled = !e;
+    var e = sel(), props = $("sl-props"); props.disabled = !e; $("sl-del-el").disabled = !e; $("sl-dup-el").disabled = !e; $("sl-copy-el").disabled = !e || editMaster; $("sl-cut-el").disabled = !e || editMaster; $("sl-paste-el").disabled = !clip || editMaster;
     var isPic = !!(e && e.type === "image"); ["sl-size", "sl-fill", "sl-bold", "sl-italic", "sl-underline", "sl-align"].forEach(function (id) { $(id).disabled = isPic; });
     $("sl-export-warn").hidden = !deckHashes(d).length;
     $("sl-text-label").textContent = isPic ? "Description (for screen readers, not drawn)" : "Text";
@@ -265,6 +265,15 @@
     var e = sel(); if (!e) return; var r = eop("duplicateElement", e.id);
     if (!r) { status.textContent = "Nothing was copied: this slide is full (30 items) or the deck has 20 pictures (or the master has 10 items)."; return; }
     selId = r.id; if (!apply(r.deck, "Item duplicated.")) { selId = e.id; render(); }
+  });
+  // Copy, cut and paste of one item between slides. The copy is held in this page only (not the system clipboard) and is lost on reload. Paste is one undo step; cut is one undo step.
+  var clip = null;
+  $("sl-copy-el").addEventListener("click", function () { var e = sel(); if (!e || editMaster) return; clip = S.copy(e); render(); status.textContent = "Item copied. Choose a slide and press Paste item. The copy is kept until you reload."; });
+  $("sl-cut-el").addEventListener("click", function () { var e = sel(); if (!e || editMaster) return; var keep = S.copy(e); if (apply(eop("deleteElement", e.id), "Item cut. Choose a slide and press Paste item. Undo brings it back.")) { clip = keep; render(); } });
+  $("sl-paste-el").addEventListener("click", function () {
+    if (!clip || editMaster) return; var r = S.ops.pasteElement(H.deck, cur, clip);
+    if (!r) { status.textContent = "Nothing was pasted: this slide is full (30 items) or the deck has 20 pictures."; return; }
+    selId = r.id; if (!apply(r.deck, "Item pasted. You can undo this.")) { selId = null; render(); }
   });
   $("sl-del-el").addEventListener("click", function () { var e = sel(); if (e) apply(eop("deleteElement", e.id), "Item deleted."); });
   // ---- Layout inheritance: linked slides follow an edited layout item (model: addLinkedSlide, setLayoutSlot, unlinkSlide) ----
