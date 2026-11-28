@@ -304,3 +304,15 @@ def test_formula_batch8_passes_in_node():
     # a hang (subprocess.TimeoutExpired) fails this test rather than blocking the run
     assert r.returncode == 0, r.stdout + r.stderr
     assert "119/119 rows passed" in r.stdout
+
+
+def test_formula_batch9_passes_in_node():
+    assert shutil.which("node"), "node is required to run the formula table"
+    r = subprocess.run(  # noqa: S603 - fixed argv, repo-owned script
+        [shutil.which("node"), str(ROOT / "tests/js/formula_batch9.js")],
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert "41/41 rows passed" in r.stdout

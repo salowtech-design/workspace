@@ -615,7 +615,7 @@
    * STDEV is the sample standard deviation (n - 1), computed in two passes with a corrected mean; fewer than two numbers is #DIV/0! (my choice, not on the page).
    * COUNTA counts every non-empty cell of a range, text included, and zero-length text (page); an error cell counts as one value (my choice).
    * A direct argument counts as one. COUNTBLANK counts the empty cells of a range and cells holding zero-length text; a direct argument
-   * that is not a range or cell is #VALUE! (my choice). Not built: STDEVP, STDEVA, VAR, MODE, QUARTILE, PERCENTILE, COUNTUNIQUE. */
+   * that is not a range or cell is #VALUE! (my choice). Not built: STDEVA, QUARTILE, PERCENTILE (the help pages do not say how they interpolate). */
   function numsOf(a) {
     var n = flatten(a); if (isErr(n)) return n;
     if (meter && meter(n.length)) throw new Err("#LIMIT!");
@@ -839,7 +839,75 @@
     }
     return seen ? count % 2 === 1 : new Err("#VALUE!");
   };
-  var ARITY = { PI: [0, 0], SIN: [1, 1], COS: [1, 1], TAN: [1, 1], ATAN: [1, 1], ASIN: [1, 1], ACOS: [1, 1], DEGREES: [1, 1], RADIANS: [1, 1], ATAN2: [2, 2], REPLACE: [4, 4], SEARCH: [2, 3], CONCATENATE: [1, 99], CHAR: [1, 1], CODE: [1, 1], QUOTIENT: [2, 2], GCD: [1, 99], LCM: [1, 99], FACT: [1, 1], SUMSQ: [1, 99], EVEN: [1, 1], ODD: [1, 1], XOR: [1, 99], HLOOKUP: [3, 4], IFS: [2, 40], SWITCH: [3, 40], SUMIFS: [3, 21], COUNTIFS: [2, 20], AVERAGEIFS: [3, 21], SUMPRODUCT: [1, 30], COUNTUNIQUE: [1, 30], TEXTJOIN: [3, 30], IFNA: [2, 2], EXACT: [2, 2], PROPER: [1, 1], REPT: [2, 2], CHOOSE: [2, 30], NA: [0, 0], XLOOKUP: [3, 6], MAXIFS: [3, 21], MINIFS: [3, 21], ROUNDUP: [1, 2], ROUNDDOWN: [1, 2], TRUNC: [1, 2], SIGN: [1, 1], PRODUCT: [1, 99], LARGE: [2, 2], SMALL: [2, 2], ISNUMBER: [1, 1], ISTEXT: [1, 1], ISBLANK: [1, 1], ISERROR: [1, 1], IFERROR: [1, 2], MEDIAN: [1, 99], STDEV: [1, 99], COUNTA: [1, 99], COUNTBLANK: [1, 99], MOD: [2, 2], POWER: [2, 2], SQRT: [1, 1], INT: [1, 1], FLOOR: [1, 2], CEILING: [1, 2], DATE: [3, 3], YEAR: [1, 1], MONTH: [1, 1], DAY: [1, 1], WEEKDAY: [1, 2], LEFT: [1, 2], RIGHT: [1, 2], MID: [3, 3], TRIM: [1, 1], SUBSTITUTE: [3, 4], FIND: [2, 3], INDEX: [2, 3], MATCH: [2, 3], VLOOKUP: [3, 4], SUMIF: [2, 3], COUNTIF: [2, 2], AVERAGEIF: [2, 3], SUM: [1, 99], AVERAGE: [1, 99], MIN: [1, 99], MAX: [1, 99], COUNT: [1, 99], ABS: [1, 1], ROUND: [1, 2], LEN: [1, 1], UPPER: [1, 1], LOWER: [1, 1], CONCAT: [1, 99], NOT: [1, 1], AND: [1, 99], OR: [1, 99], IF: [2, 3] };
+
+  /* ---- batch 2: VAR, VARP, STDEVP, MODE, RANK, CORREL, SLOPE, INTERCEPT ----
+   * Pages read (Google Docs Editors Help, https://support.google.com/docs/answer/<id>?hl=en, 2026-11-28): VAR 3094063, VARP 3094113, STDEVP 3094105,
+   * MODE 3094029, RANK 3094098, CORREL 3093990, SLOPE 3094048, INTERCEPT 3093632. They give the argument order and these rules: VAR and STDEVP need at
+   * least two values else #DIV/0!; VAR is the sum of squared deviations over n - 1, VARP over n; STDEVP is the square root of VARP; RANK gives #N/A when the value
+   * is not in the data, is_ascending 0 (default) ranks the greatest as 1, 1 ranks the least as 1; CORREL, SLOPE and INTERCEPT take (data_y, data_x) and ignore text.
+   * The pages do not say the following, so these are this engine's own choices, not checked against Google or Excel: VAR, VARP and STDEVP read numbers like STDEV
+   * (text and blanks in a range are ignored, a direct non-numeric argument is #VALUE!, an error cell is returned; the STDEVP page says text is an error, this engine
+   * keeps one rule for all of them). MODE is the first value (in reading order) that reaches the highest count; if no value occurs twice it is #N/A.
+   * RANK: equal values share the best rank; a non-numeric value is #VALUE!; text and blanks in data are ignored; is_ascending is true when it is not 0.
+   * CORREL, SLOPE and INTERCEPT: both arguments must be ranges (or cells) of the same size, else #VALUE!; a pair is used only when both cells are numbers; fewer than two
+   * pairs, or no spread in x (CORREL: in x or y), is #DIV/0!. Sums use a corrected two-pass mean. */
+  function spread(n, pop) {
+    if (n.length < 2) return new Err("#DIV/0!");
+    var mean = 0, i, ss = 0, corr = 0;
+    for (i = 0; i < n.length; i++) mean += n[i];
+    mean /= n.length;
+    for (i = 0; i < n.length; i++) corr += n[i] - mean;
+    mean += corr / n.length;
+    for (i = 0; i < n.length; i++) ss += (n[i] - mean) * (n[i] - mean);
+    var r = ss / (pop ? n.length : n.length - 1);
+    return isFinite(r) ? r : new Err("#NUM!");
+  }
+  FNX.VAR = function (a) { var n = numsOf(a); return isErr(n) ? n : spread(n, false); };
+  FNX.VARP = function (a) { var n = numsOf(a); return isErr(n) ? n : spread(n, true); };
+  FNX.STDEVP = function (a) { var n = numsOf(a); if (isErr(n)) return n; var v = spread(n, true); return isErr(v) ? v : Math.sqrt(v); };
+  FNX.MODE = function (a) {
+    var n = numsOf(a); if (isErr(n)) return n;
+    var counts = Object.create(null), best = 0, bestV, i, k;
+    for (i = 0; i < n.length; i++) { k = String(n[i]); counts[k] = (counts[k] || 0) + 1; }
+    for (i = 0; i < n.length; i++) { k = String(n[i]); if (counts[k] > best) { best = counts[k]; bestV = n[i]; } }
+    return best < 2 ? new Err("#N/A") : bestV;
+  };
+  FNX.RANK = function (a) {
+    var v = sn(a[0]); if (isErr(v)) return v;
+    var d = Array.isArray(a[1]) ? a[1] : [a[1]], asc = a.length > 2 ? sn(a[2]) : 0; if (isErr(asc)) return asc;
+    if (meter && meter(d.length)) throw new Err("#LIMIT!");
+    var better = 0, found = false;
+    for (var i = 0; i < d.length; i++) {
+      if (isErr(d[i])) return d[i];
+      if (typeof d[i] !== "number") continue;
+      if (d[i] === v) found = true; else if (asc !== 0 ? d[i] < v : d[i] > v) better++;
+    }
+    return found ? better + 1 : new Err("#N/A");
+  };
+  function pairs(a) {
+    var y = Array.isArray(a[0]) ? a[0] : [a[0]], x = Array.isArray(a[1]) ? a[1] : [a[1]];
+    if (y.length !== x.length) return new Err("#VALUE!");
+    if (meter && meter(y.length)) throw new Err("#LIMIT!");
+    var ys = [], xs = [];
+    for (var i = 0; i < y.length; i++) {
+      if (isErr(y[i])) return y[i]; if (isErr(x[i])) return x[i];
+      if (typeof y[i] === "number" && typeof x[i] === "number") { ys.push(y[i]); xs.push(x[i]); }
+    }
+    return ys.length < 2 ? new Err("#DIV/0!") : { y: ys, x: xs };
+  }
+  function moments(P) {
+    var n = P.x.length, mx = 0, my = 0, i;
+    for (i = 0; i < n; i++) { mx += P.x[i]; my += P.y[i]; }
+    mx /= n; my /= n;
+    var sxx = 0, syy = 0, sxy = 0;
+    for (i = 0; i < n; i++) { var dx = P.x[i] - mx, dy = P.y[i] - my; sxx += dx * dx; syy += dy * dy; sxy += dx * dy; }
+    return { mx: mx, my: my, sxx: sxx, syy: syy, sxy: sxy };
+  }
+  function fin2(v) { return isFinite(v) ? v : new Err("#NUM!"); }
+  FNX.CORREL = function (a) { var P = pairs(a); if (isErr(P)) return P; var m = moments(P); if (m.sxx === 0 || m.syy === 0) return new Err("#DIV/0!"); return fin2(m.sxy / Math.sqrt(m.sxx * m.syy)); };
+  FNX.SLOPE = function (a) { var P = pairs(a); if (isErr(P)) return P; var m = moments(P); if (m.sxx === 0) return new Err("#DIV/0!"); return fin2(m.sxy / m.sxx); };
+  FNX.INTERCEPT = function (a) { var P = pairs(a); if (isErr(P)) return P; var m = moments(P); if (m.sxx === 0) return new Err("#DIV/0!"); return fin2(m.my - m.sxy / m.sxx * m.mx); };
+  var ARITY = { VAR: [1, 99], VARP: [1, 99], STDEVP: [1, 99], MODE: [1, 99], RANK: [2, 3], CORREL: [2, 2], SLOPE: [2, 2], INTERCEPT: [2, 2], PI: [0, 0], SIN: [1, 1], COS: [1, 1], TAN: [1, 1], ATAN: [1, 1], ASIN: [1, 1], ACOS: [1, 1], DEGREES: [1, 1], RADIANS: [1, 1], ATAN2: [2, 2], REPLACE: [4, 4], SEARCH: [2, 3], CONCATENATE: [1, 99], CHAR: [1, 1], CODE: [1, 1], QUOTIENT: [2, 2], GCD: [1, 99], LCM: [1, 99], FACT: [1, 1], SUMSQ: [1, 99], EVEN: [1, 1], ODD: [1, 1], XOR: [1, 99], HLOOKUP: [3, 4], IFS: [2, 40], SWITCH: [3, 40], SUMIFS: [3, 21], COUNTIFS: [2, 20], AVERAGEIFS: [3, 21], SUMPRODUCT: [1, 30], COUNTUNIQUE: [1, 30], TEXTJOIN: [3, 30], IFNA: [2, 2], EXACT: [2, 2], PROPER: [1, 1], REPT: [2, 2], CHOOSE: [2, 30], NA: [0, 0], XLOOKUP: [3, 6], MAXIFS: [3, 21], MINIFS: [3, 21], ROUNDUP: [1, 2], ROUNDDOWN: [1, 2], TRUNC: [1, 2], SIGN: [1, 1], PRODUCT: [1, 99], LARGE: [2, 2], SMALL: [2, 2], ISNUMBER: [1, 1], ISTEXT: [1, 1], ISBLANK: [1, 1], ISERROR: [1, 1], IFERROR: [1, 2], MEDIAN: [1, 99], STDEV: [1, 99], COUNTA: [1, 99], COUNTBLANK: [1, 99], MOD: [2, 2], POWER: [2, 2], SQRT: [1, 1], INT: [1, 1], FLOOR: [1, 2], CEILING: [1, 2], DATE: [3, 3], YEAR: [1, 1], MONTH: [1, 1], DAY: [1, 1], WEEKDAY: [1, 2], LEFT: [1, 2], RIGHT: [1, 2], MID: [3, 3], TRIM: [1, 1], SUBSTITUTE: [3, 4], FIND: [2, 3], INDEX: [2, 3], MATCH: [2, 3], VLOOKUP: [3, 4], SUMIF: [2, 3], COUNTIF: [2, 2], AVERAGEIF: [2, 3], SUM: [1, 99], AVERAGE: [1, 99], MIN: [1, 99], MAX: [1, 99], COUNT: [1, 99], ABS: [1, 1], ROUND: [1, 2], LEN: [1, 1], UPPER: [1, 1], LOWER: [1, 1], CONCAT: [1, 99], NOT: [1, 1], AND: [1, 99], OR: [1, 99], IF: [2, 3] };
   function truth(v) {
     if (isErr(v)) return v;
     if (typeof v === "boolean") return v;

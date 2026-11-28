@@ -6766,12 +6766,15 @@ def register_sheets_batch8(g):
                 pg.screenshot(path=os.path.join(out, name + ".png"))
                 pg.evaluate("() => { const c = document.getElementById('__cap'); if (c) c.style.display = ''; const d = document.getElementById('__dot'); if (d) d.style.display = ''; }")
             rows = [("B1", '=REPLACE("Spreadsheets",1,6,"Bed")', "Bedsheets"), ("B2", '=SEARCH("wood","How much wood can a woodchuck chuck",14)', "21"),
-                    ("B3", "=GCD(24,96,18)", "6"), ("B4", "=EVEN(-0.6)", "-2"), ("B5", "=XOR(TRUE,FALSE,TRUE)", "false"), ("B6", "=ASIN(2)", "#VALUE!"), ("B7", "=CONCATENATE(\"a\",1,\"b\")", "a1b")]
+                    ("B3", "=GCD(24,96,18)", "6"), ("B4", "=EVEN(-0.6)", "-2"), ("B5", "=XOR(TRUE,FALSE,TRUE)", "false"), ("B6", "=ASIN(2)", "#VALUE!"), ("B7", "=CONCATENATE(\"a\",1,\"b\")", "a1b"),
+                    ("B8", "=RANK(5,D1:D4)", "2"), ("B9", "=STDEVP(2,4,4,4,5,5,7,9)", "2"), ("B10", "=MODE(1,2,2,3)", "2"), ("B11", "=CORREL(D1:D4,D1:D4)", "1")]
             pg.goto(APP + "/sheets/"); pg.wait_for_selector("#sheet-root input", timeout=15000)
+            for addr, v in (('D1', '3'), ('D2', '9'), ('D3', '5'), ('D4', '5')):
+                typ(addr, v)
             for addr, f, _ in rows:
                 typ(addr, f)
             pg.click('input[data-addr="D1"]'); pg.wait_for_timeout(400)
-            t.step("Seven formulas typed by hand into B1 to B7: REPLACE, SEARCH, GCD, EVEN, XOR, ASIN(2), CONCATENATE", lambda: snap("sheets_batch8_390"), expect=lambda: [val(a) for a, _, _ in rows] == [w for _, _, w in rows], wait=800)
+            t.step("Eleven formulas typed by hand into B1 to B11: REPLACE, SEARCH, GCD, EVEN, XOR, ASIN(2), CONCATENATE, RANK, STDEVP, MODE, CORREL (data 3, 9, 5, 5 typed into D1 to D4)", lambda: snap("sheets_batch8_390"), expect=lambda: [val(a) for a, _, _ in rows] == [w for _, _, w in rows], wait=800)
         run_tour(ctx, "sheets_batch8", body, notes="Headless Chromium 390x844 emulated. Formulas typed into the real Sheets page. Node tests cover edge cases; this is one run.")
     g["DRILLS"]["tour_sheets_batch8"] = tour
 
