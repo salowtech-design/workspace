@@ -225,7 +225,7 @@ def register(g):
             t.step("Restore it", lambda: pg.click("button:has-text('Restore')"), expect=lambda: "The trash is empty" in pg.inner_text("body"))
             t.step("Shared with me tab: a folder another person shared", lambda: pg.click(".drive-tabs a:has-text('Shared with me')"), expect=lambda: "Rota from Second" in pg.inner_text("body"))
             t.step("Open the shared folder (Viewer: no create or rename controls)", lambda: pg.click("a.drive-name:has-text('Rota')"), expect=lambda: pg.locator("button:has-text('Create folder')").count() == 0)
-            t.note("Not built, so not shown: file upload and download (no file storage), moving, versions, search inside Drive.", 3.5)
+            t.note("Not in this clip: adding a device file, moving a folder and finding a folder have their own clips. Files stay on this device only; sending a file to someone else is not available yet. Versions are not built.", 5)
 
         run_tour(ctx, "02_drive", body, notes="Real Django app on real TiDB. The folder shared by the second person was created by a script. Headless Chromium 390x844 emulation.", unshown=["Editor role sharing (only Viewer shown)", "folder move", "files (none can be uploaded)", "trash of a folder that has contents", "share to a non-existent ID"])
 
