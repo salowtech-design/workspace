@@ -118,6 +118,7 @@ def fresh(ctx, path):
     pg = ctx.pages[0]
     # the page is shared by every drill: drop dialog handlers an earlier drill left, so one dialog is handled once
     pg._impl_obj.remove_all_listeners("dialog")
+    pg.unroute_all()  # an earlier drill may have left routes that serve old script files
     pg.goto(APP + path)
     pg.evaluate("localStorage.clear()")
     pg.goto(APP + path)
