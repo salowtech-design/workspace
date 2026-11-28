@@ -497,7 +497,7 @@
     if (doc.numPages > ORDER_MAX) { pmsg("The list handles up to " + ORDER_MAX + " pages. Type the pages in the box for a longer file."); return; }
     pOrder = []; pTurn = []; for (var i = 1; i <= doc.numPages; i++) { pOrder.push(i); pTurn.push(0); }
     if (pHold) { clearTimeout(pHold.timer); pHold = null; }
-    pOrderSync(); pmsg("The pages box now follows the list. Typing in the box ends the list.");
+    pOrderSync(); pmsg("The pages box now follows the list. Typing in the box ends the list and any turns.");
   });
   function pagesReset() { pOrder = null; pTurn = null; pOrderSync(); pToken++; pExtras = []; if (pHold) clearTimeout(pHold.timer); pHold = null; pBusy = false; $("pdf-range").value = ""; pList(); pmsg(""); pControls(); }
   function pSave(r, nameText, suffix) {
@@ -509,7 +509,11 @@
     if (!doc || pBusy) return;
     var myDoc = doc, nameText = $("pdf-name").textContent || "PDF file", tok = ++pToken, sel = null;
     if (mode === "split") { sel = window.PdfPages.parseRanges($("pdf-range").value, myDoc.numPages); if (sel.error) { pmsg(sel.error); return; } }
-    var turn = mode === "split" && pOrder && pTurn && pTurn.length === sel.pages.length && pTurn.some(function (x) { return x; }) ? pTurn.slice() : null;
+    var turn = null;
+    if (mode === "split" && pOrder && pTurn && pTurn.some(function (x) { return x; })) {
+      if (pTurn.length !== sel.pages.length) { pmsg("The turns no longer match the pages, so nothing was downloaded. List the pages again and turn them again."); return; }
+      turn = pTurn.slice();
+    }
     var sig = mode + "|" + (sel ? sel.pages.join(",") : "") + (turn ? "|t" + turn.join(",") : "") + "|" + pExtras.map(function (x) { return x.id + ":" + x.name + ":" + x.bytes.length; }).join(";");
     if (pHold && pHold.doc === myDoc && pHold.sig === sig) { var h = pHold; pHold = null; clearTimeout(h.timer); pSave(h.r, nameText, mode === "split" ? "-pages.pdf" : "-merged.pdf"); pmsg("Downloaded a new file with " + h.r.pageCount + " page(s). The files you opened were not changed."); return; }
     if (pHold) { clearTimeout(pHold.timer); pHold = null; }
@@ -538,6 +542,7 @@
       else if (c === "files") m = "A merge is limited to " + window.PdfPages.MAX_FILES + " files. Nothing was downloaded.";
       else if (c === "encrypted") m = "A file" + who + " is encrypted, so it cannot be copied. Nothing was downloaded.";
       else if (c === "damaged") m = "A file" + who + " could not be read (it may be damaged). Nothing was downloaded.";
+      else if (c === "turn") m = "The turns did not match the pages, so nothing was downloaded. List the pages again and turn them again.";
       else if (c === "leak") m = "Something in a file points at pages that are not being kept, so a clean copy could not be made. Nothing was downloaded.";
       pmsg(m);
     }).then(function () { if (tok === pToken) { pBusy = false; pControls(); } });

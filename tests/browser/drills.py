@@ -8517,6 +8517,21 @@ def pdf_turn(ctx):
         sizes,
     )
     pg.screenshot(path=shots + "/pdf-turn-opened.png")
+    open_pdf("three-b.pdf", _n_page_pdf(3))
+    pg.click("#pdf-orderstart")
+    check("turn: listing says typing ends the list and any turns", "any turns" in pg.inner_text("#pdf-pagesstatus"), pg.inner_text("#pdf-pagesstatus"))
+    pg.locator("#pdf-orderlist li").nth(0).locator("button").nth(3).click()
+    pg.fill("#pdf-range", "1,2,3")
+    with pg.expect_download() as dl2:
+        pg.click("#pdf-splitgo")
+    out2 = open(dl2.value.path(), "rb").read()
+    check(
+        "turn: after typing in the box the list and its turns are gone, and the download has no turns",
+        pg.locator("#pdf-orderlist li").count() == 0 and b"/Rotate" not in out2,
+        (pg.locator("#pdf-orderlist li").count(), re.findall(rb"/Rotate (\d+)", out2)),
+    )
+    pg.locator("#pdf-orderstart").scroll_into_view_if_needed()
+    pg.screenshot(path=shots + "/pdf-turn-note.png")
 
 
 def pdf_order(ctx):  # noqa: C901
