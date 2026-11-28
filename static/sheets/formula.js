@@ -383,6 +383,65 @@
     var v = rg.v[best];
     return v === undefined ? null : v;
   }
+  /* SUMPRODUCT, COUNTUNIQUE, TEXTJOIN. Written from Google's help pages (support.google.com/docs/answer/3094294, 3093405, 7013992); edge
+   * cases are this engine's own choices, not checked against Google or Excel.
+   * - SUMPRODUCT(array1, [array2 ...]): every argument must have the same rows and columns (a single value counts as 1 by 1), else #VALUE!.
+   *   Entries that are not numbers (text, blanks, true/false) count as 0. An error entry is returned. One array: the sum of its numbers.
+   * - COUNTUNIQUE(value1, ...): the number of different non-blank values over all values and ranges. Text is compared without case; the
+   *   number 1 and the text "1" are different; true/false are their own values. An error in a range is returned.
+   * - TEXTJOIN(delimiter, ignore_empty, text1, ...): joins values and ranges (ranges read row by row) with the delimiter. With ignore_empty true,
+   *   blank cells and empty text are left out; with false they stay as empty pieces. A result over the 10,000 character cap is #VALUE!.
+   *   Numbers and booleans are joined as the text they show. An error value is returned. */
+  function sumproduct(a) {
+    var gs = [], i, j, g;
+    for (i = 0; i < a.length; i++) { if (isErr(a[i])) return a[i]; gs.push(grid(a[i])); }
+    for (i = 1; i < gs.length; i++) if (gs[i].rows !== gs[0].rows || gs[i].cols !== gs[0].cols) return new Err("#VALUE!");
+    var total = 0;
+    for (j = 0; j < gs[0].v.length; j++) {
+      var prod = 1;
+      for (i = 0; i < gs.length; i++) {
+        var x = gs[i].v[j];
+        if (isErr(x)) return x;
+        prod *= typeof x === "number" ? x : 0;
+      }
+      total += prod;
+    }
+    return total;
+  }
+  function countUnique(a) {
+    var seen = {}, n = 0, i, j, g, x, key;
+    for (i = 0; i < a.length; i++) {
+      if (isErr(a[i])) return a[i];
+      g = grid(a[i]);
+      for (j = 0; j < g.v.length; j++) {
+        x = g.v[j];
+        if (isErr(x)) return x;
+        if (isBlank(x)) continue;
+        key = (typeof x === "number" ? "n:" : typeof x === "boolean" ? "b:" : "t:") + (typeof x === "string" ? x.toLowerCase() : String(x));
+        if (!Object.prototype.hasOwnProperty.call(seen, key)) { seen[key] = 1; n++; }
+      }
+    }
+    return n;
+  }
+  function textJoin(a) {
+    var d = text(sc2(a[0])); if (isErr(d)) return d;
+    var ig = truth(sc2(a[1])); if (isErr(ig)) return ig;
+    var parts = [], len = 0, i, j, g, x, t;
+    for (i = 2; i < a.length; i++) {
+      if (isErr(a[i])) return a[i];
+      g = grid(a[i]);
+      for (j = 0; j < g.v.length; j++) {
+        x = g.v[j];
+        if (isErr(x)) return x;
+        t = text(x);
+        if (ig && t === "") continue;
+        parts.push(t); len += t.length + d.length;
+        if (len > MAX_STR + d.length) return new Err("#VALUE!");
+      }
+    }
+    var out = parts.join(d);
+    return out.length > MAX_STR ? new Err("#VALUE!") : out;
+  }
   function condAgg(name, a) {
     if (isErr(a[0])) return a[0];
     var g = grid(a[0]), pred = criterion(a[1]); if (isErr(pred)) return pred;
@@ -399,7 +458,7 @@
     if (name === "SUMIF") return sum;
     return count ? sum / count : new Err("#DIV/0!");
   }
-  FNX = { NA: function () { return new Err("#N/A"); }, XLOOKUP: xlookup, INDEX: LOOKUP.INDEX, MATCH: LOOKUP.MATCH, VLOOKUP: LOOKUP.VLOOKUP, HLOOKUP: LOOKUP.HLOOKUP,
+  FNX = { SUMPRODUCT: sumproduct, COUNTUNIQUE: countUnique, TEXTJOIN: textJoin, NA: function () { return new Err("#N/A"); }, XLOOKUP: xlookup, INDEX: LOOKUP.INDEX, MATCH: LOOKUP.MATCH, VLOOKUP: LOOKUP.VLOOKUP, HLOOKUP: LOOKUP.HLOOKUP,
     SUMIF: function (a) { return condAgg("SUMIF", a); }, COUNTIF: function (a) { return condAgg("COUNTIF", a); }, AVERAGEIF: function (a) { return condAgg("AVERAGEIF", a); } };
 
   /* ---- text functions (Google Sheets help semantics, not its engine) ----
@@ -674,7 +733,7 @@
   FNX.ISTEXT = function (a) { var v = one(a[0]); return v === undefined ? new Err("#VALUE!") : typeof v === "string" && v !== ""; };
   FNX.ISBLANK = function (a) { var v = one(a[0]); return v === undefined ? new Err("#VALUE!") : v === null || v === ""; };
   FNX.ISERROR = function (a) { var v = one(a[0]); return v === undefined ? new Err("#VALUE!") : isErr(v); };
-  var ARITY = { HLOOKUP: [3, 4], IFS: [2, 40], SWITCH: [3, 40], SUMIFS: [3, 21], COUNTIFS: [2, 20], AVERAGEIFS: [3, 21], IFNA: [2, 2], EXACT: [2, 2], PROPER: [1, 1], REPT: [2, 2], CHOOSE: [2, 30], NA: [0, 0], XLOOKUP: [3, 6], MAXIFS: [3, 21], MINIFS: [3, 21], ROUNDUP: [1, 2], ROUNDDOWN: [1, 2], TRUNC: [1, 2], SIGN: [1, 1], PRODUCT: [1, 99], LARGE: [2, 2], SMALL: [2, 2], ISNUMBER: [1, 1], ISTEXT: [1, 1], ISBLANK: [1, 1], ISERROR: [1, 1], IFERROR: [1, 2], MEDIAN: [1, 99], STDEV: [1, 99], COUNTA: [1, 99], COUNTBLANK: [1, 99], MOD: [2, 2], POWER: [2, 2], SQRT: [1, 1], INT: [1, 1], FLOOR: [1, 2], CEILING: [1, 2], DATE: [3, 3], YEAR: [1, 1], MONTH: [1, 1], DAY: [1, 1], WEEKDAY: [1, 2], LEFT: [1, 2], RIGHT: [1, 2], MID: [3, 3], TRIM: [1, 1], SUBSTITUTE: [3, 4], FIND: [2, 3], INDEX: [2, 3], MATCH: [2, 3], VLOOKUP: [3, 4], SUMIF: [2, 3], COUNTIF: [2, 2], AVERAGEIF: [2, 3], SUM: [1, 99], AVERAGE: [1, 99], MIN: [1, 99], MAX: [1, 99], COUNT: [1, 99], ABS: [1, 1], ROUND: [1, 2], LEN: [1, 1], UPPER: [1, 1], LOWER: [1, 1], CONCAT: [1, 99], NOT: [1, 1], AND: [1, 99], OR: [1, 99], IF: [2, 3] };
+  var ARITY = { HLOOKUP: [3, 4], IFS: [2, 40], SWITCH: [3, 40], SUMIFS: [3, 21], COUNTIFS: [2, 20], AVERAGEIFS: [3, 21], SUMPRODUCT: [1, 30], COUNTUNIQUE: [1, 30], TEXTJOIN: [3, 30], IFNA: [2, 2], EXACT: [2, 2], PROPER: [1, 1], REPT: [2, 2], CHOOSE: [2, 30], NA: [0, 0], XLOOKUP: [3, 6], MAXIFS: [3, 21], MINIFS: [3, 21], ROUNDUP: [1, 2], ROUNDDOWN: [1, 2], TRUNC: [1, 2], SIGN: [1, 1], PRODUCT: [1, 99], LARGE: [2, 2], SMALL: [2, 2], ISNUMBER: [1, 1], ISTEXT: [1, 1], ISBLANK: [1, 1], ISERROR: [1, 1], IFERROR: [1, 2], MEDIAN: [1, 99], STDEV: [1, 99], COUNTA: [1, 99], COUNTBLANK: [1, 99], MOD: [2, 2], POWER: [2, 2], SQRT: [1, 1], INT: [1, 1], FLOOR: [1, 2], CEILING: [1, 2], DATE: [3, 3], YEAR: [1, 1], MONTH: [1, 1], DAY: [1, 1], WEEKDAY: [1, 2], LEFT: [1, 2], RIGHT: [1, 2], MID: [3, 3], TRIM: [1, 1], SUBSTITUTE: [3, 4], FIND: [2, 3], INDEX: [2, 3], MATCH: [2, 3], VLOOKUP: [3, 4], SUMIF: [2, 3], COUNTIF: [2, 2], AVERAGEIF: [2, 3], SUM: [1, 99], AVERAGE: [1, 99], MIN: [1, 99], MAX: [1, 99], COUNT: [1, 99], ABS: [1, 1], ROUND: [1, 2], LEN: [1, 1], UPPER: [1, 1], LOWER: [1, 1], CONCAT: [1, 99], NOT: [1, 1], AND: [1, 99], OR: [1, 99], IF: [2, 3] };
   function truth(v) {
     if (isErr(v)) return v;
     if (typeof v === "boolean") return v;

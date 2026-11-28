@@ -285,6 +285,7 @@ def register(g):
     register_sheets_maxifs(g)
     register_sheets_xlookup(g)
     register_sheets_text_choice(g)
+    register_sheets_arrays(g)
     register_palette(g)
     register_overlap(g)
     register_drive_device(g)
@@ -2179,6 +2180,41 @@ def register_sheets_text_choice(g):
                  unshown=["PROPER after an apostrophe or digit", "REPT cap and negative counts", "CHOOSE out of range", "EXACT with numbers (node tests)"])
 
     g["DRILLS"]["tour_sheets_text_choice"] = tour
+
+
+def register_sheets_arrays(g):
+    APP = g["APP"]
+
+    def tour(ctx):
+        def put(pg, cells):
+            for a, v in cells:
+                sel = 'input[data-addr="%s"]' % a
+                pg.click(sel)
+                pg.fill(sel, v)
+                pg.press(sel, "Tab")
+
+        def shown(pg, a):
+            pg.click('input[data-addr="%s"]' % a)
+            return pg.inner_text("#sheet-val").strip().replace("Result: ", "", 1)
+
+        def body(t, pg):
+            pg.goto(APP + "/sheets/")
+            pg.evaluate("localStorage.clear()")
+            pg.goto(APP + "/sheets/")
+            pg.wait_for_timeout(500)
+            t.step("A small table: quantity in A, price in B, item in C (C3 is empty)", lambda: put(pg, [("A1", "1"), ("B1", "4"), ("C1", "Apple"), ("A2", "2"), ("B2", "5"), ("C2", "apple"), ("A3", "3"), ("B3", "6")]), expect=lambda: pg.input_value('input[data-addr="B3"]') == "6" and pg.input_value('input[data-addr="C3"]') == "")
+            t.step("SUMPRODUCT of quantity and price: 1x4 + 2x5 + 3x6 is 32", lambda: put(pg, [("E1", "=SUMPRODUCT(A1:A3,B1:B3)")]), expect=lambda: shown(pg, "E1") == "32")
+            t.step("COUNTUNIQUE of the items: Apple and apple count once, the empty cell is ignored, so 1", lambda: put(pg, [("E2", "=COUNTUNIQUE(C1:C3)")]), expect=lambda: shown(pg, "E2") == "1")
+            t.step("TEXTJOIN with ignore_empty TRUE joins the two items with a dash", lambda: put(pg, [("E3", '=TEXTJOIN("-",TRUE,C1:C3)')]), expect=lambda: shown(pg, "E3") == "Apple-apple")
+            t.step("TEXTJOIN with ignore_empty FALSE keeps the empty cell as an empty piece", lambda: put(pg, [("E4", '=TEXTJOIN("-",FALSE,C1:C3)')]), expect=lambda: shown(pg, "E4") == "Apple-apple-")
+            t.step("Ranges of different size: SUMPRODUCT shows #VALUE!", lambda: put(pg, [("E5", "=SUMPRODUCT(A1:A3,B1:B2)")]), expect=lambda: shown(pg, "E5") == "#VALUE!")
+            pg.click('input[data-addr="E1"]')
+            pg.click('input[data-addr="E5"]')
+
+        run_tour(ctx, "102_sheets_arrays", body, notes="Device-local sheet (browser only). Real Django on TiDB (unistore) under uvicorn, headless Chromium 390x844 emulated. Edge cases are local choices, not checked against Google or Excel.",
+                 unshown=["COUNTUNIQUE across values and ranges, numbers against text", "TEXTJOIN cap and error values", "SUMPRODUCT of three or more arrays or blocks (node tests)"])
+
+    g["DRILLS"]["tour_sheets_arrays"] = tour
 
 
 def register_sheets_refs(g):
