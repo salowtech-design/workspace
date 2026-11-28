@@ -26,4 +26,4 @@ def test_slides_find_rows_pass_in_node():
         timeout=60,
     )
     assert r.returncode == 0, r.stdout + r.stderr
-    assert "32/32 slides find rows passed" in r.stdout
+    assert "36/36 slides find rows passed" in r.stdout

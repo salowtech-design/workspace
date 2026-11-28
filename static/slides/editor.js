@@ -315,8 +315,9 @@
     if (editMaster) { fs.textContent = "Leave the master first. Find and replace works on the slides, not the master."; return; }
     var r = S.replaceText(H.deck, q, $("sl-find-r").value, $("sl-find-case").checked, here ? cur : undefined);
     if (r.tooLong.length) { fs.textContent = "Nothing was replaced: on slide " + r.tooLong.join(", ") + " the text would pass " + S.MAX_TEXT + " characters. Use a shorter replacement."; return; }
+    if (r.invalid) { fs.textContent = "Nothing was replaced: the deck would not be valid after this change."; return; }
     if (!r.deck) { fs.textContent = r.count === 0 && !S.findText(H.deck, q, $("sl-find-case").checked, here ? cur : undefined).total ? "No matches" + (here ? " on this slide." : ".") : "The replacement gives the same text. Nothing changed."; return; }
-    if (apply(r.deck, "Replaced " + r.count + (r.count === 1 ? " match" : " matches") + (here ? " on this slide." : ".") + " You can undo this.")) fs.textContent = "Replaced " + r.count + (r.count === 1 ? " match" : " matches") + (here ? " on this slide" : "") + ". Undo brings the old text back until you reload.";
+    var ok = apply(r.deck, "Replaced " + r.count + (r.count === 1 ? " match" : " matches") + (here ? " on this slide." : ".") + " You can undo this."); if (ok) { syncProps(); fs.textContent = "Replaced " + r.count + (r.count === 1 ? " match" : " matches") + (here ? " on this slide" : "") + ". Undo brings the old text back until you reload."; }
   }
   $("sl-find-go").addEventListener("click", findNow);
   $("sl-rep-slide").addEventListener("click", function () { replaceNow(true); });

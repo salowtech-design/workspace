@@ -384,14 +384,14 @@
     return out;
   }
   function replaceText(d, q, r, mc, at) {
-    var re = pat(q, mc), res = { deck: null, count: 0, tooLong: [] }; if (!re || typeof r !== "string" || Array.from(r).length > MAX_TEXT) return res;
+    var re = pat(q, mc), res = { deck: null, count: 0, tooLong: [], invalid: false }; if (!re || typeof r !== "string" || Array.from(r).length > MAX_TEXT) return res;
     var n = copy(d);
     n.slides.forEach(function (sl, i) { if (at !== undefined && at !== i) return; sl.elements.forEach(function (e) {
       if (e.type === "image") return; var m = e.text.match(re); if (!m) return;
       var t = e.text.replace(re, function () { return r; }); res.count += m.length;
       if (Array.from(t).length > MAX_TEXT) { if (res.tooLong.indexOf(i + 1) < 0) res.tooLong.push(i + 1); return; } e.text = t; }); });
     if (res.tooLong.length || !res.count) { res.count = res.tooLong.length ? res.count : 0; return res; }
-    var v = validate(n); var base = validate(copy(d)); if (v && JSON.stringify(v) !== JSON.stringify(base)) res.deck = v; else res.count = 0; return res;
+    var v = validate(n); var base = validate(copy(d)); if (!v) { res.invalid = true; res.count = 0; } else if (JSON.stringify(v) !== JSON.stringify(base)) res.deck = v; else res.count = 0; return res;
   }
   function showNav(i, n, key) {
     var next = ["ArrowRight", "ArrowDown", "PageDown", " ", "Enter"], prev = ["ArrowLeft", "ArrowUp", "PageUp", "Backspace"];

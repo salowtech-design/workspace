@@ -2915,6 +2915,8 @@ def register_slides_find(g):
             t.step("Undo brings the old text back in one step", lambda: pg.click("#sl-undo"), expect=lambda: texts()[0][1] == "apple and APPLE" and texts()[1][0] == "Second slide apple", wait=1500)
             t.step("Replace on this slide only (Match case off): slide 1 changes, slide 2 does not", lambda: (pg.uncheck("#sl-find-case"), pg.click("#sl-rep-slide")), expect=lambda: texts() == [["pear pie plan", "pear and pear"], ["Second slide apple"]], wait=1800)
             t.step("A find with no match says so and changes nothing", lambda: (pg.fill("#sl-find-q", "zzz"), pg.click("#sl-rep-all")), expect=lambda: st().startswith("No matches") and texts()[0][0] == "pear pie plan", wait=1500)
+            t.step("With an item selected, Replace on this slide updates the Text box, so a later edit cannot bring the old text back", lambda: (pg.locator("#sl-items li button").first.click(), pg.fill("#sl-find-q", "pear"), pg.fill("#sl-find-r", "plum"), pg.click("#sl-rep-slide")), expect=lambda: pg.input_value("#sl-text") == "plum pie plan" and texts()[0][0] == "plum pie plan", wait=1800)
+            t.step("Typing one more character in that Text box keeps the replaced text", lambda: (pg.click("#sl-text"), pg.press("#sl-text", "End"), pg.keyboard.type("!"), pg.press("#sl-text", "Tab")), expect=lambda: texts()[0][0] == "plum pie plan!", wait=1800)
         run_tour(ctx, "slides_find", body, notes="Device-local deck. Headless Chromium 390x844 emulated, real Django on TiDB unistore. Plain-text find and replace over the slides' own items.")
     g["DRILLS"]["tour_slides_find"] = tour
 
