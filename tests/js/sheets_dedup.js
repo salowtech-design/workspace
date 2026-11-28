@@ -1,0 +1,25 @@
+// Sheets remove duplicate rows: model rows for M.dedupRange.
+const M = require("../../static/sheets/model.js");
+let n = 0, fails = 0;
+const ok = (d, c) => { n++; if (!c) { fails++; console.log("FAIL", d); } };
+const rg = (c1, c2, r1, r2) => ({ c1, c2, r1, r2 });
+const C = (o) => Object.assign(Object.create(null), o);
+const plain = (c) => JSON.stringify(Object.keys(c).sort().map((k) => [k, c[k]]));
+let src = C({ A1: "Name", B1: "Qty", A2: "pen", B2: "1", A3: "ink", B3: "2", A4: "pen", B4: "1", A5: "pen", B5: "2", A6: "ink", B6: "2" });
+let r = M.dedupRange(src, rg(1, 2, 1, 6), true);
+ok("later identical rows are removed and the first stays", r.removed === 2 && plain(r.cells) === plain(C({ A1: "Name", B1: "Qty", A2: "pen", B2: "1", A3: "ink", B3: "2", A4: "pen", B4: "2" })));
+ok("the source cells are unchanged", src.A4 === "pen" && src.A6 === "ink");
+ok("the header row is never removed even if repeated below", (() => { const x = M.dedupRange(C({ A1: "h", A2: "h", A3: "h" }), rg(1, 1, 1, 3), true); return x.removed === 1 && x.cells.A1 === "h" && x.cells.A2 === "h" && !("A3" in x.cells); })());
+ok("without a header the first row takes part", (() => { const x = M.dedupRange(C({ A1: "h", A2: "h", A3: "x" }), rg(1, 1, 1, 3), false); return x.removed === 1 && x.cells.A2 === "x" && !("A3" in x.cells); })());
+ok("case and spaces count as different", M.dedupRange(C({ A1: "a", A2: "A", A3: "a " }), rg(1, 1, 1, 3), false).removed === 0);
+ok("numbers are compared as typed", M.dedupRange(C({ A1: "1", A2: "1.0", A3: "1" }), rg(1, 1, 1, 3), false).removed === 1);
+ok("completely empty rows are kept (they move up with the rows below)", (() => { const x = M.dedupRange(C({ A1: "a", A3: "a", A5: "b" }), rg(1, 1, 1, 5), false); return x.removed === 1 && plain(x.cells) === plain(C({ A1: "a", A4: "b" })); })());
+ok("two empty rows are not duplicates of each other", M.dedupRange(C({ A1: "a", A4: "b" }), rg(1, 1, 1, 4), false).removed === 0);
+ok("a partly blank row only matches the same blanks", (() => { const x = M.dedupRange(C({ A1: "a", B1: "b", A2: "a", A3: "a", B3: "b" }), rg(1, 2, 1, 3), false); return x.removed === 1 && x.cells.A2 === "a" && !("B2" in x.cells); })());
+ok("cells outside the range are untouched", (() => { const x = M.dedupRange(C({ A1: "a", A2: "a", A3: "keep", B2: "side", C9: "far" }), rg(1, 1, 1, 2), false); return x.cells.A3 === "keep" && x.cells.B2 === "side" && x.cells.C9 === "far" && !("A2" in x.cells); })());
+ok("a formula in the range refuses and changes nothing", (() => { const x = M.dedupRange(C({ A1: "a", A2: "=1+1", A3: "a" }), rg(1, 1, 1, 3), false); return !!x.error && !x.cells; })());
+ok("fewer than two rows is refused", !!M.dedupRange(C({ A1: "h", A2: "a" }), rg(1, 1, 1, 2), true).error && !!M.dedupRange(C({}), null, true).error);
+ok("no duplicates returns the same cells and removed 0", (() => { const c = C({ A1: "a", A2: "b" }); const x = M.dedupRange(c, rg(1, 1, 1, 2), false); return x.removed === 0 && x.cells === c; })());
+ok("an error text typed as a value is just text", M.dedupRange(C({ A1: "#N/A", A2: "#N/A" }), rg(1, 1, 1, 2), false).removed === 1);
+console.log((fails ? "FAILED " : "") + (n - fails) + "/" + n + " sheets remove duplicate rows passed");
+process.exit(fails ? 1 : 0);

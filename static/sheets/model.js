@@ -159,6 +159,30 @@
     });
     return { cells: next, moved: moved, rows: rows.length };
   }
+  // Remove duplicate rows in a range of typed values: a row is a duplicate when every cell of it matches an earlier row exactly as typed
+  // (case and spaces count). The first one stays, later ones are dropped, the rows below move up and the freed rows at the bottom of the
+  // range are emptied. Rows that are entirely empty are never counted as duplicates. Formulas are refused, as in sort.
+  function dedupRange(cells, rg, header) {
+    if (!rg) return { error: "Enter a range like A1:C10." };
+    var first = header ? rg.r1 + 1 : rg.r1;
+    if (first >= rg.r2) return { error: "There are fewer than two rows to check." };
+    var r, c, formulas = 0, seen = Object.create(null), keep = [], removed = 0;
+    for (r = rg.r1; r <= rg.r2; r++) for (c = rg.c1; c <= rg.c2; c++) { var rv = cells[colName(c) + r]; if (typeof rv === "string" && rv.charAt(0) === "=") formulas++; }
+    if (formulas) return { error: "The range holds " + formulas + " formula" + (formulas === 1 ? "" : "s") + ". Removing rows would change what they refer to, so nothing was removed. Use a range of typed values." };
+    for (r = first; r <= rg.r2; r++) {
+      var vals = {}, parts = [], any = false;
+      for (c = rg.c1; c <= rg.c2; c++) { var a = colName(c) + r, has_ = has(cells, a) && String(cells[a]) !== ""; if (has_) { vals[c] = cells[a]; any = true; } parts.push(has_ ? String(cells[a]) : ""); }
+      var k = JSON.stringify(parts);
+      if (any && seen[k]) { removed++; continue; }
+      if (any) seen[k] = true;
+      keep.push({ vals: vals, any: any });
+    }
+    if (!removed) return { cells: cells, removed: 0, rows: r - first };
+    var next = copy(cells);
+    for (r = first; r <= rg.r2; r++) for (c = rg.c1; c <= rg.c2; c++) delete next[colName(c) + r];
+    keep.forEach(function (row, i) { Object.keys(row.vals).forEach(function (cc) { next[colName(Number(cc)) + (first + i)] = row.vals[cc]; }); });
+    return { cells: next, removed: removed, rows: rg.r2 - first + 1 };
+  }
   // Which rows a filter shows. get(addr) gives the displayed value. The header row, if any, is always shown.
   // ops: contains, equals, gt, lt, nonblank, blank. gt and lt compare numbers only, so text never matches them.
   function filterRows(get, isErr, r1, r2, col, op, val, header) {
@@ -769,6 +793,6 @@
     if (!/^[0-9]{1,4}$/.test(t) || Number(t) < MIN_CW || Number(t) > MAX_CW) return { error: "The width must be a whole number of pixels from " + MIN_CW + " to " + MAX_CW + " (the standard width is " + DEFAULT_CW + ")." };
     return { col: c, px: Number(t) };
   }
-  var api = { moveTab: moveTab, duplicateTab: duplicateTab, scatterPoints: scatterPoints, loadWidths: loadWidths, widthsJson: widthsJson, parseWidth: parseWidth, MIN_CW: MIN_CW, MAX_CW: MAX_CW, DEFAULT_CW: DEFAULT_CW, loadVers: loadVers, versJson: versJson, addVer: addVer, dropVer: dropVer, verName: verName, MAX_VERS: MAX_VERS, structApply: structApply, structRecover: structRecover, structRecovery: structRecovery, structRecoveryInfo: structRecoveryInfo, structEdit: structEdit, structRange: structRange, fillRange: fillRange, findReplace: findReplace, parseRange: parseRange, makeRule: makeRule, addRule: addRule, removeRule: removeRule, loadRules: loadRules, rulesJson: rulesJson, checkValue: checkValue, makePivot: makePivot, pivot: pivot, MAX_GROUPS: MAX_GROUPS, makeCf: makeCf, addCf: addCf, loadCf: loadCf, cfJson: cfJson, cfColor: cfColor, parsePaste: parsePaste, loadFreeze: loadFreeze, freezeJson: freezeJson, parseFreeze: parseFreeze, MAX_FREEZE: MAX_FREEZE, parseCsv: parseCsv, csvImport: csvImport, isBlock: isBlock, applyPaste: applyPaste, MAX_PASTE_CELLS: MAX_PASTE_CELLS, makeFmt: makeFmt, addFmt: addFmt, loadFmt: loadFmt, fmtJson: fmtJson, fmtFor: fmtFor, fmtText: fmtText, MAX_FMT: MAX_FMT, MAX_RULES: MAX_RULES, loadTabs: loadTabs, addTab: addTab, markFmt: markFmt, renameTab: renameTab, deleteTab: deleteTab, setActive: setActive, cleanName: cleanName, MAX_TABS: MAX_TABS, sortRange: sortRange, filterRows: filterRows, toNum: toNum, toCsv: toCsv, clean: clean, History: History, chartPoints: chartPoints, pieSlices: pieSlices, isComposing: isComposing, keyMove: keyMove, copy: copy, same: same };
+  var api = { dedupRange: dedupRange, moveTab: moveTab, duplicateTab: duplicateTab, scatterPoints: scatterPoints, loadWidths: loadWidths, widthsJson: widthsJson, parseWidth: parseWidth, MIN_CW: MIN_CW, MAX_CW: MAX_CW, DEFAULT_CW: DEFAULT_CW, loadVers: loadVers, versJson: versJson, addVer: addVer, dropVer: dropVer, verName: verName, MAX_VERS: MAX_VERS, structApply: structApply, structRecover: structRecover, structRecovery: structRecovery, structRecoveryInfo: structRecoveryInfo, structEdit: structEdit, structRange: structRange, fillRange: fillRange, findReplace: findReplace, parseRange: parseRange, makeRule: makeRule, addRule: addRule, removeRule: removeRule, loadRules: loadRules, rulesJson: rulesJson, checkValue: checkValue, makePivot: makePivot, pivot: pivot, MAX_GROUPS: MAX_GROUPS, makeCf: makeCf, addCf: addCf, loadCf: loadCf, cfJson: cfJson, cfColor: cfColor, parsePaste: parsePaste, loadFreeze: loadFreeze, freezeJson: freezeJson, parseFreeze: parseFreeze, MAX_FREEZE: MAX_FREEZE, parseCsv: parseCsv, csvImport: csvImport, isBlock: isBlock, applyPaste: applyPaste, MAX_PASTE_CELLS: MAX_PASTE_CELLS, makeFmt: makeFmt, addFmt: addFmt, loadFmt: loadFmt, fmtJson: fmtJson, fmtFor: fmtFor, fmtText: fmtText, MAX_FMT: MAX_FMT, MAX_RULES: MAX_RULES, loadTabs: loadTabs, addTab: addTab, markFmt: markFmt, renameTab: renameTab, deleteTab: deleteTab, setActive: setActive, cleanName: cleanName, MAX_TABS: MAX_TABS, sortRange: sortRange, filterRows: filterRows, toNum: toNum, toCsv: toCsv, clean: clean, History: History, chartPoints: chartPoints, pieSlices: pieSlices, isComposing: isComposing, keyMove: keyMove, copy: copy, same: same };
   if (typeof module !== "undefined" && module.exports) module.exports = api; else root.SalowSheetModel = api;
 })(typeof self !== "undefined" ? self : this);

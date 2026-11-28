@@ -349,6 +349,7 @@ def register(g):
     register_slides_align(g)
     register_sheets_tab_dup(g)
     register_sheets_tab_move(g)
+    register_sheets_dedup(g)
     register_drive_link_version_fail(g)
     register_drive_link_slides_retry(g)
     register_sheets_frozenfocus(g)
@@ -3063,6 +3064,33 @@ def register_sheets_tab_move(g):
             t.step("The first tab's stored cells are byte-for-byte unchanged by the moves", expect=lambda: raw0() == before["raw"] and "first" in raw0(), wait=800)
         run_tour(ctx, "sheets_tab_move", body, notes="Device-local sheet. Headless Chromium 390x844 emulated, real Django on TiDB unistore. Move tab changes only the tab order.")
     g["DRILLS"]["tour_sheets_tab_move"] = tour
+
+
+def register_sheets_dedup(g):
+    APP = g["APP"]
+
+    def tour(ctx):
+        def body(t, pg):
+            pg.on("pageerror", lambda e: print("PAGEERROR", str(e)[:300]))
+            pg.goto(APP + "/sheets/")
+            pg.evaluate("localStorage.clear()")
+            pg.goto(APP + "/sheets/")
+            pg.wait_for_selector("#sheet-root input", timeout=15000)
+            key = pg.evaluate("() => document.getElementById('sheet-root').dataset.storeKey")
+            seed = {"A1": "Item", "B1": "Qty", "A2": "pen", "B2": "1", "A3": "ink", "B3": "2", "A4": "pen", "B4": "1", "A5": "pen", "B5": "2", "A6": "ink", "B6": "2"}
+            pg.evaluate("([k, v]) => localStorage.setItem(k, JSON.stringify(v))", [key, seed])
+            pg.reload(); pg.wait_for_selector("#sheet-root input", timeout=15000); pg.wait_for_timeout(600)
+            stored = lambda: json.loads(pg.evaluate("(k) => localStorage.getItem(k)", key))
+            shot = lambda name: pg.locator("#sheet-root").screenshot(path=os.environ.get("DRILL_VIDEO", "/tmp") + "/" + name)
+            def run():
+                pg.fill("#sort-range", "A1:B6"); pg.click("#dedup-go"); pg.wait_for_timeout(500)
+                pg.locator("#sheet-status").scroll_into_view_if_needed(); pg.locator("#sheet-status").screenshot(path=os.environ.get("DRILL_VIDEO", "/tmp") + "/dedup_status.png"); shot("dedup_grid_after.png")
+            want = {"A1": "Item", "B1": "Qty", "A2": "pen", "B2": "1", "A3": "ink", "B3": "2", "A4": "pen", "B4": "2"}
+            t.step("Remove duplicate rows keeps the first copies and moves the rows below up", run, expect=lambda: stored() == want and "Removed 2 duplicate rows" in pg.inner_text("#sheet-status"), wait=1800)
+            t.step("Undo brings every removed row back as stored", lambda: (pg.click("#sheet-undo"), pg.wait_for_timeout(500), shot("dedup_grid_undo.png")), expect=lambda: stored() == seed, wait=1800)
+            t.step("Running it on a range with no duplicates says so and changes nothing", lambda: (pg.fill("#sort-range", "A1:B3"), pg.click("#dedup-go"), pg.wait_for_timeout(400)), expect=lambda: "No duplicate rows found" in pg.inner_text("#sheet-status") and stored() == seed, wait=1500)
+        run_tour(ctx, "sheets_dedup", body, notes="Device-local sheet. Headless Chromium 390x844 emulated, real Django on TiDB unistore. Remove duplicate rows on typed values.")
+    g["DRILLS"]["tour_sheets_dedup"] = tour
 
 
 def register_slides_bg(g):
