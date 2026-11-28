@@ -201,6 +201,25 @@
     }
     return { cells: changed ? next : cells, changed: changed, formulas: formulas, kept: kept };
   }
+  // Change the case of typed text in a range: mode "upper" or "lower". Formulas are left as they are and counted. A cell that reads as a number or as
+  // TRUE or FALSE is left as typed and counted in "kept", so no value changes meaning. A result longer than maxLen is also left and counted in "long"
+  // (some letters grow in upper case). Cells outside the range are not read.
+  function caseRange(cells, rg, mode, maxLen) {
+    if (!rg) return { error: "Enter a range like A1:C10." };
+    if (mode !== "upper" && mode !== "lower") return { error: "Choose upper or lower case." };
+    var next = copy(cells), changed = 0, formulas = 0, kept = 0, long = 0, r, c, numRe = /^[-+]?([0-9]+\.?[0-9]*|\.[0-9]+)([eE][-+]?[0-9]+)?$/;
+    for (r = rg.r1; r <= rg.r2; r++) for (c = rg.c1; c <= rg.c2; c++) {
+      var a = colName(c) + r, v = cells[a];
+      if (typeof v !== "string" || v === "") continue;
+      if (v.charAt(0) === "=") { formulas++; continue; }
+      var t = mode === "upper" ? v.toUpperCase() : v.toLowerCase();
+      if (t === v) continue;
+      if (numRe.test(v.trim()) || v.toUpperCase() === "TRUE" || v.toUpperCase() === "FALSE") { kept++; continue; }
+      if (maxLen && t.length > maxLen) { long++; continue; }
+      next[a] = t; changed++;
+    }
+    return { cells: changed ? next : cells, changed: changed, formulas: formulas, kept: kept, long: long };
+  }
   // Which rows a filter shows. get(addr) gives the displayed value. The header row, if any, is always shown.
   // ops: contains, equals, gt, lt, nonblank, blank. gt and lt compare numbers only, so text never matches them.
   function filterRows(get, isErr, r1, r2, col, op, val, header) {
@@ -811,6 +830,6 @@
     if (!/^[0-9]{1,4}$/.test(t) || Number(t) < MIN_CW || Number(t) > MAX_CW) return { error: "The width must be a whole number of pixels from " + MIN_CW + " to " + MAX_CW + " (the standard width is " + DEFAULT_CW + ")." };
     return { col: c, px: Number(t) };
   }
-  var api = { trimRange: trimRange, dedupRange: dedupRange, moveTab: moveTab, duplicateTab: duplicateTab, scatterPoints: scatterPoints, loadWidths: loadWidths, widthsJson: widthsJson, parseWidth: parseWidth, MIN_CW: MIN_CW, MAX_CW: MAX_CW, DEFAULT_CW: DEFAULT_CW, loadVers: loadVers, versJson: versJson, addVer: addVer, dropVer: dropVer, verName: verName, MAX_VERS: MAX_VERS, structApply: structApply, structRecover: structRecover, structRecovery: structRecovery, structRecoveryInfo: structRecoveryInfo, structEdit: structEdit, structRange: structRange, fillRange: fillRange, findReplace: findReplace, parseRange: parseRange, makeRule: makeRule, addRule: addRule, removeRule: removeRule, loadRules: loadRules, rulesJson: rulesJson, checkValue: checkValue, makePivot: makePivot, pivot: pivot, MAX_GROUPS: MAX_GROUPS, makeCf: makeCf, addCf: addCf, loadCf: loadCf, cfJson: cfJson, cfColor: cfColor, parsePaste: parsePaste, loadFreeze: loadFreeze, freezeJson: freezeJson, parseFreeze: parseFreeze, MAX_FREEZE: MAX_FREEZE, parseCsv: parseCsv, csvImport: csvImport, isBlock: isBlock, applyPaste: applyPaste, MAX_PASTE_CELLS: MAX_PASTE_CELLS, makeFmt: makeFmt, addFmt: addFmt, loadFmt: loadFmt, fmtJson: fmtJson, fmtFor: fmtFor, fmtText: fmtText, MAX_FMT: MAX_FMT, MAX_RULES: MAX_RULES, loadTabs: loadTabs, addTab: addTab, markFmt: markFmt, renameTab: renameTab, deleteTab: deleteTab, setActive: setActive, cleanName: cleanName, MAX_TABS: MAX_TABS, sortRange: sortRange, filterRows: filterRows, toNum: toNum, toCsv: toCsv, clean: clean, History: History, chartPoints: chartPoints, pieSlices: pieSlices, isComposing: isComposing, keyMove: keyMove, copy: copy, same: same };
+  var api = { caseRange: caseRange, trimRange: trimRange, dedupRange: dedupRange, moveTab: moveTab, duplicateTab: duplicateTab, scatterPoints: scatterPoints, loadWidths: loadWidths, widthsJson: widthsJson, parseWidth: parseWidth, MIN_CW: MIN_CW, MAX_CW: MAX_CW, DEFAULT_CW: DEFAULT_CW, loadVers: loadVers, versJson: versJson, addVer: addVer, dropVer: dropVer, verName: verName, MAX_VERS: MAX_VERS, structApply: structApply, structRecover: structRecover, structRecovery: structRecovery, structRecoveryInfo: structRecoveryInfo, structEdit: structEdit, structRange: structRange, fillRange: fillRange, findReplace: findReplace, parseRange: parseRange, makeRule: makeRule, addRule: addRule, removeRule: removeRule, loadRules: loadRules, rulesJson: rulesJson, checkValue: checkValue, makePivot: makePivot, pivot: pivot, MAX_GROUPS: MAX_GROUPS, makeCf: makeCf, addCf: addCf, loadCf: loadCf, cfJson: cfJson, cfColor: cfColor, parsePaste: parsePaste, loadFreeze: loadFreeze, freezeJson: freezeJson, parseFreeze: parseFreeze, MAX_FREEZE: MAX_FREEZE, parseCsv: parseCsv, csvImport: csvImport, isBlock: isBlock, applyPaste: applyPaste, MAX_PASTE_CELLS: MAX_PASTE_CELLS, makeFmt: makeFmt, addFmt: addFmt, loadFmt: loadFmt, fmtJson: fmtJson, fmtFor: fmtFor, fmtText: fmtText, MAX_FMT: MAX_FMT, MAX_RULES: MAX_RULES, loadTabs: loadTabs, addTab: addTab, markFmt: markFmt, renameTab: renameTab, deleteTab: deleteTab, setActive: setActive, cleanName: cleanName, MAX_TABS: MAX_TABS, sortRange: sortRange, filterRows: filterRows, toNum: toNum, toCsv: toCsv, clean: clean, History: History, chartPoints: chartPoints, pieSlices: pieSlices, isComposing: isComposing, keyMove: keyMove, copy: copy, same: same };
   if (typeof module !== "undefined" && module.exports) module.exports = api; else root.SalowSheetModel = api;
 })(typeof self !== "undefined" ? self : this);

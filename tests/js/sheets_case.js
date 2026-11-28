@@ -1,0 +1,21 @@
+// Sheets change case: model rows for M.caseRange.
+const M = require("../../static/sheets/model.js");
+let n = 0, fails = 0;
+const ok = (d, c) => { n++; if (!c) { fails++; console.log("FAIL", d); } };
+const C = (o) => Object.assign(Object.create(null), o);
+const rg = (c1, c2, r1, r2) => ({ c1, c2, r1, r2 });
+let r = M.caseRange(C({ A1: "Pen Ink", A2: "already", A3: "MIXed" }), rg(1, 1, 1, 3), "upper", 2000);
+ok("upper makes text capitals and counts only changed cells", r.cells.A1 === "PEN INK" && r.cells.A2 === "ALREADY" && r.cells.A3 === "MIXED" && r.changed === 3);
+r = M.caseRange(C({ A1: "Pen Ink", A2: "already" }), rg(1, 1, 1, 2), "lower", 2000);
+ok("lower makes text small, an already-lower cell is not counted", r.cells.A1 === "pen ink" && r.cells.A2 === "already" && r.changed === 1);
+ok("the source cells are unchanged", (() => { const c = C({ A1: "Ab" }); M.caseRange(c, rg(1, 1, 1, 1), "upper", 2000); return c.A1 === "Ab"; })());
+ok("formulas are left and counted", (() => { const x = M.caseRange(C({ A1: "=\"a\"&B1", A2: "ab" }), rg(1, 1, 1, 2), "upper", 2000); return x.cells.A1 === "=\"a\"&B1" && x.formulas === 1 && x.cells.A2 === "AB"; })());
+ok("a number written with e is left as typed and counted (A2 has no letter to change, so it is not counted)", (() => { const x = M.caseRange(C({ A1: "1e5", A2: " 2E3 " }), rg(1, 1, 1, 2), "upper", 2000); return x.cells.A1 === "1e5" && x.cells.A2 === " 2E3 " && x.kept === 1 && x.changed === 0; })());
+ok("TRUE and FALSE text is left as typed and counted", (() => { const x = M.caseRange(C({ A1: "true", A2: "False" }), rg(1, 1, 1, 2), "upper", 2000); return x.cells.A1 === "true" && x.cells.A2 === "False" && x.kept === 2 && x.changed === 0; })());
+ok("a result that grows past the limit is left and counted (the German sharp s)", (() => { const x = M.caseRange(C({ A1: "\u00df".repeat(5) }), rg(1, 1, 1, 1), "upper", 8); return x.cells.A1 === "\u00df".repeat(5) && x.long === 1 && x.changed === 0; })());
+ok("cells outside the range are untouched", (() => { const x = M.caseRange(C({ A1: "a", A2: "b", B1: "c" }), rg(1, 1, 1, 1), "upper", 2000); return x.cells.A2 === "b" && x.cells.B1 === "c" && x.cells.A1 === "A"; })());
+ok("nothing to change returns the same cells object", (() => { const c = C({ A1: "ABC", A2: "12" }); const x = M.caseRange(c, rg(1, 1, 1, 2), "upper", 2000); return x.cells === c && x.changed === 0; })());
+ok("a bad mode or a missing range is refused", !!M.caseRange(C({}), rg(1, 1, 1, 1), "title", 2000).error && !!M.caseRange(C({}), null, "upper", 2000).error);
+ok("changing case never creates a formula or a value change in the engine", (() => { const F = require("../../static/sheets/formula.js"); const src = C({ A1: "ab", A2: "Cd e", A3: "x1" }); const x = M.caseRange(src, rg(1, 1, 1, 3), "upper", 2000); const sh = new F.Sheet(x.cells); return ["A1", "A2", "A3"].every((a) => typeof sh.get(a) === "string") && sh.get("A2") === "CD E"; })());
+console.log((fails ? "FAILED " : "") + (n - fails) + "/" + n + " sheets case rows passed");
+process.exit(fails ? 1 : 0);

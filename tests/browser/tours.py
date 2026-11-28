@@ -352,6 +352,7 @@ def register(g):
     register_sheets_dedup(g)
     register_slides_stack(g)
     register_sheets_trim(g)
+    register_sheets_case(g)
     register_drive_link_version_fail(g)
     register_drive_link_slides_retry(g)
     register_sheets_frozenfocus(g)
@@ -3157,6 +3158,35 @@ def register_sheets_trim(g):
             t.step("A second run on clean cells says nothing changed", lambda: (pg.fill("#sort-range", "A3:A4"), pg.click("#trim-go"), pg.wait_for_timeout(400)), expect=lambda: "No extra spaces found" in pg.inner_text("#sheet-status") and stored() == seed, wait=1500)
         run_tour(ctx, "sheets_trim", body, notes="Device-local sheet. Headless Chromium 390x844 emulated, real Django on TiDB unistore. Trim spaces on typed text.")
     g["DRILLS"]["tour_sheets_trim"] = tour
+
+
+def register_sheets_case(g):
+    APP = g["APP"]
+
+    def tour(ctx):
+        def body(t, pg):
+            pg.on("pageerror", lambda e: print("PAGEERROR", str(e)[:300]))
+            pg.goto(APP + "/sheets/")
+            pg.evaluate("localStorage.clear()")
+            pg.goto(APP + "/sheets/")
+            pg.wait_for_selector("#sheet-root input", timeout=15000)
+            key = pg.evaluate("() => document.getElementById('sheet-root').dataset.storeKey")
+            seed = {"A1": "Pen Ink", "A2": "mixed Case", "A3": "1e5", "A4": "true", "A5": "=\"ab\"&\"c\"", "B1": "outside"}
+            pg.evaluate("([k, v]) => localStorage.setItem(k, JSON.stringify(v))", [key, seed])
+            pg.reload(); pg.wait_for_selector("#sheet-root input", timeout=15000); pg.wait_for_timeout(600)
+            stored = lambda: json.loads(pg.evaluate("(k) => localStorage.getItem(k)", key))
+            out = os.environ.get("DRILL_VIDEO", "/tmp")
+            grid = lambda name: pg.locator("#sheet-root").screenshot(path=out + "/case_grid_" + name + ".png")
+            def up():
+                grid("1_before"); pg.fill("#sort-range", "A1:A5"); pg.click("#case-upper"); pg.wait_for_timeout(500)
+                pg.locator("#sheet-status").scroll_into_view_if_needed(); pg.locator("#sheet-status").screenshot(path=out + "/case_status.png"); grid("2_upper")
+            upper = dict(seed, A1="PEN INK", A2="MIXED CASE")
+            t.step("Make UPPERCASE changes the two text cells and leaves 1e5, true, the formula and B1", up, expect=lambda: stored() == upper and "Made 2 cells UPPERCASE" in pg.inner_text("#sheet-status") and "1 formula was left as typed" in pg.inner_text("#sheet-status") and "2 cells were left as typed because they read as a number or TRUE/FALSE" in pg.inner_text("#sheet-status"), wait=1800)
+            lower = dict(seed, A1="pen ink", A2="mixed case")
+            t.step("Make lowercase then changes them to small letters", lambda: (pg.click("#case-lower"), pg.wait_for_timeout(500), grid("3_lower")), expect=lambda: stored() == lower, wait=1800)
+            t.step("Undo twice brings the original text back exactly", lambda: (pg.click("#sheet-undo"), pg.wait_for_timeout(300), pg.click("#sheet-undo"), pg.wait_for_timeout(400), grid("4_undo")), expect=lambda: stored() == seed, wait=1800)
+        run_tour(ctx, "sheets_case", body, notes="Device-local sheet. Headless Chromium 390x844 emulated, real Django on TiDB unistore. Change case of typed text.")
+    g["DRILLS"]["tour_sheets_case"] = tour
 
 
 def register_slides_bg(g):
