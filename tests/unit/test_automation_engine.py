@@ -89,7 +89,7 @@ def test_a_failing_effect_rolls_back_its_step_and_fails_the_run():
     with mock.patch.object(en, "notify", side_effect=[None, RuntimeError("boom")]):
         assert en.execute(run.pk) == "failed"
     run.refresh_from_db()
-    assert run.state == "failed" and "boom" in run.error
+    assert run.state == "failed" and run.error == "A step failed (RuntimeError). The details are not shown here."
     assert list(run.steps.values_list("step_index", flat=True)) == [0]  # step 1 left no record
 
 
@@ -387,3 +387,29 @@ def test_runner_loop_checks_the_mode_before_every_pass(monkeypatch):
         call_command("process_automation_runs", "--loop", stdout=StringIO())
     assert len(calls) == 1  # the first pass ran, the second was refused before run_pending
     assert WfRun.objects.get(trigger_key="l-1").state == WfRun.State.SUCCEEDED
+
+
+def test_failed_run_shows_the_owner_a_fixed_message_not_the_internal_exception_text():
+    from django.db import IntegrityError
+    from unittest import mock
+
+    me = _u("AU-ERR1")
+    run = en.start_run(_wf(me, [NOTE]), "k-err")
+    marker = "SYNTHETIC-MARK insert into secret_table values ('abc')"
+    with mock.patch.object(en, "notify", side_effect=IntegrityError(marker)):
+        assert en.execute(run.pk) == "failed"
+    run.refresh_from_db()
+    assert run.state == "failed"
+    assert "SYNTHETIC-MARK" not in run.error and "secret_table" not in run.error
+    assert run.error == "A step failed (IntegrityError). The details are not shown here."
+
+
+def test_a_validation_error_from_a_step_keeps_its_own_user_readable_message():
+    from unittest import mock
+
+    me = _u("AU-ERR2")
+    run = en.start_run(_wf(me, [NOTE]), "k-val")
+    with mock.patch.object(en, "notify", side_effect=ValidationError("The title is too long.")):
+        assert en.execute(run.pk) == "failed"
+    run.refresh_from_db()
+    assert run.error == "The title is too long."

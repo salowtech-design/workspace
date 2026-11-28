@@ -249,6 +249,15 @@ def _finish(run_id, attempt, state, error=""):
         return True
 
 
+def _owner_error(exc):
+    """What the owner may read about a failed step. A ValidationError is this engine's own user-readable
+    class, so its messages are kept. Anything else is internal (a database or programming error): only
+    its class name is stored, never its text, which can carry query or row content."""
+    if isinstance(exc, ValidationError):
+        return " ".join(exc.messages)
+    return f"A step failed ({type(exc).__name__}). The details are not shown here."
+
+
 def execute(run_id, *, now=None):
     """Claim a run and carry out its remaining steps. Returns the final state or None.
 
@@ -289,7 +298,7 @@ def execute(run_id, *, now=None):
     except Fenced:
         return None
     except Exception as exc:  # noqa: BLE001
-        return "failed" if _finish(run_id, attempt, "failed", str(exc)) else None
+        return "failed" if _finish(run_id, attempt, "failed", _owner_error(exc)) else None
     return "succeeded" if _finish(run_id, attempt, "succeeded") else None
 
 
