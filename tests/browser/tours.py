@@ -342,6 +342,7 @@ def register(g):
     register_drive_link(g)
     register_drive_link_fail(g)
     register_drive_link_stale(g)
+    register_drive_link_version_fail(g)
     register_sheets_frozenfocus(g)
     register_pdf_alltext_stop(g)
     register_pdf_roundtrip(g)
@@ -6184,6 +6185,36 @@ def register_drive_link_stale(g):
             t.step("Pick stale-b.json, then Drive records a newer version before Open: it says the file was saved again and the sheet keeps the edit", superseded, expect=lambda: "saved again in Drive" in stat() and [f["version"] for f in named("stale-b.json")] == [2] and stored().get("A1") == "99", wait=500)
         run_tour(ctx, "drive_link_stale", body, notes="Headless Chromium 390x844 emulated. Open from Drive when the Drive record changes after the picker was filled.")
     g["DRILLS"]["tour_drive_link_stale"] = tour
+
+
+def register_drive_link_version_fail(g):
+    APP = g["APP"]
+
+    def tour(ctx):
+        def body(t, pg):
+            pg.on("pageerror", lambda e: print("PAGEERROR", str(e)[:300]))
+            pg.on("dialog", lambda d: d.accept())
+            pg.goto(APP + "/drive/")
+            pg.evaluate("localStorage.clear()")
+            pg.goto(APP + "/sheets/")
+            pg.wait_for_selector("#sheet-root input", timeout=15000)
+            key = pg.evaluate("() => document.getElementById('sheet-root').dataset.storeKey")
+            pg.evaluate("([k, v]) => localStorage.setItem(k, JSON.stringify(v))", [key, {"A1": "10"}])
+            pg.reload(); pg.wait_for_selector("#sheet-root input", timeout=15000); pg.wait_for_timeout(500)
+            stat = lambda: pg.inner_text("#dl-status")
+            own = lambda: pg.evaluate("() => fetch('/drive/mine/files/', {credentials: 'same-origin'}).then((r) => r.json()).then((j) => { j.files = j.files.filter((f) => f.name === 'vfail.json'); return j; })")  # only this tour's file
+            vers = lambda: pg.evaluate("() => fetch('/drive/', {credentials: 'same-origin'}).then((r) => r.text())")
+            def net_fail():
+                pg.route("**/drive/file/*/version/", lambda r: r.abort())
+                pg.fill("#dl-name", "vfail.json"); pg.click("#dl-save"); pg.wait_for_timeout(2000)
+            t.step("The Drive version call fails on the network after the bytes are stored: the status does not say Saved, says the name has no saved version yet, and the file is not offered by Open", net_fail, expect=lambda: "Saved to Drive" not in stat() and "no saved version yet" in stat() and "Press Save again with the same name" in stat() and own()["files"] == [], wait=500)
+            def again():
+                pg.unroute("**/drive/file/*/version/")
+                pg.click("#dl-save"); pg.wait_for_timeout(2000)
+                print("AGAIN", stat()[:400], own(), flush=True)
+            t.step("Network back, the same name saved again finishes the record: Saved to Drive and Drive lists vfail.json at version 1", again, expect=lambda: "Saved to Drive" in stat() and [(f["name"], f["version"]) for f in own()["files"]] == [("vfail.json", 1)], wait=500)
+        run_tour(ctx, "drive_link_version_fail", body, notes="Headless Chromium 390x844 emulated. The Drive version call fails after the bytes are stored.")
+    g["DRILLS"]["tour_drive_link_version_fail"] = tour
 
 
 def register_slides_underline(g):

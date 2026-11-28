@@ -10,7 +10,7 @@
     if (!box || !D) return null;
     var store = new D.Store("salow-drive-" + box.dataset.user);
     var deps = { store: store, csrf: box.dataset.csrf, urls: { fileNew: box.dataset.new, version: function (id) { return box.dataset.versionTpl.replace("00000000-0000-0000-0000-000000000000", id); } }, fetch: function (u, o) { return root.fetch(u, o); } };
-    var nameIn = cfg.nameInput, sel = cfg.select, saving = false, listing = false;
+    var nameIn = cfg.nameInput, sel = cfg.select, saving = false, listing = false, pending = null;  // pending: a record Drive made for this page whose version call failed
     function say(t) { st.textContent = t; }
     function extOf(n) { var m = /\.([A-Za-z0-9]+)$/.exec(n || ""); return m ? m[1].toLowerCase() : ""; }
     function save() {
@@ -22,7 +22,11 @@
       var bytes = new TextEncoder().encode(c.text);
       var file = new root.File([bytes], name, { type: cfg.saveType });
       saving = true; cfg.saveBtn.disabled = true; say("Saving to Drive...");
-      D.addFile(deps, file, "").then(function (r) { say(r.message + (r.ok ? " It is at the top of My Drive; only you can see it until you share it in Drive." : "")); }, function (e) { say("Not saved: " + (e && e.message ? e.message : "unexpected error")); }).then(function () { saving = false; cfg.saveBtn.disabled = false; });
+      var resume = pending && pending.name === name && pending.fileId;
+      (resume ? D.addVersion(deps, pending.fileId, 0, file) : D.addFile(deps, file, "")).then(function (r) {
+        if (r.ok) pending = null; else if (r.fileId && r.resumable && r.baseVersion === 0) pending = { name: name, fileId: r.fileId };
+        say(r.message + (r.ok ? " It is at the top of My Drive; only you can see it until you share it in Drive." : (pending && pending.name === name ? " Press Save again with the same name to finish it, or look at your Drive list first." : "")));
+      }, function (e) { say("Not saved: " + (e && e.message ? e.message : "unexpected error")); }).then(function () { saving = false; cfg.saveBtn.disabled = false; });
     }
     function getList() {
       return root.fetch(box.dataset.list, { credentials: "same-origin", headers: { Accept: "application/json" } }).then(function (resp) {
