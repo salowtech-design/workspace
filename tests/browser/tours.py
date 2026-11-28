@@ -560,7 +560,7 @@ def register_sheets(g):
             t.step("Export (.json) and the CSV download", lambda: (pg.click("#sheet-export"), pg.wait_for_timeout(500), pg.click("#sheet-csv")))
             t.step("Clear sheet (undo until reload)", lambda: pg.click("#sheet-clear"), expect=lambda: val(pg, "A2") == "")
             t.step("Undo the clear", lambda: pg.click("#sheet-undo"), expect=lambda: val(pg, "A2") == "pens")
-            t.note("Import was not shown (needs a file picker). Cells past Z or row 100 are not supported.", 3)
+            t.note("Import was not shown (needs a file picker). Cells past Z or row 1000 are not supported.", 3)
 
         def val(pg, a):
             return pg.input_value('input[data-addr="%s"]' % a)
@@ -3635,9 +3635,9 @@ def register_sheets_more(g):
             t.step("Sort A1:B5 by Qty, small to large, with the first row as headers", lambda: (pg.fill("#sort-range", "A1:B5"), pg.fill("#sort-col", "B"), pg.select_option("#sort-dir", "asc"), pg.check("#sort-header"), pg.click("#sort-go"), sc(pg, "A3")), expect=lambda: val(pg, "B2") != "", wait=3000)
             t.step("Filter: Item contains pe", lambda: (pg.fill("#filter-col", "A"), pg.select_option("#filter-op", "contains"), pg.fill("#filter-val", "pe"), pg.click("#filter-go"), sc(pg, "A3")), expect=lambda: pg.inner_text("#filter-status").strip() != "", wait=3200)
             t.step("Show all rows again", lambda: (pg.click("#filter-clear"), sc(pg, "A3")), expect=lambda: pg.is_disabled("#filter-clear"), wait=2500)
-            t.note("Not shown: Import (file picker), cells beyond Z or row 100 (unsupported).", 3)
+            t.note("Not shown: Import (file picker), cells beyond Z or row 1000 (unsupported).", 3)
 
-        run_tour(ctx, "30_sheets_more", body, notes="Device-local sheet (browser only; nothing stored on the server). Headless Chromium 390x844 emulated.", unshown=["Import", "cells beyond column Z or row 100"])
+        run_tour(ctx, "30_sheets_more", body, notes="Device-local sheet (browser only; nothing stored on the server). Headless Chromium 390x844 emulated.", unshown=["Import", "cells beyond column Z or row 1000"])
 
     g["DRILLS"]["tour_sheets_more"] = tour
 
