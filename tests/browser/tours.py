@@ -8973,5 +8973,17 @@ def register_sheets_spill(g):
             t.step("Type hello into C3: the block is blocked, C1 shows #REF! and C3 keeps its typed value", lambda: (typ("C3", "hello"), pg.click('input[data-addr="B1"]'), pg.wait_for_timeout(400), snap("sheets_spill_2")), expect=lambda: [val("C1"), val("C3")] == ["#REF!", "hello"], wait=1500)
             t.step("Clear C3: the block comes back", lambda: (typ("C3", ""), pg.click('input[data-addr="B1"]'), pg.wait_for_timeout(400)), expect=lambda: [val("C1"), val("C3")] == ["5", "20"], wait=1500)
             t.step("Change A4 from 5 to 99: the block re-sorts to 10, 20, 30, 99", lambda: (typ("A4", "99"), pg.click('input[data-addr="B1"]'), pg.wait_for_timeout(500), snap("sheets_spill_3")), expect=lambda: [val("C1"), val("C2"), val("C3"), val("C4")] == ["10", "20", "30", "99"], wait=1500)
+            def stored():
+                return pg.evaluate("() => Object.keys(localStorage).map(k => localStorage.getItem(k)).filter(v => v && v.indexOf('SORT(') >= 0)")
+            t.step("Click into the block cell C2 and leave it without typing: nothing is stored for C2 and the block still shows", lambda: (pg.click('input[data-addr="C2"]'), pg.wait_for_timeout(300), pg.click('input[data-addr="B1"]'), pg.wait_for_timeout(500)),
+                   expect=lambda: len(stored()) == 1 and '"C2"' not in stored()[0] and val("C2") == "20" and val("C1") == "10", wait=1200)
+            saved = {}
+            def dl():
+                with pg.expect_download() as d:
+                    pg.click("#sheet-csv")
+                saved["text"] = open(d.value.path(), encoding="utf-8", newline="").read()
+                saved["stored"] = pg.evaluate("() => Object.keys(localStorage).map(k => localStorage.getItem(k)).filter(v => v && v.indexOf('SORT(') >= 0)")
+            t.step("Download values (.csv): the file has the sorted block C1 to C5 (10, 20, 30, 99, blank) and nothing from the block is stored", dl,
+                   expect=lambda: saved.get("text") == "30,,10\r\n10,,20\r\n20,,30\r\n99,,99\r\n,,\r\n" and len(saved["stored"]) == 1 and all(('"C2"' not in v and '"C4"' not in v and '"C5"' not in v) for v in saved["stored"]), wait=1500)
         run_tour(ctx, "sheets_spill", body, notes="Headless Chromium 390x844 emulated. SORT typed into the real Sheets page. One run.")
     g["DRILLS"]["tour_sheets_spill"] = tour

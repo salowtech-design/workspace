@@ -315,7 +315,7 @@ def test_sheets_spill_passes_in_node():
         timeout=60,
     )
     assert r.returncode == 0, r.stdout + r.stderr
-    assert "58 rows, 0 failed" in r.stdout
+    assert "61 rows, 0 failed" in r.stdout
 
 
 def test_formula_batch9_passes_in_node():

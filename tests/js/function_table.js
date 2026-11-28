@@ -28,7 +28,7 @@ names.forEach((n) => {
   const [lo, hi] = ar[n], s = sources[n] || {};
   lines.push(`| ${n} | ${lo === hi ? lo : lo + " to " + hi} | ${s.page || "not recorded"} | ${s.note || ""} |`);
 });
-lines.push("", `${names.length} functions in the table.`, "", "Not built (a hand-written list as of this commit, not checked by the test): array results that fill neighbouring cells (SORT, FILTER, UNIQUE, SPLIT, TRANSPOSE), TEXT and number formats, REGEX functions, PERCENTILE, QUARTILE, STDEVA and the other text-counting variants, HOUR, MINUTE, SECOND, DAYS, NETWORKDAYS, finance functions, RAND and RANDBETWEEN.", "");
+lines.push("", `${names.length} functions in the table.`, "", "Not built (a hand-written list as of this commit, not checked by the test): array results that fill neighbouring cells other than a one-column SORT (FILTER, UNIQUE, SPLIT, TRANSPOSE; SORT fills a block under its cell only when its first argument is a one-column range), TEXT and number formats, REGEX functions, PERCENTILE, QUARTILE, STDEVA and the other text-counting variants, HOUR, MINUTE, SECOND, DAYS, NETWORKDAYS, finance functions, RAND and RANDBETWEEN.", "");
 const text = lines.join("\n");
 const file = path.join(root, "docs/SHEETS_FUNCTIONS.md");
 if (process.argv.includes("--check")) {

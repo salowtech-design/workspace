@@ -71,6 +71,14 @@ assert(Date.now() - t0 < 3000, "1000 row block too slow: " + (Date.now() - t0));
 var w = S(big); w.get("C1"); for (var j = 2; j <= 1000; j++) w.get("C" + j);
 t("block cells sorted", [w.get("C2"), w.get("C1000")].join(), "1,999");
 var ws = Object.keys(big).length; 
+// Budget stop inside the anchor's evaluation (reviewer 7:24 PM). These rows do NOT fail on the previous head: I could not make a wrong value show
+// (the fix is by reading: a sorted array and a block cell are kept only from a run with no budget stop). They only pin the stopped answer.
+var HV = []; for (var q = 0; q < 50; q++) HV.push("SUM(E1:N990)");
+var hv = { B1: "=IFERROR(" + HV.join("+") + ",7)", B2: "1", B3: "2", C1: "=SORT(B1:B3)", D1: "=C3+0" };
+var h1 = S(hv);
+t("budget: a reader of a block cell whose anchor run was stopped is #LIMIT!", h1.get("D1"), "#LIMIT!");
+t("budget: the value left by the stopped run (7, from IFERROR hiding the stop) is not shown for the block cell", h1.get("C3") === 7, false);
+t("budget: a clean sheet of the same shape works", S({ B1: "7", B2: "1", B3: "2", C1: "=SORT(B1:B3)" }).get("C2"), 2);
 // blockCells
 t("blockCells", S({ B1: "1", B2: "2", B3: "3", C1: "=SORT(B1:B3)", C3: "x" }).blockCells().join(), "C2");
 t("blockCells all", S({ B1: "1", B2: "2", B3: "3", C1: "=SORT(B1:B3)" }).blockCells().join(), "C2,C3");

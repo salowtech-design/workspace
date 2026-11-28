@@ -994,7 +994,7 @@
       if (sh.stack[me + "!" + a]) return new Err("#CIRC!");      // not cached: every cell on the loop reports it
       if (sh.depth >= MAX_DEPTH_EVAL) return new Err("#LIMIT!");
       sh.stack[me + "!" + a] = true; sh.depth++;
-      var out, h0 = limitHits;
+      var out, h0 = limitHits, keepArr = null;
       try {
         if (!trees[a]) trees[a] = parse(r.slice(1));
         out = ev(trees[a]);
@@ -1003,11 +1003,12 @@
           if (!an) out = new Err("#VALUE!");
           else if (an.blocked) out = new Err("#REF!");
           else if (isErr(out)) { /* the error is shown here and in the block */ }
-          else { sortArr[a] = out; out = out[0] === undefined ? null : out[0]; }
+          else { keepArr = out; out = out[0] === undefined ? null : out[0]; }
         }
       } catch (e) { out = e instanceof Err ? e : new Err("#VALUE!"); }
       delete sh.stack[me + "!" + a]; sh.depth--;
-      if (limitHits !== h0) return out;  // a work-budget stop happened inside: the answer may be wrong (for example IFERROR hid it), so it is not kept
+      if (limitHits !== h0) return out;  // a work-budget stop happened inside: the answer may be wrong (for example IFERROR hid it), so it is not kept (nor is a sorted array)
+      if (keepArr) sortArr[a] = keepArr;
       return (cache[a] = out);
     }
     // Array results (SORT only): the block under an anchor is virtual. Nothing is written into the cells. Membership comes from the formula text alone
@@ -1045,7 +1046,7 @@
     function blockValue(a, ow) {
       var av = get(ow.addr);
       if (isErr(av)) return av.code === "#REF!" ? (cache[a] = null) : av;
-      var arr = sortArr[ow.addr]; if (!arr) return av;  // not kept (a budget stop): the anchor's own answer stands
+      var arr = sortArr[ow.addr]; if (!arr) return new Err("#LIMIT!");  // the anchor's run was stopped by the work budget, so nothing is kept for the block
       var v = arr[parseAddr(a).row - ow.row]; return (cache[a] = v === undefined ? null : v);
     }
     function blockCells() {  // every empty address inside a block, for the CSV export
