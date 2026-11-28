@@ -696,6 +696,7 @@
     if (!change(r.cells, note)) status.textContent = "Already in that order. Nothing changed.";
   });
   $("dedup-go").addEventListener("click", function () {
+    if (heldMsg()) return;  // keep the held-sheet notice instead of a generic line
     var rg = parseRange($("sort-range").value);
     if (!rg) { status.textContent = "Enter a range like A1:C10."; return; }
     if ((rg.c2 - rg.c1 + 1) * (rg.r2 - rg.r1 + 1) > 2000 || rg.c2 > 26 || rg.r2 > 1000) { status.textContent = "The range can hold up to 2000 cells."; return; }
