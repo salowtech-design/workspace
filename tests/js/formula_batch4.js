@@ -12,7 +12,7 @@ const T = [
   ["MAXIFS matches only text cells gives 0", { ...D, E1: '=MAXIFS(B1:B5,B1:B5,"abc")' }, "E1", 0],
   ["MAXIFS all negative returns the largest negative", { A1: "x", A2: "x", B1: "-3", B2: "-9", E1: '=MAXIFS(B1:B2,A1:A2,"x")' }, "E1", -3],
   ["MAXIFS size mismatch", { ...D, E1: '=MAXIFS(B1:B5,A1:A4,"North")' }, "E1", "#VALUE!"],
-  ["MINIFS odd criteria count", { ...D, E1: '=MINIFS(B1:B5,A1:A5)' }, "E1", "#VALUE!"],
+  ["MINIFS an incomplete pair (four arguments) is #VALUE!", { ...D, E1: '=MINIFS(B1:B5,A1:A5,"North",C1:C5)' }, "E1", "#VALUE!"],
   ["MAXIFS error in a matching value is returned", { ...D, B3: "=1/0", E1: '=MAXIFS(B1:B5,A1:A5,"North")' }, "E1", "#DIV/0!"],
   ["MINIFS error in a non-matching value is not reported", { ...D, B2: "=1/0", E1: '=MINIFS(B1:B5,A1:A5,"North")' }, "E1", -5],
   ["MAXIFS with too few arguments is #VALUE!", { ...D, E1: '=MAXIFS(B1:B5,A1:A5)' }, "E1", "#VALUE!"],
