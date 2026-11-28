@@ -4268,7 +4268,7 @@ def register_drive_move(g):
             t.step("Archive folder page: the breadcrumb says My Drive / Archive and Reports is listed inside it", lambda: pg.evaluate(row("Reports")), expect=lambda: "Reports" in txt(), wait=4000)
             pg.goto(APP + "/drive/")
             t.step("Back at My Drive top level: only Archive is listed, Reports is gone from here", lambda: pg.evaluate(row("Archive")), expect=lambda: "Archive" in pg.inner_text(".drive-list, main") and pg.locator(".drive-row:has(a.drive-name:text-is('Reports'))").count() == 0, wait=4000)
-            t.note("Not shown: moving back to Top level, a refused move (into itself), moving a file (upload is not built), a Viewer's refusal.", 3)
+            t.note("Not shown: moving back to Top level, a refused move (into itself), moving a file, a Viewer's refusal.", 3)
 
         run_tour(ctx, "42_drive_move", body, notes="Real Django on TiDB, headless Chromium 390x844 emulated. Two folders created by script.", unshown=["move to top level", "refused moves", "files", "viewer refusal"])
 
