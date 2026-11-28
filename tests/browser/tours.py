@@ -2137,7 +2137,7 @@ def register_sheets_xlookup(g):
             t.step("Search from the last entry (search_mode -1): the answer is 7", lambda: put(pg, [("E3", '=XLOOKUP("apple",A1:A3,B1:B3,NA(),0,-1)')]), expect=lambda: shown(pg, "E3") == "7")
             t.step("Not found with a missing_value of none: it answers none", lambda: put(pg, [("E4", '=XLOOKUP("Plum",A1:A3,B1:B3,"none")')]), expect=lambda: shown(pg, "E4") == "none")
             t.step("Not found with no missing_value: it shows #N/A", lambda: put(pg, [("E5", '=XLOOKUP("Plum",A1:A3,B1:B3)')]), expect=lambda: shown(pg, "E5") == "#N/A")
-            t.step("The answer column can be to the right, and the key can be a number: 20 gives price 5", lambda: put(pg, [("E6", "=XLOOKUP(20,C1:C3,B1:B3)")]), expect=lambda: shown(pg, "E6") == "5")
+            t.step("The lookup column can be to the right of the answer column, and the key can be a number: 20 gives price 5", lambda: put(pg, [("E6", "=XLOOKUP(20,C1:C3,B1:B3)")]), expect=lambda: shown(pg, "E6") == "5")
             t.step("Edit a source cell: Pear costs 6, so E1 follows", lambda: put(pg, [("B2", "6")]), expect=lambda: shown(pg, "E1") == "6")
 
         run_tour(ctx, "100_sheets_xlookup", body, notes="Device-local sheet (browser only). Real Django on TiDB (unistore) under uvicorn, headless Chromium 390x844 emulated. Subset of XLOOKUP, written from Google's help page; edge cases are local choices, not checked against Google or Excel.",

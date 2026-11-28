@@ -74,7 +74,7 @@ def test_formula_batch5_passes_in_node():
         timeout=60,
     )
     assert r.returncode == 0, r.stdout + r.stderr
-    assert "25/25 rows passed" in r.stdout
+    assert "32/32 rows passed" in r.stdout
 
 
 def test_structure_table_passes_in_node():

@@ -326,7 +326,10 @@
    * - search_mode 1 (default) first to last, -1 last to first. 2 and -2 (binary search) are not supported: #VALUE!.
    * - Only cells of the same kind as the key (number, text, true/false) are compared; blanks and error cells are skipped.
    * - No match: missing_value if one was given, else #N/A. A blank key is not found. An error key is returned. An error in the returned cell is returned.
-   *   missing_value is evaluated like any argument (not lazily). */
+   *   missing_value is evaluated like any argument (not lazily).
+   * - Approximate modes (1, -1): the closest value in order wins; equal candidates take the first one in search order; text is compared
+   *   without case; true/false only match true/false. match_mode and search_mode are read as numbers, so TRUE is 1. An empty argument is a
+   *   #PARSE! value from the parser. These are local choices checked only by the node table, not against Google or Excel. */
   function xlookup(a) {
     var key = sc2(a[0]); if (isErr(key)) return key;
     if (isErr(a[1])) return a[1];
