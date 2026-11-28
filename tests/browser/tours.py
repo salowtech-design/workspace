@@ -8962,7 +8962,7 @@ def register_sheets_spill(g):
                 pg.click('input[data-addr="%s"]' % addr); pg.fill('input[data-addr="%s"]' % addr, text); pg.press('input[data-addr="%s"]' % addr, "Tab"); pg.wait_for_timeout(300)
             def snap(name):
                 out = os.environ.get("DRILL_VIDEO", "") or "/tmp"
-                pg.evaluate("() => { const c = document.getElementById('__cap'); if (c) c.style.display = 'none'; const d = document.getElementById('__dot'); if (d) d.style.display = 'none'; document.querySelector('#sheet-root').scrollIntoView({block: 'start'}); }"); pg.wait_for_timeout(400)
+                pg.evaluate("() => { const c = document.getElementById('__cap'); if (c) c.style.display = 'none'; const d = document.getElementById('__dot'); if (d) d.style.display = 'none'; document.querySelector('input[data-addr=\"C1\"]').scrollIntoView({block: 'center', inline: 'center'}); }"); pg.wait_for_timeout(400)
                 pg.screenshot(path=os.path.join(out, name + ".png"))
                 pg.evaluate("() => { const c = document.getElementById('__cap'); if (c) c.style.display = ''; const d = document.getElementById('__dot'); if (d) d.style.display = ''; }")
             for a, v in (("A1", "30"), ("A2", "10"), ("A3", "20"), ("A4", "5"), ("A5", "")):
