@@ -775,9 +775,19 @@
     var f = stx(a[0]), t = stx(a[1]), st = whole(a, 2, 1);
     if (isErr(f)) return f; if (isErr(t)) return t; if (isErr(st)) return st;
     if (st < 1 || st > t.length) return new Err("#VALUE!");
-    var fl = f.toLowerCase();  // compared window by window of the original text, so a letter that lower-cases to two units (the dotted capital I) cannot shift the position
-    for (var i = st - 1; i + f.length <= t.length; i++) if (t.slice(i, i + f.length).toLowerCase() === fl) return i + 1;
-    return new Err("#VALUE!");
+    // Each unit of the text is lower-cased on its own and its place in the original is kept, so a letter that lower-cases to two units (the dotted
+    // capital I) cannot shift the position. One native indexOf does the scan (no window-by-window compare, so the cost stays near the text length).
+    var fl = f.toLowerCase(), L = "", orig = [], u;
+    for (u = 0; u < t.length; u++) { orig[L.length] = u; L += t.charAt(u).toLowerCase(); }
+    orig[L.length] = t.length;
+    var at = L.length, from = 0;
+    for (u = 0; u < t.length; u++) if (u === st - 1) { for (at = 0; orig[at] !== u; at++); from = at; break; }
+    for (;;) {
+      var k = L.indexOf(fl, from);
+      if (k < 0) return new Err("#VALUE!");
+      if (orig[k] !== undefined && orig[k + fl.length] !== undefined) return orig[k] + 1;  // starts and ends between original units
+      from = k + 1;
+    }
   };
   FNX.CONCATENATE = function (a) {
     var o = "";
