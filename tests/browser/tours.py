@@ -348,6 +348,7 @@ def register(g):
     register_slides_paste(g)
     register_slides_align(g)
     register_sheets_tab_dup(g)
+    register_sheets_tab_move(g)
     register_drive_link_version_fail(g)
     register_drive_link_slides_retry(g)
     register_sheets_frozenfocus(g)
@@ -3033,6 +3034,35 @@ def register_sheets_tab_dup(g):
             t.step("A second copy of the first tab is named 'Sheet 1 copy 2' and sits right after it", lambda: (pg.click("#tab-dup"), pg.wait_for_timeout(600)), expect=lambda: [x["name"] for x in tab_names()] == ["Sheet 1", "Sheet 1 copy 2", "Sheet 1 copy"], wait=1800)
         run_tour(ctx, "sheets_tab_dup", body, notes="Device-local sheet. Headless Chromium 390x844 emulated, real Django on TiDB unistore. Copy cells to new tab copies cells only.")
     g["DRILLS"]["tour_sheets_tab_dup"] = tour
+
+
+def register_sheets_tab_move(g):
+    APP = g["APP"]
+
+    def tour(ctx):
+        def body(t, pg):
+            pg.on("pageerror", lambda e: print("PAGEERROR", str(e)[:300]))
+            pg.goto(APP + "/sheets/")
+            pg.evaluate("localStorage.clear()")
+            pg.goto(APP + "/sheets/")
+            pg.wait_for_selector("#sheet-root input", timeout=15000)
+            key = pg.evaluate("() => document.getElementById('sheet-root').dataset.storeKey")
+            pg.evaluate("([k, v]) => localStorage.setItem(k, JSON.stringify(v))", [key, {"A1": "first"}])
+            pg.reload(); pg.wait_for_selector("#sheet-root input", timeout=15000); pg.wait_for_timeout(600)
+            meta = lambda: json.loads(pg.evaluate("(k) => localStorage.getItem(k + '.tabs')", key))
+            order = lambda: [x["name"] for x in meta()["tabs"]]
+            raw0 = lambda: pg.evaluate("(k) => localStorage.getItem(k)", key)
+            before = {}
+            def add_two():
+                pg.click("#tab-add"); pg.wait_for_timeout(400); pg.click("#tab-add"); pg.wait_for_timeout(400)
+                before["raw"] = raw0()
+            t.step("Two tabs are added; the third is active, so Move tab right is off", add_two, expect=lambda: order() == ["Sheet 1", "Sheet 2", "Sheet 3"] and pg.is_disabled("#tab-right") and not pg.is_disabled("#tab-left"), wait=1800)
+            t.step("Move tab left puts Sheet 3 before Sheet 2 and says only the order changed", lambda: (pg.click("#tab-left"), pg.wait_for_timeout(500), pg.locator("#tab-status").screenshot(path=os.environ.get("DRILL_VIDEO", "/tmp") + "/move_status.png")), expect=lambda: order() == ["Sheet 1", "Sheet 3", "Sheet 2"] and meta()["active"] == "t2" and "Only the tab order changed" in pg.inner_text("#tab-status"), wait=1800)
+            t.step("Move tab left again reaches the start and Move tab left turns off", lambda: (pg.click("#tab-left"), pg.wait_for_timeout(500)), expect=lambda: order() == ["Sheet 3", "Sheet 1", "Sheet 2"] and pg.is_disabled("#tab-left") and not pg.is_disabled("#tab-right"), wait=1800)
+            t.step("Move tab right moves it back one place", lambda: (pg.click("#tab-right"), pg.wait_for_timeout(500)), expect=lambda: order() == ["Sheet 1", "Sheet 3", "Sheet 2"], wait=1800)
+            t.step("The first tab's stored cells are byte-for-byte unchanged by the moves", expect=lambda: raw0() == before["raw"] and "first" in raw0(), wait=800)
+        run_tour(ctx, "sheets_tab_move", body, notes="Device-local sheet. Headless Chromium 390x844 emulated, real Django on TiDB unistore. Move tab changes only the tab order.")
+    g["DRILLS"]["tour_sheets_tab_move"] = tour
 
 
 def register_slides_bg(g):

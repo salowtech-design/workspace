@@ -835,7 +835,7 @@
     });
     var ct = meta.tabs.filter(function (t) { return t.id === meta.active; })[0]; if (document.activeElement !== tabName) tabName.value = ct.name;
     var dl = $("tab-raw"); dl.hidden = !(unreadableTabs[meta.active] && rawTabs[meta.active] !== undefined);
-    $("tab-add").disabled = tabsLocked || meta.tabs.length >= M.MAX_TABS; $("tab-rename").disabled = tabsLocked; $("tab-dup").disabled = tabsLocked || meta.tabs.length >= M.MAX_TABS || !!unreadableTabs[meta.active]; $("tab-del").disabled = tabsLocked || meta.tabs.length <= 1;
+    $("tab-add").disabled = tabsLocked || meta.tabs.length >= M.MAX_TABS; $("tab-rename").disabled = tabsLocked; (function () { var ai = meta.tabs.findIndex(function (t) { return t.id === meta.active; }); $("tab-left").disabled = tabsLocked || ai <= 0; $("tab-right").disabled = tabsLocked || ai < 0 || ai >= meta.tabs.length - 1; })(); $("tab-dup").disabled = tabsLocked || meta.tabs.length >= M.MAX_TABS || !!unreadableTabs[meta.active]; $("tab-del").disabled = tabsLocked || meta.tabs.length <= 1;
     $("tab-restore").disabled = tabsLocked || !lastDeleted || meta.tabs.length >= M.MAX_TABS;
   }
   function switchTo(id, keep) {
@@ -858,6 +858,14 @@
     H = histFor(meta.active); chartRange = null; out.textContent = ""; cur = null; filt = null; sync(); renderTabs();
     tabMsg.textContent = "Added a tab. A formula can read it by name, like =Name!A1."; tabName.focus(); tabName.select();
   });
+  function moveActive(dir) {
+    var next = M.moveTab(meta, meta.active, dir);
+    if (!next) { tabMsg.textContent = "This tab is already at the " + (dir < 0 ? "start" : "end") + " of the list."; return; }
+    if (!commitMeta(next)) return;
+    renderTabs(); tabMsg.textContent = "Moved " + meta.tabs.filter(function (t) { return t.id === meta.active; })[0].name + " " + (dir < 0 ? "left" : "right") + ". Only the tab order changed; the cells were not touched.";
+  }
+  $("tab-left").addEventListener("click", function () { moveActive(-1); });
+  $("tab-right").addEventListener("click", function () { moveActive(1); });
   $("tab-dup").addEventListener("click", function () {
     if (heldMsg()) { tabMsg.textContent = status.textContent; return; }
     if (unreadableTabs[meta.active]) { tabMsg.textContent = "The stored cells of this tab could not be read, so it cannot be copied."; return; }
