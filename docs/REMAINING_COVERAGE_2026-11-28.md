@@ -55,5 +55,5 @@ Recorded at code head 6c24e89 (or code-equivalent for these modules; later commi
 - Calendar series (10): re-recorded with the corrected closing caption. No guests invited in the clip. Un-cancel and single-occurrence edit are not built.
 - Directory team detail (6): profile to team to member profile. No-team profile and role without team access not shown. No org chart tour exists.
 - Tasks project trash and restore (6), project rename (6), milestone edit (6): owner's view only; member and other-person views not shown.
-Still without a clip at the current head: Sheets and Slides main tours, Work Log filter and date tours, IAM step-up, forms and exit-session tours, Drive device-file, move and find, Chat attachments-free flows already covered earlier, org chart. Real two-device and Cloud/TiKV qualification: scope not yet grounded from the original PDFs and messages; not recorded as a user decision.
+Still without a clip at the current head: Sheets and Slides main tours, Work Log filter and date tours, IAM step-up, forms and exit-session tours, Drive device-file, move and find, org chart. Real two-device and Cloud/TiKV qualification: scope not yet grounded from the original PDFs and messages; not recorded as a user decision.
 These are scoped test observations, not a statement that any module is ready.
