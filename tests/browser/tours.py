@@ -5728,13 +5728,18 @@ def register_slides_tspeed(g):
             go = lambda n: (pg.locator("#sl-list button").nth(n).click(), pg.wait_for_timeout(300))
             saved = lambda: pg.evaluate("()=>JSON.parse(localStorage.getItem(document.getElementById('slide-root').getAttribute('data-store-key')))")
             panel = lambda: pg.evaluate("document.getElementById('sl-trans').scrollIntoView({block:'center'})")
-            nxt = lambda: pg.evaluate("()=>{document.getElementById('sl-show-next').click(); const s=document.querySelector('#sl-show-canvas svg'); const a=s.getAnimations(); return [s.getAttribute('class'), a.length ? a[0].effect.getTiming().duration : null]}")
+            nxt = lambda: pg.evaluate("()=>{document.getElementById('sl-show-next').click(); const s=document.querySelector('#sl-show-canvas svg'); const a=s.getAnimations(); if(!a.length) return [s.getAttribute('class'), null, null]; const dur=a[0].effect.getTiming().duration; a[0].pause(); a[0].currentTime=150; return [s.getAttribute('class'), dur, parseFloat(getComputedStyle(s).opacity)]}")
             got = []
             for _ in range(3):
                 pg.click("#sl-new"); pg.wait_for_timeout(300)
+            def put(x, y, w, h):
+                for f, v in (('x', x), ('y', y), ('w', w), ('h', h)):
+                    pg.fill('#sl-' + f, str(v)); pg.press('#sl-' + f, 'Tab')
             def fill(k, word, shape, extra=False):
                 go(k); pg.click("#sl-add-text"); pg.fill("#sl-text", word); pg.fill("#sl-size", "44"); pg.press("#sl-size", "Tab"); pg.click("#sl-add-" + shape)
-                if extra: pg.click("#sl-add-ellipse")
+                put(560, 300, 300, 180)
+                if extra:
+                    pg.click("#sl-add-ellipse"); put(80, 300, 300, 180)
                 pg.wait_for_timeout(200)
             fill(0, "Plan A: Launch", "rect", True); fill(1, "Plan B: Grow", "ellipse"); fill(2, "Plan C: Hold", "rect"); fill(3, "Plan D: Exit", "ellipse")
             t.step("Each of the 4 slides gets its own text and shapes so the fades are visible (slide 4 shown)", lambda: pg.evaluate("document.getElementById('sl-canvas-wrap').scrollIntoView({block:'center'})"), expect=lambda: "Plan D" in pg.locator("#sl-canvas-wrap").inner_text() or pg.locator("#sl-canvas-wrap svg text").count() >= 1, wait=1500)
@@ -5748,8 +5753,8 @@ def register_slides_tspeed(g):
             pg.select_option("#sl-tspeed", "slow")
             t.step("Present from slide 1", lambda: (pg.click("#sl-present"), pg.keyboard.press("Home")), expect=lambda: pg.locator("#sl-show").evaluate("e=>e.open"), wait=1500)
             t.step("Next to slide 2: the fade runs 400 ms (Normal, as in every older deck)", lambda: got.append(nxt()), expect=lambda: got[-1][1] == 400 and "sl-slow" not in got[-1][0] and "sl-fast" not in got[-1][0], wait=900)
-            t.step("Next to slide 3: the fade runs 800 ms (Slow)", lambda: got.append(nxt()), expect=lambda: got[-1][1] == 800 and "sl-slow" in got[-1][0], wait=1300)
-            t.step("Next to slide 4: the fade runs 200 ms (Fast)", lambda: got.append(nxt()), expect=lambda: got[-1][1] == 200 and "sl-fast" in got[-1][0], wait=700)
+            t.step("Next to slide 3: Slow fade, frozen 150 ms in (about a fifth of the way, still faint)", lambda: got.append(nxt()), expect=lambda: got[-1][1] == 800 and "sl-slow" in got[-1][0] and got[-1][2] < 0.5, wait=2600)
+            t.step("Next to slide 4: Fast fade, frozen at the same 150 ms (almost fully shown)", lambda: got.append(nxt()), expect=lambda: got[-1][1] == 200 and "sl-fast" in got[-1][0] and got[-1][2] > 0.85, wait=2600)
             t.step("Reduced motion on: the next move runs no fade at all (no animation, no fade class)", lambda: (pg.emulate_media(reduced_motion="reduce"), pg.keyboard.press("Home"), pg.wait_for_timeout(300), got.append(nxt())), expect=lambda: got[-1][1] is None and "sl-fade" not in (got[-1][0] or ""), wait=900)
             pg.emulate_media(reduced_motion="no-preference")
             t.step("Exit the show", lambda: pg.click("#sl-show-exit"), expect=lambda: not pg.locator("#sl-show").evaluate("e=>e.open"))
@@ -5761,11 +5766,11 @@ def register_slides_tspeed(g):
             pg.reload(); pg.wait_for_timeout(600); go(0)
             t.step("Reload: the list shows the speeds and the selected ellipse shows Fast", lambda: (item(2), pg.evaluate("document.getElementById('sl-anim').scrollIntoView({block:'center'})")), expect=lambda: pg.input_value("#sl-anim-spd") == "fast" and "(slow)" in pg.inner_text("#sl-anim-list") and "(fast)" in pg.inner_text("#sl-anim-list"), wait=1500)
             t.step("Present slide 1", lambda: (pg.click("#sl-present"), pg.keyboard.press("Home")), expect=lambda: pg.locator("#sl-show").evaluate("e=>e.open"), wait=1500)
-            fx = lambda: pg.evaluate("()=>{document.getElementById('sl-show-next').click(); const g=document.querySelector('#sl-show-canvas svg g.sl-fadeel'); if(!g) return [null,null]; const a=g.getAnimations(); return [g.getAttribute('class'), a.length ? a[0].effect.getTiming().duration : null]}")
+            fx = lambda: pg.evaluate("()=>{document.getElementById('sl-show-next').click(); const g=document.querySelector('#sl-show-canvas svg g.sl-fadeel'); if(!g) return [null,null,null]; const a=g.getAnimations(); if(!a.length) return [g.getAttribute('class'), null, null]; const dur=a[0].effect.getTiming().duration; a[0].pause(); a[0].currentTime=150; return [g.getAttribute('class'), dur, parseFloat(getComputedStyle(g).opacity)]}")
             seen2 = []
-            t.step("Click 1: the text fades in over 800 ms (Slow)", lambda: seen2.append(fx()), expect=lambda: seen2[-1][1] == 800, wait=1300)
+            t.step("Click 1: text, Slow fade, frozen 150 ms in (still faint)", lambda: seen2.append(fx()), expect=lambda: seen2[-1][1] == 800 and seen2[-1][2] < 0.5, wait=2600)
             t.step("Click 2: the rectangle fades in over 400 ms (Normal)", lambda: seen2.append(fx()), expect=lambda: seen2[-1][1] == 400 and "sl-slow" not in seen2[-1][0] and "sl-fast" not in seen2[-1][0], wait=900)
-            t.step("Click 3: the ellipse fades in over 200 ms (Fast)", lambda: seen2.append(fx()), expect=lambda: seen2[-1][1] == 200, wait=700)
+            t.step("Click 3: ellipse, Fast fade, frozen at the same 150 ms (almost fully shown)", lambda: seen2.append(fx()), expect=lambda: seen2[-1][1] == 200 and seen2[-1][2] > 0.85, wait=2600)
             t.step("Reduced motion on: Home, then the first click shows the text with no animation", lambda: (pg.emulate_media(reduced_motion="reduce"), pg.keyboard.press("Home"), pg.wait_for_timeout(300), seen2.append(fx())), expect=lambda: seen2[-1][1] is None, wait=900)
             pg.emulate_media(reduced_motion="no-preference")
             t.step("Exit the show", lambda: pg.click("#sl-show-exit"), expect=lambda: not pg.locator("#sl-show").evaluate("e=>e.open"))

@@ -24,5 +24,21 @@ ok("v12 is refused and v11 accepted", S.validate(Object.assign(JSON.parse(J(slow
 ok("speed survives the after-previous timing and a move", (() => { let x = S.ops.setAnimAfter(slow, 0, id, true); return x.slides[0].anim[0].spd === "slow" && x.slides[0].anim[0].after === true && J(S.validate(S.validate(x))) === J(S.validate(x)) && S.validate(x).v === 11; })());
 ok("loadDeck keeps the speed", (() => { const r = S.loadDeck(J(slow)); return r.deck && r.deck.slides[0].anim[0].spd === "slow"; })());
 ok("duplicating the slide keeps the entry speed", (() => { const x = S.ops.duplicateSlide(slow, 0); return x && x.slides[1].anim && x.slides[1].anim[0].spd === "slow" && x.v === 11; })());
+// every path that rewrites animation entries keeps each entry's speed and its own timing
+let m = S.ops.addElement(d, 0, "ellipse").deck; const id2 = m.slides[0].elements[1].id;
+m = S.ops.setAnimSpeed(S.ops.setAnim(S.ops.setAnimSpeed(S.ops.setAnim(m, 0, id, "fade"), 0, id, "slow"), 0, id2, "fade"), 0, id2, "fast");
+const spds = (x) => x.slides[0].anim.map((a) => a.el + ":" + (a.spd || "-") + ":" + (a.after ? "a" : "c")).join(",");
+ok("two entries with their own speeds validate and keep order", spds(S.validate(m)) === id + ":slow:c," + id2 + ":fast:c");
+ok("moveAnim swaps the entries and each keeps its own speed", spds(S.ops.moveAnim(m, 0, id, 1)) === id2 + ":fast:c," + id + ":slow:c");
+const aft = S.ops.setAnimAfter(m, 0, id2, true);
+ok("after-previous on one entry keeps both speeds and only changes that entry", spds(aft) === id + ":slow:c," + id2 + ":fast:a");
+ok("switching it back to on click keeps the speeds", spds(S.ops.setAnimAfter(aft, 0, id2, false)) === id + ":slow:c," + id2 + ":fast:c");
+const e3 = S.ops.addElement(m, 0, "text").deck, id3 = e3.slides[0].elements[2].id;
+const del = S.ops.deleteElement(S.ops.setAnim(e3, 0, id3, "appear"), 0, id3);
+ok("deleting a different animated item leaves the other speeds alone", spds(del) === id + ":slow:c," + id2 + ":fast:c");
+ok("deleting the slow item leaves the fast one with its speed and the version stays 11", (() => { const x = S.ops.deleteElement(m, 0, id); return spds(x) === id2 + ":fast:c" && x.v === 11; })());
+ok("deleting the last speed-carrying item drops the deck below v11", (() => { const x = S.ops.deleteElement(S.ops.deleteElement(m, 0, id), 0, id2); return x.v < 11 && !x.slides[0].anim; })());
+ok("duplicate element does not copy the animation or the speed (as before)", (() => { const r = S.ops.duplicateElement(m, 0, id); const x = r && (r.deck || r); return !!x && x.slides[0].anim.length === 2 && x.slides[0].anim.every((a) => a.el === id || a.el === id2); })());
+ok("moving the slide and changing the theme keep the speeds", (() => { const two = S.ops.duplicateSlide(m, 0); const mv = S.ops.moveSlide ? S.ops.moveSlide(two, 0, 1) : two; const th = S.ops.setTheme(mv, "dark"); return !!th && th.v === 11 && th.slides.every((q) => q.anim.some((a) => a.spd === "slow") && q.anim.some((a) => a.spd === "fast")); })());
 console.log(`${n - bad}/${n} aspeed rows passed`);
 process.exit(bad ? 1 : 0);
