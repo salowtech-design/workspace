@@ -550,15 +550,19 @@
       preds.push(pr); grids.push(g);
     }
     if (sg && (sg.rows !== g0.rows || sg.cols !== g0.cols)) return new Err("#VALUE!");
-    var count = 0, sum = 0;
+    var count = 0, sum = 0, best = null;
     for (i = 0; i < g0.v.length; i++) {
       var ok = true;
       for (var k = 0; k < preds.length; k++) { var x = grids[k].v[i]; if (isErr(x) || !preds[k](x)) { ok = false; break; } }
       if (!ok) continue;
       if (!sg) { count++; continue; }
       var y = sg.v[i]; if (isErr(y)) return y;
-      if (typeof y === "number") { sum += y; count++; }
+      if (typeof y === "number") {
+        sum += y; count++;
+        if (best === null || (name === "MAXIFS" ? y > best : y < best)) best = y;
+      }
     }
+    if (name === "MAXIFS" || name === "MINIFS") return best === null ? 0 : best;  // nothing numeric matched: 0, as MAX and MIN of no numbers
     if (name === "COUNTIFS") return count;
     if (name === "SUMIFS") return sum;
     return count ? sum / count : new Err("#DIV/0!");
@@ -566,6 +570,8 @@
   FNX.SUMIFS = function (a) { return multiCrit("SUMIFS", a); };
   FNX.COUNTIFS = function (a) { return multiCrit("COUNTIFS", a); };
   FNX.AVERAGEIFS = function (a) { return multiCrit("AVERAGEIFS", a); };
+  FNX.MAXIFS = function (a) { return multiCrit("MAXIFS", a); };
+  FNX.MINIFS = function (a) { return multiCrit("MINIFS", a); };
   function shift10(v, d) {  // v * 10^d on the decimal digits, also for exponent forms such as 1e-7 or 1e+25
     var t = String(v), m = t, e = 0, i = t.indexOf("e");
     if (i >= 0) { m = t.slice(0, i); e = parseInt(t.slice(i + 1), 10); }
@@ -602,7 +608,7 @@
   FNX.ISTEXT = function (a) { var v = one(a[0]); return v === undefined ? new Err("#VALUE!") : typeof v === "string" && v !== ""; };
   FNX.ISBLANK = function (a) { var v = one(a[0]); return v === undefined ? new Err("#VALUE!") : v === null || v === ""; };
   FNX.ISERROR = function (a) { var v = one(a[0]); return v === undefined ? new Err("#VALUE!") : isErr(v); };
-  var ARITY = { HLOOKUP: [3, 4], IFS: [2, 40], SWITCH: [3, 40], SUMIFS: [3, 21], COUNTIFS: [2, 20], AVERAGEIFS: [3, 21], ROUNDUP: [1, 2], ROUNDDOWN: [1, 2], TRUNC: [1, 2], SIGN: [1, 1], PRODUCT: [1, 99], LARGE: [2, 2], SMALL: [2, 2], ISNUMBER: [1, 1], ISTEXT: [1, 1], ISBLANK: [1, 1], ISERROR: [1, 1], IFERROR: [1, 2], MEDIAN: [1, 99], STDEV: [1, 99], COUNTA: [1, 99], COUNTBLANK: [1, 99], MOD: [2, 2], POWER: [2, 2], SQRT: [1, 1], INT: [1, 1], FLOOR: [1, 2], CEILING: [1, 2], DATE: [3, 3], YEAR: [1, 1], MONTH: [1, 1], DAY: [1, 1], WEEKDAY: [1, 2], LEFT: [1, 2], RIGHT: [1, 2], MID: [3, 3], TRIM: [1, 1], SUBSTITUTE: [3, 4], FIND: [2, 3], INDEX: [2, 3], MATCH: [2, 3], VLOOKUP: [3, 4], SUMIF: [2, 3], COUNTIF: [2, 2], AVERAGEIF: [2, 3], SUM: [1, 99], AVERAGE: [1, 99], MIN: [1, 99], MAX: [1, 99], COUNT: [1, 99], ABS: [1, 1], ROUND: [1, 2], LEN: [1, 1], UPPER: [1, 1], LOWER: [1, 1], CONCAT: [1, 99], NOT: [1, 1], AND: [1, 99], OR: [1, 99], IF: [2, 3] };
+  var ARITY = { HLOOKUP: [3, 4], IFS: [2, 40], SWITCH: [3, 40], SUMIFS: [3, 21], COUNTIFS: [2, 20], AVERAGEIFS: [3, 21], MAXIFS: [3, 21], MINIFS: [3, 21], ROUNDUP: [1, 2], ROUNDDOWN: [1, 2], TRUNC: [1, 2], SIGN: [1, 1], PRODUCT: [1, 99], LARGE: [2, 2], SMALL: [2, 2], ISNUMBER: [1, 1], ISTEXT: [1, 1], ISBLANK: [1, 1], ISERROR: [1, 1], IFERROR: [1, 2], MEDIAN: [1, 99], STDEV: [1, 99], COUNTA: [1, 99], COUNTBLANK: [1, 99], MOD: [2, 2], POWER: [2, 2], SQRT: [1, 1], INT: [1, 1], FLOOR: [1, 2], CEILING: [1, 2], DATE: [3, 3], YEAR: [1, 1], MONTH: [1, 1], DAY: [1, 1], WEEKDAY: [1, 2], LEFT: [1, 2], RIGHT: [1, 2], MID: [3, 3], TRIM: [1, 1], SUBSTITUTE: [3, 4], FIND: [2, 3], INDEX: [2, 3], MATCH: [2, 3], VLOOKUP: [3, 4], SUMIF: [2, 3], COUNTIF: [2, 2], AVERAGEIF: [2, 3], SUM: [1, 99], AVERAGE: [1, 99], MIN: [1, 99], MAX: [1, 99], COUNT: [1, 99], ABS: [1, 1], ROUND: [1, 2], LEN: [1, 1], UPPER: [1, 1], LOWER: [1, 1], CONCAT: [1, 99], NOT: [1, 1], AND: [1, 99], OR: [1, 99], IF: [2, 3] };
   function truth(v) {
     if (isErr(v)) return v;
     if (typeof v === "boolean") return v;

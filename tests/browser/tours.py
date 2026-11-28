@@ -282,6 +282,7 @@ def register(g):
     register_sheets_struct_col(g)
     register_sheets_struct_more(g)
     register_sheets_find(g)
+    register_sheets_maxifs(g)
     register_palette(g)
     register_overlap(g)
     register_drive_device(g)
@@ -2070,6 +2071,40 @@ def register_slides_dup_sheets_fx(g):
                  unshown=["Duplicate item on a picture or on the master", "the 30-item cap", "all other new functions (covered by node tests)"])
 
     g["DRILLS"]["tour_slides_dup_sheets_fx"] = tour
+
+
+def register_sheets_maxifs(g):
+    APP = g["APP"]
+
+    def tour(ctx):
+        def put(pg, cells):
+            for a, v in cells:
+                sel = 'input[data-addr="%s"]' % a
+                pg.click(sel)
+                pg.fill(sel, v)
+                pg.press(sel, "Tab")
+
+        def shown(pg, a):  # the value of a cell as the bar shows it after selecting it
+            pg.click('input[data-addr="%s"]' % a)
+            return pg.inner_text("#sheet-val").strip().replace("Result: ", "", 1)
+
+        def body(t, pg):
+            pg.goto(APP + "/sheets/")
+            pg.evaluate("localStorage.clear()")
+            pg.goto(APP + "/sheets/")
+            pg.wait_for_timeout(500)
+            t.step("A small table: region in column A, amount in B, month in C (B4 holds text)", lambda: put(pg, [("A1", "North"), ("B1", "10"), ("C1", "1"), ("A2", "South"), ("B2", "20"), ("C2", "1"), ("A3", "North"), ("B3", "30"), ("C3", "2"), ("A4", "North"), ("B4", "abc"), ("C4", "2")]), expect=lambda: pg.input_value('input[data-addr="B3"]') == "30" and pg.input_value('input[data-addr="B4"]') == "abc")
+            t.step("MAXIFS over North: the largest North amount is 30 (the text in B4 is skipped)", lambda: put(pg, [("E1", '=MAXIFS(B1:B4,A1:A4,"North")')]), expect=lambda: shown(pg, "E1") == "30")
+            t.step("MINIFS over North and month 2: the smallest is 30", lambda: put(pg, [("E2", '=MINIFS(B1:B4,A1:A4,"North",C1:C4,2)')]), expect=lambda: shown(pg, "E2") == "30")
+            t.step("MAXIFS with no match gives 0 (a local choice, same as MAX of no numbers)", lambda: put(pg, [("E3", '=MAXIFS(B1:B4,A1:A4,"West")')]), expect=lambda: shown(pg, "E3") == "0")
+            t.step("Edit a source cell: MAXIFS follows (B3 becomes 5, so the largest North amount is 10)", lambda: put(pg, [("B3", "5")]), expect=lambda: shown(pg, "E1") == "10")
+            t.step("Ranges of different size: MAXIFS shows an error", lambda: put(pg, [("E4", '=MAXIFS(B1:B4,A1:A3,"North")')]), expect=lambda: shown(pg, "E4") == "#VALUE!")
+            pg.click('input[data-addr="E1"]')
+
+        run_tour(ctx, "99_sheets_maxifs", body, notes="Device-local sheet (browser only). Real Django on TiDB (unistore) under uvicorn, headless Chromium 390x844 emulated. The no-match value 0 is a local choice, not checked against Google Sheets.",
+                 unshown=["MINIFS no match", "wildcard and operator criteria (covered by node tests)", "error cells inside the ranges (node tests)"])
+
+    g["DRILLS"]["tour_sheets_maxifs"] = tour
 
 
 def register_sheets_refs(g):
