@@ -66,8 +66,8 @@
   }
   // returns a clean deck or null; unknown fields are dropped and numbers are clamped
   function validate(d) {
-    if (!d || typeof d !== "object" || Array.isArray(d) || (has(d, "v") && [1, 2, 3, 4, 5, 6, 7, 8, 9, 10].indexOf(d.v) < 0) || !Array.isArray(d.slides) || !d.slides.length || d.slides.length > MAX_SLIDES) return null;
-    var TRANS = ["none", "fade"], ids = Object.create(null), out = { v: 1, theme: has(THEMES, d.theme) ? d.theme : "light", slides: [] }, masterEls = [], anyHide = false, anyTrans = false, anyTspeed = false, anyStyle = false, nImg = 0, anyAnim = false, anyAfter = false, anyBg = false, anyLay = false, outLays = null;
+    if (!d || typeof d !== "object" || Array.isArray(d) || (has(d, "v") && [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11].indexOf(d.v) < 0) || !Array.isArray(d.slides) || !d.slides.length || d.slides.length > MAX_SLIDES) return null;
+    var TRANS = ["none", "fade"], ids = Object.create(null), out = { v: 1, theme: has(THEMES, d.theme) ? d.theme : "light", slides: [] }, masterEls = [], anyHide = false, anyTrans = false, anyTspeed = false, anySpd = false, anyStyle = false, nImg = 0, anyAnim = false, anyAfter = false, anyBg = false, anyLay = false, outLays = null;
     if (has(d, "lays")) {
       var L0 = d.lays; if (!L0 || typeof L0 !== "object" || Array.isArray(L0)) return null; outLays = {};
       var lk = Object.keys(L0); for (var a1 = 0; a1 < lk.length; a1++) {
@@ -106,7 +106,8 @@
           var a = s.anim[q];
           if (!a || typeof a !== "object" || typeof a.el !== "string" || FX.indexOf(a.fx) < 0 || seen[a.el] || !els.some(function (x) { return x.id === a.el; })) return null;
           if (has(a, "after") && typeof a.after !== "boolean") return null;
-          seen[a.el] = true; var item = { el: a.el, fx: a.fx }; if (a.after === true) { item.after = true; anyAfter = true; } an.push(item);
+          if (has(a, "spd") && ((a.spd !== "slow" && a.spd !== "fast") || a.fx !== "fade")) return null;
+          seen[a.el] = true; var item = { el: a.el, fx: a.fx }; if (a.after === true) { item.after = true; anyAfter = true; } if (a.spd) { item.spd = a.spd; anySpd = true; } an.push(item);
         }
         if (an.length) { ns.anim = an; anyAnim = true; }
       }
@@ -135,6 +136,8 @@
     if (anyLay) out.v = 9;
     // Version 10 when a slide's fade has its own speed: older code only knows 1 to 9 and refuses 10, so it never drops a speed silently.
     if (anyTspeed) out.v = 10;
+    // Version 11 when an item's fade-in has its own speed: older code only knows 1 to 10 and refuses 11, so it never drops that speed silently.
+    if (anySpd) out.v = 11;
     return out;
   }
   // how many text fields in a raw (unvalidated) deck are longer than the limits and so will be shortened
@@ -188,7 +191,7 @@
     // copy of slide i placed right after it, with fresh ids so ids stay unique; null at the slide or item caps
     duplicateSlide: function (d, i) {
       var src = d.slides[i]; if (!src || d.slides.length >= MAX_SLIDES) return null;
-      var n = copy(d), c = copy(src); c.id = uid(); var idmap = {}; c.elements.forEach(function (e) { var o = e.id; e.id = uid(); idmap[o] = e.id; }); if (c.anim) c.anim = c.anim.map(function (a) { var o = { el: idmap[a.el], fx: a.fx }; if (a.after === true) o.after = true; return o; }); n.slides.splice(i + 1, 0, c); return n;
+      var n = copy(d), c = copy(src); c.id = uid(); var idmap = {}; c.elements.forEach(function (e) { var o = e.id; e.id = uid(); idmap[o] = e.id; }); if (c.anim) c.anim = c.anim.map(function (a) { var o = { el: idmap[a.el], fx: a.fx }; if (a.after === true) o.after = true; if (a.spd) o.spd = a.spd; return o; }); n.slides.splice(i + 1, 0, c); return normVersion(n);
     },
     // speaker notes for slide i: plain text, cut at MAX_NOTES (the page also stops typing there, so nothing is cut silently)
     setNotes: function (d, i, text) { if (!d.slides[i] || typeof text !== "string") return null; var n = copy(d); n.slides[i].notes = cut(text, MAX_NOTES); return n; },
@@ -240,7 +243,7 @@
     setAnim: function (d, i, id, fx) {
       var s = d.slides[i]; if (!s || (fx !== "none" && FX.indexOf(fx) < 0) || !s.elements.some(function (e) { return e.id === id; })) return null;
       var n = copy(d), t = n.slides[i], a = t.anim || [], k = -1; a.forEach(function (x, q) { if (x.el === id) k = q; });
-      if (fx === "none") { if (k < 0) return null; a.splice(k, 1); } else if (k >= 0) { if (a[k].fx === fx) return null; a[k].fx = fx; } else a.push({ el: id, fx: fx });
+      if (fx === "none") { if (k < 0) return null; a.splice(k, 1); } else if (k >= 0) { if (a[k].fx === fx) return null; a[k].fx = fx; if (fx !== "fade") delete a[k].spd; } else a.push({ el: id, fx: fx });
       if (a.length) t.anim = a; else delete t.anim; return normVersion(n);
     },
     // Timing: after = true plays the item by itself 1 second after the step before it (or after the slide appears, when it is first). false is "on click".
@@ -248,6 +251,12 @@
       var s = d.slides[i]; if (!s || !s.anim || typeof after !== "boolean") return null; var k = -1; s.anim.forEach(function (x, q) { if (x.el === id) k = q; });
       if (k < 0 || (s.anim[k].after === true) === after) return null;
       var n = copy(d), e = n.slides[i].anim[k]; if (after) e.after = true; else delete e.after; return normVersion(n);
+    },
+    // how fast an item's fade-in runs in Present: "slow" (0.8 s), "normal" (0.4 s, as in every earlier deck) or "fast" (0.2 s). Only a fade-in has a speed. Normal stores nothing.
+    setAnimSpeed: function (d, i, id, name) {
+      var s = d.slides[i]; if (!s || !s.anim || (name !== "slow" && name !== "normal" && name !== "fast")) return null; var k = -1; s.anim.forEach(function (x, q) { if (x.el === id) k = q; });
+      if (k < 0 || s.anim[k].fx !== "fade" || (s.anim[k].spd || "normal") === name) return null;
+      var n = copy(d), e = n.slides[i].anim[k]; if (name === "normal") delete e.spd; else e.spd = name; return normVersion(n);
     },
     // dir -1 plays the item's animation one click earlier, +1 one click later. Null at the ends or when the item has none.
     moveAnim: function (d, i, id, dir) {
@@ -262,7 +271,7 @@
     var any = n.slides.some(function (s) { return s.hideMaster === true; }), trans = n.slides.some(function (s) { return s.transition === "fade"; }), anim = n.slides.some(function (s) { return s.anim && s.anim.length; }), after = n.slides.some(function (s) { return s.anim && s.anim.some(function (x) { return x.after === true; }); });
     if (n.master && !n.master.elements.length) delete n.master;
     var sty = n.slides.some(function (s) { return s.elements.some(styled); }) || (n.master && n.master.elements.some(styled));
-    var img = n.slides.some(function (s) { return s.elements.some(isImg); }); var bgs = n.slides.some(function (s) { return !!s.bg; }); var lay = !!n.lays || n.slides.some(function (s) { return !!s.lay; }); var tsp = n.slides.some(function (s) { return !!s.tspeed; }); n.v = tsp ? 10 : lay ? 9 : bgs ? 8 : after ? 7 : anim ? 6 : img ? 5 : sty ? 4 : trans ? 3 : (n.master || any ? 2 : 1); return n;
+    var img = n.slides.some(function (s) { return s.elements.some(isImg); }); var bgs = n.slides.some(function (s) { return !!s.bg; }); var lay = !!n.lays || n.slides.some(function (s) { return !!s.lay; }); var spd = n.slides.some(function (s) { return s.anim && s.anim.some(function (x) { return !!x.spd; }); }); var tsp = n.slides.some(function (s) { return !!s.tspeed; }); n.v = spd ? 11 : tsp ? 10 : lay ? 9 : bgs ? 8 : after ? 7 : anim ? 6 : img ? 5 : sty ? 4 : trans ? 3 : (n.master || any ? 2 : 1); return n;
   }
   function viaMaster(d, fn, adding) {
     var els = d.master ? d.master.elements : [];

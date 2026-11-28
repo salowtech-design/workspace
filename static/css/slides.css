@@ -37,4 +37,6 @@
 .slide-show svg.sl-fade.sl-fast { animation-duration: 0.2s; }
 @media (prefers-reduced-motion: reduce) { .slide-show svg.sl-fade { animation: none; } }
 .slide-show svg g.sl-fadeel { animation: sl-fade-in 0.4s ease-out; }
+.slide-show svg g.sl-fadeel.sl-slow { animation-duration: 0.8s; }
+.slide-show svg g.sl-fadeel.sl-fast { animation-duration: 0.2s; }
 @media (prefers-reduced-motion: reduce) { .slide-show svg g.sl-fadeel { animation: none; } }

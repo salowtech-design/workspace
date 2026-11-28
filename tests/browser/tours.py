@@ -5732,6 +5732,12 @@ def register_slides_tspeed(g):
             got = []
             for _ in range(3):
                 pg.click("#sl-new"); pg.wait_for_timeout(300)
+            def fill(k, word, shape, extra=False):
+                go(k); pg.click("#sl-add-text"); pg.fill("#sl-text", word); pg.fill("#sl-size", "44"); pg.press("#sl-size", "Tab"); pg.click("#sl-add-" + shape)
+                if extra: pg.click("#sl-add-ellipse")
+                pg.wait_for_timeout(200)
+            fill(0, "Plan A: Launch", "rect", True); fill(1, "Plan B: Grow", "ellipse"); fill(2, "Plan C: Hold", "rect"); fill(3, "Plan D: Exit", "ellipse")
+            t.step("Each of the 4 slides gets its own text and shapes so the fades are visible (slide 4 shown)", lambda: pg.evaluate("document.getElementById('sl-canvas-wrap').scrollIntoView({block:'center'})"), expect=lambda: "Plan D" in pg.locator("#sl-canvas-wrap").inner_text() or pg.locator("#sl-canvas-wrap svg text").count() >= 1, wait=1500)
             t.step("A deck of 4 slides. Slide 1 has no transition and the speed select is off", lambda: (go(0), panel()), expect=lambda: pg.input_value("#sl-trans") == "none" and pg.is_disabled("#sl-tspeed") and "v" in saved() and saved()["v"] < 3)
             t.step("Slide 2: fade, speed left at Normal. Nothing about speed is stored, deck stays v3", lambda: (go(1), pg.select_option("#sl-trans", "fade"), panel()), expect=lambda: pg.input_value("#sl-tspeed") == "normal" and not pg.is_disabled("#sl-tspeed") and saved()["v"] == 3 and "tspeed" not in saved()["slides"][1])
             t.step("Slide 3: fade and Slow. The deck becomes v10 and stores slow on that slide only", lambda: (go(2), pg.select_option("#sl-trans", "fade"), pg.select_option("#sl-tspeed", "slow"), panel()), expect=lambda: saved()["v"] == 10 and saved()["slides"][2].get("tspeed") == "slow" and "tspeed" not in saved()["slides"][1])
@@ -5744,8 +5750,26 @@ def register_slides_tspeed(g):
             t.step("Next to slide 2: the fade runs 400 ms (Normal, as in every older deck)", lambda: got.append(nxt()), expect=lambda: got[-1][1] == 400 and "sl-slow" not in got[-1][0] and "sl-fast" not in got[-1][0], wait=900)
             t.step("Next to slide 3: the fade runs 800 ms (Slow)", lambda: got.append(nxt()), expect=lambda: got[-1][1] == 800 and "sl-slow" in got[-1][0], wait=1300)
             t.step("Next to slide 4: the fade runs 200 ms (Fast)", lambda: got.append(nxt()), expect=lambda: got[-1][1] == 200 and "sl-fast" in got[-1][0], wait=700)
+            t.step("Reduced motion on: the next move runs no fade at all (no animation, no fade class)", lambda: (pg.emulate_media(reduced_motion="reduce"), pg.keyboard.press("Home"), pg.wait_for_timeout(300), got.append(nxt())), expect=lambda: got[-1][1] is None and "sl-fade" not in (got[-1][0] or ""), wait=900)
+            pg.emulate_media(reduced_motion="no-preference")
             t.step("Exit the show", lambda: pg.click("#sl-show-exit"), expect=lambda: not pg.locator("#sl-show").evaluate("e=>e.open"))
-            t.note("Shown: the speed select, stored values, reload, and the running animation duration read from the browser. Not shown: the PDF and editor (they do not animate by design) and a reduced-motion device (no animation runs there).", 3)
+            item = lambda k: (pg.locator("#sl-items li").nth(k).click(), pg.wait_for_timeout(200))
+            def anim(k, spd):
+                item(k); pg.select_option("#sl-anim", "fade")
+                if spd != "normal": pg.select_option("#sl-anim-spd", spd)
+            t.step("Slide 1: text fades in Slow, rectangle Normal, ellipse Fast. The deck becomes v11", lambda: (go(0), anim(0, "slow"), anim(1, "normal"), anim(2, "fast"), pg.evaluate("document.getElementById('sl-anim').scrollIntoView({block:'center'})")), expect=lambda: [x.get("spd") for x in saved()["slides"][0]["anim"]] == ["slow", None, "fast"] and saved()["v"] == 11, wait=1500)
+            pg.reload(); pg.wait_for_timeout(600); go(0)
+            t.step("Reload: the list shows the speeds and the selected ellipse shows Fast", lambda: (item(2), pg.evaluate("document.getElementById('sl-anim').scrollIntoView({block:'center'})")), expect=lambda: pg.input_value("#sl-anim-spd") == "fast" and "(slow)" in pg.inner_text("#sl-anim-list") and "(fast)" in pg.inner_text("#sl-anim-list"), wait=1500)
+            t.step("Present slide 1", lambda: (pg.click("#sl-present"), pg.keyboard.press("Home")), expect=lambda: pg.locator("#sl-show").evaluate("e=>e.open"), wait=1500)
+            fx = lambda: pg.evaluate("()=>{document.getElementById('sl-show-next').click(); const g=document.querySelector('#sl-show-canvas svg g.sl-fadeel'); if(!g) return [null,null]; const a=g.getAnimations(); return [g.getAttribute('class'), a.length ? a[0].effect.getTiming().duration : null]}")
+            seen2 = []
+            t.step("Click 1: the text fades in over 800 ms (Slow)", lambda: seen2.append(fx()), expect=lambda: seen2[-1][1] == 800, wait=1300)
+            t.step("Click 2: the rectangle fades in over 400 ms (Normal)", lambda: seen2.append(fx()), expect=lambda: seen2[-1][1] == 400 and "sl-slow" not in seen2[-1][0] and "sl-fast" not in seen2[-1][0], wait=900)
+            t.step("Click 3: the ellipse fades in over 200 ms (Fast)", lambda: seen2.append(fx()), expect=lambda: seen2[-1][1] == 200, wait=700)
+            t.step("Reduced motion on: Home, then the first click shows the text with no animation", lambda: (pg.emulate_media(reduced_motion="reduce"), pg.keyboard.press("Home"), pg.wait_for_timeout(300), seen2.append(fx())), expect=lambda: seen2[-1][1] is None, wait=900)
+            pg.emulate_media(reduced_motion="no-preference")
+            t.step("Exit the show", lambda: pg.click("#sl-show-exit"), expect=lambda: not pg.locator("#sl-show").evaluate("e=>e.open"))
+            t.note("Shown: the speed select, stored values, reload, and the running animation duration read from the browser. Reduced motion was emulated in headless Chromium for both fades; real devices were not tried. Not shown: the PDF and editor (they do not animate by design).", 3)
         run_tour(ctx, "slides_tspeed", body, notes="Device-local deck. Headless Chromium 390x844 emulated.")
     g["DRILLS"]["tour_slides_tspeed"] = tour
 

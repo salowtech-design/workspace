@@ -182,8 +182,9 @@
     var an = d.slides[cur] && d.slides[cur].anim || [], mine = -1, al = $("sl-anim-list"); an.forEach(function (x, q) { if (e && x.el === e.id) mine = q; });
     $("sl-anim").value = mine >= 0 ? an[mine].fx : "none"; $("sl-anim").disabled = !e || editMaster;
     $("sl-anim-when").value = mine >= 0 && an[mine].after === true ? "after" : "click"; $("sl-anim-when").disabled = mine < 0 || editMaster;
+    $("sl-anim-spd").value = mine >= 0 && an[mine].spd ? an[mine].spd : "normal"; $("sl-anim-spd").disabled = mine < 0 || editMaster || an[mine].fx !== "fade";
     $("sl-anim-up").disabled = mine <= 0 || editMaster; $("sl-anim-down").disabled = mine < 0 || mine >= an.length - 1 || editMaster;
-    al.textContent = ""; if (!editMaster) an.forEach(function (x, q) { var it = d.slides[cur].elements.filter(function (y) { return y.id === x.el; })[0], li = document.createElement("li"); li.textContent = (x.after === true ? "Step " + (q + 1) + " (after previous): " : "Click " + (q + 1) + ": ") + (x.fx === "fade" ? "fade in" : "appears") + ": " + (it ? S.describeEls([it])[0].replace(/^1\. /, "") : "item"); al.appendChild(li); });
+    al.textContent = ""; if (!editMaster) an.forEach(function (x, q) { var it = d.slides[cur].elements.filter(function (y) { return y.id === x.el; })[0], li = document.createElement("li"); li.textContent = (x.after === true ? "Step " + (q + 1) + " (after previous): " : "Click " + (q + 1) + ": ") + (x.fx === "fade" ? "fade in" + (x.spd ? " (" + x.spd + ")" : "") : "appears") + ": " + (it ? S.describeEls([it])[0].replace(/^1\. /, "") : "item"); al.appendChild(li); });
     $("sl-anim-empty").hidden = editMaster || an.length > 0;
     $("sl-master").textContent = editMaster ? "Back to slides" : "Edit master"; $("sl-master").setAttribute("aria-pressed", editMaster ? "true" : "false");
     $("sl-master-on").checked = !(d.slides[cur] && d.slides[cur].hideMaster === true); $("sl-master-on").disabled = editMaster;
@@ -198,6 +199,7 @@
   $("sl-trans").addEventListener("change", function () { var n = S.ops.setTransition(H.deck, cur, this.value); if (!n || !apply(n, this.value === "fade" ? "This slide now fades in during Present." : "This slide has no transition.")) render(); });
   $("sl-tspeed").addEventListener("change", function () { var n = S.ops.setTransitionSpeed(H.deck, cur, this.value); if (!n || !apply(n, "The fade on this slide is now " + this.value + ".")) { render(); } });
   $("sl-anim").addEventListener("change", function () { var e = sel(); if (!e) return; var n = S.ops.setAnim(H.deck, cur, e.id, this.value); if (!n || !apply(n, this.value === "none" ? "Animation removed from this item." : "This item now " + (this.value === "fade" ? "fades in" : "appears") + " on a click in Present.")) render(); });
+  $("sl-anim-spd").addEventListener("change", function () { var e = sel(); if (!e) return; var n = S.ops.setAnimSpeed(H.deck, cur, e.id, this.value); if (!n || !apply(n, "This item's fade-in is now " + this.value + " in Present.")) render(); });
   $("sl-anim-when").addEventListener("change", function () { var e = sel(); if (!e) return; var after = this.value === "after", n = S.ops.setAnimAfter(H.deck, cur, e.id, after); if (!n || !apply(n, after ? "This item now plays by itself 1 second after the step before it in Present." : "This item now plays on a click in Present.")) render(); });
   $("sl-anim-up").addEventListener("click", function () { var e = sel(); if (e) apply(S.ops.moveAnim(H.deck, cur, e.id, -1), "Animation moved one click earlier."); });
   $("sl-anim-down").addEventListener("click", function () { var e = sel(); if (e) apply(S.ops.moveAnim(H.deck, cur, e.id, 1), "Animation moved one click later."); });
@@ -442,7 +444,7 @@
     S.masterOf(d, showAt).concat(d.slides[showAt].elements).forEach(function (e) {
       if (hid[e.id]) return;
       var g = el("g", {}); drawEl(g, d, e);
-      if (reveal && an[showStep - 1] && an[showStep - 1].el === e.id && an[showStep - 1].fx === "fade" && !reduced()) g.setAttribute("class", "sl-fadeel");
+      if (reveal && an[showStep - 1] && an[showStep - 1].el === e.id && an[showStep - 1].fx === "fade" && !reduced()) g.setAttribute("class", "sl-fadeel" + (an[showStep - 1].spd ? " sl-" + an[showStep - 1].spd : ""));
       svg.appendChild(g);
     });
     if (animate && H.deck.slides[showAt].transition === "fade" && !reduced()) svg.setAttribute("class", "sl-fade" + (H.deck.slides[showAt].tspeed ? " sl-" + H.deck.slides[showAt].tspeed : ""));
