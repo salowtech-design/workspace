@@ -5025,12 +5025,20 @@ def register_org_chart(g, users):
             pg.goto(APP + "/directory/org/")
             pg.wait_for_timeout(1500)
             t.step("Org chart opens: ST-LIVE-1 is listed with ST-LIVE-2 nested under them", expect=lambda: pg.locator(".org-tree li li:has-text('ST-LIVE-2')").count() >= 1 and "ST-LIVE-1" in txt(), wait=3500)
-            t.step("The page says it is the reporting tree and no level is cut off", expect=lambda: "Org chart" in txt() and "cut off at a fixed depth" not in txt(), wait=3000)
+            t.step("The page shows the Org chart heading and no cut-off notice (this does not test the depth limit)", expect=lambda: pg.locator("h2:text-is('Org chart')").count() == 1 and "cut off at a fixed depth" not in txt(), wait=3000)
             pg.locator(".org-tree li li a").first.click()
             pg.wait_for_timeout(1500)
-            t.step("Clicking the nested name opens that person's profile page", expect=lambda: "/directory/" in pg.url and "ST-LIVE-2" in txt(), wait=3500)
+            t.step("Clicking the nested name opens that person's profile page", expect=lambda: "/directory/org" not in pg.url and "/directory/profile/ST-LIVE-2" in pg.url and "Employee Details" in txt() and "Org chart" not in txt(), wait=3500)
 
         run_tour(ctx, "58_org_chart", body, notes="Real Django on TiDB, headless Chromium 390x844 emulated. One reporting row (ST-LIVE-2 reports to ST-LIVE-1) was written by script. Read-only page.", unshown=["a deep chart cut off at the depth limit (not built in this tour)", "an inactive manager moving someone to the top level", "people with no manager", "other roles' views"])
+
+        def reset():  # leave no reporting row behind for tours that share this store
+            from apps.directory.models import ReportingRelationship
+
+            ReportingRelationship.objects.filter(subordinate__employee_id="ST-LIVE-2").delete()
+
+        with concurrent.futures.ThreadPoolExecutor(1) as ex:
+            ex.submit(reset).result()
 
     g["DRILLS"]["tour_org_chart"] = tour
 
