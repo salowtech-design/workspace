@@ -30,9 +30,6 @@ from typing import Any, Optional, Sequence
 
 from django.conf import settings
 
-from apps.face.engine.challenge import (
-    ActiveChallenge,
-)
 from apps.face.engine.crypto import decrypt_template
 from apps.face.engine.protocols import VerificationResult
 from apps.face.engine.verifier import (
@@ -78,10 +75,13 @@ class FaceInferencePipeline:
     passive liveness (MiniFASNet), and active motion challenge verification.
     """
 
+    # Licence of the published CODE or repository per each project page; the licence and training-data
+    # provenance of the pretrained WEIGHTS are NOT reviewed or cleared (see docs/LICENSES.md and the open
+    # upstream questions). No weights are shipped and none are loaded.
     MODEL_LICENSES = {
-        "YuNet": "Apache-2.0 (OpenCV Foundation)",
-        "SFace": "Apache-2.0 (OpenCV Foundation / CASIA)",
-        "MiniFASNet": "Apache-2.0 / BSD (MiniFASNetV2 / Open Source)",
+        "YuNet": "Apache-2.0 repository licence; weights provenance unreviewed",
+        "SFace": "Apache-2.0 repository licence; weights training-data provenance unresolved",
+        "MiniFASNet": "Apache-2.0 repository licence; weights licence unresolved",
     }
 
     def __init__(
@@ -104,16 +104,12 @@ class FaceInferencePipeline:
         target_user: Any,
         claimed_user_id: str,
         live_frames: Optional[Sequence[bytes]] = None,
-        synthetic_embedding: Optional[Sequence[float]] = None,
-        challenge: Optional[ActiveChallenge] = None,
-        initial_yaw: float = 0.0,
-        initial_pitch: float = 0.0,
-        final_yaw: float = 0.0,
-        final_pitch: float = 0.0,
-        device_id: str = "",
     ) -> VerificationResult:
         """
         Execute strict 1:1 biometric verification against target_user's enrolled template.
+
+        Currently always fails closed after the identity and template checks: no inference exists, and the
+        former challenge, yaw, pitch and device_id parameters (accepted but ignored) were removed.
 
         Strict Guardrails:
         1. target_user.employee_id MUST match claimed_user_id.
@@ -170,41 +166,20 @@ class FaceInferencePipeline:
                 error_reason="Enrolled template integrity verification failed.",
             )
 
-        # If live inference is running
-        if live_frames:
-            if not self.is_hardware_ready():
-                return VerificationResult(
-                    success=False,
-                    confidence_score=0.0,
-                    liveness_score=0.0,
-                    method="face",
-                    error_reason=(
-                        "BLOCKED — EXTERNAL DEPENDENCY: Physical camera sensor hardware "
-                        "and ONNX Runtime CPU inference engine are not available on this server."
-                    ),
-                )
-            # In live hardware mode, frames would be passed to YuNet -> SFace -> MiniFASNet.
-            # Raw frames are wiped from memory immediately after embedding extraction.
-
-        # Evaluate verification attempt
-        if synthetic_embedding is not None:
-            # Synthetic / test path with strict quality, liveness, and challenge gates
-            return self.decision_verifier.verify_attempt(
-                enrolled_embedding=enrolled_embedding,
-                live_embedding=synthetic_embedding,
-                liveness_score=0.92,
-                brightness=100.0,
-                sharpness=85.0,
-                face_width=120,
-                face_height=120,
-                initial_yaw=initial_yaw,
-                initial_pitch=initial_pitch,
-                final_yaw=final_yaw,
-                final_pitch=final_pitch,
-                challenge=challenge,
-                claimed_user_id=claimed_user_id,
+        # Live inference (YuNet -> SFace -> MiniFASNet) is NOT implemented: there are no reviewed model
+        # weights and no camera flow. Quality, liveness and pose values are never invented here, so this
+        # method has no path to success. Every call fails closed.
+        if live_frames and not self.is_hardware_ready():
+            return VerificationResult(
+                success=False,
+                confidence_score=0.0,
+                liveness_score=0.0,
+                method="face",
+                error_reason=(
+                    "BLOCKED — EXTERNAL DEPENDENCY: Physical camera sensor hardware "
+                    "and ONNX Runtime CPU inference engine are not available on this server."
+                ),
             )
-
         return VerificationResult(
             success=False,
             confidence_score=0.0,

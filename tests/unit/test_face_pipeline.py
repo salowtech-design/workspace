@@ -59,8 +59,8 @@ class TestFaceInferencePipeline:
         assert "YuNet" in licenses
         assert "SFace" in licenses
         assert "MiniFASNet" in licenses
-        assert "Apache-2.0" in licenses["YuNet"]
-        assert "Apache-2.0" in licenses["SFace"]
+        assert all("unreviewed" in v or "unresolved" in v for v in licenses.values()), licenses
+        assert "Apache-2.0 repository licence" in licenses["SFace"]
 
     def test_1_to_1_user_mismatch_rejected(self, employee):
         """Pipeline strictly binds verification to claimed_user_id matching target_user."""
@@ -68,7 +68,6 @@ class TestFaceInferencePipeline:
         result = pipeline.verify_1_to_1(
             target_user=employee,
             claimed_user_id="ST-EMP-OTHER",
-            synthetic_embedding=[0.1] * 128,
         )
         assert result.success is False
         assert "does not match" in result.error_reason
@@ -79,44 +78,57 @@ class TestFaceInferencePipeline:
         result = pipeline.verify_1_to_1(
             target_user=employee,
             claimed_user_id=employee.employee_id,
-            synthetic_embedding=[0.1] * 128,
         )
         assert result.success is False
         assert "no enrolled face template" in result.error_reason
 
-    def test_1_to_1_matching_success_and_failure(self, employee, admin):
-        """Enrolled user passes 1:1 match with matching embedding, fails on mismatch."""
+    def test_decision_logic_with_supplied_measurements_adapter_logic_only(self, employee, admin):
+        """ADAPTER LOGIC ONLY, not working face matching or liveness: the decision gate, given an enrolled
+        (decrypted) vector and a supplied vector with explicit measurements, compares them with the unmeasured
+        0.70 constant. verify_1_to_1 has no such path."""
+        from apps.face.engine.crypto import decrypt_template
+        from apps.face.engine.verifier import ProductionFaceVerifier
+        from apps.face.models import FaceTemplate
+        from apps.face.services import get_face_key_ring
+
         record_biometric_acknowledgement(employee, version="1.0")
         enrolled_emb = generate_synthetic_embedding(seed=555)
-        matching_live = [x + 0.005 for x in enrolled_emb]
-        mismatched_live = generate_synthetic_embedding(seed=999)
+        enroll_face_template(target_user=employee, embedding=enrolled_emb, quality_score=0.96, enrolled_by=admin)
+        stored = decrypt_template(FaceTemplate.objects.get(user=employee).encrypted_template, get_face_key_ring())
+        gate = ProductionFaceVerifier()
+        common = dict(liveness_score=0.92, brightness=100.0, sharpness=85.0, face_width=120, face_height=120)
+        assert gate.verify_attempt(enrolled_embedding=stored, live_embedding=[x + 0.005 for x in enrolled_emb], **common).success
+        res = gate.verify_attempt(enrolled_embedding=stored, live_embedding=generate_synthetic_embedding(seed=999), **common)
+        assert res.success is False and "does not match" in res.error_reason
 
-        enroll_face_template(
-            target_user=employee,
-            embedding=enrolled_emb,
-            quality_score=0.96,
-            enrolled_by=admin,
-        )
+    def test_verify_1_to_1_has_no_supplied_embedding_path_and_always_fails_closed(self, employee, admin, monkeypatch):
+        """verify_1_to_1 cannot succeed: no embedding parameter, no invented quality or liveness values, and it still
+        fails closed when the camera and runtime flags are forced True, with or without frames."""
+        import inspect
 
-        pipeline = FaceInferencePipeline()
+        from apps.face.engine import pipeline as pl
 
-        # Match
-        res_match = pipeline.verify_1_to_1(
-            target_user=employee,
-            claimed_user_id=employee.employee_id,
-            synthetic_embedding=matching_live,
-        )
-        assert res_match.success is True
-        assert res_match.confidence_score >= 0.70
-
-        # Mismatch
-        res_mismatch = pipeline.verify_1_to_1(
-            target_user=employee,
-            claimed_user_id=employee.employee_id,
-            synthetic_embedding=mismatched_live,
-        )
-        assert res_mismatch.success is False
-        assert "does not match" in res_mismatch.error_reason
+        record_biometric_acknowledgement(employee, version="1.0")
+        emb = generate_synthetic_embedding(seed=555)
+        enroll_face_template(target_user=employee, embedding=emb, quality_score=0.96, enrolled_by=admin)
+        params = inspect.signature(FaceInferencePipeline.verify_1_to_1).parameters
+        assert "synthetic_embedding" not in params and "live_embedding" not in params
+        with pytest.raises(TypeError):
+            FaceInferencePipeline().verify_1_to_1(target_user=employee, claimed_user_id=employee.employee_id,
+                                                  synthetic_embedding=emb)  # fmt: skip
+        no_hw = "Physical camera sensor hardware and ONNX Runtime CPU inference engine are not available"
+        no_cam = "Physical camera hardware sensor not attached."
+        for forced in (False, True):
+            monkeypatch.setattr(pl, "CAMERA_HARDWARE_AVAILABLE", forced)
+            monkeypatch.setattr(pl, "ONNX_RUNTIME_AVAILABLE", forced)
+            pipe = FaceInferencePipeline()
+            assert pipe.is_hardware_ready() is forced, "the forced flags did not take effect"
+            for frames in (None, [b"frame"]):
+                res = pipe.verify_1_to_1(target_user=employee, claimed_user_id=employee.employee_id, live_frames=frames)
+                expected = no_hw if (frames and not forced) else no_cam
+                assert res.success is False and res.confidence_score == 0.0 and res.liveness_score == 0.0
+                assert expected in res.error_reason, (forced, frames, res.error_reason)
+                assert "enrolled" not in res.error_reason and "does not match" not in res.error_reason
 
     def test_hardware_unavailable_reported_as_external_blocker(self, employee, admin):
         """When live frames are provided without hardware camera, reports dependency blocker."""
