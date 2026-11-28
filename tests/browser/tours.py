@@ -774,12 +774,13 @@ def register_certs(g):
             t.step = lambda text, fn=None, wait=800, expect=None: _step(text, fn, wait=min(wait, 900), expect=expect)
             txt = lambda: pg.inner_text("body")
             seen = []
+            refused = []
             pg.on("dialog", lambda d: (seen.append(d.message), d.accept()))
             fixture(False)
             pg.goto(APP + "/certificates/")
             pg.wait_for_timeout(400)
             t.step("Certificates as an employee: only your own list, no Issue button", expect=lambda: "Issue" not in txt().replace("Issued", "") or pg.locator("a[href$='/certificates/issue/']").count() == 0, wait=1800)
-            t.step("An employee opening the issue page is refused", lambda: pg.goto(APP + "/certificates/issue/"), expect=lambda: "have access to this page" in txt().lower() or "permission" in txt().lower() or "403" in txt(), wait=1800)
+            t.step("An employee opening the issue page is refused", lambda: refused.append(pg.goto(APP + "/certificates/issue/").status), expect=lambda: refused[-1] == 403 and "have access to this page" in txt().lower() and "Issue New Official Certificate" not in txt(), wait=1800)
             fixture(True)
             t.step("Setup (test fixture): this account is now given the Admin role", lambda: pg.goto(APP + "/certificates/"), expect=lambda: pg.locator("a[href$='/certificates/issue/']").count() == 1, wait=1800)
             t.step("Open the issue form", lambda: pg.goto(APP + "/certificates/issue/"), expect=lambda: "Issue New Official Certificate" in txt(), wait=1200)
