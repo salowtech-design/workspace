@@ -329,6 +329,7 @@ def register(g):
     register_sheets_versions(g)
     register_sheets_xtab(g)
     register_sheets_widths(g)
+    register_slides_layout(g)
     register_pdf_alltext_stop(g)
     register_pdf_roundtrip(g)
     register_slides_order_recovery(g)
@@ -2818,6 +2819,50 @@ def register_drive_device(g):
         run_tour(ctx, "107_drive_device_files", body, notes="Real Django on TiDB (unistore) under uvicorn, headless Chromium 390x844 emulated, real IndexedDB. Bytes stay in the browser; the server gets name, size and checksum. One synthetic employee: the two-namespace check uses two store names in the same browser, not two signed-in accounts. The storage failure is injected, not a real quota. Not offline proof.", unshown=["real quota exhaustion", "sign-in expiry", "another person's device or account", "no-network reload"])
 
     g["DRILLS"]["tour_drive_device"] = tour
+
+
+def register_slides_layout(g):
+    APP = g["APP"]
+
+    def tour(ctx):
+        def body(t, pg):
+            pg.goto(APP + "/slides/")
+            pg.evaluate("localStorage.clear()")
+            pg.goto(APP + "/slides/")
+            pg.wait_for_timeout(500)
+            seen = []
+            pg.on("dialog", lambda d: (seen.append(d.message), d.accept()))
+            st = lambda: (pg.locator("#sl-status").text_content() or "")
+            ls = lambda: (pg.locator("#ly-status").text_content() or "")
+            go = lambda n: (pg.locator("#sl-list button").nth(n).click(), pg.wait_for_timeout(300))
+            fs = lambda: pg.evaluate("()=>{const t=document.querySelector('#sl-canvas-wrap svg text');return t?parseFloat(t.getAttribute('font-size')):null}")
+            ty = lambda: pg.evaluate("()=>{const t=document.querySelector('#sl-canvas-wrap svg text tspan');return t?parseFloat(t.getAttribute('y')):null}")
+            saved = lambda: pg.evaluate("()=>JSON.parse(localStorage.getItem(document.getElementById('slide-root').getAttribute('data-store-key')))")
+            pg.select_option("#sl-layout", "title")
+            t.step("Slide 1 is the blank slide. Choose the Title layout and tick Link new slide to layout", lambda: pg.check("#sl-link"), expect=lambda: pg.is_checked("#sl-link"))
+            pg.click("#sl-new"); pg.wait_for_timeout(400)
+            t.step("New slide 2, linked: its Title is 54 px at y 170 (the built-in layout)", expect=lambda: fs() == 54 and ty() is not None and saved()["v"] == 9 and saved()["slides"][1]["lay"] == "title", wait=2500)
+            pg.uncheck("#sl-link"); pg.click("#sl-new"); pg.wait_for_timeout(400)
+            t.step("New slide 3 from the same layout, link box not ticked: looks the same (54 px) but is not linked", expect=lambda: fs() == 54 and "lay" not in saved()["slides"][2], wait=2500)
+            before3 = ty()
+            go(1); y_before = ty()
+            pg.locator("#sl-items button").first.click(); pg.wait_for_timeout(200)
+            pg.fill("#sl-size", "40"); pg.press("#sl-size", "Tab"); pg.wait_for_timeout(300)
+            t.step("On linked slide 2 change the Title size by hand to 40: a local override on the slide", expect=lambda: fs() == 40 and saved()["slides"][1]["elements"][0]["ph"] == 0, wait=2500)
+            pg.evaluate("document.getElementById('ly-apply').scrollIntoView({block:'center'})")
+            pg.select_option("#ly-key", "title"); pg.select_option("#ly-slot", "0"); pg.fill("#ly-size", "60"); pg.fill("#ly-y", "120"); pg.click("#ly-apply"); pg.wait_for_timeout(400)
+            m1 = ls()
+            t.step("Edit layout: Title item size 60 and y 120. The status counts 1 linked item and 1 with a changed value on the slide", expect=lambda: "1 linked item(s)" in m1 and "1 of them" in m1 and saved()["lays"]["title"][0] == {"size": 60, "y": 120}, wait=2500)
+            t.step("Slide 2 (linked, size overridden): the size stays 40 and the untouched y moved to 120", expect=lambda: fs() == 40 and ty() is not None and ty() < y_before and saved()["slides"][1]["elements"][0]["y"] == 120, wait=2500)
+            go(2)
+            t.step("Slide 3 (not linked): still 54 px at its old y, the layout edit did not touch it", expect=lambda: fs() == 54 and ty() == before3 and saved()["slides"][2]["elements"][0]["y"] == 170, wait=2500)
+            go(1); pg.click("#sl-unlink"); pg.wait_for_timeout(300)
+            t.step("Unlink slide 2: it keeps what it shows (40 px) and loses lay and ph in the stored deck", expect=lambda: fs() == 40 and "lay" not in saved()["slides"][1] and "ph" not in saved()["slides"][1]["elements"][0], wait=2500)
+            pg.reload(); pg.wait_for_timeout(600); go(1)
+            t.step("After a reload the layout edit is still stored (version 9) and slide 2 shows 40 px", expect=lambda: saved()["v"] == 9 and saved()["lays"]["title"][0]["size"] == 60 and fs() == 40, wait=2500)
+        run_tour(ctx, "slides_layout", body, notes="Device-local deck, headless Chromium 390x844 emulated, one run. Not shown: export and import of a linked deck and the PDF of a linked slide (covered in node only), undo of a layout edit.", unshown=["export and import (node only)", "pdf of a linked slide", "undo of a layout edit"])
+
+    g["DRILLS"]["tour_slides_layout"] = tour
 
 
 def register_slides_bg(g):

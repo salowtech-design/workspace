@@ -66,7 +66,7 @@
     ["text", "size", "x", "y", "w", "h", "fill"].forEach(function (f) { $("sl-" + f).value = e[f] == null ? "" : e[f]; });
     $("sl-bold").checked = !!e.b; $("sl-italic").checked = !!e.i; $("sl-align").value = e.al ? e.al : "default";
   }
-  function apply(next, note) { if (!next) { var why = S.takeReject(); if (why) { render(); syncProps(); status.textContent = why; } return false; } if (!H.change(next, note)) return false; cur = Math.min(cur, H.deck.slides.length - 1); render(); return true; }
+  function apply(next, note) { if (!next) { var why = S.takeReject(); if (why) { render(); syncProps(); status.textContent = why; } return false; } if (!H.change(next, note)) return false; cur = Math.min(cur, H.deck.slides.length - 1); render(); lyFill(); return true; }
   // Dragging an item moves it, dragging the blue corner square resizes it. Nothing is stored until the pointer is released, so a drag is one Undo step; Esc or a cancelled pointer drops it.
   var drag = null;
   function endDrag() { var w = wrap(); w.removeEventListener("pointermove", onDragMove); w.removeEventListener("pointerup", onDragUp); w.removeEventListener("pointercancel", onDragCancel); w.removeEventListener("lostpointercapture", onDragCancel); document.removeEventListener("keydown", onDragKey, true); try { if (drag) w.releasePointerCapture(drag.id); } catch (e) { /* already released */ } drag = null; if (pendingRefresh) { pendingRefresh = false; setTimeout(refresh, 0); } }
@@ -175,7 +175,7 @@
     var bgSel = $("sl-bg"); bgSel.disabled = editMaster;
     Array.prototype.forEach.call(bgSel.options, function (o) { if (o.value === "theme") return; var okc = S.bgUsable(d, cur, o.value); o.disabled = !okc; o.textContent = o.dataset.name + (okc ? "" : " (text too hard to read)"); });
     bgSel.value = d.slides[cur].bg || "theme";
-    $("sl-theme").value = d.theme; $("sl-undo").disabled = !H.past.length; $("sl-redo").disabled = !H.future.length;
+    $("sl-theme").value = d.theme; $("sl-undo").disabled = !H.past.length; $("sl-redo").disabled = !H.future.length; if (typeof lyFill === "function" && $("ly-slot")) lyFill();
     $("sl-up").disabled = cur === 0; $("sl-down").disabled = cur >= d.slides.length - 1; $("sl-del").disabled = d.slides.length <= 1; $("sl-dup").disabled = d.slides.length >= S.MAX_SLIDES;
     $("sl-trans").value = d.slides[cur] && d.slides[cur].transition === "fade" ? "fade" : "none"; $("sl-trans").disabled = editMaster;
     var an = d.slides[cur] && d.slides[cur].anim || [], mine = -1, al = $("sl-anim-list"); an.forEach(function (x, q) { if (e && x.el === e.id) mine = q; });
@@ -262,7 +262,26 @@
     selId = r.id; if (!apply(r.deck, "Item duplicated.")) { selId = e.id; render(); }
   });
   $("sl-del-el").addEventListener("click", function () { var e = sel(); if (e) apply(eop("deleteElement", e.id), "Item deleted."); });
-  $("sl-new").addEventListener("click", function () { var n = S.ops.addSlide(H.deck, cur, $("sl-layout").value); if (!n) { status.textContent = "A deck holds up to " + S.MAX_SLIDES + " slides."; return; } var prev = cur, prevSel = selId; cur++; selId = null; if (!apply(n)) { cur = prev; selId = prevSel; } });
+  // ---- Layout inheritance: linked slides follow an edited layout item (model: addLinkedSlide, setLayoutSlot, unlinkSlide) ----
+  var LYF = ["x", "y", "w", "h", "size"];
+  function lyFill() {
+    var key = $("ly-key").value, sl = $("ly-slot"), n = key === "title" ? 2 : 2, names = key === "title" ? ["Title", "Subtitle"] : ["Title", "Content"];
+    if (sl.options.length !== n || sl.dataset.key !== key) { sl.innerHTML = ""; names.forEach(function (nm, i) { var o = document.createElement("option"); o.value = String(i); o.textContent = nm; sl.appendChild(o); }); sl.dataset.key = key; }
+    var v = H ? S.layoutSlot(H.deck, key, Number(sl.value || 0)) : null; LYF.forEach(function (f) { $("ly-" + f).value = v ? String(v[f]) : ""; });
+  }
+  $("ly-key").addEventListener("change", function () { $("ly-slot").value = "0"; lyFill(); }); $("ly-slot").addEventListener("change", lyFill);
+  $("ly-apply").addEventListener("click", function () {
+    var key = $("ly-key").value, slot = Number($("ly-slot").value), f = {}, cur0 = S.layoutSlot(H.deck, key, slot);
+    LYF.forEach(function (k) { var t = $("ly-" + k).value.trim(); if (!/^[0-9]{1,4}$/.test(t)) f.bad = true; else f[k] = Number(t); });
+    if (f.bad) { $("ly-status").textContent = "Each value must be a whole number, 0 or more."; return; }
+    var linked = 0, kept = 0; H.deck.slides.forEach(function (s) { if (s.lay === key) s.elements.forEach(function (e) { if (e.ph === slot) { linked++; if (LYF.some(function (k) { return e[k] !== cur0[k]; })) kept++; } }); });
+    var n = S.ops.setLayoutSlot(H.deck, key, slot, f); if (!n) { $("ly-status").textContent = "Nothing changed: the values are the same or out of range."; return; }
+    if (!apply(n, "Layout item edited. Linked slides follow except values changed on the slide.")) return;
+    $("ly-status").textContent = "Layout updated. " + linked + " linked item(s) found; " + kept + " of them have a value changed on the slide, and those values were kept.";
+    lyFill();
+  });
+  $("sl-unlink").addEventListener("click", function () { var n = S.ops.unlinkSlide(H.deck, cur); if (!n) { status.textContent = "This slide is not linked to a layout."; return; } apply(n, "Slide unlinked from its layout. It keeps what it shows."); });
+  $("sl-new").addEventListener("click", function () { var lk = $("sl-link").checked && $("sl-layout").value !== "blank", n = lk ? S.ops.addLinkedSlide(H.deck, cur, $("sl-layout").value) : S.ops.addSlide(H.deck, cur, $("sl-layout").value); if (!n) { status.textContent = "A deck holds up to " + S.MAX_SLIDES + " slides."; return; } var prev = cur, prevSel = selId; cur++; selId = null; if (!apply(n)) { cur = prev; selId = prevSel; } });
   $("sl-del").addEventListener("click", function () { if (H.deck.slides[cur].elements.length && !window.confirm("Delete this slide and its items? You can undo until you reload.")) return; var n = S.ops.deleteSlide(H.deck, cur); if (n) { selId = null; apply(n, "Slide deleted."); } });
   $("sl-dup").addEventListener("click", function () {
     var n = S.ops.duplicateSlide(H.deck, cur); if (!n) { status.textContent = "A deck holds up to " + S.MAX_SLIDES + " slides."; return; }
@@ -452,5 +471,5 @@
   });
   show.addEventListener("close", function () { autoStop(); if (clock) { clearInterval(clock); clock = null; } if (document.fullscreenElement) document.exitFullscreen().catch(function () {}); $("sl-present").focus(); });
   show.addEventListener("click", function (ev) { var r = show.getBoundingClientRect(); if (ev.target === show && (ev.clientX < r.left || ev.clientX > r.right || ev.clientY < r.top || ev.clientY > r.bottom)) show.close(); });
-  render(); status.textContent = unreadable ? "Your stored deck could not be read, so it was left untouched." : "";
+  render(); lyFill(); status.textContent = unreadable ? "Your stored deck could not be read, so it was left untouched." : "";
 })();
