@@ -744,8 +744,8 @@
    * - Angles are radians. PI is the full double, not 9 places. ASIN and ACOS outside -1..1 are #VALUE!. ATAN2(x, y) with both 0 is #DIV/0!.
    * - REPLACE(text, position, length, new_text): position and length are cut to whole numbers; position below 1 or length below 0 is #VALUE!;
    *   a position past the end appends. Counts are UTF-16 units like LEN.
-   * - SEARCH(search_for, text, [start]): ignores case (each window of the text the length of search_for is lower-cased and compared, positions are in
-   *   the original text; so a dotted capital I matches nothing that is a plain i), no wildcards, start defaults to 1; a start below 1 or past the end, or no match, is #VALUE!;
+   * - SEARCH(search_for, text, [start]): ignores case (text and pattern are lower-cased one code point at a time, positions are in the original text in UTF-16 units; a dotted
+   *   capital I matches nothing that is a plain i, and a start that falls inside a pair of units is taken as is; the final sigma and sigma are different letters here), no wildcards, start defaults to 1; a start below 1 or past the end, or no match, is #VALUE!;
    *   empty search_for finds the start.
    * - CHAR(n): n cut to a whole number; 1 to 1114111 except the surrogate range, else #VALUE!. CODE gives the first code point; empty text is #VALUE!.
    * - QUOTIENT(a, b): the whole part of a / b cut toward 0; a quotient too large to hold (1E300 / 1E-300) is #VALUE!. GCD and LCM: values cut to whole numbers, a negative one is #VALUE!, text and blanks
@@ -771,21 +771,27 @@
     var out = t.slice(0, n - 1) + r + t.slice(n - 1 + l);
     return out.length > MAX_STR ? new Err("#VALUE!") : out;
   };
+  function foldMap(str) {
+    var L = "", orig = [], i = 0, cp, ch;
+    while (i < str.length) { cp = str.codePointAt(i); ch = String.fromCodePoint(cp); orig[L.length] = i; L += ch.toLowerCase(); i += ch.length; }
+    orig[L.length] = str.length;
+    return { L: L, orig: orig };
+  }
   FNX.SEARCH = function (a) {
     var f = stx(a[0]), t = stx(a[1]), st = whole(a, 2, 1);
     if (isErr(f)) return f; if (isErr(t)) return t; if (isErr(st)) return st;
     if (st < 1 || st > t.length) return new Err("#VALUE!");
-    // Each unit of the text is lower-cased on its own and its place in the original is kept, so a letter that lower-cases to two units (the dotted
-    // capital I) cannot shift the position. One native indexOf does the scan (no window-by-window compare, so the cost stays near the text length).
-    var fl = f.toLowerCase(), L = "", orig = [], u;
-    for (u = 0; u < t.length; u++) { orig[L.length] = u; L += t.charAt(u).toLowerCase(); }
-    orig[L.length] = t.length;
+    // Text and pattern are folded the same way: one code point at a time, each lower-cased on its own (so the Greek final sigma, which
+    // lower-cases by context, gives the same letter on both sides, and astral letters fold too). orig keeps the original UTF-16 place of each
+    // folded unit, so a letter that lower-cases to two units (the dotted capital I) cannot shift a position. One native indexOf does the scan,
+    // which keeps the cost near the text length. A hit counts only if it starts and ends on original code point boundaries.
+    var fl = foldMap(f).L, T = foldMap(t), L = T.L, orig = T.orig, u;
     var at = L.length, from = 0;
     for (u = 0; u < t.length; u++) if (u === st - 1) { for (at = 0; orig[at] !== u; at++); from = at; break; }
     for (;;) {
       var k = L.indexOf(fl, from);
       if (k < 0) return new Err("#VALUE!");
-      if (orig[k] !== undefined && orig[k + fl.length] !== undefined) return orig[k] + 1;  // starts and ends between original units
+      if (orig[k] !== undefined && orig[k + fl.length] !== undefined) return orig[k] + 1;
       from = k + 1;
     }
   };
