@@ -116,6 +116,8 @@ def _wrap_reach(pg):
 
 def fresh(ctx, path):
     pg = ctx.pages[0]
+    # the page is shared by every drill: drop dialog handlers an earlier drill left, so one dialog is handled once
+    pg._impl_obj.remove_all_listeners("dialog")
     pg.goto(APP + path)
     pg.evaluate("localStorage.clear()")
     pg.goto(APP + path)
