@@ -29,7 +29,7 @@ class Command(BaseCommand):
         parser.add_argument("--loop", action="store_true", help="Keep running until stopped.")
         parser.add_argument("--interval", type=int, default=5, help="Seconds between passes.")
 
-    def handle(self, *args, **opts):
+    def _require_pessimistic(self):
         mode = session_txn_mode()
         if mode != "pessimistic":
             raise CommandError(
@@ -37,7 +37,11 @@ class Command(BaseCommand):
                 "it could not be read. The run claim needs row locks. Nothing was changed; fix the "
                 "database setting yourself and start the command again." % (mode or "unknown")
             )
+
+    def handle(self, *args, **opts):
         while True:
+            # checked before every pass, not only at start: a reconnect opens a new session
+            self._require_pessimistic()
             d = engine.run_pending(opts["batch_size"])
             self.stdout.write(
                 "Automation runs: %(succeeded)d succeeded, %(failed)d failed, "

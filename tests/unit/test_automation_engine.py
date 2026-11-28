@@ -365,3 +365,25 @@ def test_runner_command_accepts_a_pessimistic_session_and_refuses_anything_else(
             call_command("process_automation_runs", stdout=StringIO())
         assert "Nothing was changed" in str(e.value)
     assert WfRun.objects.get(trigger_key="m-1").state == WfRun.State.QUEUED
+
+
+def test_runner_loop_checks_the_mode_before_every_pass(monkeypatch):
+    from io import StringIO
+
+    from django.core.management import call_command
+    from django.core.management.base import CommandError
+
+    from apps.automation.management.commands import process_automation_runs as cmd
+
+    modes = iter(["pessimistic", "optimistic"])  # a reconnect gave the second pass a different mode
+    monkeypatch.setattr(cmd, "session_txn_mode", lambda: next(modes))
+    monkeypatch.setattr(cmd.time, "sleep", lambda s: None)
+    calls = []
+    real = en.run_pending
+    monkeypatch.setattr(en, "run_pending", lambda *a, **k: (calls.append(1), real(*a, **k))[1])
+    me = _u("AU-R10")
+    en.start_run(_wf(me, [NOTE]), "l-1")
+    with pytest.raises(CommandError):
+        call_command("process_automation_runs", "--loop", stdout=StringIO())
+    assert len(calls) == 1  # the first pass ran, the second was refused before run_pending
+    assert WfRun.objects.get(trigger_key="l-1").state == WfRun.State.SUCCEEDED
