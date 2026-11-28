@@ -343,6 +343,7 @@ def register(g):
     register_drive_link(g)
     register_drive_link_fail(g)
     register_drive_link_stale(g)
+    register_sheets_new_formulas(g)
     register_drive_link_version_fail(g)
     register_drive_link_slides_retry(g)
     register_sheets_frozenfocus(g)
@@ -6137,6 +6138,42 @@ def register_drive_link_fail(g):
             t.step("The copy in this browser no longer matches its checksum (replaced with other bytes): Open says it is damaged and was not opened, and the sheet is unchanged", tamper_open, expect=lambda: "damaged" in stat() and "Nothing was changed" in stat() and stored() == {"A1": "10", "A2": "20"}, wait=500)
         run_tour(ctx, "drive_link_fail", body, notes="Headless Chromium 390x844 emulated. Save to Drive when the device write fails, and Open when the stored copy does not match its checksum.")
     g["DRILLS"]["tour_drive_link_fail"] = tour
+
+
+def register_sheets_new_formulas(g):
+    APP = g["APP"]
+
+    def tour(ctx):
+        def body(t, pg):
+            pg.on("pageerror", lambda e: print("PAGEERROR", str(e)[:300]))
+            pg.goto(APP + "/sheets/")
+            pg.evaluate("localStorage.clear()")
+            pg.goto(APP + "/sheets/")
+            pg.wait_for_selector("#sheet-root input", timeout=15000)
+            key = pg.evaluate("() => document.getElementById('sheet-root').dataset.storeKey")
+            # column A is plain text that shows each formula, column B is the formula itself
+            rows = [
+                ("score", "42"),
+                ('IFS(B1<30,"low",B1<60,"mid",TRUE,"high")', '=IFS(B1<30,"low",B1<60,"mid",TRUE,"high")'),
+                ('SWITCH(B1,1,"one",42,"answer","other")', '=SWITCH(B1,1,"one",42,"answer","other")'),
+                ("IFS with no true test", "=IFS(B1<0,1)"),
+                ("kind (HLOOKUP table)", "price"),
+                ("HLOOKUP price of pear", '=HLOOKUP("pear",D1:F2,2,FALSE)'),
+            ]
+            cells = {}
+            for i, (a, b) in enumerate(rows, start=1):
+                cells["A%d" % i] = a; cells["B%d" % i] = b
+            cells.update({"D1": "apple", "E1": "pear", "F1": "plum", "D2": "3", "E2": "5", "F2": "7"})
+            pg.evaluate("([k, v]) => localStorage.setItem(k, JSON.stringify(v))", [key, cells])
+            pg.reload(); pg.wait_for_selector("#sheet-root input", timeout=15000); pg.wait_for_timeout(600)
+            val = lambda a: pg.input_value('input[data-addr="%s"]' % a)
+            def snap(name):
+                out = os.environ.get("DRILL_VIDEO", "") or "/tmp"
+                pg.evaluate("() => document.querySelector('#sheet-root').scrollIntoView({block: 'start'})"); pg.wait_for_timeout(400)
+                pg.screenshot(path=os.path.join(out, name + ".png"))
+            t.step("IFS, SWITCH and HLOOKUP show their results in the real sheet (B2 mid, B3 answer, B4 #N/A, B6 5)", lambda: snap("new_formulas_390"), expect=lambda: [val("B2"), val("B3"), val("B4"), val("B6")] == ["mid", "answer", "#N/A", "5"], wait=300)
+        run_tour(ctx, "sheets_new_formulas", body, notes="Headless Chromium 390x844 emulated. IFS, SWITCH and HLOOKUP typed into the real Sheets page.")
+    g["DRILLS"]["tour_sheets_new_formulas"] = tour
 
 
 def register_drive_link_stale(g):

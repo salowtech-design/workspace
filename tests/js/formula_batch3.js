@@ -34,11 +34,49 @@ const T = [
   ["HLOOKUP an error in the returned cell is returned", { ...H, C2: "=1/0", E1: '=HLOOKUP("Banana",A1:D3,2,FALSE)' }, "E1", "#DIV/0!"],
   ["HLOOKUP needs 3 or 4 arguments", { ...H, E1: '=HLOOKUP("a",A1:D3)' }, "E1", "#VALUE!"],
 ];
+// Work budget (counted, not timed): a range read costs its cell count and a request has 500000, so 55 reads of a 10000-cell range stop with #LIMIT!.
+const big = { A1: "k1", B1: "k2", C1: "k3", A2: "5", B2: "6", C2: "7" };
+const heavy = Array.from({ length: 55 }, () => 'HLOOKUP("k2",A1:J1000,2,0)').join("+");  // 55 reads of 10000 cells is over the 500000 budget; the formula is under the 2000 character cap
+const lim = (cells, at) => { const v = new Sheet(cells).get(at); return isErr(v) && v.code === "#LIMIT!"; };
+const budget = [
+  ["HLOOKUP over a 10000-cell range (A1:J1000) works once", new Sheet({ ...big, Z1: '=HLOOKUP("k2",A1:J1000,2,FALSE)' }).get("Z1") === 6],
+  ["HLOOKUP exact miss over A1:J1000 is #N/A, not a hang", (() => { const v = new Sheet({ ...big, Z1: '=HLOOKUP("none",A1:J1000,2,FALSE)' }).get("Z1"); return isErr(v) && v.code === "#N/A"; })()],
+  ["55 HLOOKUPs over A1:J1000 in one cell stop with #LIMIT! (work counted)", lim({ ...big, Z1: "=" + heavy }, "Z1")],
+  ["IFS: the same 55 reads in an unchosen branch cost nothing, the chosen value is returned", new Sheet({ ...big, Z1: '=IFS(TRUE,"ok",TRUE,' + heavy + ")" }).get("Z1") === "ok"],
+  ["SWITCH: the same 55 reads in an unchosen branch cost nothing, the chosen value is returned", new Sheet({ ...big, Z1: '=SWITCH(1,1,"ok",2,' + heavy + ")" }).get("Z1") === "ok"],
+  ["IFS: the same 55 reads in the chosen branch do stop with #LIMIT!", lim({ ...big, Z1: "=IFS(TRUE," + heavy + ")" }, "Z1")],
+  ["SWITCH: the same 55 reads in the chosen branch do stop with #LIMIT!", lim({ ...big, Z1: "=SWITCH(1,1," + heavy + ")" }, "Z1")],
+  ["45 reads of the same range are under the budget and add up (45 times 6 is 270), so the stop above is the counted limit and not an early cut", new Sheet({ A1: "k1", B1: "k2", B2: "6", Z1: "=" + Array.from({ length: 45 }, () => 'HLOOKUP("k2",A1:J1000,2,0)').join("+") }).get("Z1") === 270],
+  ["IFS: an unchosen branch that is a #DIV/0! error is not reported", new Sheet({ Z1: '=IFS(TRUE,"ok",TRUE,1/0)' }).get("Z1") === "ok"],
+];
+const args = (n) => Array.from({ length: n }, (_, i) => String(i + 1)).join(",");
+const ifsN = (n) => "=IFS(" + Array.from({ length: n }, (_, i) => (i % 2 ? '"v"' : "FALSE")).join(",") + ")";
+const swN = (n) => "=SWITCH(1," + Array.from({ length: n - 1 }, (_, i) => String(i + 2)).join(",") + ")";
+const code = (f) => { const v = new Sheet({ Z1: f }).get("Z1"); return isErr(v) ? v.code : v; };
+const more = [
+  ["HLOOKUP exact accepts * like VLOOKUP (shared find): ap* finds apple", new Sheet({ ...H, E1: '=HLOOKUP("ap*",A1:D3,2,FALSE)' }).get("E1") === 3],
+  ["HLOOKUP exact accepts ? for one character: b?nana finds Banana", new Sheet({ ...H, E1: '=HLOOKUP("b?nana",A1:D3,2,FALSE)' }).get("E1") === 5],
+  ["HLOOKUP ? is exactly one character: bana? (five characters) does not match the six-letter Banana", new Sheet({ ...H, E1: '=HLOOKUP("bana?",A1:D3,2,FALSE)' }).get("E1") !== 5],
+  ["HLOOKUP ~* matches only a literal star", (() => { const v = new Sheet({ A1: "a*", B1: "ab", A2: "1", B2: "2", E1: '=HLOOKUP("a~*",A1:B2,2,FALSE)' }).get("E1"); return v === 1; })()],
+  ["HLOOKUP a text key over 255 characters is #VALUE! when the first row has text to compare (same shared find as VLOOKUP)", (() => { const v = new Sheet({ A1: "x", A2: "1", Z1: '=HLOOKUP("' + "a".repeat(256) + '",A1:B2,2,FALSE)' }).get("Z1"); return isErr(v) && v.code === "#VALUE!"; })()],
+  ["SWITCH blank expression matches an empty-text case", code('=SWITCH(Y9,"","empty","other")') === "empty"],
+  ["SWITCH blank expression does not match the number 0 (documented: blank is not 0 here)", code('=SWITCH(Y9,0,"zero","other")') === "other"],
+  ["SWITCH boolean matches boolean", code('=SWITCH(TRUE,FALSE,"n",TRUE,"y")') === "y"],
+  ["SWITCH boolean does not match the number 1", code('=SWITCH(TRUE,1,"num","other")') === "other"],
+  ["SWITCH number does not match a boolean", code('=SWITCH(1,TRUE,"b","other")') === "other"],
+  ["IFS accepts 40 arguments (20 pairs)", code(ifsN(40)) === "#N/A"],
+  ["IFS with 41 arguments is #VALUE! (local cap of 40)", code(ifsN(41)) === "#VALUE!"],
+  ["IFS with an odd count of 3 is #N/A", code('=IFS(FALSE,1,TRUE)') === "#N/A"],
+  ["SWITCH accepts 40 arguments (19 cases then the last argument is the default, here 40)", code(swN(40)) === 40],
+  ["SWITCH with 41 arguments is #VALUE! (local cap of 40)", code(swN(41)) === "#VALUE!"],
+];
 let bad = 0;
+for (const [d, ok] of more) if (!ok) { bad++; console.log("FAIL", d); }
+for (const [d, ok] of budget) if (!ok) { bad++; console.log("FAIL", d); }
 for (const [d, cells, at, want] of T) {
   const got = new Sheet(cells).get(at);
   const g = isErr(got) ? got.code : got;
   if (g !== want) { bad++; console.log("FAIL", d, "got", g, "want", want); }
 }
-console.log(`${T.length - bad}/${T.length} rows passed`);
+console.log(`${T.length + budget.length + more.length - bad}/${T.length + budget.length + more.length} rows passed`);
 process.exit(bad ? 1 : 0);
