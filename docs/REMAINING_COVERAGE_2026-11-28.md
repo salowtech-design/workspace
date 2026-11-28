@@ -21,3 +21,24 @@ People, Work Logs, Chat), IAM and Admin consoles, Sheets and Slides (device-loca
 - Cross-user file bytes in Drive and Chat (holder question), Automation creation roles, activation-state
   behaviour, break-glass, project-member add or remove, Chat member and retention rules, real face matching,
   Meet, Forms, Add-ons (not requested in detail), email and push delivery, production load and real TiKV.
+
+## Fresh proof at head 3fdb229 and d608151 (28 Nov 2026, 14:20 to 14:38 IST)
+One run each, headless Chromium 390x844 emulated, TiDB 8.5.1 unistore, one machine, frames watched by the executor:
+Chat main (17 steps), Chat mentions (5), Chat search (9), Calendar main (14), Tasks lists (17), Tasks projects (8),
+Drive main (15). All 0 failed, no page errors, no outside requests. Closing captions of Chat, Drive, Projects and
+Calendar series said "not built" for things that exist; fixed in tests/browser/tours.py (Drive and Projects clips were
+corrected by overlay on the existing recording, not re-recorded).
+
+Existing tours that were run on earlier heads and not re-run at this head: project_restore, project_rename,
+milestone_edit, and the rest of the older tours. Not assumed to pass now.
+
+## Not yet re-recorded at this head (existing tours, no new feature)
+Sheets cells and tools, Slides, PDF, Attendance and review, Work Logs and Feed, Certificates, Directory, Automation
+pages, IAM and Admin consoles. Newer Sheets and Slides tools (dedup, trim, case, blank rows, two-key sort, stack,
+tab move) were delivered earlier on 28 Nov with their own proof.
+
+## Items listed as blocked, with what is known
+These are decisions or qualifications recorded as open in memory, not research results. The standing sources are
+the user's storage rule (24 and 25 Nov), the open questions in the workstream file, and the 8133 qualification note.
+Two-device and real-device testing and real TiKV or Cloud qualification are not shown to be a user choice: they
+need research of the original scope before being called blocked.

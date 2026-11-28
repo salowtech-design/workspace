@@ -497,7 +497,7 @@ def register_calendar(g, users):
             t.step("Open the series from Agenda", lambda: (pg.goto(APP + "/calendar/"), pg.click("a.cal-title:has-text('Weekly stand-up')")), expect=lambda: "Cancel whole series" in pg.inner_text("body"))
             t.step("Cancel whole series: asks to confirm", lambda: pg.click("a:has-text('Cancel whole series')"), expect=lambda: "Cancel the whole series" in pg.inner_text("h2"))
             t.step("Confirm", lambda: pg.click("button:has-text('Cancel whole series')"), expect=lambda: "Cancelled" in pg.inner_text("body"))
-            t.note("Not built, so not shown: un-cancelling, changing one occurrence, notifying guests.", 3)
+            t.note("Not built: un-cancelling and changing one occurrence. An invited guest gets an Inbox notice (own clip); editing does not notify guests.", 4.5)
 
         if which == "A":
             run_tour(ctx, "05_calendar_events", bodyA, notes="Real Django app on real TiDB. The two invitations were created by a script as another person. Headless Chromium 390x844 emulation.", unshown=["event with a different time zone", "edit conflict message", "Earlier/Later occurrences paging", "monthly and daily repeats", "week and day navigation arrows", "event with a guest who is not an active person (error)"])
