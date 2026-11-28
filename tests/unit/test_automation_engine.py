@@ -345,3 +345,23 @@ def test_owner_deactivated_after_listing_is_stopped_at_the_claim_and_between_ste
     CustomUser.objects.filter(pk=me.pk).update(status="active")
     assert en.run_pending(now=timezone.now() + dt.timedelta(minutes=10))["succeeded"] == 1
     assert Notification.objects.filter(user=me).count() == 3
+
+
+def test_runner_command_accepts_a_pessimistic_session_and_refuses_anything_else(monkeypatch):
+    from io import StringIO
+
+    from django.core.management import call_command
+    from django.core.management.base import CommandError
+
+    from apps.automation.management.commands import process_automation_runs as cmd
+
+    assert cmd.session_txn_mode() == "pessimistic"  # the live session of this test database
+    me = _u("AU-R9")
+    en.start_run(_wf(me, [NOTE]), "m-1")
+    for bad in ("optimistic", ""):
+        monkeypatch.setattr(cmd, "session_txn_mode", lambda bad=bad: bad)
+        monkeypatch.setattr(en, "run_pending", lambda *a, **k: pytest.fail("run_pending was called"))
+        with pytest.raises(CommandError) as e:
+            call_command("process_automation_runs", stdout=StringIO())
+        assert "Nothing was changed" in str(e.value)
+    assert WfRun.objects.get(trigger_key="m-1").state == WfRun.State.QUEUED
