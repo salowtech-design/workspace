@@ -111,6 +111,7 @@ def run_tour(ctx, name, body, w=390, h=844, scale=2, notes="", unshown=(), extra
     size = os.path.getsize(dst)
     res = {"name": name, "seconds": round(secs), "bytes": size, "page_errors": perr[:3], "notes": notes, "controls_not_shown": list(unshown), "steps": log}
     json.dump(res, open(os.path.join(out, name + ".json"), "w"), indent=1)
+    errs.extend("tour %s page error: %s" % (name, e) for e in perr)  # the tour page's own uncaught errors now reach the run-level "no uncaught page errors" check
     bad = [s for s in log if s["ok"] is False]
     print("TOUR %s: %d steps, %d failed, %.1f MB, %d s" % (name, len(log), len(bad), size / 1e6, secs), flush=True)
     for s in bad:
@@ -9077,7 +9078,7 @@ def register_slides_versions(g):
                    expect=lambda: vlist() == 1 and [v["n"] for v in json.loads(pg.evaluate("(k) => localStorage.getItem(k + '.versions')", key))["items"]] == ["Mine"] and nel() == 2, wait=1200)
             def deckfail():
                 add("Three")
-                pg.evaluate("() => { window.__oset = Storage.prototype.setItem; Storage.prototype.setItem = function (k, v) { if (!String(k).endsWith('.versions')) throw new Error('quota'); return window.__oset.call(this, k, v); }; }")
+                pg.evaluate("() => { window.__oset = Storage.prototype.setItem; Storage.prototype.setItem = function (k, v) { if (this === window.localStorage && !String(k).endsWith('.versions')) throw new Error('quota'); return window.__oset.call(this, k, v); }; }")
                 pg.click('button[aria-label="Restore version Mine"]'); pg.wait_for_timeout(500); snap("slides_versions_onscreen_only")
             t.step("The browser refuses to store the deck (simulated) during a Restore: the status says the restored deck is on screen only", deckfail,
                    expect=lambda: "on screen only" in vs() and "would not store" in pg.inner_text("#sl-status"), wait=1500)
@@ -9124,7 +9125,7 @@ def register_slides_versions_pics(g):
             pg.evaluate("() => { document.getElementById('sl-vers').open = true; }")
             t.step("Undo is gone after reload, so delete the picture from the deck again to leave a changed deck", lambda: (pg.locator("#sl-items li button").nth(0).click(), pg.click("#sl-del-el"), pg.wait_for_timeout(400)), expect=lambda: len(imgs()) == 0, wait=1500)
             def refuse():
-                pg.evaluate("() => { window.__oset = Storage.prototype.setItem; Storage.prototype.setItem = function (k, v) { if (String(k).endsWith('.versions')) throw new Error('quota'); return window.__oset.call(this, k, v); }; }")
+                pg.evaluate("() => { window.__oset = Storage.prototype.setItem; Storage.prototype.setItem = function (k, v) { if (this === window.localStorage && String(k).endsWith('.versions')) throw new Error('quota'); return window.__oset.call(this, k, v); }; }")
                 pg.fill("#sl-ver-name", "Two"); pg.click("#sl-ver-save"); pg.wait_for_timeout(300)
             before = {}
             def mark(): before["deck"] = pg.evaluate("(k) => localStorage.getItem(k)", key); before["vers"] = pg.evaluate("(k) => localStorage.getItem(k + '.versions')", key)
