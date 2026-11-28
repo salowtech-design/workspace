@@ -449,7 +449,7 @@
   function pList() { var ol = $("pdf-mergelist"); ol.textContent = ""; pExtras.forEach(function (x) { var li = document.createElement("li"); li.textContent = x.name + " (" + Math.round(x.bytes.length / 1024) + " KB)"; ol.appendChild(li); }); }
   // Order list: a helper that writes the page order into the same "pages to keep" box, so downloading goes through the one build path.
   // Runs of consecutive ascending pages are written as ranges, so any order of up to 100 pages fits the box (worst case 291 characters).
-  var pOrder = null, ORDER_MAX = 100;
+  var pOrder = null, pTurn = null, ORDER_MAX = 100;
   function pSerialize(a) {
     var out = [], i = 0;
     while (i < a.length) { var j = i; while (j + 1 < a.length && a[j + 1] === a[j] + 1) j++; out.push(j - i >= 2 ? a[i] + "-" + a[j] : a.slice(i, j + 1).join(",")); i = j + 1; }
@@ -461,12 +461,12 @@
     if (!pOrder) return;
     pOrder.forEach(function (n, i) {
       var li = document.createElement("li"), t = document.createElement("span");
-      t.textContent = "Page " + n + " ";
+      t.textContent = "Page " + n + (pTurn[i] ? " (turned " + pTurn[i] + " degrees clockwise) " : " ");
       li.appendChild(t);
-      [["Up", -1], ["Down", 1], ["Remove", 0]].forEach(function (b, bi) {
+      [["Up", -1], ["Down", 1], ["Remove", 0], ["Turn", 2]].forEach(function (b, bi) {
         var el = document.createElement("button"); el.type = "button"; el.className = "btn"; el.textContent = b[0];
         el.dataset.row = String(i); el.dataset.act = String(bi);
-        el.setAttribute("aria-label", b[0] + ": page " + n + ", position " + (i + 1) + " of " + pOrder.length);
+        el.setAttribute("aria-label", (b[1] === 2 ? "Turn 90 degrees clockwise" : b[0]) + ": page " + n + ", position " + (i + 1) + " of " + pOrder.length);
         el.disabled = (b[1] === -1 && i === 0) || (b[1] === 1 && i === pOrder.length - 1) || (b[1] === 0 && pOrder.length === 1);
         el.addEventListener("click", function () { pOrderAct(i, b[1], bi); });
         li.appendChild(el);
@@ -479,8 +479,10 @@
     if (pBusy || !pOrder) return;
     var n = pOrder[i], text;
     if (pHold) { clearTimeout(pHold.timer); pHold = null; }
-    if (d === 0) { pOrder.splice(i, 1); text = "Page " + n + " removed. " + pOrder.length + " page(s) left."; }
-    else { var o = pOrder[i]; pOrder[i] = pOrder[i + d]; pOrder[i + d] = o; text = "Page " + n + " moved to position " + (i + d + 1) + " of " + pOrder.length + "."; }
+    if (d === 2) { pTurn[i] = (pTurn[i] + 90) % 360; text = "Page " + n + " at position " + (i + 1) + (pTurn[i] ? " will be turned " + pTurn[i] + " degrees clockwise in the new file." : " is back to its own rotation."); pOrderSync(); var tb = $("pdf-orderlist").querySelectorAll("button")[i * 4 + 3]; if (tb) tb.focus(); pmsg(text); return; }
+    if (pHold) { clearTimeout(pHold.timer); pHold = null; }
+    if (d === 0) { pOrder.splice(i, 1); pTurn.splice(i, 1); text = "Page " + n + " removed. " + pOrder.length + " page(s) left."; }
+    else { var o = pOrder[i], ot = pTurn[i]; pOrder[i] = pOrder[i + d]; pOrder[i + d] = o; pTurn[i] = pTurn[i + d]; pTurn[i + d] = ot; text = "Page " + n + " moved to position " + (i + d + 1) + " of " + pOrder.length + "."; }
     pOrderSync();
     // Put focus back where the person was: same page and action, or the nearest enabled button in that row, then the nearest row.
     var row = d === 0 ? Math.min(i, pOrder.length - 1) : i + d, all = $("pdf-orderlist").querySelectorAll("button"), best = null, bestScore = 1e9;
@@ -489,15 +491,15 @@
     pmsg(text);
   }
   // A typed change to the box means the list no longer describes it: drop the list (the box keeps what was typed).
-  $("pdf-range").addEventListener("input", function () { if (pOrder) { pOrder = null; $("pdf-orderlist").textContent = ""; $("pdf-orderstart").textContent = "List pages from the file (replaces the pages box)"; } if (pHold) { clearTimeout(pHold.timer); pHold = null; } });
+  $("pdf-range").addEventListener("input", function () { if (pOrder) { pOrder = null; pTurn = null; $("pdf-orderlist").textContent = ""; $("pdf-orderstart").textContent = "List pages from the file (replaces the pages box)"; } if (pHold) { clearTimeout(pHold.timer); pHold = null; } });
   $("pdf-orderstart").addEventListener("click", function () {
     if (!doc || pBusy) return;
     if (doc.numPages > ORDER_MAX) { pmsg("The list handles up to " + ORDER_MAX + " pages. Type the pages in the box for a longer file."); return; }
-    pOrder = []; for (var i = 1; i <= doc.numPages; i++) pOrder.push(i);
+    pOrder = []; pTurn = []; for (var i = 1; i <= doc.numPages; i++) { pOrder.push(i); pTurn.push(0); }
     if (pHold) { clearTimeout(pHold.timer); pHold = null; }
     pOrderSync(); pmsg("The pages box now follows the list. Typing in the box ends the list.");
   });
-  function pagesReset() { pOrder = null; pOrderSync(); pToken++; pExtras = []; if (pHold) clearTimeout(pHold.timer); pHold = null; pBusy = false; $("pdf-range").value = ""; pList(); pmsg(""); pControls(); }
+  function pagesReset() { pOrder = null; pTurn = null; pOrderSync(); pToken++; pExtras = []; if (pHold) clearTimeout(pHold.timer); pHold = null; pBusy = false; $("pdf-range").value = ""; pList(); pmsg(""); pControls(); }
   function pSave(r, nameText, suffix) {
     var url = URL.createObjectURL(new Blob([r.bytes], { type: "application/pdf" })), a = document.createElement("a");
     a.href = url; a.download = nameText.replace(/\.pdf$/i, "").replace(/[^A-Za-z0-9._-]+/g, "_").slice(0, 80) + suffix;
@@ -507,14 +509,15 @@
     if (!doc || pBusy) return;
     var myDoc = doc, nameText = $("pdf-name").textContent || "PDF file", tok = ++pToken, sel = null;
     if (mode === "split") { sel = window.PdfPages.parseRanges($("pdf-range").value, myDoc.numPages); if (sel.error) { pmsg(sel.error); return; } }
-    var sig = mode + "|" + (sel ? sel.pages.join(",") : "") + "|" + pExtras.map(function (x) { return x.id + ":" + x.name + ":" + x.bytes.length; }).join(";");
+    var turn = mode === "split" && pOrder && pTurn && pTurn.length === sel.pages.length && pTurn.some(function (x) { return x; }) ? pTurn.slice() : null;
+    var sig = mode + "|" + (sel ? sel.pages.join(",") : "") + (turn ? "|t" + turn.join(",") : "") + "|" + pExtras.map(function (x) { return x.id + ":" + x.name + ":" + x.bytes.length; }).join(";");
     if (pHold && pHold.doc === myDoc && pHold.sig === sig) { var h = pHold; pHold = null; clearTimeout(h.timer); pSave(h.r, nameText, mode === "split" ? "-pages.pdf" : "-merged.pdf"); pmsg("Downloaded a new file with " + h.r.pageCount + " page(s). The files you opened were not changed."); return; }
     if (pHold) { clearTimeout(pHold.timer); pHold = null; }
     pBusy = true; pControls(); pmsg("Building the new file in this browser.");
     var extras = pExtras.slice();
     var libs = window.PDFLib ? Promise.resolve() : loadScript(BASE + "pdf-lib.min.js").catch(function () { throw { stage: "load" }; });
     libs.then(function () { return myDoc.getData().catch(function () { throw { stage: "read" }; }); }).then(function (bytes) {
-      var parts = [{ bytes: bytes, pages: sel ? sel.pages : null, name: nameText }];
+      var parts = [{ bytes: bytes, pages: sel ? sel.pages : null, turn: turn, name: nameText }];
       if (mode === "merge") extras.forEach(function (x) { parts.push({ bytes: x.bytes, pages: null, name: x.name }); });
       return window.PdfPages.build(window.PDFLib, parts, window.PdfNotesExport.looksSigned);
     }).then(function (r) {

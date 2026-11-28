@@ -61,8 +61,10 @@
           var idx = p.pages ? p.pages.map(function (x) { return x - 1; }) : src.getPageIndices();
           if (idx.some(function (i) { return i < 0 || i >= src.getPageCount(); })) throw fail("range", "page out of range", p.name);
           count += idx.length; if (count > MAX_PAGES) throw fail("pages", "too many pages");
+          // turn: optional list, one entry per chosen page, each 0, 90, 180 or 270 clockwise, added to the page's own rotation in the copy only.
+          if (p.turn !== undefined && p.turn !== null && (!Array.isArray(p.turn) || p.turn.length !== idx.length || !p.pages || p.turn.some(function (t) { return t !== 0 && t !== 90 && t !== 180 && t !== 270; }))) throw fail("turn", "turn list does not match the pages", p.name);
           cutReferences(L, src, idx);
-          return out.copyPages(src, idx).then(function (pgs) { pgs.forEach(function (pg) { out.addPage(pg); }); });
+          return out.copyPages(src, idx).then(function (pgs) { pgs.forEach(function (pg, k) { if (p.turn && p.turn[k]) pg.setRotation(L.degrees((((pg.getRotation().angle + p.turn[k]) % 360) + 360) % 360)); out.addPage(pg); }); });
         });
       });
       return chain.then(function () { if (pageObjects(L, out) !== count) throw fail("leak", "extra page objects"); return out.save({ useObjectStreams: false }); }).then(function (bytes) {

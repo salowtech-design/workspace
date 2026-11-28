@@ -72,6 +72,15 @@ const done = (async () => {
   const d5 = await P.PDFDocument.load(r5.bytes);
   ok("a new file from a form page has no form definition (stated limit)", d5.getForm().getFields().length === 0 && d5.getPageCount() === 1);
   ok("build names a signed input so the page can warn", await (async () => { const d = await P.PDFDocument.create(); d.addPage([100, 100]); const sig = d.context.obj({ Type: "Sig", Filter: "Adobe.PPKLite" }); const f = d.context.obj({ FT: "Sig", T: P.PDFHexString.fromText("s"), V: d.context.register(sig), Kids: [] }); d.catalog.set(P.PDFName.of("AcroForm"), d.context.obj({ Fields: [d.context.register(f)], SigFlags: 3 })); const bytes = await d.save({ useObjectStreams: false }); const l = await P.PDFDocument.load(bytes); const r = await G.build(P, [{ bytes: a, pages: [1], name: "plain" }, { bytes, pages: null, name: "signed.pdf" }], E.looksSigned); return eq(r.signed, ["signed.pdf"]); })());
+  // turning pages (new in this build): added to the page's own rotation, in the copy only
+  const rt = await mk(3);
+  const rh = sha(rt);
+  const r6 = await G.build(P, [{ bytes: rt, pages: [3, 1, 3], turn: [90, 0, 270], name: "rt" }]);
+  ok("turn adds to each chosen page's own rotation, in order, repeats included", eq((await pageTexts(r6.bytes)).map((x) => x.split("r")[1]), ["90", "0", "270"]) && sha(rt) === rh);
+  const r7 = await G.build(P, [{ bytes: inh, pages: [1], turn: [270], name: "inh" }]);
+  ok("a page already turned 90 plus 270 comes out at 0, and 90 plus 180 at 270", eq((await pageTexts(r7.bytes)).map((x) => x.split("r")[1]), ["0"]) && eq((await pageTexts((await G.build(P, [{ bytes: inh, pages: [1], turn: [180], name: "inh" }])).bytes)).map((x) => x.split("r")[1]), ["270"]));
+  ok("no turn (null, undefined or all zero) leaves rotation alone", eq((await pageTexts((await G.build(P, [{ bytes: rt, pages: [1, 2], turn: null, name: "rt" }])).bytes)).map((x) => x.split("r")[1]), ["0", "0"]) && eq((await pageTexts((await G.build(P, [{ bytes: rt, pages: [1, 2], turn: [0, 0], name: "rt" }])).bytes)).map((x) => x.split("r")[1]), ["0", "0"]));
+  ok("a turn list of the wrong length, a bad angle, a non-list, or without pages is refused as turn", (await code([{ bytes: rt, pages: [1, 2], turn: [90], name: "rt" }])) === "turn" && (await code([{ bytes: rt, pages: [1], turn: [45], name: "rt" }])) === "turn" && (await code([{ bytes: rt, pages: [1], turn: "90", name: "rt" }])) === "turn" && (await code([{ bytes: rt, pages: null, turn: [90, 90, 90], name: "rt" }])) === "turn");
   console.log(`${n - bad}/${n} pdf pages rows passed`);
   process.exit(bad ? 1 : 0);
 })();

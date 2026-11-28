@@ -8455,6 +8455,70 @@ def pdf_text_stale(ctx):  # noqa: C901
     )
 
 
+def pdf_turn(ctx):
+    """Turn pages from the list, download, and read the rotation out of the new file and off the opened page."""
+    import re
+
+    shots = os.environ.get("DRILL_SHOTS", "/tmp")  # noqa: S108
+    pg = fresh(ctx, "/pdf/")
+    pg.set_viewport_size({"width": 390, "height": 800})
+
+    def open_pdf(name, data):
+        pg.set_input_files(
+            "#pdf-open", files=[{"name": name, "mimeType": "application/pdf", "buffer": data}]
+        )
+        for _ in range(50):
+            if pg.inner_text("#pdf-where").startswith("Page 1 of"):
+                break
+            pg.wait_for_timeout(250)
+        pg.wait_for_timeout(500)
+
+    open_pdf("three.pdf", _n_page_pdf(3))
+    pg.click("#pdf-orderstart")
+    rows = pg.locator("#pdf-orderlist li")
+    rows.nth(0).locator("button").nth(3).click()
+    rows.nth(2).locator("button").nth(3).click()
+    rows.nth(2).locator("button").nth(3).click()
+    labels = pg.evaluate("[...document.querySelectorAll('#pdf-orderlist li span')].map(s=>s.textContent.trim())")
+    check(
+        "turn: the list says which pages are turned, and the status line announces it",
+        labels == ["Page 1 (turned 90 degrees clockwise)", "Page 2", "Page 3 (turned 180 degrees clockwise)"]
+        and "180" in pg.inner_text("#pdf-pagesstatus"),
+        (labels, pg.inner_text("#pdf-pagesstatus")),
+    )
+    rows.nth(0).locator("button").nth(1).click()  # move page 1 down: the turn goes with the page
+    labels2 = pg.evaluate("[...document.querySelectorAll('#pdf-orderlist li span')].map(s=>s.textContent.trim())")
+    check(
+        "turn: a turned page keeps its turn when it moves",
+        labels2[0] == "Page 2" and labels2[1].startswith("Page 1 (turned 90"),
+        labels2,
+    )
+    pg.screenshot(path=shots + "/pdf-turn-list.png")
+    with pg.expect_download() as dl:
+        pg.click("#pdf-splitgo")
+    out = open(dl.value.path(), "rb").read()
+    open(shots + "/pdf-turn.pdf", "wb").write(out)
+    rot = re.findall(rb"/Rotate (\d+)", out)
+    check(
+        "turn: the downloaded file holds 3 pages whose /Rotate values are 0 (page 2), 90 (page 1) and 180 (page 3) in that order",
+        out.count(b"/Type /Page\n") + out.count(b"/Type /Page ") >= 3 and rot == [b"90", b"180"],
+        (rot, out.count(b"/Type /Page")),
+    )
+    open_pdf("turned.pdf", out)
+    sizes = []
+    for i in range(1, 4):
+        pg.fill("#pdf-page", str(i))
+        pg.press("#pdf-page", "Enter")
+        pg.wait_for_timeout(900)
+        sizes.append(pg.evaluate("[document.getElementById('pdf-canvas').width, document.getElementById('pdf-canvas').height]"))
+    check(
+        "turn: opened again, page 2 is upright (taller than wide), page 1 is sideways (wider than tall), page 3 is upright",
+        sizes[0][1] > sizes[0][0] and sizes[1][0] > sizes[1][1] and sizes[2][1] > sizes[2][0],
+        sizes,
+    )
+    pg.screenshot(path=shots + "/pdf-turn-opened.png")
+
+
 def pdf_order(ctx):  # noqa: C901
     """Reorder and remove pages from a list, then download that order."""
     shots = os.environ.get("DRILL_SHOTS", "/tmp")  # noqa: S108
@@ -9953,6 +10017,7 @@ DRILLS = {
     "pdf_thumbs_cancel": pdf_thumbs_cancel,
     "pdf_pages": pdf_pages,
     "pdf_order": pdf_order,
+    "pdf_turn": pdf_turn,
     "pdf_marks": pdf_marks,
     "pdf_signature": pdf_signature,
     "pdf_marks_secure": pdf_marks_secure,
