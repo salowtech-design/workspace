@@ -346,6 +346,7 @@ def register(g):
     register_sheets_new_formulas(g)
     register_slides_find(g)
     register_slides_paste(g)
+    register_slides_align(g)
     register_drive_link_version_fail(g)
     register_drive_link_slides_retry(g)
     register_sheets_frozenfocus(g)
@@ -2968,6 +2969,37 @@ def register_slides_paste(g):
             t.step("Copy pressed in the same instant as Paste does not change what is checked: the missing picture is still refused", lambda: (seed([], ["a" * 64], True), pick(0), pg.click("#sl-copy-el"), pick(1), pg.evaluate("() => { document.getElementById('sl-paste-el').click(); document.getElementById('sl-copy-el').click(); }"), pg.wait_for_timeout(1500)), expect=lambda: "not in this browser" in pg.inner_text("#sl-status") and len(pics()[0]) == 1 and len(pics()[1]) == 0, wait=1800)
         run_tour(ctx, "slides_paste", body, notes="Device-local deck. Headless Chromium 390x844 emulated, real Django on TiDB unistore. Copy, cut and paste of one item between slides, held in the page only.")
     g["DRILLS"]["tour_slides_paste"] = tour
+
+
+def register_slides_align(g):
+    APP = g["APP"]
+
+    def tour(ctx):
+        def body(t, pg):
+            pg.on("pageerror", lambda e: print("PAGEERROR", str(e)[:300]))
+            pg.goto(APP + "/slides/")
+            pg.evaluate("localStorage.clear()")
+            pg.goto(APP + "/slides/")
+            pg.wait_for_selector("#sl-add-text", timeout=15000)
+            key = pg.evaluate("() => document.getElementById('slide-root').dataset.storeKey")
+            deck = {"v": 1, "theme": "light", "slides": [{"id": "s0", "notes": "", "elements": [{"id": "a", "type": "text", "x": 100, "y": 100, "w": 300, "h": 50, "fill": "theme", "text": "Align me", "size": 32}]}]}
+            pg.evaluate("([k, v]) => localStorage.setItem(k, JSON.stringify(v))", [key, deck])
+            pg.reload(); pg.wait_for_selector("#sl-add-text", timeout=15000); pg.wait_for_timeout(600)
+            box = lambda: (lambda e: (e["x"], e["y"], e["w"], e["h"], e["text"]))(json.loads(pg.evaluate("(k) => localStorage.getItem(k)", key))["slides"][0]["elements"][0])
+            st = lambda: pg.inner_text("#sl-status")
+            def go(mode):
+                pg.evaluate("() => document.getElementById('sl-props').scrollIntoView({block: 'start'})")
+                pg.click('[data-align="%s"]' % mode); pg.wait_for_timeout(300)
+            t.step("Align buttons are off until an item is selected", expect=lambda: pg.is_disabled('[data-align="left"]'), wait=1500)
+            t.step("Select the item and Align left: x is 0, y and size unchanged", lambda: (pg.locator("#sl-items li button").first.click(), go("left")), expect=lambda: box() == (0, 100, 300, 50, "Align me") and pg.input_value("#sl-x") == "0", wait=1500)
+            t.step("Align right: x is 660 (960 minus the width 300)", lambda: go("right"), expect=lambda: box()[0] == 660, wait=1500)
+            t.step("Align centre: x is 330", lambda: go("center"), expect=lambda: box()[0] == 330, wait=1500)
+            t.step("Align top, then bottom: y is 0, then 490 (540 minus the height 50)", lambda: (go("top"), go("bottom")), expect=lambda: box()[1] == 490, wait=1500)
+            t.step("Align middle: y is 245", lambda: go("middle"), expect=lambda: box()[1] == 245, wait=1500)
+            t.step("Align middle again: nothing changes and the status says so", lambda: go("middle"), expect=lambda: box() == (330, 245, 300, 50, "Align me") and "already there" in st(), wait=1500)
+            t.step("Undo takes the item back one align step (middle to bottom, y 490)", lambda: pg.click("#sl-undo"), expect=lambda: box()[1] == 490, wait=1500)
+        run_tour(ctx, "slides_align", body, notes="Device-local deck. Headless Chromium 390x844 emulated, real Django on TiDB unistore. Align the selected item's box to the slide.")
+    g["DRILLS"]["tour_slides_align"] = tour
 
 
 def register_slides_bg(g):

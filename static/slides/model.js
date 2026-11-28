@@ -221,6 +221,14 @@
       if (has(patch, "al") && patch.al === "default") delete merged.al;
       var fixed = fixEl(merged); if (fixed && has(merged, "ph")) fixed.ph = merged.ph; n.slides[i].elements[k] = fixed; return normVersion(n);
     },
+    // Move one item's box to an edge or the middle of the slide: left, center, right, top, middle or bottom. Only x or y changes (the slide is 960 by 540), through
+    // updateElement, so every normal rule applies. Null when the item is already there, for an unknown item or for an unknown mode.
+    alignElement: function (d, i, id, mode) {
+      var s = d.slides[i]; if (!s) return null; var e = null; s.elements.forEach(function (x) { if (x.id === id) e = x; }); if (!e) return null;
+      var p = mode === "left" ? { x: 0 } : mode === "right" ? { x: W - e.w } : mode === "center" ? { x: Math.round((W - e.w) / 2) } : mode === "top" ? { y: 0 } : mode === "bottom" ? { y: H - e.h } : mode === "middle" ? { y: Math.round((H - e.h) / 2) } : null;
+      if (!p || (has(p, "x") && p.x === e.x) || (has(p, "y") && p.y === e.y)) return null;
+      return ops.updateElement(d, i, id, p);
+    },
     // Copy of one item placed right above it, with a fresh id, moved 20 right and 20 down (or 20 left and up when that would leave the slide).
     // Text, size, fill, bold, italic, underline, align and a picture's reference (the same stored bytes) are kept; its animation is not copied. Null at the 30 item cap, at the 20 picture cap, or for an unknown item.
     duplicateElement: function (d, i, id) {
@@ -296,6 +304,7 @@
     return r.deck ? { deck: n, id: r.id } : n;
   }
   ops.master_addElement = function (d, type) { return viaMaster(d, function (t) { return ops.addElement(t, 0, type); }, true); };
+  ops.master_alignElement = function (d, id, mode) { return viaMaster(d, function (t) { return ops.alignElement(t, 0, id, mode); }); };
   ops.master_updateElement = function (d, id, patch) { return viaMaster(d, function (t) { return ops.updateElement(t, 0, id, patch); }); };
   ops.master_moveElement = function (d, id, dir) { return viaMaster(d, function (t) { return ops.moveElement(t, 0, id, dir); }); };
   ops.master_duplicateElement = function (d, id) { return viaMaster(d, function (t) { return ops.duplicateElement(t, 0, id); }, true); };

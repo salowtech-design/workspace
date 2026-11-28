@@ -164,7 +164,7 @@
       li.appendChild(b); il.appendChild(li);
     });
     $("sl-items-empty").hidden = tgt().length > 0;
-    var e = sel(), props = $("sl-props"); props.disabled = !e; $("sl-del-el").disabled = !e; $("sl-dup-el").disabled = !e; $("sl-copy-el").disabled = !e || editMaster; $("sl-cut-el").disabled = !e || editMaster; $("sl-paste-el").disabled = !clip || editMaster;
+    var e = sel(), props = $("sl-props"); props.disabled = !e; $("sl-del-el").disabled = !e; $("sl-dup-el").disabled = !e; [].forEach.call(document.querySelectorAll("[data-align]"), function (b) { b.disabled = !e; }); $("sl-copy-el").disabled = !e || editMaster; $("sl-cut-el").disabled = !e || editMaster; $("sl-paste-el").disabled = !clip || editMaster;
     var isPic = !!(e && e.type === "image"); ["sl-size", "sl-fill", "sl-bold", "sl-italic", "sl-underline", "sl-align"].forEach(function (id) { $(id).disabled = isPic; });
     $("sl-export-warn").hidden = !deckHashes(d).length;
     $("sl-text-label").textContent = isPic ? "Description (for screen readers, not drawn)" : "Text";
@@ -291,6 +291,10 @@
     }, function (e) { status.textContent = "Nothing was pasted: " + (e && e.message ? e.message : "the picture storage could not be read."); });
   }
   $("sl-paste-el").addEventListener("click", function () { if (!clip || editMaster) return; pasteNow(S.copy(clip), 0); });
+  // Align the selected item's box to the slide (not the text inside it; that is the Align select). One undo step each.
+  [].forEach.call(document.querySelectorAll("[data-align]"), function (b) {
+    b.addEventListener("click", function () { var e = sel(); if (!e) return; var m = b.getAttribute("data-align"), n = eop("alignElement", e.id, m); if (!n) { var why = S.takeReject(); status.textContent = why || "The item is already there. Nothing changed."; return; } apply(n, "Item aligned " + m + " on the slide. You can undo this."); });
+  });
   $("sl-del-el").addEventListener("click", function () { var e = sel(); if (e) apply(eop("deleteElement", e.id), "Item deleted."); });
   // ---- Layout inheritance: linked slides follow an edited layout item (model: addLinkedSlide, setLayoutSlot, unlinkSlide) ----
   var LYF = ["x", "y", "w", "h", "size"];
