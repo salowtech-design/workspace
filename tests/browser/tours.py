@@ -354,6 +354,7 @@ def register(g):
     register_sheets_trim(g)
     register_sheets_case(g)
     register_sheets_blank(g)
+    register_sheets_sort2(g)
     register_drive_link_version_fail(g)
     register_drive_link_slides_retry(g)
     register_sheets_frozenfocus(g)
@@ -3216,6 +3217,36 @@ def register_sheets_blank(g):
             t.step("A range with no blank rows says so and changes nothing", lambda: (pg.fill("#sort-range", "A1:B2"), pg.click("#blank-go"), pg.wait_for_timeout(400)), expect=lambda: "No blank rows found" in pg.inner_text("#sheet-status") and stored() == seed, wait=1500)
         run_tour(ctx, "sheets_blank", body, notes="Device-local sheet. Headless Chromium 390x844 emulated, real Django on TiDB unistore. Remove blank rows in a range of typed values.")
     g["DRILLS"]["tour_sheets_blank"] = tour
+
+
+def register_sheets_sort2(g):
+    APP = g["APP"]
+
+    def tour(ctx):
+        def body(t, pg):
+            pg.on("pageerror", lambda e: print("PAGEERROR", str(e)[:300]))
+            pg.goto(APP + "/sheets/")
+            pg.evaluate("localStorage.clear()")
+            pg.goto(APP + "/sheets/")
+            pg.wait_for_selector("#sheet-root input", timeout=15000)
+            key = pg.evaluate("() => document.getElementById('sheet-root').dataset.storeKey")
+            seed = {"A1": "Team", "B1": "Score", "C1": "Id", "A2": "red", "B2": "2", "C2": "r1", "A3": "blue", "B3": "9", "C3": "r2", "A4": "red", "B4": "1", "C4": "r3", "A5": "blue", "B5": "3", "C5": "r4", "A6": "red", "B6": "10", "C6": "r5"}
+            pg.evaluate("([k, v]) => localStorage.setItem(k, JSON.stringify(v))", [key, seed])
+            pg.reload(); pg.wait_for_selector("#sheet-root input", timeout=15000); pg.wait_for_timeout(600)
+            stored = lambda: json.loads(pg.evaluate("(k) => localStorage.getItem(k)", key))
+            out = os.environ.get("DRILL_VIDEO", "/tmp")
+            grid = lambda name: pg.locator("#sheet-root").screenshot(path=out + "/sort2_grid_" + name + ".png")
+            def run():
+                grid("1_before"); pg.fill("#sort-range", "A1:C6"); pg.fill("#sort-col", "A"); pg.fill("#sort-col2", "B"); pg.click("#sort-go"); pg.wait_for_timeout(500)
+                pg.locator("#sheet-status").scroll_into_view_if_needed(); pg.locator("#sheet-status").screenshot(path=out + "/sort2_status.png"); grid("2_after")
+            want = dict(seed)
+            for r, (a, b, c) in zip(range(2, 7), [("blue", "3", "r4"), ("blue", "9", "r2"), ("red", "1", "r3"), ("red", "2", "r1"), ("red", "10", "r5")]):
+                want["A%d" % r], want["B%d" % r], want["C%d" % r] = a, b, c
+            t.step("Sort by Team then Score orders ties by number and moves the Id column with its row", run, expect=lambda: stored() == want and "then column B" in pg.inner_text("#sheet-status"), wait=1800)
+            t.step("Undo brings the original order back", lambda: (pg.click("#sheet-undo"), pg.wait_for_timeout(400), grid("3_undo")), expect=lambda: stored() == seed, wait=1800)
+            t.step("A second column outside the range is refused and changes nothing", lambda: (pg.fill("#sort-range", "A1:B6"), pg.fill("#sort-col2", "C"), pg.click("#sort-go"), pg.wait_for_timeout(400)), expect=lambda: "second sort column must be inside" in pg.inner_text("#sheet-status") and stored() == seed, wait=1500)
+        run_tour(ctx, "sheets_sort2", body, notes="Device-local sheet. Headless Chromium 390x844 emulated, real Django on TiDB unistore. Sort with a second column.")
+    g["DRILLS"]["tour_sheets_sort2"] = tour
 
 
 def register_slides_bg(g):

@@ -1,0 +1,22 @@
+// Sheets sort with a second column: model rows for M.sortRange(..., keyCol2).
+const M = require("../../static/sheets/model.js");
+const F = require("../../static/sheets/formula.js");
+let n = 0, fails = 0;
+const ok = (d, c) => { n++; if (!c) { fails++; console.log("FAIL", d); } };
+const C = (o) => Object.assign(Object.create(null), o);
+const rg = (r2) => ({ c1: 1, c2: 3, r1: 1, r2 });
+const col = (c, letter, r2) => { const a = []; for (let r = 2; r <= r2; r++) a.push(c[letter + r] === undefined ? "_" : c[letter + r]); return a.join(","); };
+const src = C({ A1: "g", B1: "n", C1: "id", A2: "b", B2: "2", C2: "r1", A3: "a", B3: "9", C3: "r2", A4: "b", B4: "1", C4: "r3", A5: "a", B5: "3", C5: "r4", A6: "b", B6: "10", C6: "r5" });
+let r = M.sortRange(src, F.parseAddr, rg(6), 1, false, true, 2);
+ok("ties in the first column are broken by the second, numbers by value", col(r.cells, "A", 6) === "a,a,b,b,b" && col(r.cells, "B", 6) === "3,9,1,2,10");
+ok("rows move whole (the id column follows its row)", col(r.cells, "C", 6) === "r4,r2,r3,r1,r5");
+ok("descending reverses both keys", (() => { const x = M.sortRange(src, F.parseAddr, rg(6), 1, true, true, 2); return col(x.cells, "A", 6) === "b,b,b,a,a" && col(x.cells, "B", 6) === "10,2,1,9,3"; })());
+ok("without a second column the old behaviour holds (equal keys keep their order)", (() => { const x = M.sortRange(src, F.parseAddr, rg(6), 1, false, true); return col(x.cells, "C", 6) === "r2,r4,r1,r3,r5"; })());
+ok("passing 0 or undefined for the second column is the same as none", (() => { const a = M.sortRange(src, F.parseAddr, rg(6), 1, false, true, 0), b = M.sortRange(src, F.parseAddr, rg(6), 1, false, true); return JSON.stringify(a.cells) === JSON.stringify(b.cells); })());
+ok("a blank second key goes last within its group, in either order", (() => { const c = C({ A1: "h", A2: "a", A3: "a", B3: "1", A4: "a", B4: "2" }); const up = M.sortRange(c, F.parseAddr, { c1: 1, c2: 2, r1: 1, r2: 4 }, 1, false, true, 2), dn = M.sortRange(c, F.parseAddr, { c1: 1, c2: 2, r1: 1, r2: 4 }, 1, true, true, 2); return col(up.cells, "B", 4) === "1,2,_" && col(dn.cells, "B", 4) === "2,1,_"; })());
+ok("a second column outside the range or equal to the first is refused", !!M.sortRange(src, F.parseAddr, rg(6), 1, false, true, 5).error && !!M.sortRange(src, F.parseAddr, rg(6), 1, false, true, 1).error);
+ok("a formula in the range still refuses with a second column", !!M.sortRange(C({ A1: "h", A2: "b", B2: "=1", A3: "a", B3: "2" }), F.parseAddr, { c1: 1, c2: 2, r1: 1, r2: 3 }, 1, false, true, 2).error);
+ok("the source cells are unchanged", src.A2 === "b" && src.B6 === "10");
+ok("already in order with the second key gives moved 0", M.sortRange(r.cells, F.parseAddr, rg(6), 1, false, true, 2).moved === 0);
+console.log((fails ? "FAILED " : "") + (n - fails) + "/" + n + " sheets second sort key rows passed");
+process.exit(fails ? 1 : 0);

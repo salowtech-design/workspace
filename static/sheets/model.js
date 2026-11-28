@@ -132,8 +132,10 @@
   // Sort whole rows of a range by one column of what was typed. Rows move together. Formulas are refused because moving
   // them would change what their references mean. Numbers come before text, text is compared without case, blanks go last
   // in either direction, equal keys keep their order. rg = {c1,c2,r1,r2}; keyCol is an absolute column number.
-  function sortRange(cells, parseAddr, rg, keyCol, desc, header) {
+  function sortRange(cells, parseAddr, rg, keyCol, desc, header, keyCol2) {
     if (!rg || keyCol < rg.c1 || keyCol > rg.c2) return { error: "The sort column must be inside the range." };
+    if (keyCol2 && (keyCol2 < rg.c1 || keyCol2 > rg.c2)) return { error: "The second sort column must be inside the range." };
+    if (keyCol2 && keyCol2 === keyCol) return { error: "Choose a different column for the second sort, or leave it empty." };
     var first = header ? rg.r1 + 1 : rg.r1;
     if (first >= rg.r2) return { error: "There are fewer than two rows to sort." };
     var rows = [], r, c, formulas = 0;
@@ -142,13 +144,19 @@
     for (r = first; r <= rg.r2; r++) {
       var vals = {}, kr = cells[colName(keyCol) + r];
       for (c = rg.c1; c <= rg.c2; c++) { var a = colName(c) + r; if (has(cells, a)) vals[c] = cells[a]; }
-      var n = toNum(kr), blank = kr === undefined || String(kr).trim() === "";
-      rows.push({ i: r - first, vals: vals, kind: blank ? 2 : n !== null ? 0 : 1, num: n, txt: blank ? "" : String(kr).toLowerCase() });
+      var n = toNum(kr), blank = kr === undefined || String(kr).trim() === "", row = { i: r - first, vals: vals, kind: blank ? 2 : n !== null ? 0 : 1, num: n, txt: blank ? "" : String(kr).toLowerCase() };
+      if (keyCol2) { var k2 = cells[colName(keyCol2) + r], n2 = toNum(k2), b2 = k2 === undefined || String(k2).trim() === ""; row.kind2 = b2 ? 2 : n2 !== null ? 0 : 1; row.num2 = n2; row.txt2 = b2 ? "" : String(k2).toLowerCase(); }
+      rows.push(row);
+    }
+    // one key's order: blanks last in either direction, numbers before text, text without case
+    function byKey(ka, na, ta, kb, nb, tb) {
+      if (ka === 2 || kb === 2) return ka === kb ? 0 : ka === 2 ? 1 : -1;
+      var d = ka !== kb ? ka - kb : ka === 0 ? na - nb : (ta < tb ? -1 : ta > tb ? 1 : 0);
+      return desc ? -d : d;
     }
     function cmp(x, y) {
-      if (x.kind === 2 || y.kind === 2) return x.kind === y.kind ? x.i - y.i : x.kind === 2 ? 1 : -1;
-      var d = x.kind !== y.kind ? x.kind - y.kind : x.kind === 0 ? x.num - y.num : (x.txt < y.txt ? -1 : x.txt > y.txt ? 1 : 0);
-      if (desc) d = -d;
+      var d = byKey(x.kind, x.num, x.txt, y.kind, y.num, y.txt);
+      if (d === 0 && keyCol2) d = byKey(x.kind2, x.num2, x.txt2, y.kind2, y.num2, y.txt2);
       return d !== 0 ? d : x.i - y.i;
     }
     var sorted = rows.slice().sort(cmp), next = copy(cells), moved = 0;

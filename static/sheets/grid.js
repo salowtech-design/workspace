@@ -690,9 +690,11 @@
     var rg = parseRange($("sort-range").value), key = colNum($("sort-col").value);
     if (!rg) { status.textContent = "Enter a range like A1:C10."; return; }
     if ((rg.c2 - rg.c1 + 1) * (rg.r2 - rg.r1 + 1) > 2000 || rg.c2 > 26 || rg.r2 > 1000) { status.textContent = "A sort range can hold up to 2000 cells."; return; }
-    var r = M.sortRange(cells, F.parseAddr, rg, key, $("sort-dir").value === "desc", $("sort-header").checked);
+    var t2 = $("sort-col2").value.trim(), key2 = t2 ? colNum(t2) : 0;
+    if (t2 && !key2) { status.textContent = "Enter one column letter for the second sort, or leave it empty."; return; }
+    var r = M.sortRange(cells, F.parseAddr, rg, key, $("sort-dir").value === "desc", $("sort-header").checked, key2);
     if (r.error) { status.textContent = r.error; return; }
-    var note = "Sorted " + r.rows + " rows by column " + String.fromCharCode(64 + key) + "; " + r.moved + " moved. Undo restores the old order." + (filt ? " The filter is still on." : "") + outsideFormulas(rg);
+    var note = "Sorted " + r.rows + " rows by column " + String.fromCharCode(64 + key) + (key2 ? " then column " + String.fromCharCode(64 + key2) : "") + "; " + r.moved + " moved. Undo restores the old order." + (filt ? " The filter is still on." : "") + outsideFormulas(rg);
     if (!change(r.cells, note)) status.textContent = "Already in that order. Nothing changed.";
   });
   $("dedup-go").addEventListener("click", function () {

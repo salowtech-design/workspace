@@ -231,3 +231,15 @@ def test_sheets_blank_rows_pass_in_node():
     )
     assert r.returncode == 0, r.stdout + r.stderr
     assert "12/12 sheets blank rows passed" in r.stdout
+
+
+def test_sheets_second_sort_key_passes_in_node():
+    assert shutil.which("node"), "node is required to run the sheets second sort key"
+    r = subprocess.run(  # noqa: S603 - fixed argv, repo-owned script
+        [shutil.which("node"), str(ROOT / "tests/js/sheets_sort2.js")],
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert "10/10 sheets second sort key rows passed" in r.stdout
