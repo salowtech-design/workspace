@@ -73,13 +73,14 @@
       var lk = Object.keys(L0); for (var a1 = 0; a1 < lk.length; a1++) {
         var key = lk[a1], arr = L0[key]; if (layKeys().indexOf(key) < 0 || !Array.isArray(arr) || arr.length > LAYOUTS[key].items.length) return null;
         var na = []; for (var a2 = 0; a2 < arr.length; a2++) { var it = arr[a2]; if (!it || typeof it !== "object" || Array.isArray(it)) return null; var no = {}; for (var a3 = 0; a3 < LAY_FIELDS.length; a3++) { var f = LAY_FIELDS[a3]; if (!has(it, f)) continue; if (!layOk(it[f]) || it[f] < LAY_LIM[f][0] || it[f] > LAY_LIM[f][1]) return null; no[f] = it[f]; } na.push(no); }
-        outLays[key] = na;
+        for (var a4 = 0; a4 < na.length; a4++) { var rs = {}; LAY_FIELDS.forEach(function (f) { rs[f] = has(na[a4], f) ? na[a4][f] : LAYOUTS[key].items[a4][f]; }); if (rs.x + rs.w > W || rs.y + rs.h > H) return null; }
+        if (na.some(function (o) { return Object.keys(o).length; })) outLays[key] = na;
       }
       if (!Object.keys(outLays).length) outLays = null; else anyLay = true;
     }
     if (has(d, "master")) {
       var m = d.master; if (!m || typeof m !== "object" || Array.isArray(m) || !Array.isArray(m.elements) || m.elements.length > MAX_MASTER) return null;
-      for (var k = 0; k < m.elements.length; k++) { var me = fixEl(m.elements[k], true); if (!me || ids[me.id]) return null; ids[me.id] = true; masterEls.push(me); if (styled(me)) anyStyle = true; }
+      for (var k = 0; k < m.elements.length; k++) { if (m.elements[k] && typeof m.elements[k] === "object" && has(m.elements[k], "ph")) return null; var me = fixEl(m.elements[k], true); if (!me || ids[me.id]) return null; ids[me.id] = true; masterEls.push(me); if (styled(me)) anyStyle = true; }
     }
     for (var i = 0; i < d.slides.length; i++) {
       var s = d.slides[i];
@@ -160,10 +161,16 @@
       if (layKeys().indexOf(key) < 0 || !layOk(slot) || slot < 0 || slot >= LAYOUTS[key].items.length || !fields || typeof fields !== "object") return null;
       var n = copy(d), old = slotOf(d, key, slot), nw = {}, any = false;
       LAY_FIELDS.forEach(function (f) { nw[f] = old[f]; if (has(fields, f)) { var v = Math.round(Number(fields[f])); if (!isFinite(v)) v = old[f]; nw[f] = Math.min(LAY_LIM[f][1], Math.max(LAY_LIM[f][0], v)); } if (nw[f] !== old[f]) any = true; });
+      // The slot must fit on the slide the way an item does (validate would otherwise clamp the item and break the equality rule): size first, then position.
+      nw.w = Math.min(nw.w, W); nw.h = Math.min(nw.h, H); nw.x = Math.min(nw.x, W - nw.w); nw.y = Math.min(nw.y, H - nw.h);
+      any = LAY_FIELDS.some(function (f) { return nw[f] !== old[f]; });
       if (!any) return null;
       n.lays = n.lays || {}; var arr = n.lays[key] = (n.lays[key] || []).slice(); while (arr.length <= slot) arr.push({}); arr[slot] = Object.assign({}, arr[slot]);
       LAY_FIELDS.forEach(function (f) { if (nw[f] === LAYOUTS[key].items[slot][f]) delete arr[slot][f]; else arr[slot][f] = nw[f]; });
       n.slides.forEach(function (s) { if (s.lay !== key) return; s.elements.forEach(function (e) { if (e.ph === slot) LAY_FIELDS.forEach(function (f) { if (e[f] === old[f]) e[f] = nw[f]; }); }); });
+      // Back to the built-in values leaves no stored override: empty entries are removed, and with them the layout key and the lays object.
+      if (arr.every(function (o) { return !Object.keys(o).length; })) delete n.lays[key];
+      if (!Object.keys(n.lays).length) delete n.lays;
       return validate(n);
     },
     addSlide: function (d, at, layout) { if (d.slides.length >= MAX_SLIDES) return null; var n = copy(d), s = newSlide(layout); n.slides.splice(at === undefined ? n.slides.length : at + 1, 0, s); return n; },

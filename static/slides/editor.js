@@ -278,6 +278,8 @@
     var n = S.ops.setLayoutSlot(H.deck, key, slot, f); if (!n) { $("ly-status").textContent = "Nothing changed: the values are the same or out of range."; return; }
     if (!apply(n, "Layout item edited. Linked slides follow except values changed on the slide.")) return;
     $("ly-status").textContent = "Layout updated. " + linked + " linked item(s) found; " + kept + " of them have a value changed on the slide, and those values were kept.";
+    var got = S.layoutSlot(H.deck, key, slot), adj = LYF.filter(function (k) { return got && got[k] !== f[k]; });
+    if (adj.length) $("ly-status").textContent += " Adjusted to fit the slide: " + adj.map(function (k) { return k + " " + got[k]; }).join(", ") + ".";
     lyFill();
   });
   $("sl-unlink").addEventListener("click", function () { var n = S.ops.unlinkSlide(H.deck, cur); if (!n) { status.textContent = "This slide is not linked to a layout."; return; } apply(n, "Slide unlinked from its layout. It keeps what it shows."); });

@@ -40,12 +40,18 @@ let C = S.ops.setLayoutSlot(E, "title", 0, { y: 120 }); C = S.ops.setLayoutSlot(
 ok("an untouched field follows every layout edit", C.slides[2].elements[0].y === 100 && J(C.lays.title[0]) === J({ y: 100, size: 60 }));
 // editing a layout back to built-in drops the override entry
 let R = S.ops.setLayoutSlot(E, "title", 0, { size: 54, y: 170 });
-ok("editing back to the built-in values removes the stored override and linked items follow", R.slides[2].elements[0].size === 54 && R.slides[2].elements[0].y === 170 && J(R.lays.title) === J([{}]) );
+ok("editing back to the built-in values removes the stored override entirely (no empty entry) and linked items follow", R.slides[2].elements[0].size === 54 && R.slides[2].elements[0].y === 170 && R.lays === undefined && R.v === 9 && J(S.validate(R)) === J(R));
+ok("with no lays and no linked slide the deck drops below v9 again", (() => { const x = S.ops.unlinkSlide(R, 2); return x.v < 9 && x.lays === undefined; })());
+ok("an empty override entry in a file is accepted without data loss and not kept", (() => { const x = JSON.parse(J(E)); x.lays.title = [{}, {}]; const v = S.validate(x); return v && v.lays === undefined; })());
 ok("no change returns null; bad key and slot return null", S.ops.setLayoutSlot(L, "title", 0, { size: 54 }) === null && S.ops.setLayoutSlot(L, "blank", 0, { size: 9 }) === null && S.ops.setLayoutSlot(L, "title", 7, { size: 9 }) === null);
 ok("values are clamped to the limits", S.ops.setLayoutSlot(L, "title", 0, { size: 999 }).slides[2].elements[0].size === 120);
 // geometry that does not fit: validate clamps x so the item stays on the slide
 let G = S.ops.setLayoutSlot(L, "title", 0, { x: 960 });
-ok("a position that would leave the slide is clamped, not lost", G && G.slides[2].elements[0].x <= 960 - G.slides[2].elements[0].w);
+ok("a slot position that would leave the slide is clamped in the layout itself, so the item equals the layout", G && S.layoutSlot(G, "title", 0).x === 160 && G.slides[2].elements[0].x === 160 && J(G.lays.title[0]) === J({ x: 160 }));
+let G2 = S.ops.setLayoutSlot(G, "title", 0, { x: 100 });
+ok("so the linked item still follows the next layout edit after a clamp", G2.slides[2].elements[0].x === 100);
+let G3 = S.ops.setLayoutSlot(L, "title", 0, { w: 960, h: 540 });
+ok("a slot as big as the slide is allowed, and one larger is clamped to the slide", G3 && S.layoutSlot(G3, "title", 0).w === 960 && G3.slides[2].elements[0].w === 960 && S.ops.setLayoutSlot(L, "title", 0, { w: 5000 }).slides[2].elements[0].w === 960);
 // unlink
 let U = S.ops.unlinkSlide(E, 2);
 ok("unlink keeps the values and drops lay and ph", U.slides[2].elements[0].size === 60 && !U.slides[2].lay && U.slides[2].elements.every((e) => e.ph === undefined));
@@ -59,6 +65,8 @@ let DE = S.ops.duplicateElement(E, 2, E.slides[2].elements[0].id);
 ok("a duplicated placeholder item is an ordinary item (no ph)", DE.deck.slides[2].elements[1].ph === undefined && DE.deck.slides[2].elements.length === 3 && S.validate(DE.deck));
 // refusals (never silently drop linkage)
 const m = (f) => { const x = JSON.parse(J(E)); f(x); return S.validate(x); };
+ok("a hand-edited slot that does not fit the slide is refused", m((x) => { x.lays.title[0].x = 500; x.lays.title[0].w = 800; }) === null);
+ok("a master item with ph is refused", (() => { const x = JSON.parse(J(E)); x.master = { elements: [{ id: "m1", type: "text", x: 10, y: 10, w: 100, h: 50, fill: "theme", text: "a", size: 20, ph: 0 }] }; return S.validate(x) === null; })());
 ok("unknown layout key on a slide is refused", m((x) => { x.slides[2].lay = "wide"; }) === null);
 ok("a blank layout link is refused", m((x) => { x.slides[2].lay = "blank"; }) === null);
 ok("ph without lay is refused", m((x) => { delete x.slides[2].lay; }) === null);
@@ -72,5 +80,16 @@ ok("version 10 is still refused", m((x) => { x.v = 10; }) === null);
 ok("lays alone (no slide linked) keeps version 9 so older code refuses it", (() => { const x = S.ops.unlinkSlide(E, 2); return x.v === 9 && x.lays; })());
 // theme, master and animation stay intact on a linked slide
 let T = S.ops.setTheme(E, "dark"); ok("theme change keeps links and layouts", T.slides[2].lay === "title" && T.lays && S.validate(T) && T.v === 9);
-console.log(`${n - bad}/${n} layout rows passed`);
-process.exit(bad ? 1 : 0);
+// export, import and PDF of a linked deck
+const raw = J(E), lr = S.loadDeck(raw);
+ok("Export text of a linked deck loads back as the same deck (links and layout edit intact), readable", !lr.unreadable && J(lr.deck) === J(E) && lr.deck.v === 9);
+ok("a damaged v9 deck (ph out of range) is unreadable and its text is kept, never blanked", (() => { const x = JSON.parse(raw); x.slides[2].elements[0].ph = 9; const t = J(x), r = S.loadDeck(t); return r.unreadable && r.raw === t; })());
+const path = require("path"), PL = require(path.join(__dirname, "../../static/pdf/vendor/pdf-lib.min.js")), P = require("../../static/slides/pdf.js");
+(async () => {
+  const bytes = await P.build(PL, S, E), doc = await PL.PDFDocument.load(bytes);
+  ok("PDF of a deck with a linked slide builds one page per slide", doc.getPageCount() === E.slides.length);
+  const bytes2 = await P.build(PL, S, U), doc2 = await PL.PDFDocument.load(bytes2);
+  ok("PDF of the same deck after unlink builds the same page count", doc2.getPageCount() === U.slides.length);
+  console.log(`${n - bad}/${n} layout rows passed`);
+  process.exit(bad ? 1 : 0);
+})();
