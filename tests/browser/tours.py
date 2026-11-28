@@ -351,6 +351,7 @@ def register(g):
     register_drive_link_fail(g)
     register_drive_link_stale(g)
     register_sheets_new_formulas(g)
+    register_sheets_batch8(g)
     register_slides_find(g)
     register_slides_paste(g)
     register_slides_align(g)
@@ -6743,6 +6744,36 @@ def register_sheets_new_formulas(g):
             t.step("HLOOKUP result after leaving the cell: B6 shows 5", lambda: (pg.click('input[data-addr="D1"]'), pg.wait_for_timeout(400)), expect=lambda: val("B6") == "5", wait=1500)
         run_tour(ctx, "sheets_new_formulas", body, notes="Headless Chromium 390x844 emulated. IFS, SWITCH and HLOOKUP typed into the real Sheets page.")
     g["DRILLS"]["tour_sheets_new_formulas"] = tour
+
+
+def register_sheets_batch8(g):
+    """Formulas typed by hand into the real Sheets page at phone width: REPLACE, SEARCH, GCD, EVEN, XOR, PI, plus ASIN(2) as an error."""
+    APP = g["APP"]
+
+    def tour(ctx):
+        def body(t, pg):
+            pg.on("pageerror", lambda e: print("PAGEERROR", str(e)[:300]))
+            pg.goto(APP + "/sheets/")
+            pg.evaluate("localStorage.clear()")
+            pg.goto(APP + "/sheets/")
+            pg.wait_for_selector("#sheet-root input", timeout=15000)
+            val = lambda a: pg.input_value('input[data-addr="%s"]' % a)
+            def typ(addr, text):
+                pg.click('input[data-addr="%s"]' % addr); pg.fill('input[data-addr="%s"]' % addr, text); pg.press('input[data-addr="%s"]' % addr, "Tab"); pg.wait_for_timeout(250)
+            def snap(name):
+                out = os.environ.get("DRILL_VIDEO", "") or "/tmp"
+                pg.evaluate("() => { const c = document.getElementById('__cap'); if (c) c.style.display = 'none'; const d = document.getElementById('__dot'); if (d) d.style.display = 'none'; document.querySelector('#sheet-root').scrollIntoView({block: 'start'}); document.querySelectorAll('#sheet-root *').forEach((e) => { if (e.scrollTop) e.scrollTop = 0; }); }"); pg.locator('input[data-addr="B1"]').scroll_into_view_if_needed(); pg.evaluate("() => document.querySelector('input[data-addr=B1]').scrollIntoView({block: 'center'})"); pg.wait_for_timeout(700)
+                pg.screenshot(path=os.path.join(out, name + ".png"))
+                pg.evaluate("() => { const c = document.getElementById('__cap'); if (c) c.style.display = ''; const d = document.getElementById('__dot'); if (d) d.style.display = ''; }")
+            rows = [("B1", '=REPLACE("Spreadsheets",1,6,"Bed")', "Bedsheets"), ("B2", '=SEARCH("wood","How much wood can a woodchuck chuck",14)', "21"),
+                    ("B3", "=GCD(24,96,18)", "6"), ("B4", "=EVEN(-0.6)", "-2"), ("B5", "=XOR(TRUE,FALSE,TRUE)", "false"), ("B6", "=ASIN(2)", "#VALUE!"), ("B7", "=CONCATENATE(\"a\",1,\"b\")", "a1b")]
+            pg.goto(APP + "/sheets/"); pg.wait_for_selector("#sheet-root input", timeout=15000)
+            for addr, f, _ in rows:
+                typ(addr, f)
+            pg.click('input[data-addr="D1"]'); pg.wait_for_timeout(400)
+            t.step("Seven formulas typed by hand into B1 to B7: REPLACE, SEARCH, GCD, EVEN, XOR, ASIN(2), CONCATENATE", lambda: snap("sheets_batch8_390"), expect=lambda: [val(a) for a, _, _ in rows] == [w for _, _, w in rows], wait=800)
+        run_tour(ctx, "sheets_batch8", body, notes="Headless Chromium 390x844 emulated. Formulas typed into the real Sheets page. Node tests cover edge cases; this is one run.")
+    g["DRILLS"]["tour_sheets_batch8"] = tour
 
 
 def register_drive_link_stale(g):

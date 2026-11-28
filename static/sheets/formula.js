@@ -733,7 +733,95 @@
   FNX.ISTEXT = function (a) { var v = one(a[0]); return v === undefined ? new Err("#VALUE!") : typeof v === "string" && v !== ""; };
   FNX.ISBLANK = function (a) { var v = one(a[0]); return v === undefined ? new Err("#VALUE!") : v === null || v === ""; };
   FNX.ISERROR = function (a) { var v = one(a[0]); return v === undefined ? new Err("#VALUE!") : isErr(v); };
-  var ARITY = { HLOOKUP: [3, 4], IFS: [2, 40], SWITCH: [3, 40], SUMIFS: [3, 21], COUNTIFS: [2, 20], AVERAGEIFS: [3, 21], SUMPRODUCT: [1, 30], COUNTUNIQUE: [1, 30], TEXTJOIN: [3, 30], IFNA: [2, 2], EXACT: [2, 2], PROPER: [1, 1], REPT: [2, 2], CHOOSE: [2, 30], NA: [0, 0], XLOOKUP: [3, 6], MAXIFS: [3, 21], MINIFS: [3, 21], ROUNDUP: [1, 2], ROUNDDOWN: [1, 2], TRUNC: [1, 2], SIGN: [1, 1], PRODUCT: [1, 99], LARGE: [2, 2], SMALL: [2, 2], ISNUMBER: [1, 1], ISTEXT: [1, 1], ISBLANK: [1, 1], ISERROR: [1, 1], IFERROR: [1, 2], MEDIAN: [1, 99], STDEV: [1, 99], COUNTA: [1, 99], COUNTBLANK: [1, 99], MOD: [2, 2], POWER: [2, 2], SQRT: [1, 1], INT: [1, 1], FLOOR: [1, 2], CEILING: [1, 2], DATE: [3, 3], YEAR: [1, 1], MONTH: [1, 1], DAY: [1, 1], WEEKDAY: [1, 2], LEFT: [1, 2], RIGHT: [1, 2], MID: [3, 3], TRIM: [1, 1], SUBSTITUTE: [3, 4], FIND: [2, 3], INDEX: [2, 3], MATCH: [2, 3], VLOOKUP: [3, 4], SUMIF: [2, 3], COUNTIF: [2, 2], AVERAGEIF: [2, 3], SUM: [1, 99], AVERAGE: [1, 99], MIN: [1, 99], MAX: [1, 99], COUNT: [1, 99], ABS: [1, 1], ROUND: [1, 2], LEN: [1, 1], UPPER: [1, 1], LOWER: [1, 1], CONCAT: [1, 99], NOT: [1, 1], AND: [1, 99], OR: [1, 99], IF: [2, 3] };
+
+  /* ---- batch 1 of added functions: maths, angles, a few text functions, XOR ----
+   * Argument order and the written rules were read from the Google Docs Editors Help pages for REPLACE (3098247), SEARCH (3094154), ATAN2 (3093468),
+   * GCD (3093489), LCM (3093421), FACT (3093412), EVEN (3093409), ODD (3093499), XOR (9116491), CHAR (3094120), CODE (3094122), SUMSQ (3093714),
+   * CONCATENATE (3094123) and DIVIDE, which says it equals QUOTIENT (3093973). Each page is https://support.google.com/docs/answer/<number>?hl=en (read 2026-11-28). Those pages do not give domain errors, negative inputs, size limits
+   * or wildcard rules. The choices below are this engine's own, not checked against Google's or Excel's engine, and the engine has only the error
+   * codes it already has: a bad input is #VALUE! (a division by zero is #DIV/0!). Not a conformance claim.
+   * - A range given where one value is wanted is #VALUE! unless it holds one cell. A range is read left to right, row by row.
+   * - Angles are radians. PI is the full double, not 9 places. ASIN and ACOS outside -1..1 are #VALUE!. ATAN2(x, y) with both 0 is #DIV/0!.
+   * - REPLACE(text, position, length, new_text): position and length are cut to whole numbers; position below 1 or length below 0 is #VALUE!;
+   *   a position past the end appends. Counts are UTF-16 units like LEN.
+   * - SEARCH(search_for, text, [start]): ignores case (each window of the text the length of search_for is lower-cased and compared, positions are in
+   *   the original text; so a dotted capital I matches nothing that is a plain i), no wildcards, start defaults to 1; a start below 1 or past the end, or no match, is #VALUE!;
+   *   empty search_for finds the start.
+   * - CHAR(n): n cut to a whole number; 1 to 1114111 except the surrogate range, else #VALUE!. CODE gives the first code point; empty text is #VALUE!.
+   * - QUOTIENT(a, b): the whole part of a / b cut toward 0; a quotient too large to hold (1E300 / 1E-300) is #VALUE!. GCD and LCM: values cut to whole numbers, a negative one is #VALUE!, text and blanks
+   *   in a range are skipped (so GCD over only text cells is 0, while LCM and XOR over only text cells are #VALUE!: GCD starts from 0, the others have no value to use), a result beyond 9007199254740991 is #VALUE!; GCD of only zeros is 0, an LCM including 0 is 0.
+   * - FACT: n cut to a whole number; below 0 or above 170 is #VALUE!. SUMSQ skips text and blanks in ranges; a direct text argument must be numeric.
+   * - EVEN and ODD round away from 0 to the next even or odd whole number (EVEN(0) is 0, ODD(0) is 1).
+   * - XOR: TRUE when an odd number of its logical values are true. In a range only numbers and booleans count; text and blanks are skipped. With no
+   *   logical value at all it is #VALUE!. */
+  function sn(v) { var x = one(v); return x === undefined ? new Err("#VALUE!") : num(x); }
+  function stx(v) { var x = one(v); return x === undefined ? new Err("#VALUE!") : text(x); }
+  function whole(a, i, dflt) { if (i >= a.length) return dflt; var x = sn(a[i]); return isErr(x) ? x : Math.trunc(x); }
+  function fin(v) { return isFinite(v) ? v : new Err("#VALUE!"); }
+  function trig(f, dom) { return function (a) { var x = sn(a[0]); if (isErr(x)) return x; if (dom && (x < -1 || x > 1)) return new Err("#VALUE!"); return fin(f(x)); }; }
+  FNX.PI = function () { return Math.PI; };
+  FNX.SIN = trig(Math.sin); FNX.COS = trig(Math.cos); FNX.TAN = trig(Math.tan); FNX.ATAN = trig(Math.atan);
+  FNX.ASIN = trig(Math.asin, true); FNX.ACOS = trig(Math.acos, true);
+  FNX.DEGREES = trig(function (x) { return x * 180 / Math.PI; }); FNX.RADIANS = trig(function (x) { return x * Math.PI / 180; });
+  FNX.ATAN2 = function (a) { var x = sn(a[0]), y = sn(a[1]); if (isErr(x)) return x; if (isErr(y)) return y; if (x === 0 && y === 0) return new Err("#DIV/0!"); return Math.atan2(y, x); };
+  FNX.REPLACE = function (a) {
+    var t = stx(a[0]), n = whole(a, 1), l = whole(a, 2), r = stx(a[3]);
+    if (isErr(t)) return t; if (isErr(n)) return n; if (isErr(l)) return l; if (isErr(r)) return r;
+    if (n < 1 || l < 0) return new Err("#VALUE!");
+    var out = t.slice(0, n - 1) + r + t.slice(n - 1 + l);
+    return out.length > MAX_STR ? new Err("#VALUE!") : out;
+  };
+  FNX.SEARCH = function (a) {
+    var f = stx(a[0]), t = stx(a[1]), st = whole(a, 2, 1);
+    if (isErr(f)) return f; if (isErr(t)) return t; if (isErr(st)) return st;
+    if (st < 1 || st > t.length) return new Err("#VALUE!");
+    var fl = f.toLowerCase();  // compared window by window of the original text, so a letter that lower-cases to two units (the dotted capital I) cannot shift the position
+    for (var i = st - 1; i + f.length <= t.length; i++) if (t.slice(i, i + f.length).toLowerCase() === fl) return i + 1;
+    return new Err("#VALUE!");
+  };
+  FNX.CONCATENATE = function (a) {
+    var o = "";
+    for (var i = 0; i < a.length; i++) {
+      var items = Array.isArray(a[i]) ? a[i] : [a[i]];
+      for (var j = 0; j < items.length; j++) { var s = text(items[j]); if (isErr(s)) return s; o += s; if (o.length > MAX_STR) return new Err("#VALUE!"); }
+    }
+    return o;
+  };
+  FNX.CHAR = function (a) { var n = whole(a, 0); if (isErr(n)) return n; if (n < 1 || n > 1114111 || (n >= 55296 && n <= 57343)) return new Err("#VALUE!"); return String.fromCodePoint(n); };
+  FNX.CODE = function (a) { var s = stx(a[0]); if (isErr(s)) return s; return s === "" ? new Err("#VALUE!") : s.codePointAt(0); };
+  FNX.QUOTIENT = function (a) { var x = sn(a[0]), y = sn(a[1]); if (isErr(x)) return x; if (isErr(y)) return y; if (y === 0) return new Err("#DIV/0!"); return fin(Math.trunc(x / y) + 0); };
+  function wholes(a) {  // whole numbers from values and ranges, for GCD and LCM; an error, or a negative number, stops it
+    var out = [];
+    for (var i = 0; i < a.length; i++) {
+      var items = Array.isArray(a[i]) ? a[i] : null;
+      if (items) { for (var j = 0; j < items.length; j++) { if (isErr(items[j])) return items[j]; if (typeof items[j] === "number") out.push(Math.trunc(items[j])); } }
+      else { var n = num(a[i]); if (isErr(n)) return n; out.push(Math.trunc(n)); }
+    }
+    for (var k = 0; k < out.length; k++) if (out[k] < 0 || out[k] > 9007199254740991) return new Err("#VALUE!");
+    return out;
+  }
+  function gcd2(x, y) { while (y) { var t = x % y; x = y; y = t; } return x; }
+  FNX.GCD = function (a) { var w = wholes(a); if (isErr(w)) return w; return w.reduce(gcd2, 0); };
+  FNX.LCM = function (a) {
+    var w = wholes(a); if (isErr(w)) return w;
+    var l = 1;
+    for (var i = 0; i < w.length; i++) { if (w[i] === 0) return 0; l = l / gcd2(l, w[i]) * w[i]; if (l > 9007199254740991) return new Err("#VALUE!"); }
+    return w.length ? l : new Err("#VALUE!");
+  };
+  FNX.FACT = function (a) { var n = whole(a, 0); if (isErr(n)) return n; if (n < 0 || n > 170) return new Err("#VALUE!"); var f = 1; for (var i = 2; i <= n; i++) f *= i; return f; };
+  FNX.SUMSQ = function (a) { var n = flatten(a); if (isErr(n)) return n; return fin(n.reduce(function (s, x) { return s + x * x; }, 0)); };
+  FNX.EVEN = function (a) { var x = sn(a[0]); if (isErr(x)) return x; var m = Math.ceil(Math.abs(x) / 2) * 2; return x < 0 ? -m : m; };
+  FNX.ODD = function (a) { var x = sn(a[0]); if (isErr(x)) return x; var m = Math.abs(x) <= 1 ? 1 : 2 * Math.ceil((Math.abs(x) - 1) / 2) + 1; return x < 0 ? -m : m; };
+  FNX.XOR = function (a) {
+    var count = 0, seen = 0;
+    for (var i = 0; i < a.length; i++) {
+      if (Array.isArray(a[i])) {
+        for (var j = 0; j < a[i].length; j++) { var c = a[i][j]; if (isErr(c)) return c; if (typeof c === "number" || typeof c === "boolean") { seen++; if (c) count++; } }
+      } else { var t = truth(a[i]); if (isErr(t)) return t; seen++; if (t) count++; }
+    }
+    return seen ? count % 2 === 1 : new Err("#VALUE!");
+  };
+  var ARITY = { PI: [0, 0], SIN: [1, 1], COS: [1, 1], TAN: [1, 1], ATAN: [1, 1], ASIN: [1, 1], ACOS: [1, 1], DEGREES: [1, 1], RADIANS: [1, 1], ATAN2: [2, 2], REPLACE: [4, 4], SEARCH: [2, 3], CONCATENATE: [1, 99], CHAR: [1, 1], CODE: [1, 1], QUOTIENT: [2, 2], GCD: [1, 99], LCM: [1, 99], FACT: [1, 1], SUMSQ: [1, 99], EVEN: [1, 1], ODD: [1, 1], XOR: [1, 99], HLOOKUP: [3, 4], IFS: [2, 40], SWITCH: [3, 40], SUMIFS: [3, 21], COUNTIFS: [2, 20], AVERAGEIFS: [3, 21], SUMPRODUCT: [1, 30], COUNTUNIQUE: [1, 30], TEXTJOIN: [3, 30], IFNA: [2, 2], EXACT: [2, 2], PROPER: [1, 1], REPT: [2, 2], CHOOSE: [2, 30], NA: [0, 0], XLOOKUP: [3, 6], MAXIFS: [3, 21], MINIFS: [3, 21], ROUNDUP: [1, 2], ROUNDDOWN: [1, 2], TRUNC: [1, 2], SIGN: [1, 1], PRODUCT: [1, 99], LARGE: [2, 2], SMALL: [2, 2], ISNUMBER: [1, 1], ISTEXT: [1, 1], ISBLANK: [1, 1], ISERROR: [1, 1], IFERROR: [1, 2], MEDIAN: [1, 99], STDEV: [1, 99], COUNTA: [1, 99], COUNTBLANK: [1, 99], MOD: [2, 2], POWER: [2, 2], SQRT: [1, 1], INT: [1, 1], FLOOR: [1, 2], CEILING: [1, 2], DATE: [3, 3], YEAR: [1, 1], MONTH: [1, 1], DAY: [1, 1], WEEKDAY: [1, 2], LEFT: [1, 2], RIGHT: [1, 2], MID: [3, 3], TRIM: [1, 1], SUBSTITUTE: [3, 4], FIND: [2, 3], INDEX: [2, 3], MATCH: [2, 3], VLOOKUP: [3, 4], SUMIF: [2, 3], COUNTIF: [2, 2], AVERAGEIF: [2, 3], SUM: [1, 99], AVERAGE: [1, 99], MIN: [1, 99], MAX: [1, 99], COUNT: [1, 99], ABS: [1, 1], ROUND: [1, 2], LEN: [1, 1], UPPER: [1, 1], LOWER: [1, 1], CONCAT: [1, 99], NOT: [1, 1], AND: [1, 99], OR: [1, 99], IF: [2, 3] };
   function truth(v) {
     if (isErr(v)) return v;
     if (typeof v === "boolean") return v;

@@ -291,3 +291,15 @@ def test_sheets_second_sort_key_passes_in_node():
     )
     assert r.returncode == 0, r.stdout + r.stderr
     assert "10/10 sheets second sort key rows passed" in r.stdout
+
+
+def test_formula_batch8_passes_in_node():
+    assert shutil.which("node"), "node is required to run the formula table"
+    r = subprocess.run(  # noqa: S603 - fixed argv, repo-owned script
+        [shutil.which("node"), str(ROOT / "tests/js/formula_batch8.js")],
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert "106/106 rows passed" in r.stdout
