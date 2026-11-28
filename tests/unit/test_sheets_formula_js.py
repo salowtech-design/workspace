@@ -315,4 +315,4 @@ def test_formula_batch9_passes_in_node():
         timeout=30,
     )
     assert r.returncode == 0, r.stdout + r.stderr
-    assert "41/41 rows passed" in r.stdout
+    assert "50/50 rows passed" in r.stdout
