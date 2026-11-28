@@ -8,7 +8,7 @@ For every such request (GET and POST) it asserts:
      counts) is unchanged, except tables that hold throttle counters, sessions and audit or security logs;
   4. control: A herself reaches 200 with the marker visible on the GET detail page of eight kinds only (folder, list,
      project, event, group chat, post, certificate, automation). Not controlled by a GET: the DM, file, task, project task,
-     milestone and notification ids; those are controlled by the owner-success mutations in the action test below.
+     milestone and notification ids; those are NOT controlled by a GET; DM, milestone and notification have no owner control at all (the mutation test below does not cover them).
 The requests above are mostly EMPTY POSTs, which mostly stop at form validation. Valid-payload mutations are in
 test_valid_mutation_by_owner_succeeds_and_by_unrelated_user_changes_nothing.
 Directory: the profile and team GET pages are intended to show colleagues, so only a marker there is allowed on any method of the profile page itself; the
@@ -243,9 +243,15 @@ ACTION_KEYS = ["task-delete", "task-done", "task-edit", "list-rename", "list-del
 
 @pytest.mark.parametrize("key", ACTION_KEYS)
 def test_valid_mutation_by_owner_succeeds_and_by_unrelated_user_changes_nothing(world, key):
-    """Owner first, to show the payload is valid and the route acts (a snapshot row changes); then, in a fresh state,
-    the unrelated user B sends the same valid payload and nothing changes. 'Changes' means any field of any row outside
-    throttle, session and audit/log tables; this is not a check of WHICH row changed or of every route."""
+    """In one seeded state, per route: the unrelated user B sends a valid payload FIRST and nothing changes; then the owner
+    sends the same payload and at least one row changes, which shows the payload is valid and the route acts. 'Changes'
+    means any field of any row outside the excluded tables; it does not check WHICH row changed. Fifteen routes are
+    controlled this way (task delete, done, edit; list rename, delete; project rename; project task delete; Drive file
+    rename, folder trash, file share; event cancel; group chat rename and send; automation toggle; directory assign
+    manager, whose owner role is an admin, so B's denial there is a role result, not an ownership result). The DM,
+    milestone and notification ids are NOT controlled by any owner mutation here. Not tested: move, restore, respond,
+    milestone edit, certificate revoke, post comment. last_activity and last_login are stripped from every model's rows
+    before comparing, so a change to only those fields is invisible."""
     w = world
     url, payload = _actions(w)[key]
     base = _snapshot()
