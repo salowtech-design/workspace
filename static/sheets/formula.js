@@ -830,6 +830,28 @@
   FNX.SUMSQ = function (a) { var n = flatten(a); if (isErr(n)) return n; return fin(n.reduce(function (s, x) { return s + x * x; }, 0)); };
   FNX.EVEN = function (a) { var x = sn(a[0]); if (isErr(x)) return x; var m = Math.ceil(Math.abs(x) / 2) * 2; return x < 0 ? -m : m; };
   FNX.ODD = function (a) { var x = sn(a[0]); if (isErr(x)) return x; var m = Math.abs(x) <= 1 ? 1 : 2 * Math.ceil((Math.abs(x) - 1) / 2) + 1; return x < 0 ? -m : m; };
+  /* SORT(range, [sort_column], [is_ascending]): one column only (this engine's first slice of array results). Google help 3093150.
+   * Local choices: sort_column must be 1 when given; is_ascending is TRUE/FALSE or a number (0 is FALSE), and defaults to TRUE when left out;
+   * numbers come before text, then booleans, text is compared without case, blanks always go last, equal keys keep their order; the first error in the range is returned. */
+  FNX.SORT = function (a) {
+    var r = a[0];
+    if (!Array.isArray(r) || r.cols !== 1) return new Err("#VALUE!");
+    if (a.length > 1) { var sc1 = a[1]; if (isErr(sc1)) return sc1; if (sc1 !== 1) return new Err("#VALUE!"); }
+    var asc = true;
+    if (a.length > 2) { var w = a[2]; if (isErr(w)) return w; if (typeof w === "boolean") asc = w; else if (typeof w === "number") asc = w !== 0; else return new Err("#VALUE!"); }
+    if (meter && meter(r.length * 12)) throw new Err("#LIMIT!");
+    var it = [];
+    for (var i = 0; i < r.length; i++) { if (isErr(r[i])) return r[i]; it.push({ v: r[i], i: i, k: kind(r[i]) }); }
+    var rank = { n: 0, t: 1, b: 2 };
+    it.sort(function (x, y) {
+      if (x.k === null || y.k === null) return x.k === y.k ? x.i - y.i : x.k === null ? 1 : -1;
+      if (x.k !== y.k) return (rank[x.k] - rank[y.k]) * (asc ? 1 : -1) || x.i - y.i;
+      var c = x.k === "b" ? (x.v === y.v ? 0 : x.v ? 1 : -1) : cmpSame(x.v, y.v);
+      return c ? (asc ? c : -c) : x.i - y.i;
+    });
+    var out = it.map(function (e) { return e.v; }); out.rows = r.length; out.cols = 1;
+    return out;
+  };
   FNX.XOR = function (a) {
     var count = 0, seen = 0;
     for (var i = 0; i < a.length; i++) {
@@ -913,7 +935,7 @@
   FNX.CORREL = function (a) { var P = pairs(a); if (isErr(P)) return P; var m = moments(P); if (m.constX || m.constY) return new Err("#DIV/0!"); return fin2(m.sxy / Math.sqrt(m.sxx * m.syy)); };
   FNX.SLOPE = function (a) { var P = pairs(a); if (isErr(P)) return P; var m = moments(P); if (m.constX) return new Err("#DIV/0!"); return fin2(m.sxy / m.sxx); };
   FNX.INTERCEPT = function (a) { var P = pairs(a); if (isErr(P)) return P; var m = moments(P); if (m.constX) return new Err("#DIV/0!"); return fin2(m.my - m.sxy / m.sxx * m.mx); };
-  var ARITY = { VAR: [1, 99], VARP: [1, 99], STDEVP: [1, 99], MODE: [1, 99], RANK: [2, 3], CORREL: [2, 2], SLOPE: [2, 2], INTERCEPT: [2, 2], PI: [0, 0], SIN: [1, 1], COS: [1, 1], TAN: [1, 1], ATAN: [1, 1], ASIN: [1, 1], ACOS: [1, 1], DEGREES: [1, 1], RADIANS: [1, 1], ATAN2: [2, 2], REPLACE: [4, 4], SEARCH: [2, 3], CONCATENATE: [1, 99], CHAR: [1, 1], CODE: [1, 1], QUOTIENT: [2, 2], GCD: [1, 99], LCM: [1, 99], FACT: [1, 1], SUMSQ: [1, 99], EVEN: [1, 1], ODD: [1, 1], XOR: [1, 99], HLOOKUP: [3, 4], IFS: [2, 40], SWITCH: [3, 40], SUMIFS: [3, 21], COUNTIFS: [2, 20], AVERAGEIFS: [3, 21], SUMPRODUCT: [1, 30], COUNTUNIQUE: [1, 30], TEXTJOIN: [3, 30], IFNA: [2, 2], EXACT: [2, 2], PROPER: [1, 1], REPT: [2, 2], CHOOSE: [2, 30], NA: [0, 0], XLOOKUP: [3, 6], MAXIFS: [3, 21], MINIFS: [3, 21], ROUNDUP: [1, 2], ROUNDDOWN: [1, 2], TRUNC: [1, 2], SIGN: [1, 1], PRODUCT: [1, 99], LARGE: [2, 2], SMALL: [2, 2], ISNUMBER: [1, 1], ISTEXT: [1, 1], ISBLANK: [1, 1], ISERROR: [1, 1], IFERROR: [1, 2], MEDIAN: [1, 99], STDEV: [1, 99], COUNTA: [1, 99], COUNTBLANK: [1, 99], MOD: [2, 2], POWER: [2, 2], SQRT: [1, 1], INT: [1, 1], FLOOR: [1, 2], CEILING: [1, 2], DATE: [3, 3], YEAR: [1, 1], MONTH: [1, 1], DAY: [1, 1], WEEKDAY: [1, 2], LEFT: [1, 2], RIGHT: [1, 2], MID: [3, 3], TRIM: [1, 1], SUBSTITUTE: [3, 4], FIND: [2, 3], INDEX: [2, 3], MATCH: [2, 3], VLOOKUP: [3, 4], SUMIF: [2, 3], COUNTIF: [2, 2], AVERAGEIF: [2, 3], SUM: [1, 99], AVERAGE: [1, 99], MIN: [1, 99], MAX: [1, 99], COUNT: [1, 99], ABS: [1, 1], ROUND: [1, 2], LEN: [1, 1], UPPER: [1, 1], LOWER: [1, 1], CONCAT: [1, 99], NOT: [1, 1], AND: [1, 99], OR: [1, 99], IF: [2, 3] };
+  var ARITY = { SORT: [1, 3], VAR: [1, 99], VARP: [1, 99], STDEVP: [1, 99], MODE: [1, 99], RANK: [2, 3], CORREL: [2, 2], SLOPE: [2, 2], INTERCEPT: [2, 2], PI: [0, 0], SIN: [1, 1], COS: [1, 1], TAN: [1, 1], ATAN: [1, 1], ASIN: [1, 1], ACOS: [1, 1], DEGREES: [1, 1], RADIANS: [1, 1], ATAN2: [2, 2], REPLACE: [4, 4], SEARCH: [2, 3], CONCATENATE: [1, 99], CHAR: [1, 1], CODE: [1, 1], QUOTIENT: [2, 2], GCD: [1, 99], LCM: [1, 99], FACT: [1, 1], SUMSQ: [1, 99], EVEN: [1, 1], ODD: [1, 1], XOR: [1, 99], HLOOKUP: [3, 4], IFS: [2, 40], SWITCH: [3, 40], SUMIFS: [3, 21], COUNTIFS: [2, 20], AVERAGEIFS: [3, 21], SUMPRODUCT: [1, 30], COUNTUNIQUE: [1, 30], TEXTJOIN: [3, 30], IFNA: [2, 2], EXACT: [2, 2], PROPER: [1, 1], REPT: [2, 2], CHOOSE: [2, 30], NA: [0, 0], XLOOKUP: [3, 6], MAXIFS: [3, 21], MINIFS: [3, 21], ROUNDUP: [1, 2], ROUNDDOWN: [1, 2], TRUNC: [1, 2], SIGN: [1, 1], PRODUCT: [1, 99], LARGE: [2, 2], SMALL: [2, 2], ISNUMBER: [1, 1], ISTEXT: [1, 1], ISBLANK: [1, 1], ISERROR: [1, 1], IFERROR: [1, 2], MEDIAN: [1, 99], STDEV: [1, 99], COUNTA: [1, 99], COUNTBLANK: [1, 99], MOD: [2, 2], POWER: [2, 2], SQRT: [1, 1], INT: [1, 1], FLOOR: [1, 2], CEILING: [1, 2], DATE: [3, 3], YEAR: [1, 1], MONTH: [1, 1], DAY: [1, 1], WEEKDAY: [1, 2], LEFT: [1, 2], RIGHT: [1, 2], MID: [3, 3], TRIM: [1, 1], SUBSTITUTE: [3, 4], FIND: [2, 3], INDEX: [2, 3], MATCH: [2, 3], VLOOKUP: [3, 4], SUMIF: [2, 3], COUNTIF: [2, 2], AVERAGEIF: [2, 3], SUM: [1, 99], AVERAGE: [1, 99], MIN: [1, 99], MAX: [1, 99], COUNT: [1, 99], ABS: [1, 1], ROUND: [1, 2], LEN: [1, 1], UPPER: [1, 1], LOWER: [1, 1], CONCAT: [1, 99], NOT: [1, 1], AND: [1, 99], OR: [1, 99], IF: [2, 3] };
   function truth(v) {
     if (isErr(v)) return v;
     if (typeof v === "boolean") return v;
@@ -967,6 +989,7 @@
     function get(a) {
       if (cache[a] !== undefined) return cache[a];
       var r = raw(a);
+      if (r === null) { var ow = blockOwner(a); if (ow) return blockValue(a, ow); }
       if (typeof r !== "string" || r[0] !== "=") return (cache[a] = literal(r));
       if (sh.stack[me + "!" + a]) return new Err("#CIRC!");      // not cached: every cell on the loop reports it
       if (sh.depth >= MAX_DEPTH_EVAL) return new Err("#LIMIT!");
@@ -975,10 +998,60 @@
       try {
         if (!trees[a]) trees[a] = parse(r.slice(1));
         out = ev(trees[a]);
+        if (trees[a].n === "call" && trees[a].f === "SORT") {  // a SORT at the root of a stored formula: an anchor when its first argument is a one-column range
+          var an = anchorOf(a);
+          if (!an) out = new Err("#VALUE!");
+          else if (an.blocked) out = new Err("#REF!");
+          else if (isErr(out)) { /* the error is shown here and in the block */ }
+          else { sortArr[a] = out; out = out[0] === undefined ? null : out[0]; }
+        }
       } catch (e) { out = e instanceof Err ? e : new Err("#VALUE!"); }
       delete sh.stack[me + "!" + a]; sh.depth--;
       if (limitHits !== h0) return out;  // a work-budget stop happened inside: the answer may be wrong (for example IFERROR hid it), so it is not kept
       return (cache[a] = out);
+    }
+    // Array results (SORT only): the block under an anchor is virtual. Nothing is written into the cells. Membership comes from the formula text alone
+    // (the anchor's column and row and the height of its source range), never from evaluating, so reading an empty cell never causes a false loop.
+    var sortArr = Object.create(null), anchors = null, byCol = null;
+    function anchorShape(a) {  // {col,row,h} when the stored formula at a is SORT over a direct one-column range, else null
+      var r = raw(a); if (typeof r !== "string" || !/^=\s*SORT\s*\(/i.test(r)) return null;
+      try { if (!trees[a]) trees[a] = parse(r.slice(1)); } catch (e) { return null; }
+      var t = trees[a]; if (t.n !== "call" || t.f !== "SORT" || !t.a.length) return null;
+      var g = t.a[0]; if (g.n !== "range" && g.n !== "xrange") return null;
+      if (g.a.col !== g.b.col) return null;
+      var p = parseAddr(a); return { col: p.col, row: p.row, h: Math.abs(g.b.row - g.a.row) + 1, addr: a };
+    }
+    function anchorIndex() {
+      if (byCol) return byCol;
+      byCol = Object.create(null);
+      Object.keys(cells).forEach(function (k) {
+        var v = cells[k]; if (typeof v !== "string" || v[0] !== "=") return;
+        var sp = anchorShape(k); if (sp) (byCol[sp.col] || (byCol[sp.col] = [])).push(sp);
+      });
+      return byCol;
+    }
+    function blockOwner(a) {  // the nearest anchor above the empty cell a whose block covers it, or null
+      var ix = anchorIndex(), p = parseAddr(a), L = ix[p.col], best = null;
+      if (!L) return null;
+      for (var i = 0; i < L.length; i++) { var x = L[i]; if (x.row < p.row && p.row <= x.row + x.h - 1 && (!best || x.row > best.row)) best = x; }
+      return best;
+    }
+    function anchorOf(a) {  // the anchor record for a, with blocked set when its block runs past row 1000 or holds any stored cell
+      var sp = anchorShape(a); if (!sp) return null;
+      if (sp.row + sp.h - 1 > MAX_ROW) sp.blocked = true;
+      else for (var r2 = sp.row + 1; r2 <= sp.row + sp.h - 1 && !sp.blocked; r2++) if (cells[addr(sp.col, r2)] !== undefined) sp.blocked = true;
+      return sp;
+    }
+    function blockValue(a, ow) {
+      var av = get(ow.addr);
+      if (isErr(av)) return av.code === "#REF!" ? (cache[a] = null) : av;
+      var arr = sortArr[ow.addr]; if (!arr) return av;  // not kept (a budget stop): the anchor's own answer stands
+      var v = arr[parseAddr(a).row - ow.row]; return (cache[a] = v === undefined ? null : v);
+    }
+    function blockCells() {  // every empty address inside a block, for the CSV export
+      var out = [], ix = anchorIndex();
+      Object.keys(ix).forEach(function (c) { ix[c].forEach(function (x) { for (var r2 = x.row + 1; r2 <= Math.min(MAX_ROW, x.row + x.h - 1); r2++) { var k = addr(x.col, r2); if (cells[k] === undefined) out.push(k); } }); });
+      return out;
     }
     function cellValue(c) { var v = get(addr(c.col, c.row)); return v; }
     function ev(n) {
@@ -1079,6 +1152,7 @@
     function deps(a) {
       var r = raw(a), m = typeof r === "string" ? depsMemo[r] : null;
       if (m) return m.out;
+      if (r === null) { var ow = parseAddr(a) ? blockOwner(a) : null; if (ow) return [ow.addr]; }
       var out = deps0(a, r), seen = Object.create(null); out = out.filter(function (x) { return seen[x] ? false : (seen[x] = true); }); if (typeof r === "string" && out.length > 1000 && Object.keys(depsMemo).length < 50) depsMemo[r] = { out: out }; return out;
     }
     function deps0(a, r) {
@@ -1119,7 +1193,7 @@
       }
       return get(a);
     }
-    var self = { get: function (a) { var v = resolve(a); return v === null ? "" : v; }, raw: raw, val: resolve };
+    var self = { get: function (a) { var v = resolve(a); return v === null ? "" : v; }, raw: raw, val: resolve, blockCells: blockCells };
     if (me) sh.sheets[me] = self;
     return self;
   }

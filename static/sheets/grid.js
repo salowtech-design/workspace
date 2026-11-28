@@ -353,8 +353,8 @@
   function csvSame(snap) { var k1 = Object.keys(snap), k2 = Object.keys(cells); return k1.length === k2.length && k1.every(function (k) { return cells[k] === snap[k]; }); }
   document.getElementById("sheet-csv").addEventListener("click", function () {
     if (csvBusy) { status.textContent = "The CSV is still being calculated."; return; }
-    var snap = Object.assign({}, cells), sh = mkSheet(snap), g0 = pGen, tab0 = meta.active, keys = Object.keys(snap).filter(function (k) { var q = F.parseAddr(k); return q && q.col <= 26 && q.row <= 1000; }), vals = Object.create(null), i = 0, btn = document.getElementById("sheet-csv");
-    csvBusy = true; btn.disabled = true; btn.dataset.csv = "calculating";
+    var snap = Object.assign({}, cells), sh = mkSheet(snap), ext = Object.assign({}, snap), g0 = pGen, tab0 = meta.active, bcs = sh.blockCells(), keys = Object.keys(snap).concat(bcs).filter(function (k) { var q = F.parseAddr(k); return q && q.col <= 26 && q.row <= 1000; }), vals = Object.create(null), i = 0, btn = document.getElementById("sheet-csv");
+    bcs.forEach(function (k) { ext[k] = ""; }); csvBusy = true; btn.disabled = true; btn.dataset.csv = "calculating";
     function step() {
       if (meta.active !== tab0 || (pGen !== g0 && !csvSame(snap))) { csvBusy = false; btn.disabled = false; btn.dataset.csv = "cancelled"; status.textContent = "The sheet changed while the CSV was being calculated, so nothing was downloaded. Press Download CSV again."; return; }
       var t0 = pNow();
@@ -363,7 +363,7 @@
       csvBusy = false; btn.disabled = false; btn.dataset.csv = "done"; finish();
     }
     function finish() {
-    var r = M.toCsv(snap, F.parseAddr, function (a) { return vals[a]; }, F.isErr);
+    var r = M.toCsv(ext, F.parseAddr, function (a) { return vals[a]; }, F.isErr);
     if (!r) { status.textContent = "The sheet is empty, so nothing was downloaded."; return; }
     var u = URL.createObjectURL(new Blob([r.text], { type: "text/csv;charset=utf-8" })), l = document.createElement("a");
     l.href = u; l.download = "sheet.csv"; document.body.appendChild(l); l.click(); l.remove(); setTimeout(function () { URL.revokeObjectURL(u); }, 4000);

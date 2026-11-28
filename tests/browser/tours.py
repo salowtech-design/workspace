@@ -352,6 +352,7 @@ def register(g):
     register_drive_link_stale(g)
     register_sheets_new_formulas(g)
     register_sheets_batch8(g)
+    register_sheets_spill(g)
     register_slides_find(g)
     register_slides_paste(g)
     register_slides_align(g)
@@ -8943,3 +8944,34 @@ def register_addons_prep(g):
         json.dump(out, open("/downloads/addons_layout_check.json", "w"), indent=1)
 
     g["DRILLS"]["tour_addons_prep"] = tour
+
+
+def register_sheets_spill(g):
+    """SORT typed into the real Sheets page at phone width: the block under the anchor, a typed cell blocking it, clearing it, a source edit."""
+    APP = g["APP"]
+
+    def tour(ctx):
+        def body(t, pg):
+            pg.on("pageerror", lambda e: print("PAGEERROR", str(e)[:300]))
+            pg.goto(APP + "/sheets/")
+            pg.evaluate("localStorage.clear()")
+            pg.goto(APP + "/sheets/")
+            pg.wait_for_selector("#sheet-root input", timeout=15000)
+            val = lambda a: pg.input_value('input[data-addr="%s"]' % a)
+            def typ(addr, text):
+                pg.click('input[data-addr="%s"]' % addr); pg.fill('input[data-addr="%s"]' % addr, text); pg.press('input[data-addr="%s"]' % addr, "Tab"); pg.wait_for_timeout(300)
+            def snap(name):
+                out = os.environ.get("DRILL_VIDEO", "") or "/tmp"
+                pg.evaluate("() => { const c = document.getElementById('__cap'); if (c) c.style.display = 'none'; const d = document.getElementById('__dot'); if (d) d.style.display = 'none'; document.querySelector('#sheet-root').scrollIntoView({block: 'start'}); }"); pg.wait_for_timeout(400)
+                pg.screenshot(path=os.path.join(out, name + ".png"))
+                pg.evaluate("() => { const c = document.getElementById('__cap'); if (c) c.style.display = ''; const d = document.getElementById('__dot'); if (d) d.style.display = ''; }")
+            for a, v in (("A1", "30"), ("A2", "10"), ("A3", "20"), ("A4", "5"), ("A5", "")):
+                if v: typ(a, v)
+            typ("C1", "=SORT(A1:A5)")
+            pg.click('input[data-addr="B1"]'); pg.wait_for_timeout(400)
+            t.step("A1 to A4 hold 30, 10, 20, 5. C1 holds =SORT(A1:A5): the block C1 to C5 shows 5, 10, 20, 30 and a blank (nothing is stored in C2 to C5)", lambda: snap("sheets_spill_1"), expect=lambda: [val("C1"), val("C2"), val("C3"), val("C4"), val("C5")] == ["5", "10", "20", "30", ""], wait=1500)
+            t.step("Type hello into C3: the block is blocked, C1 shows #REF! and C3 keeps its typed value", lambda: (typ("C3", "hello"), pg.click('input[data-addr="B1"]'), pg.wait_for_timeout(400), snap("sheets_spill_2")), expect=lambda: [val("C1"), val("C3")] == ["#REF!", "hello"], wait=1500)
+            t.step("Clear C3: the block comes back", lambda: (typ("C3", ""), pg.click('input[data-addr="B1"]'), pg.wait_for_timeout(400)), expect=lambda: [val("C1"), val("C3")] == ["5", "20"], wait=1500)
+            t.step("Change A4 from 5 to 99: the block re-sorts to 10, 20, 30, 99", lambda: (typ("A4", "99"), pg.click('input[data-addr="B1"]'), pg.wait_for_timeout(500), snap("sheets_spill_3")), expect=lambda: [val("C1"), val("C2"), val("C3"), val("C4")] == ["10", "20", "30", "99"], wait=1500)
+        run_tour(ctx, "sheets_spill", body, notes="Headless Chromium 390x844 emulated. SORT typed into the real Sheets page. One run.")
+    g["DRILLS"]["tour_sheets_spill"] = tour

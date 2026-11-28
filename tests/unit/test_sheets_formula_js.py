@@ -306,6 +306,18 @@ def test_formula_batch8_passes_in_node():
     assert "119/119 rows passed" in r.stdout
 
 
+def test_sheets_spill_passes_in_node():
+    assert shutil.which("node"), "node is required to run the formula table"
+    r = subprocess.run(  # noqa: S603 - fixed argv, repo-owned script
+        [shutil.which("node"), str(ROOT / "tests/js/sheets_spill.js")],
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert "58 rows, 0 failed" in r.stdout
+
+
 def test_formula_batch9_passes_in_node():
     assert shutil.which("node"), "node is required to run the formula table"
     r = subprocess.run(  # noqa: S603 - fixed argv, repo-owned script
@@ -327,4 +339,4 @@ def test_sheets_function_table_matches_the_engine():
         timeout=30,
     )
     assert r.returncode == 0, r.stdout + r.stderr
-    assert "103/103 functions have a row and the table is current" in r.stdout
+    assert "104/104 functions have a row and the table is current" in r.stdout
