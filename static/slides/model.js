@@ -167,7 +167,14 @@
       if (!any) return null;
       n.lays = n.lays || {}; var arr = n.lays[key] = (n.lays[key] || []).slice(); while (arr.length <= slot) arr.push({}); arr[slot] = Object.assign({}, arr[slot]);
       LAY_FIELDS.forEach(function (f) { if (nw[f] === LAYOUTS[key].items[slot][f]) delete arr[slot][f]; else arr[slot][f] = nw[f]; });
-      n.slides.forEach(function (s) { if (s.lay !== key) return; s.elements.forEach(function (e) { if (e.ph === slot) LAY_FIELDS.forEach(function (f) { if (e[f] === old[f]) e[f] = nw[f]; }); }); });
+      // An item the slide clamps (its own width or height is larger than the layout allows) counts as following when its x or y equals the clamped layout value,
+      // so a clamp never turns into an override. Size fields first, then position, using the item's width and height from before this edit.
+      n.slides.forEach(function (s) { if (s.lay !== key) return; s.elements.forEach(function (e) {
+        if (e.ph !== slot) return;
+        var ow = e.w, oh = e.h, fx = e.x === Math.min(old.x, W - ow), fy = e.y === Math.min(old.y, H - oh);
+        ["w", "h", "size"].forEach(function (f) { if (e[f] === old[f]) e[f] = nw[f]; });
+        if (fx) e.x = Math.min(nw.x, W - e.w); if (fy) e.y = Math.min(nw.y, H - e.h);
+      }); });
       // Back to the built-in values leaves no stored override: empty entries are removed, and with them the layout key and the lays object.
       if (arr.every(function (o) { return !Object.keys(o).length; })) delete n.lays[key];
       if (!Object.keys(n.lays).length) delete n.lays;

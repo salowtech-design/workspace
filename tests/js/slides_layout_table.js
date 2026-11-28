@@ -80,6 +80,27 @@ ok("version 10 is still refused", m((x) => { x.v = 10; }) === null);
 ok("lays alone (no slide linked) keeps version 9 so older code refuses it", (() => { const x = S.ops.unlinkSlide(E, 2); return x.v === 9 && x.lays; })());
 // theme, master and animation stay intact on a linked slide
 let T = S.ops.setTheme(E, "dark"); ok("theme change keeps links and layouts", T.slides[2].lay === "title" && T.lays && S.validate(T) && T.v === 9);
+// a linked item with its own wider size: its x is clamped by the slide, and still follows the layout
+(() => {
+  let a = S.ops.updateElement(L, 2, L.slides[2].elements[0].id, { w: 900 });
+  ok("setup: a local width 900 is kept and the slide clamps that item's x to 60 (layout x is still 80)", a.slides[2].elements[0].w === 900 && a.slides[2].elements[0].x === 60 && S.layoutSlot(a, "title", 0).x === 80);
+  let b = S.ops.setLayoutSlot(a, "title", 0, { x: 200 });
+  ok("a layout x past what the wider item fits is clamped for that item (x 60), the width override is kept", b.slides[2].elements[0].x === 60 && b.slides[2].elements[0].w === 900 && S.layoutSlot(b, "title", 0).x === 160);
+  let c = S.ops.setLayoutSlot(b, "title", 0, { x: 30 });
+  ok("REPRO: the next layout edit still moves that item (it was following, only clamped)", c.slides[2].elements[0].x === 30 && c.slides[2].elements[0].w === 900);
+  let c2 = S.ops.setLayoutSlot(b, "title", 0, { x: 40 });
+  ok("and a smaller layout x is followed again exactly", c2.slides[2].elements[0].x === 40);
+  let d1 = S.ops.updateElement(b, 2, b.slides[2].elements[0].id, { x: 10 });
+  let d2 = S.ops.setLayoutSlot(d1, "title", 0, { x: 120 });
+  ok("a real local x (10, not the clamped value) is kept as an override", d2.slides[2].elements[0].x === 10);
+  let e1 = S.ops.setLayoutSlot(a, "title", 0, { w: 960 });
+  ok("a layout width edit with a local width: the local width stays, x stays valid", e1.slides[2].elements[0].w === 900 && S.validate(e1));
+  let f1 = S.ops.updateElement(L, 2, L.slides[2].elements[0].id, { h: 500 });
+  let f2 = S.ops.setLayoutSlot(f1, "title", 0, { y: 300 }); let f3 = S.ops.setLayoutSlot(f2, "title", 0, { y: 30 });
+  ok("the same holds for y with a taller local height (y 40 clamp, then follows again)", f2.slides[2].elements[0].y === 40 && f3.slides[2].elements[0].y === 30 && f3.slides[2].elements[0].h === 500);
+  let g1 = S.ops.setLayoutSlot(a, "title", 0, { w: 700 });
+  ok("LIMIT: an item whose x equals the clamped layout x counts as following even if the user typed that value", g1 && S.validate(g1));
+})();
 // export, import and PDF of a linked deck
 const raw = J(E), lr = S.loadDeck(raw);
 ok("Export text of a linked deck loads back as the same deck (links and layout edit intact), readable", !lr.unreadable && J(lr.deck) === J(E) && lr.deck.v === 9);
