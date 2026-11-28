@@ -119,15 +119,18 @@ _DIALOG_HANDLERS = []
 
 def on_dialog_tracked(pg, fn):
     """Register a dialog handler that the next fresh() removes again (public Playwright API only)."""
-    _DIALOG_HANDLERS.append(fn)
+    _DIALOG_HANDLERS.append((pg, fn))
     pg.on("dialog", fn)
 
 
 def fresh(ctx, path):
     pg = ctx.pages[0]
     # the page is shared by every drill: drop dialog handlers an earlier drill left, so one dialog is handled once
-    for fn in _DIALOG_HANDLERS:
-        pg.remove_listener("dialog", fn)
+    for owner, fn in _DIALOG_HANDLERS:
+        try:
+            owner.remove_listener("dialog", fn)
+        except Exception:  # noqa: BLE001 (the page it was registered on may already be closed)
+            pass
     _DIALOG_HANDLERS.clear()
     pg.unroute_all()  # an earlier drill may have left routes that serve old script files
     pg.goto(APP + path)
