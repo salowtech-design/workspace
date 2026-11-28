@@ -48,7 +48,7 @@ Re-recorded on 28 Nov, with these recorded code heads (the later commits touch o
 Uncovered by these clips (controls exist or are unbuilt, not exercised here): PDF text mark, signature, flatten, split, reorder, merge, forms, password files; Attendance real face matching and camera; Certificates Print/PDF, Raw SVG, reissue, expiry, filters; Work Logs manager review and filters (older tours, not re-run); Directory team detail, org chart, a person in several departments.
 This is not a statement that these modules are ready.
 
-## Update, 28 Nov 2026 15:12 IST (one run each, headless Chromium 390x844 emulated, TiDB 8.5.1 unistore, one machine, executor-watched)
+## Update, 28 Nov 2026 (afternoon, IST) (one run each, headless Chromium 390x844 emulated, TiDB 8.5.1 unistore, one machine, executor-watched)
 Recorded at code head 6c24e89 (or code-equivalent for these modules; later commits touch only this doc):
 - IAM console tabs (20 steps): page loading and active-tab highlight only. Not shown: any create, change, revoke, reset or approval form, IAM host sign-in and recovery, Super Admin step-up, live event stream, Shield, backups, activation codes, service tokens.
 - Admin panel (11): approve one fallback request and reject another; manager-only view, HR role, check-out requests, self-review refusal, already-reviewed error and review notes not shown.
