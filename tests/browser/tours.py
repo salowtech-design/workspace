@@ -6172,6 +6172,18 @@ def register_sheets_new_formulas(g):
                 pg.evaluate("() => document.querySelector('#sheet-root').scrollIntoView({block: 'start'})"); pg.wait_for_timeout(400)
                 pg.screenshot(path=os.path.join(out, name + ".png"))
             t.step("IFS, SWITCH and HLOOKUP show their results in the real sheet (B2 mid, B3 answer, B4 #N/A, B6 5)", lambda: snap("new_formulas_390"), expect=lambda: [val("B2"), val("B3"), val("B4"), val("B6")] == ["mid", "answer", "#N/A", "5"], wait=300)
+            # one step per function: the full formula is in the caption and the cell, the result is read from the cell after it is left
+            def show(addr):
+                pg.evaluate("() => document.querySelector('#sheet-root').scrollIntoView({block: 'start'})")
+                pg.click('input[data-addr="%s"]' % addr); pg.wait_for_timeout(500)
+            def shown(addr):
+                return pg.input_value('input[data-addr="%s"]' % addr)
+            t.step('IFS: cell B2 holds =IFS(B1<30,"low",B1<60,"mid",TRUE,"high"), B1 is 42, result: mid', lambda: show("B2"), expect=lambda: shown("B2").startswith("=IFS(") and True, wait=1500)
+            t.step("IFS result after leaving the cell: B2 shows mid", lambda: (pg.click('input[data-addr="D1"]'), pg.wait_for_timeout(400)), expect=lambda: val("B2") == "mid", wait=1500)
+            t.step('SWITCH: cell B3 holds =SWITCH(B1,1,"one",42,"answer","other"), result: answer', lambda: show("B3"), expect=lambda: shown("B3").startswith("=SWITCH("), wait=1500)
+            t.step("SWITCH result after leaving the cell: B3 shows answer", lambda: (pg.click('input[data-addr="D1"]'), pg.wait_for_timeout(400)), expect=lambda: val("B3") == "answer", wait=1500)
+            t.step('HLOOKUP: cell B6 holds =HLOOKUP("pear",D1:F2,2,FALSE), row 2 under pear is 5, result: 5', lambda: show("B6"), expect=lambda: shown("B6").startswith("=HLOOKUP("), wait=1500)
+            t.step("HLOOKUP result after leaving the cell: B6 shows 5", lambda: (pg.click('input[data-addr="D1"]'), pg.wait_for_timeout(400)), expect=lambda: val("B6") == "5", wait=1500)
         run_tour(ctx, "sheets_new_formulas", body, notes="Headless Chromium 390x844 emulated. IFS, SWITCH and HLOOKUP typed into the real Sheets page.")
     g["DRILLS"]["tour_sheets_new_formulas"] = tour
 
