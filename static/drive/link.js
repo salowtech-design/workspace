@@ -28,7 +28,7 @@
         if (r.ok) pending = null; else if (r.fileId && r.resumable && r.baseVersion === 0) pending = { name: name, fileId: r.fileId };
         var tail = r.ok ? " It is at the top of My Drive; only you can see it until you share it in Drive." : (pending && pending.name === name ? " Press Save again with the same name to save what the page shows now (not the content of the failed save), or look at your Drive list first." : "");
         var msg = r.message;
-        if (!r.ok && r.stage === "network") { msg = "The file is on this device. Drive could not be reached, so it is not known whether this version was saved."; }
+        if (!r.ok && r.stage === "network") { msg = "The file is on this device. Drive did not return a confirmation, so it is not known whether this version was saved."; }
         if (!r.ok && wasPending && r.stage === "version" && r.sha256) {  // Drive refused: read the list to tell an earlier attempt that did arrive from a different saved version
           return getList().then(function (j) {
             var f = j.files.filter(function (x) { return x.id === wasPending.fileId; })[0];
