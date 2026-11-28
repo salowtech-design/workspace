@@ -316,3 +316,15 @@ def test_formula_batch9_passes_in_node():
     )
     assert r.returncode == 0, r.stdout + r.stderr
     assert "50/50 rows passed" in r.stdout
+
+
+def test_sheets_function_table_matches_the_engine():
+    assert shutil.which("node"), "node is required to run the formula table"
+    r = subprocess.run(  # noqa: S603 - fixed argv, repo-owned script
+        [shutil.which("node"), str(ROOT / "tests/js/function_table.js"), "--check"],
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert "103/103 functions have a row and the table is current" in r.stdout

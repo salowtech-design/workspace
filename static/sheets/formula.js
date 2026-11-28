@@ -1213,6 +1213,6 @@
     var plain = /^[A-Za-z_][A-Za-z0-9_]*$/.test(name) && !/^\$?[A-Za-z]{1,3}\$?[0-9]+$/.test(name);
     return plain ? name : "'" + String(name).replace(/'/g, "''") + "'";
   }
-  var api = { tabRefs: tabRefs, tabName: tabName, shiftFormula: shiftFormula, structFormula: structFormula, Sheet: Sheet, parse: parse, Err: Err, isErr: isErr, parseAddr: parseAddr, MAX_LEN: MAX_LEN };
+  var api = { tabRefs: tabRefs, tabName: tabName, shiftFormula: shiftFormula, structFormula: structFormula, Sheet: Sheet, parse: parse, Err: Err, isErr: isErr, parseAddr: parseAddr, MAX_LEN: MAX_LEN, functionArity: function () { var o = {}; Object.keys(ARITY).forEach(function (k) { o[k] = ARITY[k].slice(); }); return o; } };
   if (typeof module !== "undefined" && module.exports) module.exports = api; else root.SalowFormula = api;
 })(typeof self !== "undefined" ? self : this);

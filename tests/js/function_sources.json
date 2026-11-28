@@ -1,0 +1,414 @@
+{
+ "ABS": {
+  "page": null,
+  "note": ""
+ },
+ "ACOS": {
+  "page": null,
+  "note": "page not fetched"
+ },
+ "AND": {
+  "page": null,
+  "note": ""
+ },
+ "ASIN": {
+  "page": null,
+  "note": "page not fetched"
+ },
+ "ATAN": {
+  "page": null,
+  "note": "page not fetched"
+ },
+ "ATAN2": {
+  "page": "3093468",
+  "note": ""
+ },
+ "AVERAGE": {
+  "page": null,
+  "note": ""
+ },
+ "AVERAGEIF": {
+  "page": null,
+  "note": ""
+ },
+ "AVERAGEIFS": {
+  "page": null,
+  "note": ""
+ },
+ "CEILING": {
+  "page": null,
+  "note": ""
+ },
+ "CHAR": {
+  "page": "3094120",
+  "note": ""
+ },
+ "CHOOSE": {
+  "page": null,
+  "note": ""
+ },
+ "CODE": {
+  "page": "3094122",
+  "note": ""
+ },
+ "CONCAT": {
+  "page": null,
+  "note": ""
+ },
+ "CONCATENATE": {
+  "page": "3094123",
+  "note": ""
+ },
+ "CORREL": {
+  "page": "3093990",
+  "note": ""
+ },
+ "COS": {
+  "page": null,
+  "note": "page not fetched"
+ },
+ "COUNT": {
+  "page": null,
+  "note": ""
+ },
+ "COUNTA": {
+  "page": "3093991",
+  "note": ""
+ },
+ "COUNTBLANK": {
+  "page": "3093403",
+  "note": ""
+ },
+ "COUNTIF": {
+  "page": null,
+  "note": ""
+ },
+ "COUNTIFS": {
+  "page": null,
+  "note": ""
+ },
+ "COUNTUNIQUE": {
+  "page": "3093405",
+  "note": ""
+ },
+ "DATE": {
+  "page": null,
+  "note": ""
+ },
+ "DAY": {
+  "page": null,
+  "note": ""
+ },
+ "DEGREES": {
+  "page": null,
+  "note": "page not fetched"
+ },
+ "EVEN": {
+  "page": "3093409",
+  "note": ""
+ },
+ "EXACT": {
+  "page": null,
+  "note": ""
+ },
+ "FACT": {
+  "page": "3093412",
+  "note": ""
+ },
+ "FIND": {
+  "page": null,
+  "note": ""
+ },
+ "FLOOR": {
+  "page": null,
+  "note": ""
+ },
+ "GCD": {
+  "page": "3093489",
+  "note": ""
+ },
+ "HLOOKUP": {
+  "page": null,
+  "note": ""
+ },
+ "IF": {
+  "page": null,
+  "note": ""
+ },
+ "IFERROR": {
+  "page": null,
+  "note": ""
+ },
+ "IFNA": {
+  "page": null,
+  "note": ""
+ },
+ "IFS": {
+  "page": null,
+  "note": ""
+ },
+ "INDEX": {
+  "page": null,
+  "note": ""
+ },
+ "INT": {
+  "page": null,
+  "note": ""
+ },
+ "INTERCEPT": {
+  "page": "3093632",
+  "note": ""
+ },
+ "ISBLANK": {
+  "page": null,
+  "note": ""
+ },
+ "ISERROR": {
+  "page": null,
+  "note": ""
+ },
+ "ISNUMBER": {
+  "page": null,
+  "note": ""
+ },
+ "ISTEXT": {
+  "page": null,
+  "note": ""
+ },
+ "LARGE": {
+  "page": null,
+  "note": ""
+ },
+ "LCM": {
+  "page": "3093421",
+  "note": ""
+ },
+ "LEFT": {
+  "page": null,
+  "note": ""
+ },
+ "LEN": {
+  "page": null,
+  "note": ""
+ },
+ "LOWER": {
+  "page": null,
+  "note": ""
+ },
+ "MATCH": {
+  "page": null,
+  "note": ""
+ },
+ "MAX": {
+  "page": null,
+  "note": ""
+ },
+ "MAXIFS": {
+  "page": null,
+  "note": ""
+ },
+ "MEDIAN": {
+  "page": "3094025",
+  "note": ""
+ },
+ "MID": {
+  "page": null,
+  "note": ""
+ },
+ "MIN": {
+  "page": null,
+  "note": ""
+ },
+ "MINIFS": {
+  "page": null,
+  "note": ""
+ },
+ "MOD": {
+  "page": null,
+  "note": ""
+ },
+ "MODE": {
+  "page": "3094029",
+  "note": ""
+ },
+ "MONTH": {
+  "page": null,
+  "note": ""
+ },
+ "NA": {
+  "page": null,
+  "note": ""
+ },
+ "NOT": {
+  "page": null,
+  "note": ""
+ },
+ "ODD": {
+  "page": "3093499",
+  "note": ""
+ },
+ "OR": {
+  "page": null,
+  "note": ""
+ },
+ "PI": {
+  "page": null,
+  "note": "page not fetched; the engine gives the full double, the Google page says 9 decimal places"
+ },
+ "POWER": {
+  "page": null,
+  "note": ""
+ },
+ "PRODUCT": {
+  "page": null,
+  "note": ""
+ },
+ "PROPER": {
+  "page": null,
+  "note": ""
+ },
+ "QUOTIENT": {
+  "page": "3093973",
+  "note": "page read was DIVIDE, which says it equals QUOTIENT"
+ },
+ "RADIANS": {
+  "page": null,
+  "note": "page not fetched"
+ },
+ "RANK": {
+  "page": "3094098",
+  "note": ""
+ },
+ "REPLACE": {
+  "page": "3098247",
+  "note": ""
+ },
+ "REPT": {
+  "page": null,
+  "note": ""
+ },
+ "RIGHT": {
+  "page": null,
+  "note": ""
+ },
+ "ROUND": {
+  "page": null,
+  "note": ""
+ },
+ "ROUNDDOWN": {
+  "page": null,
+  "note": ""
+ },
+ "ROUNDUP": {
+  "page": null,
+  "note": ""
+ },
+ "SEARCH": {
+  "page": "3094154",
+  "note": ""
+ },
+ "SIGN": {
+  "page": null,
+  "note": ""
+ },
+ "SIN": {
+  "page": null,
+  "note": "page not fetched"
+ },
+ "SLOPE": {
+  "page": "3094048",
+  "note": ""
+ },
+ "SMALL": {
+  "page": null,
+  "note": ""
+ },
+ "SQRT": {
+  "page": null,
+  "note": ""
+ },
+ "STDEV": {
+  "page": "3094054",
+  "note": ""
+ },
+ "STDEVP": {
+  "page": "3094105",
+  "note": "page says text is an error; engine ignores text in ranges like STDEV"
+ },
+ "SUBSTITUTE": {
+  "page": null,
+  "note": ""
+ },
+ "SUM": {
+  "page": null,
+  "note": ""
+ },
+ "SUMIF": {
+  "page": null,
+  "note": ""
+ },
+ "SUMIFS": {
+  "page": null,
+  "note": ""
+ },
+ "SUMPRODUCT": {
+  "page": "3094294",
+  "note": ""
+ },
+ "SUMSQ": {
+  "page": "3093714",
+  "note": ""
+ },
+ "SWITCH": {
+  "page": null,
+  "note": ""
+ },
+ "TAN": {
+  "page": null,
+  "note": "page not fetched"
+ },
+ "TEXTJOIN": {
+  "page": "7013992",
+  "note": ""
+ },
+ "TRIM": {
+  "page": null,
+  "note": ""
+ },
+ "TRUNC": {
+  "page": null,
+  "note": ""
+ },
+ "UPPER": {
+  "page": null,
+  "note": ""
+ },
+ "VAR": {
+  "page": "3094063",
+  "note": ""
+ },
+ "VARP": {
+  "page": "3094113",
+  "note": ""
+ },
+ "VLOOKUP": {
+  "page": null,
+  "note": ""
+ },
+ "WEEKDAY": {
+  "page": null,
+  "note": ""
+ },
+ "XLOOKUP": {
+  "page": "12405947",
+  "note": ""
+ },
+ "XOR": {
+  "page": "9116491",
+  "note": ""
+ },
+ "YEAR": {
+  "page": null,
+  "note": ""
+ }
+}
