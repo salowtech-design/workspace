@@ -24,4 +24,8 @@ eq("a damaged stored deck is unreadable", S.loadVers('{"v":1,"items":[{"n":"a","
 eq("a duplicate name is unreadable", S.loadVers(JSON.stringify({ v: 1, items: [{ n: "a", d: JSON.stringify(deck) }, { n: "A", d: JSON.stringify(deck) }] })).unreadable, true);
 eq("more than 5 is unreadable", S.loadVers(JSON.stringify({ v: 1, items: Array.from({ length: 6 }, (_, i) => ({ n: "v" + i, d: JSON.stringify(deck) })) })).unreadable, true);
 eq("verDeck out of range", S.verDeck(items, 7), null);
+eq("verIndex finds by name", [S.verIndex(items, "v3"), S.verIndex(items, "nope")], [3, -1]);
+eq("after the list changes under a caller, the same name still finds the right version", (() => { const stale = items; const fresh = S.delVer(items, 0); return S.verIndex(fresh, "v3") !== S.verIndex(stale, "v3") && fresh[S.verIndex(fresh, "v3")].n === "v3"; })(), true);
+const big = Object.assign({}, deck, { pad: "x".repeat(900000) });
+eq("the total of all versions is capped", (() => { let it = []; const a = S.addVer(it, "a", big); if (!a.items) return "first refused"; const b = S.addVer(a.items, "b", big); const c = S.addVer(b.items || a.items, "c", big); return [!!b.items, !!c.error && /in total/.test(c.error)]; })(), [true, true]);
 console.log(n + " rows, " + fails + " failed"); process.exit(fails ? 1 : 0);

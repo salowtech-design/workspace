@@ -355,6 +355,7 @@ def register(g):
     register_sheets_spill(g)
     register_slides_find(g)
     register_slides_versions(g)
+    register_slides_versions_pics(g)
     register_slides_paste(g)
     register_slides_align(g)
     register_sheets_tab_dup(g)
@@ -9026,6 +9027,7 @@ def register_slides_versions(g):
             stored = lambda: json.loads(pg.evaluate("(k) => localStorage.getItem(k)", key))
             nel = lambda: len(stored()["slides"][0]["elements"])
             vs = lambda: pg.inner_text("#sl-ver-status")
+            vlist = lambda: pg.locator("#sl-ver-list li").count()
             def snap(name):
                 out = os.environ.get("DRILL_VIDEO", "") or "/tmp"
                 pg.evaluate("() => { const c = document.getElementById('__cap'); if (c) c.style.display = 'none'; const d = document.getElementById('__dot'); if (d) d.style.display = 'none'; document.getElementById('sl-vers').open = true; document.getElementById('sl-vers').scrollIntoView({block: 'start'}); window.scrollBy(0, -120); }"); pg.wait_for_timeout(400)
@@ -9041,7 +9043,72 @@ def register_slides_versions(g):
             t.step("Undo the restore: 2 items are back", lambda: (pg.click("#sl-undo"), pg.wait_for_timeout(400)), expect=lambda: nel() == 2, wait=1200)
             t.step("Reload: the version is still listed, and a duplicate name (first, any case) is refused", lambda: (pg.reload(), pg.wait_for_selector("#sl-add-text", timeout=15000), pg.evaluate("() => { document.getElementById('sl-vers').open = true; }"), pg.fill("#sl-ver-name", "first"), pg.click("#sl-ver-save"), pg.wait_for_timeout(300)),
                    expect=lambda: pg.locator("#sl-ver-list li").count() == 1 and "already exists" in vs(), wait=1500)
-            t.step("Delete First: the list is empty and nothing is stored under the versions key", lambda: (pg.click('button[aria-label="Delete version First"]'), pg.wait_for_timeout(300)),
-                   expect=lambda: pg.locator("#sl-ver-list li").count() == 0 and pg.evaluate("(k) => localStorage.getItem(k + '.versions')", key) is None and nel() == 2, wait=1200)
+            def twotab():
+                p2 = pg.context.new_page(); p2.goto(APP + "/slides/"); p2.wait_for_selector("#sl-add-text", timeout=15000)
+                p2.evaluate("() => { document.getElementById('sl-vers').open = true; }"); p2.fill("#sl-ver-name", "Other"); p2.click("#sl-ver-save"); p2.wait_for_timeout(300)
+                p2.close()
+                pg.fill("#sl-ver-name", "Mine"); pg.click("#sl-ver-save"); pg.wait_for_timeout(300)
+            t.step("A second tab saves Other; this tab (loaded before that) then saves Mine: storage holds First, Other and Mine, nothing lost", twotab,
+                   expect=lambda: [v["n"] for v in json.loads(pg.evaluate("(k) => localStorage.getItem(k + '.versions')", key))["items"]] == ["First", "Other", "Mine"] and vlist() == 3, wait=1500)
+            def stale_delete():
+                p2 = pg.context.new_page(); p2.goto(APP + "/slides/"); p2.wait_for_selector("#sl-add-text", timeout=15000)
+                p2.evaluate("() => { document.getElementById('sl-vers').open = true; }")
+                p2.click('button[aria-label="Delete version Other"]'); p2.click('button[aria-label="Confirm delete of version Other"]'); p2.wait_for_timeout(300); p2.close()
+                pg.click('button[aria-label="Restore version Other"]'); pg.wait_for_timeout(400)
+            t.step("A second tab deletes Other; Restore Other here says it is no longer in the list, the deck is unchanged and the list redraws without it", stale_delete,
+                   expect=lambda: "no longer in the list" in vs() and nel() == 2 and vlist() == 2, wait=1500)
+            t.step("Delete asks first: one click arms it and nothing is deleted yet", lambda: (pg.click('button[aria-label="Delete version First"]'), pg.wait_for_timeout(300)),
+                   expect=lambda: "Click Confirm delete" in vs() and vlist() == 2 and pg.locator('button[aria-label="Confirm delete of version First"]').count() == 1, wait=1200)
+            t.step("Confirm delete of First: it is gone; Mine stays", lambda: (pg.click('button[aria-label="Confirm delete of version First"]'), pg.wait_for_timeout(300)),
+                   expect=lambda: vlist() == 1 and [v["n"] for v in json.loads(pg.evaluate("(k) => localStorage.getItem(k + '.versions')", key))["items"]] == ["Mine"] and nel() == 2, wait=1200)
+            def deckfail():
+                add("Three")
+                pg.evaluate("() => { window.__oset = Storage.prototype.setItem; Storage.prototype.setItem = function (k, v) { if (!String(k).endsWith('.versions')) throw new Error('quota'); return window.__oset.call(this, k, v); }; }")
+                pg.click('button[aria-label="Restore version Mine"]'); pg.wait_for_timeout(500)
+            t.step("The browser refuses to store the deck (simulated) during a Restore: the status says the restored deck is on screen only", deckfail,
+                   expect=lambda: "on screen only" in vs() and "would not store" in pg.inner_text("#sl-status"), wait=1500)
+            pg.evaluate("() => { Storage.prototype.setItem = window.__oset; }")
         run_tour(ctx, "slides_versions", body, notes="Headless Chromium 390x844 emulated. Named deck versions in the real Slides page. One run.")
     g["DRILLS"]["tour_slides_versions"] = tour
+
+
+def register_slides_versions_pics(g):
+    """A deck with a stored picture through version save, delete of the picture, restore, undo; and a version save that the browser refuses."""
+    APP = g["APP"]
+
+    def tour(ctx):
+        def body(t, pg):
+            pg.on("pageerror", lambda e: print("PAGEERROR", str(e)[:300]))
+            pg.goto(APP + "/slides/")
+            pg.evaluate("localStorage.clear()")
+            pg.goto(APP + "/slides/")
+            pg.wait_for_selector("#sl-add-text", timeout=15000)
+            key = pg.evaluate("() => document.getElementById('slide-root').dataset.storeKey")
+            stored = lambda: json.loads(pg.evaluate("(k) => localStorage.getItem(k)", key))
+            imgs = lambda: [e for e in stored()["slides"][0]["elements"] if e["type"] == "image"]
+            drawn = lambda: pg.evaluate("() => document.querySelectorAll('#sl-canvas-wrap image').length")
+            vs = lambda: pg.inner_text("#sl-ver-status")
+            vlist = lambda: pg.locator("#sl-ver-list li").count()
+            png = g["_png"](40, 30)
+            pg.evaluate("() => { document.getElementById('sl-vers').open = true; }")
+            t.step("Add a picture, save the version Pic", lambda: (pg.set_input_files("#sl-img-file", files=[{"name": "p.png", "mimeType": "image/png", "buffer": png}]), pg.wait_for_timeout(1500), pg.fill("#sl-ver-name", "Pic"), pg.click("#sl-ver-save"), pg.wait_for_timeout(300)),
+                   expect=lambda: len(imgs()) == 1 and vlist() == 1 and drawn() == 1, wait=1500)
+            sha = {}
+            def delpic():
+                sha["v"] = imgs()[0].get("sha") or imgs()[0].get("hash") or json.dumps(imgs()[0], sort_keys=True)
+                pg.evaluate("() => document.getElementById('sl-props').scrollIntoView({block: 'start'})"); pg.locator("#sl-items li button").nth(0).click(); pg.click("#sl-del-el"); pg.wait_for_timeout(400)
+            t.step("Delete the picture from the deck: no picture in the stored deck", delpic, expect=lambda: len(imgs()) == 0 and drawn() == 0, wait=1500)
+            t.step("Restore Pic: the picture item is back with the same stored reference and is drawn from the stored bytes", lambda: (pg.click('button[aria-label="Restore version Pic"]'), pg.wait_for_timeout(1200)),
+                   expect=lambda: len(imgs()) == 1 and (imgs()[0].get("sha") or imgs()[0].get("hash") or json.dumps(imgs()[0], sort_keys=True)) == sha["v"] and drawn() == 1, wait=1800)
+            t.step("Undo the restore: the picture is gone again", lambda: (pg.click("#sl-undo"), pg.wait_for_timeout(400)), expect=lambda: len(imgs()) == 0, wait=1500)
+            def refuse():
+                pg.evaluate("() => { window.__oset = Storage.prototype.setItem; Storage.prototype.setItem = function (k, v) { if (String(k).endsWith('.versions')) throw new Error('quota'); return window.__oset.call(this, k, v); }; }")
+                pg.fill("#sl-ver-name", "Two"); pg.click("#sl-ver-save"); pg.wait_for_timeout(300)
+            before = {}
+            def mark(): before["deck"] = pg.evaluate("(k) => localStorage.getItem(k)", key); before["vers"] = pg.evaluate("(k) => localStorage.getItem(k + '.versions')", key)
+            mark()
+            t.step("The browser refuses to store a version (quota simulated on the versions key): a message says nothing was saved, the version list and the stored deck are unchanged", refuse,
+                   expect=lambda: "would not store the version" in vs() and vlist() == 1 and pg.evaluate("(k) => localStorage.getItem(k)", key) == before["deck"] and pg.evaluate("(k) => localStorage.getItem(k + '.versions')", key) == before["vers"], wait=1500)
+            pg.evaluate("() => { Storage.prototype.setItem = window.__oset; }")
+        run_tour(ctx, "slides_versions_pics", body, notes="Headless Chromium 390x844 emulated. A deck with a stored picture through versions, plus a refused version save. One run.")
+    g["DRILLS"]["tour_slides_versions_pics"] = tour

@@ -354,40 +354,56 @@
   $("sl-find-go").addEventListener("click", findNow);
   $("sl-rep-slide").addEventListener("click", function () { replaceNow(true); });
   $("sl-rep-all").addEventListener("click", function () { replaceNow(false); });
-  // Versions (this browser only). Stored under KEY + ".versions"; an unreadable list is left untouched and the buttons stay off.
-  var VK = KEY + ".versions", vers = { items: [], unreadable: false };
+  // Versions (this browser only). Stored under KEY + ".versions". The list is read again from storage before every save, restore and delete, and a
+  // version is found by its name, so a second tab that changed the list is not overwritten and no wrong index is used. This is read-then-write, not an atomic
+  // swap: two tabs acting in the same instant can still lose one change. An unreadable stored list is left untouched and the buttons stay off.
+  var VK = KEY + ".versions", vers = { items: [], unreadable: false }, delArm = null;
   try { vers = S.loadVers(localStorage.getItem(VK)); } catch (e) { vers = { items: [], unreadable: true }; }
   function vsay(m) { $("sl-ver-status").textContent = m; }
   function vsave(items) { try { var j = S.versJson(items); if (j === null) localStorage.removeItem(VK); else localStorage.setItem(VK, j); return true; } catch (e) { return false; } }
   function vdraw() {
     var ul = $("sl-ver-list"); ul.textContent = "";
-    vers.items.forEach(function (v, i) {
-      var li = document.createElement("li"), nm = document.createElement("span"), r = document.createElement("button"), d = document.createElement("button");
-      nm.textContent = v.n + " "; r.type = d.type = "button"; r.className = d.className = "btn"; r.textContent = "Restore"; d.textContent = "Delete";
-      r.setAttribute("aria-label", "Restore version " + v.n); d.setAttribute("aria-label", "Delete version " + v.n);
-      r.addEventListener("click", function () { vrestore(i); }); d.addEventListener("click", function () { vdelete(i); });
+    vers.items.forEach(function (v) {
+      var li = document.createElement("li"), nm = document.createElement("span"), r = document.createElement("button"), d = document.createElement("button"), armed = delArm === v.n;
+      nm.textContent = v.n + " "; r.type = d.type = "button"; r.className = d.className = "btn"; r.textContent = "Restore"; d.textContent = armed ? "Confirm delete" : "Delete";
+      r.setAttribute("aria-label", "Restore version " + v.n); d.setAttribute("aria-label", (armed ? "Confirm delete of version " : "Delete version ") + v.n);
+      r.addEventListener("click", function () { vrestore(v.n); }); d.addEventListener("click", function () { vdelete(v.n); });
       li.appendChild(nm); li.appendChild(r); li.appendChild(document.createTextNode(" ")); li.appendChild(d); ul.appendChild(li);
     });
     $("sl-ver-save").disabled = vers.unreadable;
     if (vers.unreadable) vsay("The stored version list could not be read, so versions are off. Nothing was changed.");
   }
-  function vlive() { if (vers.unreadable) { vsay("The stored version list could not be read, so versions are off. Nothing was changed."); return false; } if (H.blocked || editMaster) { vsay(editMaster ? "Leave the master first." : "Editing is paused, so nothing was changed."); return false; } return true; }
+  // Read the stored list again. Returns false (and says why) when versions cannot be used right now.
+  function vfresh() {
+    var raw = null, ok = true; try { raw = localStorage.getItem(VK); } catch (e) { ok = false; }
+    if (!ok) { vsay("This browser would not read the version list, so nothing was changed."); return false; }
+    var f = S.loadVers(raw), before = JSON.stringify(vers.items);
+    if (f.unreadable) { vers = f; vdraw(); return false; }
+    vers = f; if (JSON.stringify(f.items) !== before) { delArm = null; vdraw(); }
+    return true;
+  }
+  function vlive() { if (H.blocked || editMaster) { vsay(editMaster ? "Leave the master first." : "Editing is paused, so nothing was changed."); return false; } return vfresh(); }
   $("sl-ver-save").addEventListener("click", function () {
     if (!vlive()) return;
     var r = S.addVer(vers.items, $("sl-ver-name").value, H.deck); if (r.error) { vsay(r.error); return; }
-    if (!vsave(r.items)) { vsay("This browser would not store the version, so nothing was saved."); return; }
-    vers.items = r.items; $("sl-ver-name").value = ""; vdraw(); vsay("Saved the version " + r.items[r.items.length - 1].n + ".");
+    if (!vsave(r.items)) { vsay("This browser would not store the version, so nothing was saved. The deck and the earlier versions are unchanged."); return; }
+    vers.items = r.items; delArm = null; $("sl-ver-name").value = ""; vdraw(); vsay("Saved the version " + r.items[r.items.length - 1].n + ".");
   });
-  function vrestore(i) {
-    if (!vlive()) return; var d = S.verDeck(vers.items, i), nm = vers.items[i].n;
+  function vrestore(name) {
+    if (!vlive()) return; var i = S.verIndex(vers.items, name);
+    if (i < 0) { vsay("That version is no longer in the list (another tab changed it). Nothing was changed."); return; }
+    var d = S.verDeck(vers.items, i);
     if (!d) { vsay("That version could not be read, so nothing was changed."); return; }
-    if (JSON.stringify(d) === JSON.stringify(H.deck)) { vsay("The deck already matches " + nm + ". Nothing changed."); return; }
-    if (apply(d, "Restored the version " + nm + ". You can undo this.")) { syncProps(); vsay("Restored " + nm + ". Undo brings the previous deck back until you reload."); }
+    if (JSON.stringify(d) === JSON.stringify(H.deck)) { vsay("The deck already matches " + name + ". Nothing changed."); return; }
+    if (apply(d, "Restored the version " + name + ". You can undo this.")) { syncProps(); vsay("Restored " + name + ". Undo brings the previous deck back until you reload." + (H.saveFailed ? " This browser would not store the restored deck, so it is on screen only." : "")); }
   }
-  function vdelete(i) {
-    if (vers.unreadable) return; var n = S.delVer(vers.items, i); if (!n) return; var nm = vers.items[i].n;
-    if (!vsave(n)) { vsay("This browser would not update the version list, so nothing was deleted."); return; }
-    vers.items = n; vdraw(); vsay("Deleted " + nm + ".");
+  function vdelete(name) {
+    if (delArm !== name) { delArm = name; vdraw(); vsay("Click Confirm delete to remove " + name + ". A deleted version cannot be brought back."); return; }
+    delArm = null; if (!vfresh()) return; var i = S.verIndex(vers.items, name);
+    if (i < 0) { vdraw(); vsay("That version is already gone. Nothing was changed."); return; }
+    var n = S.delVer(vers.items, i);
+    if (!vsave(n)) { vdraw(); vsay("This browser would not update the version list, so nothing was deleted."); return; }
+    vers.items = n; vdraw(); vsay("Deleted " + name + ".");
   }
   vdraw();
   $("sl-undo").addEventListener("click", function () { if (H.undo()) { cur = Math.min(cur, H.deck.slides.length - 1); render(); } });

@@ -38,7 +38,7 @@ def test_slides_versions_rows_pass_in_node():
         timeout=60,
     )
     assert r.returncode == 0, r.stdout + r.stderr
-    assert "19 rows, 0 failed" in r.stdout
+    assert "22 rows, 0 failed" in r.stdout
 
 
 def test_slides_paste_rows_pass_in_node():

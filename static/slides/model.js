@@ -381,7 +381,7 @@
   }
   // ---- Named versions of the deck, kept in this browser only. A version is the deck exactly as stored (slides, items, master, theme, notes). Pictures are
   // not copied: the deck holds only their SHA-256, and the bytes stay in the separate picture store. Not a backup: it lives in the same browser storage.
-  var MAX_VERS = 5, MAX_VER_NAME = 40, MAX_VER_BYTES = 1500000;
+  var MAX_VERS = 5, MAX_VER_NAME = 40, MAX_VER_BYTES = 1500000, MAX_VER_TOTAL = 2000000;  // the total stays well under a typical browser quota, so versions cannot crowd out the deck's own save
   function verName(raw) { var n = String(raw === undefined || raw === null ? "" : raw).replace(/\s+/g, " ").trim(); return n.length >= 1 && n.length <= MAX_VER_NAME ? n : null; }
   function verTaken(items, name, except) { var l = name.toLowerCase(); return items.some(function (v, i) { return i !== except && v.n.toLowerCase() === l; }); }
   function loadVers(raw) {
@@ -404,8 +404,11 @@
     if (items.length >= MAX_VERS) return { error: "The deck keeps up to " + MAX_VERS + " versions. Delete one first." };
     if (verTaken(items, n, -1)) return { error: "A version with that name already exists. Pick another name." };
     var d = JSON.stringify(deck); if (d.length > MAX_VER_BYTES) return { error: "The deck is too large to keep as a version (over " + MAX_VER_BYTES + " characters)." };
+    var used = items.reduce(function (a, v) { return a + v.d.length; }, 0);
+    if (used + d.length > MAX_VER_TOTAL) return { error: "The saved versions would pass " + MAX_VER_TOTAL + " characters in total, which would crowd out the deck's own storage. Delete a version first." };
     return { items: items.concat([{ n: n, d: d }]) };
   }
+  function verIndex(items, name) { for (var i = 0; i < items.length; i++) if (items[i].n === name) return i; return -1; }
   function delVer(items, i) { return i >= 0 && i < items.length ? items.filter(function (v, k) { return k !== i; }) : null; }
   function verDeck(items, i) { if (!(i >= 0 && i < items.length)) return null; try { return validate(JSON.parse(items[i].d)); } catch (e) { return null; } }
   // store: { save(deck) -> true|false }
@@ -511,6 +514,6 @@
     return out;
   }
   function textHeight(lines, size) { return Math.ceil(lines.length * size * 1.2); }
-  var api = { MAX_VERS: MAX_VERS, MAX_VER_NAME: MAX_VER_NAME, verName: verName, loadVers: loadVers, versJson: versJson, addVer: addVer, delVer: delVer, verDeck: verDeck, findText: findText, replaceText: replaceText, FIND_MAX: FIND_MAX, MAX_TEXT: MAX_TEXT, layoutSlot: function (d, key, slot) { return layKeys().indexOf(key) < 0 || !layOk(slot) || slot < 0 || slot >= LAYOUTS[key].items.length ? null : slotOf(d, key, slot); }, layKeys: layKeys, bgOf: bgOf, bgUsable: bgUsable, bgReadable: bgReadable, themeConflicts: themeConflicts, takeReject: takeReject, BGS: BGS, MIN_CONTRAST: MIN_CONTRAST, snapBox: snapBox, SNAP: SNAP, autoNext: autoNext, AUTO_MS: AUTO_MS, showStep: showStep, hiddenIds: hiddenIds, animCount: animCount, FX: FX, LAYOUTS: LAYOUTS, countCut: countCut, cut: cut, MAX_NOTES: MAX_NOTES, fmtClock: fmtClock, wrapLines: wrapLines, textHeight: textHeight, showNav: showNav, W: W, H: H, THEMES: THEMES, FILLS: FILLS, MAX_SLIDES: MAX_SLIDES, MAX_EL: MAX_EL, newDeck: newDeck, validate: validate, ops: ops, color: color, textColor: textColor, onFill: onFill, contrast: contrast, loadDeck: loadDeck, describe: describe, describeEls: describeEls, masterOf: masterOf, MAX_MASTER: MAX_MASTER, History: History, copy: copy };
+  var api = { MAX_VERS: MAX_VERS, MAX_VER_NAME: MAX_VER_NAME, verName: verName, loadVers: loadVers, versJson: versJson, addVer: addVer, delVer: delVer, verIndex: verIndex, MAX_VER_TOTAL: MAX_VER_TOTAL, verDeck: verDeck, findText: findText, replaceText: replaceText, FIND_MAX: FIND_MAX, MAX_TEXT: MAX_TEXT, layoutSlot: function (d, key, slot) { return layKeys().indexOf(key) < 0 || !layOk(slot) || slot < 0 || slot >= LAYOUTS[key].items.length ? null : slotOf(d, key, slot); }, layKeys: layKeys, bgOf: bgOf, bgUsable: bgUsable, bgReadable: bgReadable, themeConflicts: themeConflicts, takeReject: takeReject, BGS: BGS, MIN_CONTRAST: MIN_CONTRAST, snapBox: snapBox, SNAP: SNAP, autoNext: autoNext, AUTO_MS: AUTO_MS, showStep: showStep, hiddenIds: hiddenIds, animCount: animCount, FX: FX, LAYOUTS: LAYOUTS, countCut: countCut, cut: cut, MAX_NOTES: MAX_NOTES, fmtClock: fmtClock, wrapLines: wrapLines, textHeight: textHeight, showNav: showNav, W: W, H: H, THEMES: THEMES, FILLS: FILLS, MAX_SLIDES: MAX_SLIDES, MAX_EL: MAX_EL, newDeck: newDeck, validate: validate, ops: ops, color: color, textColor: textColor, onFill: onFill, contrast: contrast, loadDeck: loadDeck, describe: describe, describeEls: describeEls, masterOf: masterOf, MAX_MASTER: MAX_MASTER, History: History, copy: copy };
   if (typeof module !== "undefined" && module.exports) module.exports = api; else root.SalowSlides = api;
 })(typeof self !== "undefined" ? self : this);
