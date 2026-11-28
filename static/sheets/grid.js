@@ -376,7 +376,7 @@
     sp.pts.forEach(function (q) { var d = el("circle", { cx: X(q.x), cy: Y(q.y), r: 4, fill: "#7a2e22", "fill-opacity": 0.8 }); d.appendChild(el("title", {}, q.a + ": (" + q.x + ", " + q.y + ")")); svg.appendChild(d); });
     out.appendChild(svg);
     var note = document.createElement("p"); note.className = "cal-meta";
-    note.textContent = sp.pts.length + " points charted from " + rg.label + " (first column across, second column up)" + (sp.skipped ? ", " + sp.skipped + " rows skipped (a blank, text or error in either cell)" : "") + ". The chart follows the sheet as you edit.";
+    note.textContent = sp.pts.length + " points charted from " + rg.label + " (first column across, second column up)" + (sp.skipped ? ", " + sp.skipped + (sp.skipped === 1 ? " row" : " rows") + " skipped (a blank, text or error in either cell)" : "") + ". The chart follows the sheet as you edit.";
     out.appendChild(note);
   }
   document.getElementById("chart-draw").addEventListener("click", function () {
