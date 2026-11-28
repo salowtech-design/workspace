@@ -315,11 +315,12 @@
     out.textContent = ""; if (!chartRange) return;
     var rg = chartRange, sh = mkSheet(cells), vals = [], rr, cc;
     for (rr = rg.r1; rr <= rg.r2; rr++) for (cc = rg.c1; cc <= rg.c2; cc++) { var ad = String.fromCharCode(64 + cc) + rr; vals.push({ a: ad, v: sh.get(ad) }); }
+    if (chartKind === "scatter") { drawScatter(rg, sh); return; }
     var ch = M.chartPoints(vals);
     if (!ch) { out.textContent = "No numbers in " + rg.label + " right now."; return; }
     var W = 560, H2 = 260, L = 48, B = 30, T = 14, lo = ch.lo, hi = ch.hi, kind = chartKind;
     var y = function (v) { return T + (H2 - T - B) * (hi - v) / (hi - lo); }, bw = (W - L - 10) / ch.bars.length;
-    var svg = el("svg", { viewBox: "0 0 " + W + " " + H2, role: "img", "aria-label": (kind === "line" ? "Line" : kind === "pie" ? "Pie" : "Bar") + " chart of " + rg.label });
+    var svg = el("svg", { viewBox: "0 0 " + W + " " + H2, role: "img", "aria-label": (kind === "line" ? "Line" : kind === "area" ? "Area" : kind === "pie" ? "Pie" : kind === "scatter" ? "Scatter" : "Bar") + " chart of " + rg.label });
     var pie = kind === "pie" ? M.pieSlices(ch.pts) : null, legend = null;
     if (kind === "pie" && !pie) { out.textContent = ch.pts.some(function (q) { return q.v > 0; }) ? "The values above zero in " + rg.label + " add up to more than a pie chart can show, so no pie was drawn." : "A pie chart needs at least one value above zero in " + rg.label + "."; return; }
     if (pie) {
@@ -339,7 +340,7 @@
       var pts2 = [];
       ch.bars.forEach(function (q, i) {
         var x = L + i * bw + bw * 0.15, g = el("g", {});
-        if (kind === "line") {
+        if (kind === "line" || kind === "area") {
           var px = x + bw * 0.35, py = y(q.v); pts2.push(px + "," + py);
           var dot = el("circle", { cx: px, cy: py, r: 4, fill: "#7a2e22" }); dot.appendChild(el("title", {}, q.a + ": " + q.v)); g.appendChild(dot);
         } else if (q.bar) { var rc = el("rect", { x: x, y: Math.min(y(q.v), y(0)), width: bw * 0.7, height: Math.abs(y(q.v) - y(0)), fill: "#7a2e22" }); rc.appendChild(el("title", {}, q.a + ": " + q.v)); g.appendChild(rc); }
@@ -347,20 +348,45 @@
         g.appendChild(el("text", { x: x + bw * 0.35, y: H2 - 12, "font-size": 10, "text-anchor": "middle" }, q.a));
         svg.appendChild(g);
       });
-      if (kind === "line" && pts2.length > 1) svg.insertBefore(el("polyline", { points: pts2.join(" "), fill: "none", stroke: "#7a2e22", "stroke-width": 2 }), svg.children[3]);
+      if (kind === "area" && pts2.length > 1) {
+        var fx = pts2[0].split(",")[0], lx = pts2[pts2.length - 1].split(",")[0];
+        svg.insertBefore(el("polygon", { points: fx + "," + y(0) + " " + pts2.join(" ") + " " + lx + "," + y(0), fill: "#7a2e22", "fill-opacity": 0.25, stroke: "none" }), svg.children[3]);
+      }
+      if ((kind === "line" || kind === "area") && pts2.length > 1) svg.insertBefore(el("polyline", { points: pts2.join(" "), fill: "none", stroke: "#7a2e22", "stroke-width": 2 }), svg.children[3]);
     }
     out.appendChild(svg); if (legend) out.appendChild(legend);
     var note = document.createElement("p"); note.className = "cal-meta";
     note.textContent = (pie ? pie.slices.length + " of " + ch.pts.length : ch.pts.length) + " values charted from " + rg.label + (ch.skipped ? ", " + ch.skipped + " cells skipped (blank, text or error)" : "") + (pie && pie.left ? ", " + pie.left + " values at or below zero left out of the pie" : "") + ". The chart follows the sheet as you edit and is not saved.";
     out.appendChild(note);
   }
+  function drawScatter(rg, sh) {
+    var rows = [], r;
+    for (r = rg.r1; r <= rg.r2; r++) { var ax = String.fromCharCode(64 + rg.c1) + r, ay = String.fromCharCode(64 + rg.c2) + r; rows.push({ a: ax + ":" + ay, x: sh.get(ax), y: sh.get(ay) }); }
+    var sp = M.scatterPoints(rows);
+    if (!sp) { out.textContent = "No row in " + rg.label + " has a number in both columns right now."; return; }
+    var W = 560, H2 = 280, L = 52, B = 34, T = 14, R = 14;
+    var X = function (v) { return L + (W - L - R) * (v - sp.xlo) / (sp.xhi - sp.xlo); }, Y = function (v) { return T + (H2 - T - B) * (sp.yhi - v) / (sp.yhi - sp.ylo); };
+    var svg = el("svg", { viewBox: "0 0 " + W + " " + H2, role: "img", "aria-label": "Scatter chart of " + rg.label });
+    svg.appendChild(el("line", { x1: L, y1: H2 - B, x2: W - R, y2: H2 - B, stroke: "#555" }));
+    svg.appendChild(el("line", { x1: L, y1: T, x2: L, y2: H2 - B, stroke: "#555" }));
+    svg.appendChild(el("text", { x: L, y: H2 - 14, "font-size": 11, "text-anchor": "start" }, String(+sp.xlo.toPrecision(4))));
+    svg.appendChild(el("text", { x: W - R, y: H2 - 14, "font-size": 11, "text-anchor": "end" }, String(+sp.xhi.toPrecision(4))));
+    svg.appendChild(el("text", { x: L - 4, y: T + 8, "font-size": 11, "text-anchor": "end" }, String(+sp.yhi.toPrecision(4))));
+    svg.appendChild(el("text", { x: L - 4, y: H2 - B, "font-size": 11, "text-anchor": "end" }, String(+sp.ylo.toPrecision(4))));
+    sp.pts.forEach(function (q) { var d = el("circle", { cx: X(q.x), cy: Y(q.y), r: 4, fill: "#7a2e22", "fill-opacity": 0.8 }); d.appendChild(el("title", {}, q.a + ": (" + q.x + ", " + q.y + ")")); svg.appendChild(d); });
+    out.appendChild(svg);
+    var note = document.createElement("p"); note.className = "cal-meta";
+    note.textContent = sp.pts.length + " points charted from " + rg.label + " (first column across, second column up)" + (sp.skipped ? ", " + sp.skipped + " rows skipped (a blank, text or error in either cell)" : "") + ". The chart follows the sheet as you edit.";
+    out.appendChild(note);
+  }
   document.getElementById("chart-draw").addEventListener("click", function () {
     var m = /^\s*([A-Za-z]{1,2}[0-9]{1,4})\s*:\s*([A-Za-z]{1,2}[0-9]{1,4})\s*$/.exec(document.getElementById("chart-range").value);
     var p1 = m && F.parseAddr(m[1].toUpperCase()), p2 = m && F.parseAddr(m[2].toUpperCase());
-    chartRange = null; out.textContent = ""; chartKind = document.getElementById("chart-type").value; if (["bar", "line", "pie"].indexOf(chartKind) < 0) chartKind = "bar";
+    chartRange = null; out.textContent = ""; chartKind = document.getElementById("chart-type").value; if (["bar", "line", "area", "pie", "scatter"].indexOf(chartKind) < 0) chartKind = "bar";
     if (!p1 || !p2) { out.textContent = "Enter a range like A1:A8."; return; }
     var c1 = Math.min(p1.col, p2.col), c2 = Math.max(p1.col, p2.col), r1 = Math.min(p1.row, p2.row), r2 = Math.max(p1.row, p2.row);
-    if (c1 !== c2 && r1 !== r2) { out.textContent = "Use one row or one column."; return; }
+    if (chartKind === "scatter") { if (c2 - c1 !== 1) { out.textContent = "A scatter chart needs exactly two columns: x values on the left, y values on the right (for example A1:B8)."; return; } }
+    else if (c1 !== c2 && r1 !== r2) { out.textContent = "Use one row or one column."; return; }
     if ((c2 - c1 + 1) * (r2 - r1 + 1) > 50) { out.textContent = "A chart takes up to 50 cells."; return; }
     chartRange = { c1: c1, c2: c2, r1: r1, r2: r2, label: m[1].toUpperCase() + ":" + m[2].toUpperCase() };
     drawChart();

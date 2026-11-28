@@ -77,7 +77,7 @@
 <ul id="val-list" class="cal-meta"></ul><p class="cal-meta" id="val-none">No rules on this tab.</p>
 <p class="cal-meta" id="val-status" role="status"></p>
 <h3>Chart</h3>
-<p class="sheet-tools"><label>Range of numbers (one row or column, up to 50 cells, e.g. A1:A8) <input type="text" id="chart-range" maxlength="20" value="A1:A8"></label> <label>Type <select id="chart-type"><option value="bar">Bar</option><option value="line">Line</option><option value="pie">Pie (values above zero)</option></select></label> <button class="btn" type="button" id="chart-draw">Draw chart</button></p>
+<p class="sheet-tools"><label>Range of numbers (one row or column, up to 50 cells, e.g. A1:A8; Scatter takes two columns, x then y, e.g. A1:B8) <input type="text" id="chart-range" maxlength="20" value="A1:A8"></label> <label>Type <select id="chart-type"><option value="bar">Bar</option><option value="line">Line</option><option value="area">Area</option><option value="scatter">Scatter (two columns)</option><option value="pie">Pie (values above zero)</option></select></label> <button class="btn" type="button" id="chart-draw">Draw chart</button></p>
 <div id="chart-out" aria-live="polite"></div>
 </div>
 <script src="/static/sheets/formula.js"></script>

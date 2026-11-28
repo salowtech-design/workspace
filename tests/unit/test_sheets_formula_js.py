@@ -123,3 +123,15 @@ def test_widths_table_passes_in_node():
     )
     assert r.returncode == 0, r.stdout + r.stderr
     assert "33/33 width rows passed" in r.stdout
+
+
+def test_scatter_table_passes_in_node():
+    assert shutil.which("node"), "node is required to run the scatter table"
+    r = subprocess.run(  # noqa: S603 - fixed argv, repo-owned script
+        [shutil.which("node"), str(ROOT / "tests/js/sheets_scatter.js")],
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert "9/9 scatter rows passed" in r.stdout

@@ -330,6 +330,7 @@ def register(g):
     register_sheets_xtab(g)
     register_sheets_widths(g)
     register_slides_layout(g)
+    register_sheets_charts(g)
     register_pdf_alltext_stop(g)
     register_pdf_roundtrip(g)
     register_slides_order_recovery(g)
@@ -5712,6 +5713,44 @@ def register_sheets_widths(g):
         run_tour(ctx, "sheets_widths", body, notes="Headless Chromium 390x844 emulated, one run. Not shown: dragging a column edge (there is no drag handle, widths are set with the control), a real full browser store, another window changing the entry.", unshown=["drag resize", "real quota", "another window"])
 
     g["DRILLS"]["tour_sheets_widths"] = tour
+
+
+def register_sheets_charts(g):
+    APP = g["APP"]
+
+    def tour(ctx):
+        cell = lambda a: 'input[data-addr="%s"]' % a
+
+        def body(t, pg):
+            pg.goto(APP + "/sheets/")
+            pg.evaluate("localStorage.clear()")
+            pg.goto(APP + "/sheets/")
+            pg.wait_for_timeout(500)
+            put = lambda a, v: (pg.click(cell(a)), pg.keyboard.type(v), pg.keyboard.press("Enter"))
+            chart = lambda: pg.evaluate("document.getElementById('chart-out').scrollIntoView({block:'center'})")
+            draw = lambda rng, kind: (pg.evaluate("document.getElementById('chart-draw').scrollIntoView({block:'center'})"), pg.fill("#chart-range", rng), pg.select_option("#chart-type", kind), pg.click("#chart-draw"), pg.wait_for_timeout(300))
+            msg = lambda: pg.inner_text("#chart-out")
+            n = lambda sel: pg.locator("#chart-out svg " + sel).count()
+            for i, (x, y) in enumerate([(1, 4), (2, 9), (3, 6), (4, 12), (5, -3)], 1):
+                put("A%d" % i, str(x)); put("B%d" % i, str(y))
+            put("A6", "n/a"); put("B6", "7")
+            draw("B1:B5", "area")
+            t.step("Area chart of B1:B5 (4, 9, 6, 12, -3): a filled shape under the line, 5 points, the axis passes through zero", lambda: chart(), expect=lambda: n("polygon") == 1 and n("polyline") == 1 and n("circle") == 5, wait=2500)
+            draw("B1:B1", "area")
+            t.step("Area of a single cell: one point and no filled shape", lambda: chart(), expect=lambda: n("polygon") == 0 and n("circle") == 1, wait=2500)
+            draw("A1:B5", "scatter")
+            t.step("Scatter of A1:B5: 5 points, x across and y up, axes from the data (x 1 to 5, y -3 to 12)", lambda: chart(), expect=lambda: n("circle") == 5 and "5 points charted" in msg() and "12" in pg.evaluate("document.querySelector('#chart-out svg').textContent") and "-3" in pg.evaluate("document.querySelector('#chart-out svg').textContent"), wait=2500)
+            draw("A1:B6", "scatter")
+            t.step("Scatter of A1:B6 where A6 is text: 5 points and the note says 1 row skipped", lambda: chart(), expect=lambda: n("circle") == 5 and "1 rows skipped" in msg(), wait=2500)
+            draw("B1:B5", "scatter")
+            t.step("Scatter of one column is refused with the two-column message and no chart", lambda: chart(), expect=lambda: "exactly two columns" in msg() and n("circle") == 0, wait=2500)
+            draw("A1:B5", "line")
+            t.step("Line chart of two columns is still refused (one row or one column)", lambda: chart(), expect=lambda: "one row or one column" in msg(), wait=2500)
+            put("A1", "x"); draw("A1:B5", "scatter")
+            t.step("Edit A1 to text: the scatter redraws on the next draw with 4 points and 1 skipped row", lambda: chart(), expect=lambda: n("circle") == 4 and "1 rows skipped" in msg(), wait=2500)
+        run_tour(ctx, "sheets_charts", body, notes="Headless Chromium 390x844 emulated, one run. Charts are drawn from the sheet and store nothing. Not shown: dragging points, axis titles, more than 50 cells.", unshown=["axis titles", "more than 50 cells"])
+
+    g["DRILLS"]["tour_sheets_charts"] = tour
 
 
 def register_sheets_versions(g):

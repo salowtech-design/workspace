@@ -48,6 +48,18 @@
     return { pts: pts, lo: lo, hi: hi, skipped: skipped, bars: pts.map(function (q) { return { a: q.a, v: q.v, bar: q.v !== 0 }; }) };
   }
 
+  // Scatter: rows of two numbers (x then y). A row with a blank, text or error in either cell is skipped and counted. The axes fit the data (they do not
+  // have to include zero); when every x or every y is the same the axis is widened by 1 so the points still draw. Null when no row has two numbers.
+  function scatterPoints(rows) {
+    var pts = [], skipped = 0, num = function (v) { return typeof v === "number" && isFinite(v); };
+    rows.forEach(function (r) { if (num(r.x) && num(r.y)) pts.push({ a: r.a, x: r.x, y: r.y }); else skipped++; });
+    if (!pts.length) return null;
+    var xs = pts.map(function (q) { return q.x; }), ys = pts.map(function (q) { return q.y; });
+    var xlo = Math.min.apply(null, xs), xhi = Math.max.apply(null, xs), ylo = Math.min.apply(null, ys), yhi = Math.max.apply(null, ys);
+    if (xhi === xlo) xhi = xlo + 1; if (yhi === ylo) yhi = ylo + 1;
+    return { pts: pts, xlo: xlo, xhi: xhi, ylo: ylo, yhi: yhi, skipped: skipped };
+  }
+
   // Pie: only positive values make slices. Others are counted as left out. frac sums to 1.
   function pieSlices(pts) {
     var pos = pts.filter(function (q) { return q.v > 0; }), tot = pos.reduce(function (a, q) { return a + q.v; }, 0);
@@ -741,6 +753,6 @@
     if (!/^[0-9]{1,4}$/.test(t) || Number(t) < MIN_CW || Number(t) > MAX_CW) return { error: "The width must be a whole number of pixels from " + MIN_CW + " to " + MAX_CW + " (the standard width is " + DEFAULT_CW + ")." };
     return { col: c, px: Number(t) };
   }
-  var api = { loadWidths: loadWidths, widthsJson: widthsJson, parseWidth: parseWidth, MIN_CW: MIN_CW, MAX_CW: MAX_CW, DEFAULT_CW: DEFAULT_CW, loadVers: loadVers, versJson: versJson, addVer: addVer, dropVer: dropVer, verName: verName, MAX_VERS: MAX_VERS, structApply: structApply, structRecover: structRecover, structRecovery: structRecovery, structRecoveryInfo: structRecoveryInfo, structEdit: structEdit, structRange: structRange, fillRange: fillRange, findReplace: findReplace, parseRange: parseRange, makeRule: makeRule, addRule: addRule, removeRule: removeRule, loadRules: loadRules, rulesJson: rulesJson, checkValue: checkValue, makePivot: makePivot, pivot: pivot, MAX_GROUPS: MAX_GROUPS, makeCf: makeCf, addCf: addCf, loadCf: loadCf, cfJson: cfJson, cfColor: cfColor, parsePaste: parsePaste, loadFreeze: loadFreeze, freezeJson: freezeJson, parseFreeze: parseFreeze, MAX_FREEZE: MAX_FREEZE, parseCsv: parseCsv, csvImport: csvImport, isBlock: isBlock, applyPaste: applyPaste, MAX_PASTE_CELLS: MAX_PASTE_CELLS, makeFmt: makeFmt, addFmt: addFmt, loadFmt: loadFmt, fmtJson: fmtJson, fmtFor: fmtFor, fmtText: fmtText, MAX_FMT: MAX_FMT, MAX_RULES: MAX_RULES, loadTabs: loadTabs, addTab: addTab, markFmt: markFmt, renameTab: renameTab, deleteTab: deleteTab, setActive: setActive, cleanName: cleanName, MAX_TABS: MAX_TABS, sortRange: sortRange, filterRows: filterRows, toNum: toNum, toCsv: toCsv, clean: clean, History: History, chartPoints: chartPoints, pieSlices: pieSlices, isComposing: isComposing, keyMove: keyMove, copy: copy, same: same };
+  var api = { scatterPoints: scatterPoints, loadWidths: loadWidths, widthsJson: widthsJson, parseWidth: parseWidth, MIN_CW: MIN_CW, MAX_CW: MAX_CW, DEFAULT_CW: DEFAULT_CW, loadVers: loadVers, versJson: versJson, addVer: addVer, dropVer: dropVer, verName: verName, MAX_VERS: MAX_VERS, structApply: structApply, structRecover: structRecover, structRecovery: structRecovery, structRecoveryInfo: structRecoveryInfo, structEdit: structEdit, structRange: structRange, fillRange: fillRange, findReplace: findReplace, parseRange: parseRange, makeRule: makeRule, addRule: addRule, removeRule: removeRule, loadRules: loadRules, rulesJson: rulesJson, checkValue: checkValue, makePivot: makePivot, pivot: pivot, MAX_GROUPS: MAX_GROUPS, makeCf: makeCf, addCf: addCf, loadCf: loadCf, cfJson: cfJson, cfColor: cfColor, parsePaste: parsePaste, loadFreeze: loadFreeze, freezeJson: freezeJson, parseFreeze: parseFreeze, MAX_FREEZE: MAX_FREEZE, parseCsv: parseCsv, csvImport: csvImport, isBlock: isBlock, applyPaste: applyPaste, MAX_PASTE_CELLS: MAX_PASTE_CELLS, makeFmt: makeFmt, addFmt: addFmt, loadFmt: loadFmt, fmtJson: fmtJson, fmtFor: fmtFor, fmtText: fmtText, MAX_FMT: MAX_FMT, MAX_RULES: MAX_RULES, loadTabs: loadTabs, addTab: addTab, markFmt: markFmt, renameTab: renameTab, deleteTab: deleteTab, setActive: setActive, cleanName: cleanName, MAX_TABS: MAX_TABS, sortRange: sortRange, filterRows: filterRows, toNum: toNum, toCsv: toCsv, clean: clean, History: History, chartPoints: chartPoints, pieSlices: pieSlices, isComposing: isComposing, keyMove: keyMove, copy: copy, same: same };
   if (typeof module !== "undefined" && module.exports) module.exports = api; else root.SalowSheetModel = api;
 })(typeof self !== "undefined" ? self : this);

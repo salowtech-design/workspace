@@ -1,0 +1,16 @@
+const M = require("../../static/sheets/model.js");
+let n = 0, bad = 0;
+const ok = (d, c) => { n++; if (!c) { bad++; console.log("FAIL", d); } };
+const r = (a, x, y) => ({ a, x, y });
+ok("no rows gives null", M.scatterPoints([]) === null);
+ok("rows with no number pair give null", M.scatterPoints([r("1", "a", 1), r("2", 1, null), r("3", NaN, 2), r("4", 1, Infinity), r("5", { err: 1 }, 1)]) === null);
+const s = M.scatterPoints([r("1", 1, 10), r("2", 2, 20), r("3", "x", 5), r("4", 3, null), r("5", -4, -8)]);
+ok("pairs with a number in both cells are kept, others are counted as skipped", s.pts.length === 3 && s.skipped === 2);
+ok("axes fit the data and do not have to include zero", (() => { const t = M.scatterPoints([r("1", 100, 50), r("2", 110, 60)]); return t.xlo === 100 && t.xhi === 110 && t.ylo === 50 && t.yhi === 60; })());
+ok("negative values set the lower end", s.xlo === -4 && s.ylo === -8 && s.xhi === 2 && s.yhi === 20);
+ok("one point widens both axes by 1 so it still draws", (() => { const t = M.scatterPoints([r("1", 5, 7)]); return t.xlo === 5 && t.xhi === 6 && t.ylo === 7 && t.yhi === 8; })());
+ok("all x equal widens only x", (() => { const t = M.scatterPoints([r("1", 2, 1), r("2", 2, 9)]); return t.xhi === 3 && t.ylo === 1 && t.yhi === 9; })());
+ok("zero is a number, not skipped", M.scatterPoints([r("1", 0, 0), r("2", 1, 1)]).pts.length === 2);
+ok("the point keeps its address label", s.pts[0].a === "1" && s.pts[2].a === "5");
+console.log(`${n - bad}/${n} scatter rows passed`);
+process.exit(bad ? 1 : 0);
