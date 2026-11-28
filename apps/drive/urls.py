@@ -10,6 +10,7 @@ urlpatterns = [
     path("shared/", views.shared_view, name="shared"),
     path("trash/", views.trash_view, name="trash"),
     path("new-folder/", views.new_folder, name="new_folder"),
+    path("mine/files/", views.own_files, name="own_files"),
     path("file/new/", views.file_new, name="file_new"),
     path("file/<uuid:item_id>/version/", views.file_version, name="file_version"),
     path("<str:kind>/<uuid:item_id>/rename/", views.rename_item, name="rename"),

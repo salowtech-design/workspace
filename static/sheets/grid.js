@@ -342,6 +342,13 @@
     var u = URL.createObjectURL(new Blob([JSON.stringify(cells)], { type: "application/json" })), l = document.createElement("a");
     l.href = u; l.download = "sheet.json"; document.body.appendChild(l); l.click(); l.remove(); URL.revokeObjectURL(u);
   });
+  (function () {  // Save to Drive / Open from Drive: the person's own files on this device (see static/drive/link.js)
+    var box = document.getElementById("drive-link"); if (!box || !window.SalowDriveLink) return;
+    window.SalowDriveLink.init({ box: box, status: document.getElementById("dl-status"), nameInput: document.getElementById("dl-name"), saveBtn: document.getElementById("dl-save"), listBtn: document.getElementById("dl-list"), select: document.getElementById("dl-files"), openBtn: document.getElementById("dl-open"),
+      saveExt: "json", saveType: "application/json", openExts: ["json", "csv"],
+      getContent: function () { return Object.keys(cells).length ? { ok: true, text: JSON.stringify(cells) } : { ok: false, message: "The sheet is empty, so nothing was saved." }; },
+      inputFor: function (ext) { return document.getElementById(ext === "csv" ? "sheet-import-csv" : "sheet-import"); } });
+  })();
   var csvBusy = false;
   function csvSame(snap) { var k1 = Object.keys(snap), k2 = Object.keys(cells); return k1.length === k2.length && k1.every(function (k) { return cells[k] === snap[k]; }); }
   document.getElementById("sheet-csv").addEventListener("click", function () {

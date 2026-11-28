@@ -339,6 +339,8 @@ def register(g):
     register_sheets_heavy8(g)
     register_sheets_insert1000(g)
     register_slides_underline(g)
+    register_drive_link(g)
+    register_drive_link_fail(g)
     register_sheets_frozenfocus(g)
     register_pdf_alltext_stop(g)
     register_pdf_roundtrip(g)
@@ -6038,6 +6040,98 @@ def register_sheets_heavy8(g):
         run_tour(ctx, "sheets_heavy8", body, notes="Headless Chromium 390x844 emulated. Eight adjacent cells of 490,000 work units each, a 60-repeat cell over the guard, a 200-cell chain; screen against CSV.")
     g["DRILLS"]["tour_sheets_heavy8"] = tour
 
+
+
+def register_drive_link(g):
+    APP = g["APP"]
+
+    def tour(ctx):
+        def body(t, pg):
+            pg.on("pageerror", lambda e: print("PAGEERROR", str(e)[:300]))
+            dialogs = []
+            pg.on("dialog", lambda d: (dialogs.append(d.message), d.accept()))
+            pg.goto(APP + "/drive/")
+            pg.evaluate("localStorage.clear()")
+            pg.goto(APP + "/sheets/")
+            pg.wait_for_selector("#sheet-root input", timeout=15000)
+            key = pg.evaluate("""() => { const k = document.getElementById('sheet-root').dataset.storeKey; localStorage.setItem(k, JSON.stringify({A1: '10', A2: '20', A3: '30', B1: '=SUM(A1:A3)'})); return k; }""")
+            pg.reload(); pg.wait_for_selector("#sheet-root input", timeout=15000); pg.wait_for_timeout(500)
+            stat = lambda: pg.inner_text("#dl-status")
+            own = lambda: pg.evaluate("() => fetch('/drive/mine/files/', {credentials: 'same-origin'}).then((r) => r.json())")
+            stored = lambda: json.loads(pg.evaluate("(k) => localStorage.getItem(k)", key) or "{}")
+            sha = lambda: pg.evaluate("() => { const b = new TextEncoder().encode(JSON.stringify(JSON.parse(localStorage.getItem(document.getElementById('sheet-root').dataset.storeKey)))); return Promise.resolve(window.SalowSlidesImages.sha256(b)); }")
+            t.step("Sheets: Drive panel is on the page with Save to Drive (.json) and Open from Drive; the file name box says sheet.json", expect=lambda: pg.locator("#dl-save").count() == 1 and pg.input_value("#dl-name") == "sheet.json", wait=1200)
+            t.step("A name that does not end in .json is refused and nothing is created in Drive", lambda: (pg.fill("#dl-name", "sheet.txt"), pg.click("#dl-save"), pg.wait_for_timeout(500)), expect=lambda: "must end in .json" in stat() and own()["files"] == [], wait=500)
+            def save1():
+                pg.fill("#dl-name", "sheet.json"); pg.click("#dl-save"); pg.wait_for_timeout(1500)
+            t.step("Save to Drive: the status says it is saved at the top of My Drive and only you can see it; Drive lists sheet.json with the size and SHA-256 of what Export would download", save1, expect=lambda: "Saved to Drive" in stat() and "only you can see it" in stat() and [(f["name"], f["version"]) for f in own()["files"]] == [("sheet.json", 1)] and own()["files"][0]["sha256"] == sha() and own()["files"][0]["size"] == len(json.dumps(stored(), separators=(",", ":"))) or (print("SAVE1", stat()[:200], own(), flush=True) or False), wait=500)
+            t.step("Saving the same name again is refused by Drive and the file stays at version 1", lambda: (pg.click("#dl-save"), pg.wait_for_timeout(1500)), expect=lambda: "already used" in stat() and [f["version"] for f in own()["files"]] == [1], wait=500)
+            def clear_open():
+                pg.click("#sheet-clear"); pg.wait_for_timeout(500)
+                pg.click("#dl-list"); pg.wait_for_timeout(1200)
+            t.step("Clear the sheet, then Open from Drive: the list offers sheet.json as on this device", clear_open, expect=lambda: pg.locator("#dl-files option").count() == 1 and not pg.locator("#dl-files option").first.is_disabled() and pg.is_visible("#dl-open"), wait=500)
+            def do_open():
+                pg.click("#dl-open"); pg.wait_for_timeout(1500)
+            t.step("Open the chosen file: the page's own Import runs and A1 to A3 and B1 are back (B1 shows 60)", do_open, expect=lambda: pg.input_value('#sheet-root input[data-addr="A2"]') == "20" and stored() == {"A1": "10", "A2": "20", "A3": "30", "B1": "=SUM(A1:A3)"} and "Imported 4 cells" in pg.inner_text("#sheet-status"), wait=500)
+            def replace_open():
+                pg.fill('#sheet-root input[data-addr="A5"]', "99"); pg.press('#sheet-root input[data-addr="A5"]', "Tab"); pg.wait_for_timeout(400)
+                dialogs.clear(); pg.click("#dl-open"); pg.wait_for_timeout(1500)
+            t.step("With cells present, opening asks first (the page's own confirm named the cells) and Undo is offered; the sheet is the saved one again", replace_open, expect=lambda: any("Replace the" in d for d in dialogs) and "A5" not in stored(), wait=500)
+            t.step("Undo takes the import back in one step: A5 = 99 returns", lambda: pg.click("#sheet-undo"), expect=lambda: stored().get("A5") == "99", wait=800)
+            def lose_device():
+                pg.evaluate("() => new Promise((res) => { const r = indexedDB.deleteDatabase('salow-drive-' + document.getElementById('drive-link').dataset.user); r.onsuccess = r.onerror = r.onblocked = () => res(); setTimeout(res, 1500); })")
+                pg.reload(); pg.wait_for_selector("#sheet-root input", timeout=15000); pg.wait_for_timeout(400)
+                pg.click("#dl-list"); pg.wait_for_timeout(1500)
+            t.step("After this browser's Drive copy is gone, Open from Drive says none is on this device and offers nothing to open (the Drive record is still there)", lose_device, expect=lambda: "none is on this device" in stat() and not pg.is_visible("#dl-open") and len(own()["files"]) == 1, wait=500)
+            def slides_part():
+                pg.goto(APP + "/slides/"); pg.wait_for_selector("#sl-add-text", timeout=15000)
+                pg.click("#sl-add-text"); pg.fill("#sl-text", "Saved deck"); pg.press("#sl-text", "Tab"); pg.wait_for_timeout(400)
+                pg.fill("#dl-name", "deck.json"); pg.click("#dl-save"); pg.wait_for_timeout(1800)
+            t.step("Slides: a deck with one text item saves as deck.json to My Drive", slides_part, expect=lambda: "Saved to Drive" in stat() and sorted(f["name"] for f in own()["files"]) == ["deck.json", "sheet.json"], wait=500)
+            def slides_open():
+                pg.fill("#sl-text", "Changed later"); pg.press("#sl-text", "Tab"); pg.wait_for_timeout(300)
+                pg.click("#sl-add-rect"); pg.wait_for_timeout(300)
+                pg.click("#dl-list"); pg.wait_for_timeout(1500)
+                pg.select_option("#dl-files", label=pg.locator("#dl-files option:not([disabled])").first.inner_text()) if pg.locator("#dl-files option:not([disabled])").count() else None
+                dialogs.clear(); pg.click("#dl-open"); pg.wait_for_timeout(1500)
+            t.step("Slides: Open from Drive lists only .json files on this device and hands deck.json to Import, which asks first; the first text is back", slides_open, expect=lambda: pg.locator("#dl-files option").count() == 2 and any("Replace this deck" in d for d in dialogs) and "Imported 1 slides" in pg.inner_text("#sl-status") or (print("SLOPEN", pg.locator("#dl-files option").count(), dialogs, pg.inner_text("#sl-status")[:200], stat()[:200], flush=True) or False), wait=500)
+            t.step("Drive's own page shows both files with their on-device copy and an enabled Open from this device", lambda: pg.goto(APP + "/drive/"), expect=lambda: pg.locator(".drive-file").count() == 2 and pg.locator(".drive-open").first.is_enabled(), wait=1500)
+        run_tour(ctx, "drive_link", body, notes="Headless Chromium 390x844 emulated. Save to Drive and Open from Drive in Sheets and Slides.")
+    g["DRILLS"]["tour_drive_link"] = tour
+
+
+def register_drive_link_fail(g):
+    APP = g["APP"]
+
+    def tour(ctx):
+        def body(t, pg):
+            pg.on("pageerror", lambda e: print("PAGEERROR", str(e)[:300]))
+            pg.on("dialog", lambda d: d.accept())
+            pg.goto(APP + "/drive/")
+            pg.evaluate("localStorage.clear()")
+            pg.goto(APP + "/sheets/")
+            pg.wait_for_selector("#sheet-root input", timeout=15000)
+            key = pg.evaluate("""() => { const k = document.getElementById('sheet-root').dataset.storeKey; localStorage.setItem(k, JSON.stringify({A1: '10', A2: '20'})); return k; }""")
+            pg.reload(); pg.wait_for_selector("#sheet-root input", timeout=15000); pg.wait_for_timeout(500)
+            stat = lambda: pg.inner_text("#dl-status")
+            own = lambda: pg.evaluate("() => fetch('/drive/mine/files/', {credentials: 'same-origin'}).then((r) => r.json())")
+            stored = lambda: json.loads(pg.evaluate("(k) => localStorage.getItem(k)", key) or "{}")
+            def full():
+                pg.evaluate("() => { window.__put = IDBObjectStore.prototype.put; IDBObjectStore.prototype.put = function () { throw new DOMException('This device is out of room. Nothing was saved.', 'QuotaExceededError'); }; }")
+                pg.click("#dl-save"); pg.wait_for_timeout(1500)
+            t.step("Simulated full device: the byte write throws a quota error (the test replaces put). Save shows the device-storage failure message (not a saved message) and Drive has no record", full, expect=lambda: ("Saved to Drive" not in stat() and "would not use its file storage" in stat() and own()["files"] == [] and "recoverable" not in stat().lower()), wait=500)
+            def restore_and_save():
+                pg.evaluate("() => { IDBObjectStore.prototype.put = window.__put; }")
+                pg.click("#dl-save"); pg.wait_for_timeout(1500)
+            t.step("Same device with the write working again: Save now succeeds and Drive records version 1 with the right size", restore_and_save, expect=lambda: "Saved to Drive" in stat() and [f["version"] for f in own()["files"]] == [1], wait=500)
+            def tamper_open():
+                sha = own()["files"][0]["sha256"]
+                pg.evaluate("""(h) => new Promise((res, rej) => { const q = indexedDB.open('salow-drive-' + document.getElementById('drive-link').dataset.user); q.onsuccess = () => { const db = q.result; const names = Array.from(db.objectStoreNames); const tx = db.transaction(names[0], 'readwrite'); const st = tx.objectStore(names[0]); const bad = new TextEncoder().encode('{"A1":"tampered"}'); st.put({ sha256: h, size: bad.length, bytes: bad.buffer }); tx.oncomplete = () => { db.close(); res(); }; tx.onerror = () => rej(tx.error); }; q.onerror = () => rej(q.error); })""", sha)
+                pg.click("#dl-list"); pg.wait_for_timeout(1500)
+                pg.click("#dl-open"); pg.wait_for_timeout(1500)
+            t.step("The copy in this browser no longer matches its checksum (replaced with other bytes): Open says it is damaged and was not opened, and the sheet is unchanged", tamper_open, expect=lambda: "damaged" in stat() and "Nothing was changed" in stat() and stored() == {"A1": "10", "A2": "20"}, wait=500)
+        run_tour(ctx, "drive_link_fail", body, notes="Headless Chromium 390x844 emulated. Save to Drive when the device write fails, and Open when the stored copy does not match its checksum.")
+    g["DRILLS"]["tour_drive_link_fail"] = tour
 
 
 def register_slides_underline(g):

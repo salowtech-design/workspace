@@ -8,7 +8,8 @@ from django.db.models import F
 from django.db.models.functions import Upper
 from django.http import Http404, HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
-from django.views.decorators.http import require_POST
+from django.views.decorators.cache import never_cache
+from django.views.decorators.http import require_GET, require_POST
 
 from apps.accounts.models import CustomUser
 from apps.core.foundation.permissions import can
@@ -365,6 +366,21 @@ def _file_json(f):
         "size": f.size,
         "content_type": f.content_type,
     }
+
+
+@login_required
+@require_GET
+@never_cache
+def own_files(request):
+    """The person's OWN files at the top of My Drive that have a saved version: id, name, size, version and the checksum of the current
+    version. Records only, never bytes. Nothing shared with them and nothing inside a folder is listed, so this opens no new audience.
+    Used by Sheets and Slides to offer 'Open from Drive' for files that are on this device."""
+    _folders, files = svc.list_folder(request.user, None)
+    files = _with_hashes([f for f in files if f.current_version])
+    files.sort(key=lambda f: (f.name.lower(), f.pk))
+    return JsonResponse(
+        {"ok": True, "files": [{"id": str(f.public_id), "name": f.name, "size": f.size, "version": f.current_version, "sha256": f.device_sha} for f in files[:200]], "truncated": len(files) > 200}
+    )
 
 
 @login_required

@@ -240,3 +240,32 @@ def test_directly_shared_file_gets_the_device_controls_without_exposing_its_pare
     # trashing the parent folder also hides the directly shared file
     svc.trash(a, folder)
     assert "direct.pdf" not in _c(v).get(shared).content.decode()
+
+
+@pytest.mark.django_db
+def test_own_files_lists_only_my_top_level_files_with_a_saved_version_and_nothing_else():
+    a, b = _u("OF-A"), _u("OF-B")
+    ca, cb = _c(a), _c(b)
+    url = reverse("drive:own_files")
+    assert Client().get(url).status_code == 302
+    assert ca.post(url).status_code == 405
+    assert ca.get(url).json() == {"ok": True, "files": [], "truncated": False}
+    fid = _new(ca, "mine.json").json()["file"]["id"]
+    _new(ca, "no-version.json")  # a record with no bytes recorded is not offered
+    assert [f["name"] for f in ca.get(url).json()["files"]] == []
+    assert _ver(ca, fid, 0, 77, "b" * 64).status_code == 200
+    got = ca.get(url).json()["files"]
+    assert got == [{"id": fid, "name": "mine.json", "size": 77, "version": 1, "sha256": "b" * 64}]
+    # someone else's file, a file inside a folder, a file shared with me and a trashed file are never listed
+    folder = svc.create_folder(b, "B folder")
+    bid = _new(cb, "theirs.json").json()["file"]["id"]
+    assert _ver(cb, bid, 0, 5, "c" * 64).status_code == 200
+    svc.share(b, DriveFile.objects.get(public_id=bid), a, "viewer")
+    assert [f["name"] for f in ca.get(url).json()["files"]] == ["mine.json"]
+    assert cb.get(url).json()["files"][0]["name"] == "theirs.json" and len(cb.get(url).json()["files"]) == 1
+    inner = _new(cb, "inner.json", folder).json()["file"]["id"]
+    assert _ver(cb, inner, 0, 5, "d" * 64).status_code == 200
+    assert [f["name"] for f in cb.get(url).json()["files"]] == ["theirs.json"]
+    f = DriveFile.objects.get(public_id=fid)
+    svc.trash(a, f)
+    assert ca.get(url).json()["files"] == []

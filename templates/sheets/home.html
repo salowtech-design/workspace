@@ -36,6 +36,12 @@
 <div id="struct-recovery" class="cal-meta" role="alert" hidden></div>
 <div id="sheet-root" class="sheet-scroll" data-store-key="{{ store_key }}"></div>
 <p class="sheet-tools"><button class="btn" type="button" id="sheet-clear">Clear sheet (undo until reload)</button> <button class="btn" type="button" id="sheet-export">Export (.json)</button> <button class="btn" type="button" id="sheet-csv">Download values (.csv)</button> <label>Import <input type="file" id="sheet-import" accept=".json,application/json"></label> <label>Import CSV <input type="file" id="sheet-import-csv" accept=".csv,text/csv"></label></p>
+<div id="drive-link" class="sheet-tools" data-user="{{ request.user.pk }}" data-csrf="{{ csrf_token }}" data-new="{% url 'drive:file_new' %}" data-version-tpl="{% url 'drive:file_version' '00000000-0000-0000-0000-000000000000' %}" data-list="{% url 'drive:own_files' %}">
+<h3>Drive</h3>
+<label>File name <input type="text" id="dl-name" value="sheet.json" maxlength="100"></label> <button class="btn" type="button" id="dl-save">Save to Drive (.json)</button> <button class="btn" type="button" id="dl-list">Open from Drive</button> <select id="dl-files" aria-label="Files on this device" hidden></select> <button class="btn" type="button" id="dl-open" hidden>Open the chosen file</button>
+<p class="cal-meta">Saves the same JSON as Export (.json) for this tab. CSV and PDF are not saved to Drive yet. Save puts a file at the top of your own My Drive (Drive records its name, size and checksum); the file itself stays in this browser on this device. Only you can see it until you share it in Drive, and anyone you share it with gets the record but not the file. Open lists your own top-level Drive files whose copy is on this device and uses Import, which asks before it replaces anything.</p>
+<p class="cal-meta" id="dl-status" role="status"></p>
+</div>
 <p class="cal-meta" id="sheet-csv-help">Import CSV reads a comma separated file into this tab starting at A1 and replaces the cells of this tab (it asks first and Undo works). Everything is kept as text exactly as written, so numbers are not converted and dates are not recognised. A cell that starts with = is kept as text with a leading apostrophe and is not run as a formula, the same mark the CSV download adds. The apostrophe is real text in the cell: it shows in the cell and the formula bar, it stays when you edit, and it is not hidden the way some programs hide it. Delete it yourself if you want the text. A line break inside a cell becomes a space. Cells past column Z or row 1000, and cells a validation rule refuses, are left out and counted. The file is read as UTF-8 only: bytes that are not valid UTF-8 show as the replacement character and the question before the import tells you how many. Before anything changes, a question lists how many cells will be left out or changed and says the tab's old cells are all replaced, including those in places the file leaves empty. Up to 1,000,000 characters, 5,000 rows and 200 columns. A file with a quote that does not close is refused. It has not been tried with files from Google Sheets, Excel or other programs, only with files this page wrote and hand-made ones. Formulas, formatting and several tabs are not in a CSV file.</p>
 <p class="cal-meta" id="sheet-status" role="status"></p>
 <h3>Sort and filter</h3>
@@ -80,6 +86,9 @@
 <p class="sheet-tools"><label>Range of numbers (one row or column, up to 50 cells, e.g. A1:A8; Scatter takes two columns, x then y, e.g. A1:B8) <input type="text" id="chart-range" maxlength="20" value="A1:A8"></label> <label>Type <select id="chart-type"><option value="bar">Bar</option><option value="line">Line</option><option value="area">Area</option><option value="scatter">Scatter (two columns)</option><option value="pie">Pie (values above zero)</option></select></label> <button class="btn" type="button" id="chart-draw">Draw chart</button></p>
 <div id="chart-out" aria-live="polite"></div>
 </div>
+<script src="/static/slides/images.js"></script>
+<script src="/static/drive/device.js"></script>
+<script src="/static/drive/link.js"></script>
 <script src="/static/sheets/formula.js"></script>
 <script src="/static/sheets/model.js"></script>
 <script src="/static/sheets/grid.js"></script>

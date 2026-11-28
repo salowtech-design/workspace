@@ -351,6 +351,13 @@
       status.textContent = "Downloaded deck-with-pictures.json with " + list.length + " picture file(s) inside. Anyone with this file can see the pictures.";
     }).catch(function () { status.textContent = "The pictures could not be collected, so no file was made."; });
   });
+  (function () {  // Save to Drive / Open from Drive: the person's own files on this device (see static/drive/link.js)
+    var box = document.getElementById("drive-link"); if (!box || !window.SalowDriveLink) return;
+    window.SalowDriveLink.init({ box: box, status: document.getElementById("dl-status"), nameInput: document.getElementById("dl-name"), saveBtn: document.getElementById("dl-save"), listBtn: document.getElementById("dl-list"), select: document.getElementById("dl-files"), openBtn: document.getElementById("dl-open"),
+      saveExt: "json", saveType: "application/json", openExts: ["json"],
+      getContent: function () { return deckHashes(H.deck).length ? { ok: false, message: "This deck has pictures, and Save to Drive does not save pictures yet. Nothing was saved. Use Export with pictures to keep a copy." } : { ok: true, text: JSON.stringify(H.deck) }; },
+      inputFor: function (ext) { return $("sl-import"); } });
+  })();
   $("sl-export").addEventListener("click", function () {
     if (deckHashes(H.deck).length && !window.confirm("This deck has pictures. Export (.json) saves only references to them, not the pictures, so opening the file elsewhere shows 'Picture missing' boxes. Use 'Export with pictures' to include them. Download the references-only file anyway?")) { status.textContent = "Export cancelled. Nothing was downloaded."; return; }
     if (deckHashes(H.deck).length) status.textContent = "Downloaded deck.json WITHOUT the picture files: references only.";
