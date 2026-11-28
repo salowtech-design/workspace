@@ -3026,12 +3026,12 @@ def register_sheets_tab_dup(g):
             raw = lambda tid: json.loads(pg.evaluate("([k, i]) => localStorage.getItem(i === 't0' ? k : k + '.tab.' + i)", [key, tid]) or "{}")
             def go_tab(n):
                 pg.locator("[data-tab]").nth(n).click(); pg.wait_for_timeout(400)
-            t.step("Duplicate tab copies the cells to a new tab named 'Sheet 1 copy' and opens it", lambda: (pg.click("#tab-dup"), pg.wait_for_timeout(600)), expect=lambda: [x["name"] for x in tab_names()] == ["Sheet 1", "Sheet 1 copy"] and val("A1") == "5" and val("B1") == "10" and val("A2") == "keep", wait=1800)
-            t.step("The status says what was not copied", expect=lambda: "Copied the cells of Sheet 1 to the new tab Sheet 1 copy" in pg.inner_text("#tab-status") and "were not copied" in pg.inner_text("#tab-status"), wait=1200)
+            t.step("Copy cells to new tab copies the cells to a new tab named 'Sheet 1 copy' and opens it", lambda: (pg.click("#tab-dup"), pg.wait_for_timeout(600)), expect=lambda: [x["name"] for x in tab_names()] == ["Sheet 1", "Sheet 1 copy"] and val("A1") == "5" and val("B1") == "10" and val("A2") == "keep", wait=1800)
+            t.step("The status says what was not copied", lambda: pg.locator("#tab-status").screenshot(path=os.environ.get("DRILL_VIDEO", "/tmp") + "/status.png"), expect=lambda: "Copied the cells of Sheet 1 to the new tab Sheet 1 copy" in pg.inner_text("#tab-status") and "were not copied" in pg.inner_text("#tab-status"), wait=1200)
             t.step("Editing the copy leaves the original tab's stored cells unchanged", lambda: (pg.fill('input[data-addr="A1"]', "7"), pg.press('input[data-addr="A1"]', "Tab"), pg.wait_for_timeout(400)), expect=lambda: raw(tab_names()[1]["id"]).get("A1") == "7" and raw("t0").get("A1") == "5", wait=1800)
             t.step("Back on the first tab the values are the original ones", lambda: go_tab(0), expect=lambda: val("A1") == "5" and val("B1") == "10", wait=1800)
             t.step("A second copy of the first tab is named 'Sheet 1 copy 2' and sits right after it", lambda: (pg.click("#tab-dup"), pg.wait_for_timeout(600)), expect=lambda: [x["name"] for x in tab_names()] == ["Sheet 1", "Sheet 1 copy 2", "Sheet 1 copy"], wait=1800)
-        run_tour(ctx, "sheets_tab_dup", body, notes="Device-local sheet. Headless Chromium 390x844 emulated, real Django on TiDB unistore. Duplicate tab copies cells only.")
+        run_tour(ctx, "sheets_tab_dup", body, notes="Device-local sheet. Headless Chromium 390x844 emulated, real Django on TiDB unistore. Copy cells to new tab copies cells only.")
     g["DRILLS"]["tour_sheets_tab_dup"] = tour
 
 
