@@ -320,6 +320,7 @@ def register(g):
     register_empty_states(g, users)
     register_project_filters(g, users)
     register_directory_dept(g, users)
+    register_org_chart(g, users)
     register_subtask_delete(g, users)
     register_parent_delete(g, users)
     register_pdf_marks_tools(g)
@@ -4994,6 +4995,44 @@ def register_directory_dept(g, users):
         run_tour(ctx, "57_directory_department", body, notes="Real Django on TiDB, headless Chromium 390x844 emulated. Two departments, two teams and the memberships were created by script.", unshown=["team detail page", "org chart", "a person in several departments"])
 
     g["DRILLS"]["tour_directory_dept"] = tour
+
+
+def register_org_chart(g, users):
+    APP = g["APP"]
+
+    def tour(ctx):
+        users(ctx)
+        import concurrent.futures
+
+        import django
+
+        django.setup()
+
+        def make():
+            from apps.accounts.models import CustomUser
+            from apps.directory.models import ReportingRelationship
+
+            me = CustomUser.objects.get(employee_id="ST-LIVE-1")
+            two = CustomUser.objects.get(employee_id="ST-LIVE-2")
+            ReportingRelationship.objects.filter(subordinate=two).delete()  # a clean start
+            ReportingRelationship.objects.create(manager=me, subordinate=two)  # test fixture written by script
+
+        with concurrent.futures.ThreadPoolExecutor(1) as ex:
+            ex.submit(make).result()
+
+        def body(t, pg):
+            txt = lambda: pg.inner_text("body")
+            pg.goto(APP + "/directory/org/")
+            pg.wait_for_timeout(1500)
+            t.step("Org chart opens: ST-LIVE-1 is listed with ST-LIVE-2 nested under them", expect=lambda: pg.locator(".org-tree li li:has-text('ST-LIVE-2')").count() >= 1 and "ST-LIVE-1" in txt(), wait=3500)
+            t.step("The page says it is the reporting tree and no level is cut off", expect=lambda: "Org chart" in txt() and "cut off at a fixed depth" not in txt(), wait=3000)
+            pg.locator(".org-tree li li a").first.click()
+            pg.wait_for_timeout(1500)
+            t.step("Clicking the nested name opens that person's profile page", expect=lambda: "/directory/" in pg.url and "ST-LIVE-2" in txt(), wait=3500)
+
+        run_tour(ctx, "58_org_chart", body, notes="Real Django on TiDB, headless Chromium 390x844 emulated. One reporting row (ST-LIVE-2 reports to ST-LIVE-1) was written by script. Read-only page.", unshown=["a deep chart cut off at the depth limit (not built in this tour)", "an inactive manager moving someone to the top level", "people with no manager", "other roles' views"])
+
+    g["DRILLS"]["tour_org_chart"] = tour
 
 
 def register_subtask_delete(g, users):
