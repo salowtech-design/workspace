@@ -317,6 +317,49 @@
     }
     return best < 0 ? new Err("#N/A") : best;
   }
+  /* XLOOKUP(search_key, lookup_range, result_range, [missing_value], [match_mode], [search_mode]). Subset, written from Google's
+   * help page (support.google.com/docs/answer/12405947); edge cases are this engine's own choices, not checked against Google or Excel.
+   * - lookup_range must be one row or one column (else #VALUE!). result_range must be one row or one column of the same length;
+   *   a result range with more than one row and column would need a spilled answer, which this sheet does not do: #VALUE!.
+   * - match_mode 0 (default) exact, no wildcards, text ignores case; 1 exact or else the smallest value above the key; -1 exact or
+   *   else the largest value below it; 2 wildcard (? * ~), as MATCH exact. Other numbers: #VALUE!.
+   * - search_mode 1 (default) first to last, -1 last to first. 2 and -2 (binary search) are not supported: #VALUE!.
+   * - Only cells of the same kind as the key (number, text, true/false) are compared; blanks and error cells are skipped.
+   * - No match: missing_value if one was given, else #N/A. A blank key is not found. An error key is returned. An error in the returned cell is returned.
+   *   missing_value is evaluated like any argument (not lazily). */
+  function xlookup(a) {
+    var key = sc2(a[0]); if (isErr(key)) return key;
+    if (isErr(a[1])) return a[1];
+    if (isErr(a[2])) return a[2];
+    var lg = grid(a[1]), rg = grid(a[2]);
+    if (lg.rows > 1 && lg.cols > 1) return new Err("#VALUE!");
+    if (rg.rows > 1 && rg.cols > 1) return new Err("#VALUE!");
+    var n = lg.v.length;
+    if (rg.v.length !== n || (n > 1 && (lg.rows > 1) !== (rg.rows > 1))) return new Err("#VALUE!");
+    var mm = 0, sm = 1;
+    if (a.length > 4) { mm = num(sc2(a[4])); if (isErr(mm)) return mm; }
+    if (a.length > 5) { sm = num(sc2(a[5])); if (isErr(sm)) return sm; }
+    if ([0, 1, -1, 2].indexOf(mm) < 0 || (sm !== 1 && sm !== -1)) return new Err("#VALUE!");
+    var miss = function () { return a.length > 3 ? sc2(a[3]) : new Err("#N/A"); };
+    var kk = kind(key);
+    if (kk === null) return miss();
+    var best = -1, i, j, x, d, bd;
+    for (j = 0; j < n; j++) {
+      i = sm === 1 ? j : n - 1 - j;
+      x = lg.v[i];
+      if (isErr(x) || kind(x) !== kk) continue;
+      if (mm === 2) { if (exactEq(key, x)) { best = i; break; } continue; }
+      d = cmpSame(x, key);
+      if (d === 0) { best = i; break; }
+      if (mm === 0) continue;
+      if (mm === 1 ? d < 0 : d > 0) continue;
+      if (best < 0) { best = i; bd = x; continue; }
+      if (mm === 1 ? cmpSame(x, bd) < 0 : cmpSame(x, bd) > 0) { best = i; bd = x; }
+    }
+    if (best < 0) return miss();
+    var v = rg.v[best];
+    return v === undefined ? null : v;
+  }
   function condAgg(name, a) {
     if (isErr(a[0])) return a[0];
     var g = grid(a[0]), pred = criterion(a[1]); if (isErr(pred)) return pred;
@@ -333,7 +376,7 @@
     if (name === "SUMIF") return sum;
     return count ? sum / count : new Err("#DIV/0!");
   }
-  FNX = { INDEX: LOOKUP.INDEX, MATCH: LOOKUP.MATCH, VLOOKUP: LOOKUP.VLOOKUP, HLOOKUP: LOOKUP.HLOOKUP,
+  FNX = { NA: function () { return new Err("#N/A"); }, XLOOKUP: xlookup, INDEX: LOOKUP.INDEX, MATCH: LOOKUP.MATCH, VLOOKUP: LOOKUP.VLOOKUP, HLOOKUP: LOOKUP.HLOOKUP,
     SUMIF: function (a) { return condAgg("SUMIF", a); }, COUNTIF: function (a) { return condAgg("COUNTIF", a); }, AVERAGEIF: function (a) { return condAgg("AVERAGEIF", a); } };
 
   /* ---- text functions (Google Sheets help semantics, not its engine) ----
@@ -608,7 +651,7 @@
   FNX.ISTEXT = function (a) { var v = one(a[0]); return v === undefined ? new Err("#VALUE!") : typeof v === "string" && v !== ""; };
   FNX.ISBLANK = function (a) { var v = one(a[0]); return v === undefined ? new Err("#VALUE!") : v === null || v === ""; };
   FNX.ISERROR = function (a) { var v = one(a[0]); return v === undefined ? new Err("#VALUE!") : isErr(v); };
-  var ARITY = { HLOOKUP: [3, 4], IFS: [2, 40], SWITCH: [3, 40], SUMIFS: [3, 21], COUNTIFS: [2, 20], AVERAGEIFS: [3, 21], MAXIFS: [3, 21], MINIFS: [3, 21], ROUNDUP: [1, 2], ROUNDDOWN: [1, 2], TRUNC: [1, 2], SIGN: [1, 1], PRODUCT: [1, 99], LARGE: [2, 2], SMALL: [2, 2], ISNUMBER: [1, 1], ISTEXT: [1, 1], ISBLANK: [1, 1], ISERROR: [1, 1], IFERROR: [1, 2], MEDIAN: [1, 99], STDEV: [1, 99], COUNTA: [1, 99], COUNTBLANK: [1, 99], MOD: [2, 2], POWER: [2, 2], SQRT: [1, 1], INT: [1, 1], FLOOR: [1, 2], CEILING: [1, 2], DATE: [3, 3], YEAR: [1, 1], MONTH: [1, 1], DAY: [1, 1], WEEKDAY: [1, 2], LEFT: [1, 2], RIGHT: [1, 2], MID: [3, 3], TRIM: [1, 1], SUBSTITUTE: [3, 4], FIND: [2, 3], INDEX: [2, 3], MATCH: [2, 3], VLOOKUP: [3, 4], SUMIF: [2, 3], COUNTIF: [2, 2], AVERAGEIF: [2, 3], SUM: [1, 99], AVERAGE: [1, 99], MIN: [1, 99], MAX: [1, 99], COUNT: [1, 99], ABS: [1, 1], ROUND: [1, 2], LEN: [1, 1], UPPER: [1, 1], LOWER: [1, 1], CONCAT: [1, 99], NOT: [1, 1], AND: [1, 99], OR: [1, 99], IF: [2, 3] };
+  var ARITY = { HLOOKUP: [3, 4], IFS: [2, 40], SWITCH: [3, 40], SUMIFS: [3, 21], COUNTIFS: [2, 20], AVERAGEIFS: [3, 21], NA: [0, 0], XLOOKUP: [3, 6], MAXIFS: [3, 21], MINIFS: [3, 21], ROUNDUP: [1, 2], ROUNDDOWN: [1, 2], TRUNC: [1, 2], SIGN: [1, 1], PRODUCT: [1, 99], LARGE: [2, 2], SMALL: [2, 2], ISNUMBER: [1, 1], ISTEXT: [1, 1], ISBLANK: [1, 1], ISERROR: [1, 1], IFERROR: [1, 2], MEDIAN: [1, 99], STDEV: [1, 99], COUNTA: [1, 99], COUNTBLANK: [1, 99], MOD: [2, 2], POWER: [2, 2], SQRT: [1, 1], INT: [1, 1], FLOOR: [1, 2], CEILING: [1, 2], DATE: [3, 3], YEAR: [1, 1], MONTH: [1, 1], DAY: [1, 1], WEEKDAY: [1, 2], LEFT: [1, 2], RIGHT: [1, 2], MID: [3, 3], TRIM: [1, 1], SUBSTITUTE: [3, 4], FIND: [2, 3], INDEX: [2, 3], MATCH: [2, 3], VLOOKUP: [3, 4], SUMIF: [2, 3], COUNTIF: [2, 2], AVERAGEIF: [2, 3], SUM: [1, 99], AVERAGE: [1, 99], MIN: [1, 99], MAX: [1, 99], COUNT: [1, 99], ABS: [1, 1], ROUND: [1, 2], LEN: [1, 1], UPPER: [1, 1], LOWER: [1, 1], CONCAT: [1, 99], NOT: [1, 1], AND: [1, 99], OR: [1, 99], IF: [2, 3] };
   function truth(v) {
     if (isErr(v)) return v;
     if (typeof v === "boolean") return v;

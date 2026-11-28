@@ -283,6 +283,7 @@ def register(g):
     register_sheets_struct_more(g)
     register_sheets_find(g)
     register_sheets_maxifs(g)
+    register_sheets_xlookup(g)
     register_palette(g)
     register_overlap(g)
     register_drive_device(g)
@@ -2105,6 +2106,44 @@ def register_sheets_maxifs(g):
                  unshown=["MINIFS no match", "wildcard and operator criteria (covered by node tests)", "error cells inside the ranges (node tests)"])
 
     g["DRILLS"]["tour_sheets_maxifs"] = tour
+
+
+def register_sheets_xlookup(g):
+    APP = g["APP"]
+
+    def tour(ctx):
+        def put(pg, cells):
+            for a, v in cells:
+                sel = 'input[data-addr="%s"]' % a
+                pg.click(sel)
+                pg.fill(sel, v)
+                pg.press(sel, "Tab")
+
+        def shown(pg, a):
+            pg.click('input[data-addr="%s"]' % a)
+            return pg.inner_text("#sheet-val").strip().replace("Result: ", "", 1)
+
+        def cell(pg, a):
+            return pg.input_value('input[data-addr="%s"]' % a)
+
+        def body(t, pg):
+            pg.goto(APP + "/sheets/")
+            pg.evaluate("localStorage.clear()")
+            pg.goto(APP + "/sheets/")
+            pg.wait_for_timeout(500)
+            t.step("A small table: item in column A, price in B, stock in C (Apple appears twice)", lambda: put(pg, [("A1", "Apple"), ("B1", "3"), ("C1", "10"), ("A2", "Pear"), ("B2", "5"), ("C2", "20"), ("A3", "apple"), ("B3", "7"), ("C3", "30")]), expect=lambda: cell(pg, "B3") == "7" and cell(pg, "A3") == "apple")
+            t.step("XLOOKUP finds Pear and answers 5", lambda: put(pg, [("E1", '=XLOOKUP("Pear",A1:A3,B1:B3)')]), expect=lambda: shown(pg, "E1") == "5")
+            t.step("Case is ignored and the first match wins: APPLE answers 3", lambda: put(pg, [("E2", '=XLOOKUP("APPLE",A1:A3,B1:B3)')]), expect=lambda: shown(pg, "E2") == "3")
+            t.step("Search from the last entry (search_mode -1): the answer is 7", lambda: put(pg, [("E3", '=XLOOKUP("apple",A1:A3,B1:B3,NA(),0,-1)')]), expect=lambda: shown(pg, "E3") == "7")
+            t.step("Not found with a missing_value of none: it answers none", lambda: put(pg, [("E4", '=XLOOKUP("Plum",A1:A3,B1:B3,"none")')]), expect=lambda: shown(pg, "E4") == "none")
+            t.step("Not found with no missing_value: it shows #N/A", lambda: put(pg, [("E5", '=XLOOKUP("Plum",A1:A3,B1:B3)')]), expect=lambda: shown(pg, "E5") == "#N/A")
+            t.step("The answer column can be to the right, and the key can be a number: 20 gives price 5", lambda: put(pg, [("E6", "=XLOOKUP(20,C1:C3,B1:B3)")]), expect=lambda: shown(pg, "E6") == "5")
+            t.step("Edit a source cell: Pear costs 6, so E1 follows", lambda: put(pg, [("B2", "6")]), expect=lambda: shown(pg, "E1") == "6")
+
+        run_tour(ctx, "100_sheets_xlookup", body, notes="Device-local sheet (browser only). Real Django on TiDB (unistore) under uvicorn, headless Chromium 390x844 emulated. Subset of XLOOKUP, written from Google's help page; edge cases are local choices, not checked against Google or Excel.",
+                 unshown=["match_mode 1, -1 and 2", "result range errors and spill refusal", "binary search modes (refused)", "row lookups (node tests)"])
+
+    g["DRILLS"]["tour_sheets_xlookup"] = tour
 
 
 def register_sheets_refs(g):
