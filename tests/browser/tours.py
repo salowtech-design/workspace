@@ -341,6 +341,7 @@ def register(g):
     register_slides_underline(g)
     register_drive_link(g)
     register_drive_link_fail(g)
+    register_drive_link_stale(g)
     register_sheets_frozenfocus(g)
     register_pdf_alltext_stop(g)
     register_pdf_roundtrip(g)
@@ -6132,6 +6133,47 @@ def register_drive_link_fail(g):
             t.step("The copy in this browser no longer matches its checksum (replaced with other bytes): Open says it is damaged and was not opened, and the sheet is unchanged", tamper_open, expect=lambda: "damaged" in stat() and "Nothing was changed" in stat() and stored() == {"A1": "10", "A2": "20"}, wait=500)
         run_tour(ctx, "drive_link_fail", body, notes="Headless Chromium 390x844 emulated. Save to Drive when the device write fails, and Open when the stored copy does not match its checksum.")
     g["DRILLS"]["tour_drive_link_fail"] = tour
+
+
+def register_drive_link_stale(g):
+    APP = g["APP"]
+
+    def tour(ctx):
+        def body(t, pg):
+            pg.on("pageerror", lambda e: print("PAGEERROR", str(e)[:300]))
+            pg.on("dialog", lambda d: d.accept())
+            pg.goto(APP + "/drive/")
+            pg.evaluate("localStorage.clear()")
+            pg.goto(APP + "/sheets/")
+            pg.wait_for_selector("#sheet-root input", timeout=15000)
+            key = pg.evaluate("() => document.getElementById('sheet-root').dataset.storeKey")
+            stat = lambda: pg.inner_text("#dl-status")
+            own = lambda: pg.evaluate("() => fetch('/drive/mine/files/', {credentials: 'same-origin'}).then((r) => r.json())")
+            stored = lambda: json.loads(pg.evaluate("(k) => localStorage.getItem(k)", key) or "{}")
+            post = lambda url, body_: pg.evaluate("([u, b]) => fetch(u, {method: 'POST', credentials: 'same-origin', headers: {'X-CSRFToken': document.getElementById('drive-link').dataset.csrf, 'Content-Type': 'application/x-www-form-urlencoded'}, body: b}).then((r) => r.status)", [url, body_])
+            def prepare(name):
+                pg.evaluate("([k, v]) => localStorage.setItem(k, JSON.stringify(v))", [key, {"A1": "10"}])
+                pg.reload(); pg.wait_for_selector("#sheet-root input", timeout=15000); pg.wait_for_timeout(500)
+                pg.fill("#dl-name", name); pg.click("#dl-save"); pg.wait_for_timeout(1500)
+                pg.click("#dl-list"); pg.wait_for_timeout(1500)
+            def edit_sheet():
+                pg.fill('input[data-addr="A1"]', "99"); pg.press('input[data-addr="A1"]', "Tab"); pg.wait_for_timeout(500)
+            def trashed():
+                prepare("stale-a.json")
+                fid = own()["files"][0]["id"]
+                post("/drive/file/%s/trash/" % fid, "")
+                edit_sheet()
+                pg.click("#dl-open"); pg.wait_for_timeout(1500)
+            t.step("Pick stale-a.json from the list, then trash it in Drive without refreshing the list, edit the sheet, press Open: it says the file is no longer there and the sheet keeps the edit", trashed, expect=lambda: "no longer at the top" in stat() and "stale-a.json" not in [f["name"] for f in own()["files"]] and stored().get("A1") == "99", wait=500)
+            def superseded():
+                prepare("stale-b.json")
+                f = own()["files"][0]
+                post("/drive/file/%s/version/" % f["id"], "base_version=1&size=7&sha256=" + "e" * 64)
+                edit_sheet()
+                pg.click("#dl-open"); pg.wait_for_timeout(1500)
+            t.step("Pick stale-b.json, then Drive records a newer version before Open: it says the file was saved again and the sheet keeps the edit", superseded, expect=lambda: "saved again in Drive" in stat() and [f["version"] for f in own()["files"]] == [2] and stored().get("A1") == "99", wait=500)
+        run_tour(ctx, "drive_link_stale", body, notes="Headless Chromium 390x844 emulated. Open from Drive when the Drive record changes after the picker was filled.")
+    g["DRILLS"]["tour_drive_link_stale"] = tour
 
 
 def register_slides_underline(g):

@@ -24,14 +24,17 @@
       saving = true; cfg.saveBtn.disabled = true; say("Saving to Drive...");
       D.addFile(deps, file, "").then(function (r) { say(r.message + (r.ok ? " It is at the top of My Drive; only you can see it until you share it in Drive." : "")); }, function (e) { say("Not saved: " + (e && e.message ? e.message : "unexpected error")); }).then(function () { saving = false; cfg.saveBtn.disabled = false; });
     }
-    function listFiles() {
-      if (listing) return; listing = true; cfg.listBtn.disabled = true; say("Looking at your Drive files...");
-      root.fetch(box.dataset.list, { credentials: "same-origin", headers: { Accept: "application/json" } }).then(function (resp) {
+    function getList() {
+      return root.fetch(box.dataset.list, { credentials: "same-origin", headers: { Accept: "application/json" } }).then(function (resp) {
         var type = resp.headers.get("content-type") || "";
         if (resp.redirected || resp.status === 401) throw new Error("Your session needs signing in again.");
         if (type.indexOf("application/json") < 0) throw new Error("Drive gave an unexpected reply (" + resp.status + ").");
         return resp.json();
-      }).then(function (j) {
+      });
+    }
+    function listFiles() {
+      if (listing) return; listing = true; cfg.listBtn.disabled = true; say("Looking at your Drive files...");
+      getList().then(function (j) {
         var want = j.files.filter(function (f) { return cfg.openExts.indexOf(extOf(f.name)) >= 0 && f.sha256; });
         return Promise.all(want.map(function (f) { return store.has(f.sha256).then(function (y) { return { f: f, here: y }; }, function () { return { f: f, here: false }; }); })).then(function (rows) { return { rows: rows, truncated: j.truncated }; });
       }).then(function (o) {
@@ -50,8 +53,13 @@
     function open() {
       var o = sel.options[sel.selectedIndex]; if (!o || o.disabled) { say("Choose a file that is on this device."); return; }
       var name = o.dataset.name, sha = o.dataset.sha;
-      say("Checking the copy on this device...");
-      store.state(sha).then(function (s) {
+      say("Checking Drive and the copy on this device...");
+      getList().then(function (j) {
+        var now = j.files.filter(function (f) { return f.id === o.value; })[0];
+        if (!now) throw new Error("That file is no longer at the top of your My Drive (it was moved, trashed or removed). Press the list button again.");
+        if (now.sha256 !== sha) throw new Error("That file was saved again in Drive after this list was made. Press the list button again.");
+        return store.state(sha);
+      }).then(function (s) {
         if (s.state !== "on-device") throw new Error(s.state === "damaged" ? "The copy on this device is damaged, so it was not opened." : "That file is not on this device.");
         return store.get(sha);
       }).then(function (rec) {
