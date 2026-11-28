@@ -1,0 +1,20 @@
+// Sheets trim spaces: model rows for M.trimRange.
+const M = require("../../static/sheets/model.js");
+let n = 0, fails = 0;
+const ok = (d, c) => { n++; if (!c) { fails++; console.log("FAIL", d); } };
+const C = (o) => Object.assign(Object.create(null), o);
+const rg = (c1, c2, r1, r2) => ({ c1, c2, r1, r2 });
+let r = M.trimRange(C({ A1: "  pen ", A2: "a   b", A3: "ok", A4: "x  y  " }), rg(1, 1, 1, 4));
+ok("leading, trailing and doubled inner spaces are fixed", r.cells.A1 === "pen" && r.cells.A2 === "a b" && r.cells.A3 === "ok" && r.cells.A4 === "x y" && r.changed === 3);
+ok("the source cells are unchanged", (() => { const c = C({ A1: " a " }); M.trimRange(c, rg(1, 1, 1, 1)); return c.A1 === " a "; })());
+ok("a cell of only spaces becomes empty (the key is removed)", (() => { const x = M.trimRange(C({ A1: "   ", A2: "k" }), rg(1, 1, 1, 2)); return !("A1" in x.cells) && x.cells.A2 === "k" && x.changed === 1; })());
+ok("formulas are left as typed and counted", (() => { const x = M.trimRange(C({ A1: "=1 +  2", A2: " t " }), rg(1, 1, 1, 2)); return x.cells.A1 === "=1 +  2" && x.formulas === 1 && x.cells.A2 === "t"; })());
+ok("a formula with leading spaces is not a formula and is trimmed", M.trimRange(C({ A1: " =1" }), rg(1, 1, 1, 1)).cells.A1 === "=1");
+ok("cells outside the range are untouched", (() => { const x = M.trimRange(C({ A1: " a ", A2: " b ", B1: " c " }), rg(1, 1, 1, 1)); return x.cells.A2 === " b " && x.cells.B1 === " c " && x.cells.A1 === "a"; })());
+ok("tabs and non-breaking spaces are not touched", (() => { const x = M.trimRange(C({ A1: "\ta", A2: "\u00a0b" }), rg(1, 1, 1, 2)); return x.changed === 0 && x.cells.A1 === "\ta" && x.cells.A2 === "\u00a0b"; })());
+ok("nothing to trim returns the same cells and changed 0", (() => { const c = C({ A1: "a", A2: "1" }); const x = M.trimRange(c, rg(1, 1, 1, 2)); return x.changed === 0 && x.cells === c; })());
+ok("a missing range is refused", !!M.trimRange(C({}), null).error);
+ok("a single inner space is kept and trimming twice changes nothing more", (() => { const once = M.trimRange(C({ A1: " a b  c " }), rg(1, 1, 1, 1)); const twice = M.trimRange(once.cells, rg(1, 1, 1, 1)); return once.cells.A1 === "a b c" && twice.changed === 0; })());
+ok("trimming makes rows match for Remove duplicate rows", (() => { const t = M.trimRange(C({ A1: "pen", A2: " pen " }), rg(1, 1, 1, 2)); return M.dedupRange(t.cells, rg(1, 1, 1, 2), false).removed === 1; })());
+console.log((fails ? "FAILED " : "") + (n - fails) + "/" + n + " sheets trim rows passed");
+process.exit(fails ? 1 : 0);

@@ -183,6 +183,21 @@
     keep.forEach(function (row, i) { Object.keys(row.vals).forEach(function (cc) { next[colName(Number(cc)) + (first + i)] = row.vals[cc]; }); });
     return { cells: next, removed: removed, rows: rg.r2 - first + 1 };
   }
+  // Trim spaces in typed text cells of a range: leading and trailing spaces go and runs of spaces inside become one. Only text changes. Formulas
+  // are left as they are and counted, numbers typed as numbers and blank cells are untouched, and cells outside the range are not read.
+  function trimRange(cells, rg) {
+    if (!rg) return { error: "Enter a range like A1:C10." };
+    var next = copy(cells), changed = 0, formulas = 0, r, c;
+    for (r = rg.r1; r <= rg.r2; r++) for (c = rg.c1; c <= rg.c2; c++) {
+      var a = colName(c) + r, v = cells[a];
+      if (typeof v !== "string") continue;
+      if (v.charAt(0) === "=") { formulas++; continue; }
+      var t = v.replace(/ {2,}/g, " ").replace(/^ +| +$/g, "");
+      if (t === v) continue;
+      changed++; if (t === "") delete next[a]; else next[a] = t;
+    }
+    return { cells: changed ? next : cells, changed: changed, formulas: formulas };
+  }
   // Which rows a filter shows. get(addr) gives the displayed value. The header row, if any, is always shown.
   // ops: contains, equals, gt, lt, nonblank, blank. gt and lt compare numbers only, so text never matches them.
   function filterRows(get, isErr, r1, r2, col, op, val, header) {
@@ -793,6 +808,6 @@
     if (!/^[0-9]{1,4}$/.test(t) || Number(t) < MIN_CW || Number(t) > MAX_CW) return { error: "The width must be a whole number of pixels from " + MIN_CW + " to " + MAX_CW + " (the standard width is " + DEFAULT_CW + ")." };
     return { col: c, px: Number(t) };
   }
-  var api = { dedupRange: dedupRange, moveTab: moveTab, duplicateTab: duplicateTab, scatterPoints: scatterPoints, loadWidths: loadWidths, widthsJson: widthsJson, parseWidth: parseWidth, MIN_CW: MIN_CW, MAX_CW: MAX_CW, DEFAULT_CW: DEFAULT_CW, loadVers: loadVers, versJson: versJson, addVer: addVer, dropVer: dropVer, verName: verName, MAX_VERS: MAX_VERS, structApply: structApply, structRecover: structRecover, structRecovery: structRecovery, structRecoveryInfo: structRecoveryInfo, structEdit: structEdit, structRange: structRange, fillRange: fillRange, findReplace: findReplace, parseRange: parseRange, makeRule: makeRule, addRule: addRule, removeRule: removeRule, loadRules: loadRules, rulesJson: rulesJson, checkValue: checkValue, makePivot: makePivot, pivot: pivot, MAX_GROUPS: MAX_GROUPS, makeCf: makeCf, addCf: addCf, loadCf: loadCf, cfJson: cfJson, cfColor: cfColor, parsePaste: parsePaste, loadFreeze: loadFreeze, freezeJson: freezeJson, parseFreeze: parseFreeze, MAX_FREEZE: MAX_FREEZE, parseCsv: parseCsv, csvImport: csvImport, isBlock: isBlock, applyPaste: applyPaste, MAX_PASTE_CELLS: MAX_PASTE_CELLS, makeFmt: makeFmt, addFmt: addFmt, loadFmt: loadFmt, fmtJson: fmtJson, fmtFor: fmtFor, fmtText: fmtText, MAX_FMT: MAX_FMT, MAX_RULES: MAX_RULES, loadTabs: loadTabs, addTab: addTab, markFmt: markFmt, renameTab: renameTab, deleteTab: deleteTab, setActive: setActive, cleanName: cleanName, MAX_TABS: MAX_TABS, sortRange: sortRange, filterRows: filterRows, toNum: toNum, toCsv: toCsv, clean: clean, History: History, chartPoints: chartPoints, pieSlices: pieSlices, isComposing: isComposing, keyMove: keyMove, copy: copy, same: same };
+  var api = { trimRange: trimRange, dedupRange: dedupRange, moveTab: moveTab, duplicateTab: duplicateTab, scatterPoints: scatterPoints, loadWidths: loadWidths, widthsJson: widthsJson, parseWidth: parseWidth, MIN_CW: MIN_CW, MAX_CW: MAX_CW, DEFAULT_CW: DEFAULT_CW, loadVers: loadVers, versJson: versJson, addVer: addVer, dropVer: dropVer, verName: verName, MAX_VERS: MAX_VERS, structApply: structApply, structRecover: structRecover, structRecovery: structRecovery, structRecoveryInfo: structRecoveryInfo, structEdit: structEdit, structRange: structRange, fillRange: fillRange, findReplace: findReplace, parseRange: parseRange, makeRule: makeRule, addRule: addRule, removeRule: removeRule, loadRules: loadRules, rulesJson: rulesJson, checkValue: checkValue, makePivot: makePivot, pivot: pivot, MAX_GROUPS: MAX_GROUPS, makeCf: makeCf, addCf: addCf, loadCf: loadCf, cfJson: cfJson, cfColor: cfColor, parsePaste: parsePaste, loadFreeze: loadFreeze, freezeJson: freezeJson, parseFreeze: parseFreeze, MAX_FREEZE: MAX_FREEZE, parseCsv: parseCsv, csvImport: csvImport, isBlock: isBlock, applyPaste: applyPaste, MAX_PASTE_CELLS: MAX_PASTE_CELLS, makeFmt: makeFmt, addFmt: addFmt, loadFmt: loadFmt, fmtJson: fmtJson, fmtFor: fmtFor, fmtText: fmtText, MAX_FMT: MAX_FMT, MAX_RULES: MAX_RULES, loadTabs: loadTabs, addTab: addTab, markFmt: markFmt, renameTab: renameTab, deleteTab: deleteTab, setActive: setActive, cleanName: cleanName, MAX_TABS: MAX_TABS, sortRange: sortRange, filterRows: filterRows, toNum: toNum, toCsv: toCsv, clean: clean, History: History, chartPoints: chartPoints, pieSlices: pieSlices, isComposing: isComposing, keyMove: keyMove, copy: copy, same: same };
   if (typeof module !== "undefined" && module.exports) module.exports = api; else root.SalowSheetModel = api;
 })(typeof self !== "undefined" ? self : this);

@@ -706,6 +706,15 @@
     var note = "Removed " + r.removed + " duplicate row" + (r.removed === 1 ? "" : "s") + " from " + r.rows + "; the rows below moved up and the last " + r.removed + " row" + (r.removed === 1 ? " of the range was" : "s of the range were") + " emptied. Undo brings them back." + (filt ? " The filter is still on." : "") + outsideFormulas(rg);
     if (!change(r.cells, note)) status.textContent = "Nothing changed.";
   });
+  $("trim-go").addEventListener("click", function () {
+    if (heldMsg()) return;
+    var rg = parseRange($("sort-range").value);
+    if (!rg) { status.textContent = "Enter a range like A1:C10."; return; }
+    if ((rg.c2 - rg.c1 + 1) * (rg.r2 - rg.r1 + 1) > 2000 || rg.c2 > 26 || rg.r2 > 1000) { status.textContent = "The range can hold up to 2000 cells."; return; }
+    var r = M.trimRange(cells, rg), fnote = r.formulas ? " " + r.formulas + " formula" + (r.formulas === 1 ? " was" : "s were") + " left as typed." : "";
+    if (!r.changed) { status.textContent = "No extra spaces found. Nothing changed." + fnote; return; }
+    if (!change(r.cells, "Trimmed spaces in " + r.changed + " cell" + (r.changed === 1 ? "" : "s") + ". Undo brings the old text back." + fnote)) status.textContent = "Nothing changed.";
+  });
   // ---- Frozen rows and columns (view only, per tab). Model: loadFreeze, freezeJson, parseFreeze in model.js. A frozen row or column
   // pins under the column letters or beside the row numbers, at the offset measured from the real sizes. Not saved in Export (.json) or CSV. ----
   var fzKey = KEY + ".freeze", fzMap = Object.create(null), fzLocked = false, frz = { r: 0, c: 0 }, fzDeleted = null;

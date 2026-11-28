@@ -351,6 +351,7 @@ def register(g):
     register_sheets_tab_move(g)
     register_sheets_dedup(g)
     register_slides_stack(g)
+    register_sheets_trim(g)
     register_drive_link_version_fail(g)
     register_drive_link_slides_retry(g)
     register_sheets_frozenfocus(g)
@@ -3127,6 +3128,33 @@ def register_slides_stack(g):
             t.step("Undo takes blue back to the front (green, red, blue)", lambda: (pg.click("#sl-undo"), pg.wait_for_timeout(300), snap("4_undo")), expect=lambda: order() == "grb", wait=1500)
         run_tour(ctx, "slides_stack", body, notes="Device-local deck. Headless Chromium 390x844 emulated, real Django on TiDB unistore. Send to back and bring to front change only the drawing order.")
     g["DRILLS"]["tour_slides_stack"] = tour
+
+
+def register_sheets_trim(g):
+    APP = g["APP"]
+
+    def tour(ctx):
+        def body(t, pg):
+            pg.on("pageerror", lambda e: print("PAGEERROR", str(e)[:300]))
+            pg.goto(APP + "/sheets/")
+            pg.evaluate("localStorage.clear()")
+            pg.goto(APP + "/sheets/")
+            pg.wait_for_selector("#sheet-root input", timeout=15000)
+            key = pg.evaluate("() => document.getElementById('sheet-root').dataset.storeKey")
+            seed = {"A1": "  pen ", "A2": "a   b", "A3": "ok", "A4": "=1+1", "A5": "   ", "B1": "  outside "}
+            pg.evaluate("([k, v]) => localStorage.setItem(k, JSON.stringify(v))", [key, seed])
+            pg.reload(); pg.wait_for_selector("#sheet-root input", timeout=15000); pg.wait_for_timeout(600)
+            stored = lambda: json.loads(pg.evaluate("(k) => localStorage.getItem(k)", key))
+            out = os.environ.get("DRILL_VIDEO", "/tmp")
+            def run():
+                pg.fill("#sort-range", "A1:A5"); pg.click("#trim-go"); pg.wait_for_timeout(500)
+                pg.locator("#sheet-status").scroll_into_view_if_needed(); pg.locator("#sheet-status").screenshot(path=out + "/trim_status.png")
+            want = {"A1": "pen", "A2": "a b", "A3": "ok", "A4": "=1+1", "B1": "  outside "}
+            t.step("Trim spaces fixes the text cells in A1:A5, empties the spaces-only cell and leaves the formula and B1", run, expect=lambda: stored() == want and "Trimmed spaces in 3 cells" in pg.inner_text("#sheet-status") and "1 formula was left as typed" in pg.inner_text("#sheet-status"), wait=1800)
+            t.step("Undo brings the old text back exactly", lambda: pg.click("#sheet-undo"), expect=lambda: stored() == seed, wait=1800)
+            t.step("A second run on clean cells says nothing changed", lambda: (pg.fill("#sort-range", "A3:A4"), pg.click("#trim-go"), pg.wait_for_timeout(400)), expect=lambda: "No extra spaces found" in pg.inner_text("#sheet-status") and stored() == seed, wait=1500)
+        run_tour(ctx, "sheets_trim", body, notes="Device-local sheet. Headless Chromium 390x844 emulated, real Django on TiDB unistore. Trim spaces on typed text.")
+    g["DRILLS"]["tour_sheets_trim"] = tour
 
 
 def register_slides_bg(g):
