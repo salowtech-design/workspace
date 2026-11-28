@@ -4341,7 +4341,7 @@ def register_drive_find(g, users):
             txt = lambda: pg.inner_text("body")
             rowp = ".drive-row:has(a.drive-name:text-is('Reports'))"
             pg.goto(APP + "/drive/")
-            t.step("My Drive: the Move list stops at the first 50 folders, and the note says so", lambda: pg.evaluate("document.querySelector('.drive-meta').scrollIntoView({block:'center'})"), expect=lambda: "first 50 folders" in txt(), wait=3500)
+            t.step("My Drive: open \"How moving changes who can open an item\": the note says the Move list shows only the first 50 folders", lambda: (pg.click(".drive-meta summary"), pg.evaluate("document.querySelector('.drive-meta').scrollIntoView({block:'center'})")), expect=lambda: "first 50 folders" in txt(), wait=3500)
             t.step("Reports row: the list has no Archive 54", lambda: pg.locator(rowp).scroll_into_view_if_needed(), expect=lambda: pg.locator(rowp + " option:text-is('Archive 54 (shared)')").count() == 0, wait=3000)
             t.step("Press Find folder beside Move", lambda: pg.locator(rowp + " a:text-is('Find folder')").click(), expect=lambda: "find a folder" in txt(), wait=2500)
             t.step("Search for archive 54", lambda: (pg.fill("input[name=q]", "archive 54"), pg.click("button:text-is('Search')")), expect=lambda: "Archive 54 (shared)" in txt(), wait=3000)
