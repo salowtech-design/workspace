@@ -84,6 +84,7 @@
               var lw = ef.widthOfTextAtSize(ln, e.size), inset = shape ? 4 : 0;
               var x = al === "center" ? e.x + e.w / 2 - lw / 2 : al === "right" ? e.x + e.w - inset - lw : e.x + inset;
               pg.drawText(ln, { x: x, y: H - (top + e.size + k * lh), size: e.size, font: ef, color: col });
+              if (e.u && ln !== "") { var uy = H - (top + e.size + k * lh) - e.size * 0.12; pg.drawLine({ start: { x: x, y: uy }, end: { x: x + lw, y: uy }, thickness: Math.max(0.5, e.size / 16), color: col }); }
             });
           });
         });

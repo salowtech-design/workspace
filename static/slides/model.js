@@ -36,6 +36,7 @@
   function newDeck() { return { v: 1, theme: "light", slides: [newSlide()] }; }
   var ALIGNS = ["left", "center", "right"], FX = ["appear", "fade"];
   function isImg(e) { return e.type === "image"; }
+  function isU(e) { return e.u === true; }
   function styled(e) { return e.b === true || e.i === true || has(e, "al"); }
   function fixEl(e, inMaster) {
     if (!e || typeof e !== "object" || TYPES.indexOf(e.type) < 0 || typeof e.id !== "string" || !ID_RE.test(e.id)) return null;
@@ -50,6 +51,7 @@
     // Text style. Only set fields are kept, so an unstyled item serialises exactly as before and an unstyled deck stays version 1 to 3.
     if (e.b === true) o.b = true;
     if (e.i === true) o.i = true;
+    if (e.u === true) o.u = true;  // underline (deck version 12, see validate)
     if (ALIGNS.indexOf(e.al) >= 0) o.al = e.al;  // unset means left for text items and centre for shapes
     return o;
   }
@@ -66,7 +68,7 @@
   }
   // returns a clean deck or null; unknown fields are dropped and numbers are clamped
   function validate(d) {
-    if (!d || typeof d !== "object" || Array.isArray(d) || (has(d, "v") && [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11].indexOf(d.v) < 0) || !Array.isArray(d.slides) || !d.slides.length || d.slides.length > MAX_SLIDES) return null;
+    if (!d || typeof d !== "object" || Array.isArray(d) || (has(d, "v") && [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].indexOf(d.v) < 0) || !Array.isArray(d.slides) || !d.slides.length || d.slides.length > MAX_SLIDES) return null;
     var TRANS = ["none", "fade"], ids = Object.create(null), out = { v: 1, theme: has(THEMES, d.theme) ? d.theme : "light", slides: [] }, masterEls = [], anyHide = false, anyTrans = false, anyTspeed = false, anySpd = false, anyStyle = false, nImg = 0, anyAnim = false, anyAfter = false, anyBg = false, anyLay = false, outLays = null;
     if (has(d, "lays")) {
       var L0 = d.lays; if (!L0 || typeof L0 !== "object" || Array.isArray(L0)) return null; outLays = {};
@@ -138,6 +140,8 @@
     if (anyTspeed) out.v = 10;
     // Version 11 when an item's fade-in has its own speed: older code only knows 1 to 10 and refuses 11, so it never drops that speed silently.
     if (anySpd) out.v = 11;
+    // Version 12 when a text item is underlined: older code only knows 1 to 11 and refuses 12, so it never drops an underline silently.
+    if (out.slides.some(function (s) { return s.elements.some(isU); }) || masterEls.some(isU)) out.v = 12;
     return out;
   }
   // how many text fields in a raw (unvalidated) deck are longer than the limits and so will be shortened
@@ -208,16 +212,17 @@
     updateElement: function (d, i, id, patch) {
       var s = d.slides[i]; if (!s) return null; var k = -1; s.elements.forEach(function (e, x) { if (e.id === id) k = x; }); if (k < 0) return null;
       var n = copy(d), merged = Object.assign({}, n.slides[i].elements[k]);
-      ["x", "y", "w", "h", "size", "fill", "text", "b", "i", "al"].forEach(function (f) { if (has(patch, f)) merged[f] = patch[f]; });
+      ["x", "y", "w", "h", "size", "fill", "text", "b", "i", "u", "al"].forEach(function (f) { if (has(patch, f)) merged[f] = patch[f]; });
       if (has(patch, "al") && ALIGNS.indexOf(patch.al) < 0 && patch.al !== "default") return null;
-      if ((has(patch, "b") && typeof patch.b !== "boolean") || (has(patch, "i") && typeof patch.i !== "boolean")) return null;
+      if ((has(patch, "b") && typeof patch.b !== "boolean") || (has(patch, "i") && typeof patch.i !== "boolean") || (has(patch, "u") && typeof patch.u !== "boolean")) return null;
       if (has(patch, "b") && !patch.b) delete merged.b;
       if (has(patch, "i") && !patch.i) delete merged.i;
+      if (has(patch, "u") && !patch.u) delete merged.u;
       if (has(patch, "al") && patch.al === "default") delete merged.al;
       var fixed = fixEl(merged); if (fixed && has(merged, "ph")) fixed.ph = merged.ph; n.slides[i].elements[k] = fixed; return normVersion(n);
     },
     // Copy of one item placed right above it, with a fresh id, moved 20 right and 20 down (or 20 left and up when that would leave the slide).
-    // Text, size, fill, bold, italic, align and a picture's reference (the same stored bytes) are kept; its animation is not copied. Null at the 30 item cap, at the 20 picture cap, or for an unknown item.
+    // Text, size, fill, bold, italic, underline, align and a picture's reference (the same stored bytes) are kept; its animation is not copied. Null at the 30 item cap, at the 20 picture cap, or for an unknown item.
     duplicateElement: function (d, i, id) {
       var s = d.slides[i]; if (!s || s.elements.length >= MAX_EL) return null; var k = -1; s.elements.forEach(function (e, x) { if (e.id === id) k = x; });
       if (k < 0) return null;
@@ -271,7 +276,7 @@
     var any = n.slides.some(function (s) { return s.hideMaster === true; }), trans = n.slides.some(function (s) { return s.transition === "fade"; }), anim = n.slides.some(function (s) { return s.anim && s.anim.length; }), after = n.slides.some(function (s) { return s.anim && s.anim.some(function (x) { return x.after === true; }); });
     if (n.master && !n.master.elements.length) delete n.master;
     var sty = n.slides.some(function (s) { return s.elements.some(styled); }) || (n.master && n.master.elements.some(styled));
-    var img = n.slides.some(function (s) { return s.elements.some(isImg); }); var bgs = n.slides.some(function (s) { return !!s.bg; }); var lay = !!n.lays || n.slides.some(function (s) { return !!s.lay; }); var spd = n.slides.some(function (s) { return s.anim && s.anim.some(function (x) { return !!x.spd; }); }); var tsp = n.slides.some(function (s) { return !!s.tspeed; }); n.v = spd ? 11 : tsp ? 10 : lay ? 9 : bgs ? 8 : after ? 7 : anim ? 6 : img ? 5 : sty ? 4 : trans ? 3 : (n.master || any ? 2 : 1); return n;
+    var img = n.slides.some(function (s) { return s.elements.some(isImg); }); var bgs = n.slides.some(function (s) { return !!s.bg; }); var lay = !!n.lays || n.slides.some(function (s) { return !!s.lay; }); var spd = n.slides.some(function (s) { return s.anim && s.anim.some(function (x) { return !!x.spd; }); }); var tsp = n.slides.some(function (s) { return !!s.tspeed; }); var und = n.slides.some(function (s) { return s.elements.some(isU); }) || !!(n.master && n.master.elements.some(isU)); n.v = und ? 12 : spd ? 11 : tsp ? 10 : lay ? 9 : bgs ? 8 : after ? 7 : anim ? 6 : img ? 5 : sty ? 4 : trans ? 3 : (n.master || any ? 2 : 1); return n;
   }
   function viaMaster(d, fn, adding) {
     var els = d.master ? d.master.elements : [];

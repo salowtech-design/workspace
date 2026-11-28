@@ -20,7 +20,7 @@ ok("removing the animation removes the speed", (() => { const x = S.ops.setAnim(
 const raw = (f) => { const x = JSON.parse(J(slow)); f(x.slides[0].anim[0]); return S.validate(x); };
 ok("validate refuses an unknown speed, a non-string, a stored normal, and a speed on an appear", raw((a) => { a.spd = "turbo"; }) === null && raw((a) => { a.spd = 3; }) === null && raw((a) => { a.spd = "normal"; }) === null && raw((a) => { a.fx = "appear"; }) === null);
 ok("a v11 deck with the speed removed by hand is a plain animation deck", raw((a) => { delete a.spd; }) !== null);
-ok("v12 is refused and v11 accepted", S.validate(Object.assign(JSON.parse(J(slow)), { v: 12 })) === null && S.validate(JSON.parse(J(slow))) !== null);
+ok("v13 is refused and v11 accepted", S.validate(Object.assign(JSON.parse(J(slow)), { v: 13 })) === null && S.validate(JSON.parse(J(slow))) !== null);
 ok("speed survives the after-previous timing and a move", (() => { let x = S.ops.setAnimAfter(slow, 0, id, true); return x.slides[0].anim[0].spd === "slow" && x.slides[0].anim[0].after === true && J(S.validate(S.validate(x))) === J(S.validate(x)) && S.validate(x).v === 11; })());
 ok("loadDeck keeps the speed", (() => { const r = S.loadDeck(J(slow)); return r.deck && r.deck.slides[0].anim[0].spd === "slow"; })());
 ok("duplicating the slide keeps the entry speed", (() => { const x = S.ops.duplicateSlide(slow, 0); return x && x.slides[1].anim && x.slides[1].anim[0].spd === "slow" && x.v === 11; })());

@@ -20,7 +20,7 @@ ok("turning the transition off also removes the speed", (() => { const x = S.ops
 const raw = (f) => { const x = JSON.parse(J(slow)); f(x.slides[1]); return S.validate(x); };
 ok("validate refuses an unknown speed and a speed on a slide with no fade, never drops it", raw((s) => { s.tspeed = "turbo"; }) === null && raw((s) => { delete s.transition; }) === null && raw((s) => { s.tspeed = "normal"; }) === null && raw((s) => { s.tspeed = 5; }) === null);
 ok("a v10 deck with the speed removed by hand is just a fade deck and validates", raw((s) => { delete s.tspeed; }) !== null);
-ok("version 12 is refused and v10 is accepted", S.validate(Object.assign(JSON.parse(J(slow)), { v: 12 })) === null && S.validate(JSON.parse(J(slow))) !== null);
+ok("version 13 is refused and v10 is accepted", S.validate(Object.assign(JSON.parse(J(slow)), { v: 13 })) === null && S.validate(JSON.parse(J(slow))) !== null);
 ok("duplicate slide keeps the speed", (() => { const x = S.ops.duplicateSlide ? S.ops.duplicateSlide(slow, 1) : null; return x && (x.slides[2].tspeed === "slow" && x.v === 10); })());
 ok("loadDeck of the stored text keeps the speed", (() => { const r = S.loadDeck(J(slow)); return r.deck && r.deck.slides[1].tspeed === "slow"; })());
 console.log(`${n - bad}/${n} tspeed rows passed`);

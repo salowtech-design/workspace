@@ -338,6 +338,7 @@ def register(g):
     register_sheets_virtual2(g)
     register_sheets_heavy8(g)
     register_sheets_insert1000(g)
+    register_slides_underline(g)
     register_sheets_frozenfocus(g)
     register_pdf_alltext_stop(g)
     register_pdf_roundtrip(g)
@@ -6037,6 +6038,32 @@ def register_sheets_heavy8(g):
         run_tour(ctx, "sheets_heavy8", body, notes="Headless Chromium 390x844 emulated. Eight adjacent cells of 490,000 work units each, a 60-repeat cell over the guard, a 200-cell chain; screen against CSV.")
     g["DRILLS"]["tour_sheets_heavy8"] = tour
 
+
+
+def register_slides_underline(g):
+    APP = g["APP"]
+
+    def tour(ctx):
+        def body(t, pg):
+            pg.on("pageerror", lambda e: print("PAGEERROR", str(e)[:300]))
+            pg.goto(APP + "/slides/")
+            pg.evaluate("localStorage.clear()")
+            pg.goto(APP + "/slides/")
+            pg.wait_for_selector("#sl-add-text", timeout=15000)
+            saved = lambda: pg.evaluate("()=>JSON.parse(localStorage.getItem(document.getElementById('slide-root').getAttribute('data-store-key')))")
+            deco = lambda sel: pg.evaluate("(s)=>{const e=document.querySelector(s+' svg text'); return e ? e.getAttribute('text-decoration') : 'none-found';}", sel)
+            def snap(name, sel):
+                out = os.environ.get("DRILL_VIDEO", "") or "/tmp"
+                pg.evaluate("(s) => document.querySelector(s).scrollIntoView({block: 'center'})", sel); pg.wait_for_timeout(500)
+                pg.screenshot(path=os.path.join(out, name + ".png"))
+            t.step("Slides: Underline is off until an item is selected", expect=lambda: pg.is_disabled("#sl-underline"), wait=1500)
+            t.step("Add a text item and tick Underline: the item shows underlined and the saved deck is version 12 with u true", lambda: (pg.click("#sl-add-text"), pg.fill("#sl-text", "Quarterly plan"), pg.press("#sl-text", "Tab"), pg.check("#sl-underline"), pg.wait_for_timeout(500), snap("underline_editor_390", "#sl-canvas-wrap")), expect=lambda: deco("#sl-canvas-wrap") == "underline" and saved()["v"] == 12 and saved()["slides"][0]["elements"][0].get("u") is True, wait=800)
+            t.step("Present shows the same underline", lambda: (pg.click("#sl-present"), pg.wait_for_timeout(600), snap("underline_present_390", "#sl-show-canvas")), expect=lambda: deco("#sl-show-canvas") == "underline", wait=1500)
+            t.step("Leave Present and reload: the box is still ticked and the item is still underlined", lambda: (pg.click("#sl-show-exit"), pg.reload(), pg.wait_for_selector("#sl-items li button", timeout=15000), pg.click("#sl-items li button")), expect=lambda: pg.is_checked("#sl-underline") and deco("#sl-canvas-wrap") == "underline", wait=1200)
+            t.step("Untick Underline: no underline is drawn and the saved deck has no u key and is back to version 1", lambda: (pg.uncheck("#sl-underline"), pg.wait_for_timeout(500)), expect=lambda: deco("#sl-canvas-wrap") is None and "u" not in saved()["slides"][0]["elements"][0] and saved()["v"] == 1, wait=800)
+            t.step("Undo puts the underline back in one step", lambda: pg.click("#sl-undo"), expect=lambda: deco("#sl-canvas-wrap") == "underline" and pg.is_checked("#sl-underline"), wait=800)
+        run_tour(ctx, "slides_underline", body, notes="Headless Chromium 390x844 emulated. Slides Underline.")
+    g["DRILLS"]["tour_slides_underline"] = tour
 
 
 def register_sheets_insert1000(g):

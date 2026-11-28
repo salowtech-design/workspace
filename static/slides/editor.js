@@ -53,7 +53,7 @@
       var top = shape ? e.y + e.h / 2 - (lines.length * lh) / 2 : e.y;
       var al = e.al || (shape ? "center" : "left"), tx = al === "center" ? e.x + e.w / 2 : al === "right" ? e.x + e.w - (shape ? 4 : 0) : e.x + (shape ? 4 : 0);
       var ta = { x: tx, "font-size": e.size, fill: S.textColor(d, e), "text-anchor": al === "center" ? "middle" : al === "right" ? "end" : "start", "font-family": "sans-serif" };
-      if (e.b) ta["font-weight"] = "bold"; if (e.i) ta["font-style"] = "italic";
+      if (e.b) ta["font-weight"] = "bold"; if (e.i) ta["font-style"] = "italic"; if (e.u) ta["text-decoration"] = "underline";
       var t = el("text", ta);
       lines.forEach(function (ln, k) { t.appendChild(el("tspan", { x: tx, y: top + e.size + k * lh }, ln)); });
       g.appendChild(t);
@@ -64,7 +64,7 @@
   function syncProps() {
     var e = sel(); if (!e) return;
     ["text", "size", "x", "y", "w", "h", "fill"].forEach(function (f) { $("sl-" + f).value = e[f] == null ? "" : e[f]; });
-    $("sl-bold").checked = !!e.b; $("sl-italic").checked = !!e.i; $("sl-align").value = e.al ? e.al : "default";
+    $("sl-bold").checked = !!e.b; $("sl-italic").checked = !!e.i; $("sl-underline").checked = !!e.u; $("sl-align").value = e.al ? e.al : "default";
   }
   function apply(next, note) { if (!next) { var why = S.takeReject(); if (why) { render(); syncProps(); status.textContent = why; } return false; } if (!H.change(next, note)) return false; cur = Math.min(cur, H.deck.slides.length - 1); render(); lyFill(); return true; }
   // Dragging an item moves it, dragging the blue corner square resizes it. Nothing is stored until the pointer is released, so a drag is one Undo step; Esc or a cancelled pointer drops it.
@@ -165,12 +165,12 @@
     });
     $("sl-items-empty").hidden = tgt().length > 0;
     var e = sel(), props = $("sl-props"); props.disabled = !e; $("sl-del-el").disabled = !e; $("sl-dup-el").disabled = !e;
-    var isPic = !!(e && e.type === "image"); ["sl-size", "sl-fill", "sl-bold", "sl-italic", "sl-align"].forEach(function (id) { $(id).disabled = isPic; });
+    var isPic = !!(e && e.type === "image"); ["sl-size", "sl-fill", "sl-bold", "sl-italic", "sl-underline", "sl-align"].forEach(function (id) { $(id).disabled = isPic; });
     $("sl-export-warn").hidden = !deckHashes(d).length;
     $("sl-text-label").textContent = isPic ? "Description (for screen readers, not drawn)" : "Text";
     var pos = e ? tgt().indexOf(e) : -1; $("sl-back").disabled = pos <= 0; $("sl-fwd").disabled = pos < 0 || pos >= tgt().length - 1;
     ["text", "size", "x", "y", "w", "h", "fill"].forEach(function (f) { var inp = $("sl-" + f); if (document.activeElement !== inp) inp.value = e ? e[f] : ""; });
-    $("sl-bold").checked = !!(e && e.b); $("sl-italic").checked = !!(e && e.i); $("sl-align").value = e && e.al ? e.al : "default";
+    $("sl-bold").checked = !!(e && e.b); $("sl-italic").checked = !!(e && e.i); $("sl-underline").checked = !!(e && e.u); $("sl-align").value = e && e.al ? e.al : "default";
     var nt = $("sl-notes"); if (document.activeElement !== nt) nt.value = d.slides[cur].notes || "";
     var bgSel = $("sl-bg"); bgSel.disabled = editMaster;
     Array.prototype.forEach.call(bgSel.options, function (o) { if (o.value === "theme") return; var okc = S.bgUsable(d, cur, o.value); o.disabled = !okc; o.textContent = o.dataset.name + (okc ? "" : " (text too hard to read)"); });
@@ -216,6 +216,7 @@
     });
   });
   $("sl-bold").addEventListener("change", function () { var e = sel(); if (e) apply(eop("updateElement", e.id, { b: this.checked }), this.checked ? "Bold on." : "Bold off."); });
+  $("sl-underline").addEventListener("change", function () { var e = sel(); if (e) apply(eop("updateElement", e.id, { u: this.checked }), this.checked ? "Underline on." : "Underline off."); });
   $("sl-italic").addEventListener("change", function () { var e = sel(); if (e) apply(eop("updateElement", e.id, { i: this.checked }), this.checked ? "Italic on." : "Italic off."); });
   $("sl-align").addEventListener("change", function () { var e = sel(); if (e) apply(eop("updateElement", e.id, { al: this.value }), "Align set to " + this.value + "."); });
   fill.addEventListener("change", function () { var e = sel(); if (e) apply(eop("updateElement", e.id, { fill: fill.value })); });
