@@ -299,7 +299,8 @@ def test_formula_batch8_passes_in_node():
         [shutil.which("node"), str(ROOT / "tests/js/formula_batch8.js")],
         capture_output=True,
         text=True,
-        timeout=60,
+        timeout=30,
     )
+    # a hang (subprocess.TimeoutExpired) fails this test rather than blocking the run
     assert r.returncode == 0, r.stdout + r.stderr
-    assert "112/112 rows passed" in r.stdout
+    assert "119/119 rows passed" in r.stdout
