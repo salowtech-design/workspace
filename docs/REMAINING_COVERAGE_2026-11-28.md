@@ -57,3 +57,14 @@ Recorded at code head 6c24e89 (or code-equivalent for these modules; later commi
 - Tasks project trash and restore (6), project rename (6), milestone edit (6): owner's view only; member and other-person views not shown.
 Still without a clip at the current head: Sheets and Slides main tours, Work Log filter and date tours, IAM step-up, forms and exit-session tours, Drive device-file, move and find, org chart. Real two-device and Cloud/TiKV qualification: scope not yet grounded from the original PDFs and messages; not recorded as a user decision.
 These are scoped test observations, not a statement that any module is ready.
+
+## Update, 28 Nov 2026 (3:30 PM, IST) (one run each, headless Chromium 390x844 emulated, TiDB 8.5.1 unistore, one machine, executor-watched)
+Recorded at code head 952e9f5 (Drive move and find re-run with the tour edits in 60bf936 and d46c46a, which touch only tour text and one tour step):
+- Sheets cells (13) and Sheets tools B (13): closing notes name the real limits, columns A to Z and rows to 1000 (formula.js MAX_ROW and MAX_COL, model.js CSV_ROWS). CSV import leaves cells outside Z1000 out and counts them. Not shown: formulas beyond the listed tours, cell comments (parked).
+- Slides main (22 steps): the other Slides tool tours listed below are not covered by this clip (the stack tour was delivered earlier).
+- Work Log filter (5): filter only. The date and team-refusal tours are not re-recorded.
+- Drive device files (11): real IndexedDB, bytes stay in the browser, the server holds name, size and checksum. The storage failure is injected, not a real quota. The two-namespace check uses two store names in one browser, not two accounts. Not shown: real quota exhaustion, sign-in expiry, another person's device or account, no-network reload. Nothing is sent to another person; that is not built.
+- Drive move (6): move a folder into another and see it there. Not shown: move to top level, a refused move, moving a file, a Viewer's refusal.
+- Drive find (7): the first run failed one step because the tour was stale (the 50-folder note is inside a collapsed note); the step now opens it and keeps the same check. Ends on the Confirm move page. Not shown: pressing Move and share, Cancel, no-match search, more than 50 matches.
+Still without a clip at the current head: Slides tools tours (more, layout, find, paste, align, bg, keys, pointer, order recovery, underline), Drive confirm, nested, editor, share and trash, two-session and link tours, IAM step-up, forms and exit-session, Work Log date and team refusal, org chart (no tour). Two-device and Cloud/TiKV qualification scope is not yet grounded.
+These are scoped test observations, not a statement that any module is ready.
