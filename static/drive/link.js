@@ -23,9 +23,18 @@
       var file = new root.File([bytes], name, { type: cfg.saveType });
       saving = true; cfg.saveBtn.disabled = true; say("Saving to Drive...");
       var resume = pending && pending.name === name && pending.fileId;
+      var wasPending = resume ? pending : null;
       (resume ? D.addVersion(deps, pending.fileId, 0, file) : D.addFile(deps, file, "")).then(function (r) {
         if (r.ok) pending = null; else if (r.fileId && r.resumable && r.baseVersion === 0) pending = { name: name, fileId: r.fileId };
-        say(r.message + (r.ok ? " It is at the top of My Drive; only you can see it until you share it in Drive." : (pending && pending.name === name ? " Press Save again with the same name to finish it, or look at your Drive list first." : "")));
+        var tail = r.ok ? " It is at the top of My Drive; only you can see it until you share it in Drive." : (pending && pending.name === name ? " Press Save again with the same name to save what the page shows now (not the content of the failed save), or look at your Drive list first." : "");
+        if (!r.ok && wasPending && r.stage === "version" && r.sha256) {  // Drive refused because a version exists: if it is exactly these bytes, the first attempt had reached Drive
+          return getList().then(function (j) {
+            var f = j.files.filter(function (x) { return x.id === wasPending.fileId; })[0];
+            if (f && f.sha256 === r.sha256 && f.version >= 1) { pending = null; say("Saved to Drive. Your earlier attempt had reached Drive, and the file is on this device. It is at the top of My Drive; only you can see it until you share it in Drive."); }
+            else { pending = null; say("The file is on this device. Drive already has this name with an earlier saved version, and it was not changed; nothing was overwritten. Save with a different name to keep what the page shows now."); }
+          }, function () { pending = null; say(r.message + " Nothing was overwritten. Save with a different name, or look at your Drive list."); });
+        }
+        say(r.message + tail);
       }, function (e) { say("Not saved: " + (e && e.message ? e.message : "unexpected error")); }).then(function () { saving = false; cfg.saveBtn.disabled = false; });
     }
     function getList() {

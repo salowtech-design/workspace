@@ -1,6 +1,7 @@
 """Recorded walkthroughs (manual, not CI). Each tour opens its own phone-size browser context with video on, reuses the
 already signed-in session cookies (the sign-in itself is never recorded), moves a visible pointer, shows a caption for each
 step, and writes a JSON log of which steps worked and which failed. Output goes to DRILL_VIDEO. Synthetic fixtures only."""
+import hashlib
 import json
 import os
 import shutil
@@ -6202,17 +6203,48 @@ def register_drive_link_version_fail(g):
             pg.evaluate("([k, v]) => localStorage.setItem(k, JSON.stringify(v))", [key, {"A1": "10"}])
             pg.reload(); pg.wait_for_selector("#sheet-root input", timeout=15000); pg.wait_for_timeout(500)
             stat = lambda: pg.inner_text("#dl-status")
-            own = lambda: pg.evaluate("() => fetch('/drive/mine/files/', {credentials: 'same-origin'}).then((r) => r.json()).then((j) => { j.files = j.files.filter((f) => f.name === 'vfail.json'); return j; })")  # only this tour's file
+            own = lambda: pg.evaluate("() => fetch('/drive/mine/files/', {credentials: 'same-origin'}).then((r) => r.json()).then((j) => { j.files = j.files.filter((f) => /^v(fail|edit|amb|conf)\\.json$/.test(f.name)); return j; })")  # only this tour's file
             vers = lambda: pg.evaluate("() => fetch('/drive/', {credentials: 'same-origin'}).then((r) => r.text())")
             def net_fail():
                 pg.route("**/drive/file/*/version/", lambda r: r.abort())
                 pg.fill("#dl-name", "vfail.json"); pg.click("#dl-save"); pg.wait_for_timeout(2000)
-            t.step("The Drive version call fails on the network after the bytes are stored: the status does not say Saved, says the name has no saved version yet, and the file is not offered by Open", net_fail, expect=lambda: "Saved to Drive" not in stat() and "no saved version yet" in stat() and "Press Save again with the same name" in stat() and own()["files"] == [], wait=500)
+            t.step("The Drive version call fails on the network after the bytes are stored: the status does not say Saved, says the name has no saved version yet, and the file is not offered by Open", net_fail, expect=lambda: "Saved to Drive" not in stat() and "no saved version yet" in stat() and "not the content of the failed save" in stat() and own()["files"] == [], wait=500)
             def again():
                 pg.unroute("**/drive/file/*/version/")
                 pg.click("#dl-save"); pg.wait_for_timeout(2000)
                 print("AGAIN", stat()[:400], own(), flush=True)
             t.step("Network back, the same name saved again finishes the record: Saved to Drive and Drive lists vfail.json at version 1", again, expect=lambda: "Saved to Drive" in stat() and [(f["name"], f["version"]) for f in own()["files"]] == [("vfail.json", 1)], wait=500)
+            named = lambda n: [f for f in own()["files"] if f["name"] == n]
+            cell = lambda v: (pg.fill('input[data-addr="A1"]', v), pg.press('input[data-addr="A1"]', "Tab"), pg.wait_for_timeout(500))
+            # The version request reaches the server, then the page is told it failed (the answer is lost). Done in the page so the test host's name mapping still applies.
+            lose_answer = lambda: pg.evaluate("() => { window.__f = window.fetch; window.fetch = function (u, o) { const p = window.__f.apply(this, arguments); return /\\/version\\/$/.test(String(u)) ? p.then(() => { throw new TypeError('Failed to fetch'); }) : p; }; }")
+            keep_answer = lambda: pg.evaluate("() => { if (window.__f) window.fetch = window.__f; }")
+            sha = lambda txt: hashlib.sha256(txt.encode()).hexdigest()
+            def edited_retry():
+                cell("5")
+                pg.route("**/drive/file/*/version/", lambda r: r.abort())
+                pg.fill("#dl-name", "vedit.json"); pg.click("#dl-save"); pg.wait_for_timeout(2000)
+                pg.unroute("**/drive/file/*/version/")
+                cell("77")
+                pg.click("#dl-save"); pg.wait_for_timeout(2000)
+            t.step("A save fails at the version call, the sheet is then edited (A1 77), and Save again with the same name: the version Drive records is the EDITED content, not the bytes of the failed save", edited_retry, expect=lambda: "Saved to Drive" in stat() and [f["sha256"] for f in named("vedit.json")] == [sha('{"A1":"77"}')], wait=500)
+            def ambiguous_same():
+                cell("8")
+                lose_answer()
+                pg.fill("#dl-name", "vamb.json"); pg.click("#dl-save"); pg.wait_for_timeout(2500)
+                keep_answer()
+                self_status.append(stat())
+                pg.click("#dl-save"); pg.wait_for_timeout(2500)
+            self_status = []
+            t.step("Drive records the version but the answer is lost (ambiguous success): the first status does not say Saved; Save again with the unchanged sheet says the earlier attempt had reached Drive, and Drive lists one version 1", ambiguous_same, expect=lambda: "Saved to Drive" not in self_status[0] and "earlier attempt had reached Drive" in stat() and [(f["version"], f["sha256"]) for f in named("vamb.json")] == [(1, sha('{"A1":"8"}'))], wait=500)
+            def conflict_changed():
+                cell("9")
+                lose_answer()
+                pg.fill("#dl-name", "vconf.json"); pg.click("#dl-save"); pg.wait_for_timeout(2500)
+                keep_answer()
+                cell("10")
+                pg.click("#dl-save"); pg.wait_for_timeout(2500)
+            t.step("Same lost answer, but the sheet was edited before Save again: Drive refuses (it already has version 1 of the older content); the status does not say Saved and Drive keeps the older content at version 1", conflict_changed, expect=lambda: "Saved to Drive" not in stat() and "nothing was overwritten" in stat() and "Press Save again" not in stat() and [(f["version"], f["sha256"]) for f in named("vconf.json")] == [(1, sha('{"A1":"9"}'))], wait=500)
         run_tour(ctx, "drive_link_version_fail", body, notes="Headless Chromium 390x844 emulated. The Drive version call fails after the bytes are stored.")
     g["DRILLS"]["tour_drive_link_version_fail"] = tour
 
