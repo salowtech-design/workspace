@@ -331,6 +331,7 @@ def register(g):
     register_sheets_widths(g)
     register_slides_layout(g)
     register_sheets_charts(g)
+    register_slides_tspeed(g)
     register_pdf_alltext_stop(g)
     register_pdf_roundtrip(g)
     register_slides_order_recovery(g)
@@ -5713,6 +5714,40 @@ def register_sheets_widths(g):
         run_tour(ctx, "sheets_widths", body, notes="Headless Chromium 390x844 emulated, one run. Not shown: dragging a column edge (there is no drag handle, widths are set with the control), a real full browser store, another window changing the entry.", unshown=["drag resize", "real quota", "another window"])
 
     g["DRILLS"]["tour_sheets_widths"] = tour
+
+
+def register_slides_tspeed(g):
+    APP = g["APP"]
+
+    def tour(ctx):
+        def body(t, pg):
+            pg.goto(APP + "/slides/")
+            pg.evaluate("localStorage.clear()")
+            pg.goto(APP + "/slides/")
+            pg.wait_for_timeout(500)
+            go = lambda n: (pg.locator("#sl-list button").nth(n).click(), pg.wait_for_timeout(300))
+            saved = lambda: pg.evaluate("()=>JSON.parse(localStorage.getItem(document.getElementById('slide-root').getAttribute('data-store-key')))")
+            panel = lambda: pg.evaluate("document.getElementById('sl-trans').scrollIntoView({block:'center'})")
+            nxt = lambda: pg.evaluate("()=>{document.getElementById('sl-show-next').click(); const s=document.querySelector('#sl-show-canvas svg'); const a=s.getAnimations(); return [s.getAttribute('class'), a.length ? a[0].effect.getTiming().duration : null]}")
+            got = []
+            for _ in range(3):
+                pg.click("#sl-new"); pg.wait_for_timeout(300)
+            t.step("A deck of 4 slides. Slide 1 has no transition and the speed select is off", lambda: (go(0), panel()), expect=lambda: pg.input_value("#sl-trans") == "none" and pg.is_disabled("#sl-tspeed") and "v" in saved() and saved()["v"] < 3)
+            t.step("Slide 2: fade, speed left at Normal. Nothing about speed is stored, deck stays v3", lambda: (go(1), pg.select_option("#sl-trans", "fade"), panel()), expect=lambda: pg.input_value("#sl-tspeed") == "normal" and not pg.is_disabled("#sl-tspeed") and saved()["v"] == 3 and "tspeed" not in saved()["slides"][1])
+            t.step("Slide 3: fade and Slow. The deck becomes v10 and stores slow on that slide only", lambda: (go(2), pg.select_option("#sl-trans", "fade"), pg.select_option("#sl-tspeed", "slow"), panel()), expect=lambda: saved()["v"] == 10 and saved()["slides"][2].get("tspeed") == "slow" and "tspeed" not in saved()["slides"][1])
+            t.step("Slide 4: fade and Fast", lambda: (go(3), pg.select_option("#sl-trans", "fade"), pg.select_option("#sl-tspeed", "fast"), panel()), expect=lambda: saved()["slides"][3].get("tspeed") == "fast")
+            t.step("Reload the page: slide 3 still shows Slow and slide 4 Fast", lambda: (pg.reload(), pg.wait_for_timeout(600), go(2), panel()), expect=lambda: pg.input_value("#sl-tspeed") == "slow" and (go(3), pg.input_value("#sl-tspeed"))[1] == "fast")
+            t.step("Slide 3: set the transition to None. The speed select goes off and the speed is removed", lambda: (go(2), pg.select_option("#sl-trans", "none"), panel()), expect=lambda: pg.is_disabled("#sl-tspeed") and "tspeed" not in saved()["slides"][2] and saved()["slides"][3].get("tspeed") == "fast")
+            t.step("Put the fade back on slide 3: its speed starts again at Normal", lambda: (pg.select_option("#sl-trans", "fade"), panel()), expect=lambda: pg.input_value("#sl-tspeed") == "normal")
+            pg.select_option("#sl-tspeed", "slow")
+            t.step("Present from slide 1", lambda: (pg.click("#sl-present"), pg.keyboard.press("Home")), expect=lambda: pg.locator("#sl-show").evaluate("e=>e.open"), wait=1500)
+            t.step("Next to slide 2: the fade runs 400 ms (Normal, as in every older deck)", lambda: got.append(nxt()), expect=lambda: got[-1][1] == 400 and "sl-slow" not in got[-1][0] and "sl-fast" not in got[-1][0], wait=900)
+            t.step("Next to slide 3: the fade runs 800 ms (Slow)", lambda: got.append(nxt()), expect=lambda: got[-1][1] == 800 and "sl-slow" in got[-1][0], wait=1300)
+            t.step("Next to slide 4: the fade runs 200 ms (Fast)", lambda: got.append(nxt()), expect=lambda: got[-1][1] == 200 and "sl-fast" in got[-1][0], wait=700)
+            t.step("Exit the show", lambda: pg.click("#sl-show-exit"), expect=lambda: not pg.locator("#sl-show").evaluate("e=>e.open"))
+            t.note("Shown: the speed select, stored values, reload, and the running animation duration read from the browser. Not shown: the PDF and editor (they do not animate by design) and a reduced-motion device (no animation runs there).", 3)
+        run_tour(ctx, "slides_tspeed", body, notes="Device-local deck. Headless Chromium 390x844 emulated.")
+    g["DRILLS"]["tour_slides_tspeed"] = tour
 
 
 def register_sheets_charts(g):

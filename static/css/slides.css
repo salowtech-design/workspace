@@ -33,6 +33,8 @@
 @media (max-height: 560px), (max-width: 480px) { .slide-show.with-notes svg { max-height: 30vh; } .slide-show.with-notes #sl-show-notes-wrap { max-height: 14vh; } }
 .slide-show svg.sl-fade { animation: sl-fade-in 0.4s ease-out; }
 @keyframes sl-fade-in { from { opacity: 0; } to { opacity: 1; } }
+.slide-show svg.sl-fade.sl-slow { animation-duration: 0.8s; }
+.slide-show svg.sl-fade.sl-fast { animation-duration: 0.2s; }
 @media (prefers-reduced-motion: reduce) { .slide-show svg.sl-fade { animation: none; } }
 .slide-show svg g.sl-fadeel { animation: sl-fade-in 0.4s ease-out; }
 @media (prefers-reduced-motion: reduce) { .slide-show svg g.sl-fadeel { animation: none; } }

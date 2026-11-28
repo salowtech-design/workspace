@@ -67,3 +67,15 @@ def test_slides_layout_table_passes_in_node():
     )
     assert r.returncode == 0, r.stdout + r.stderr
     assert "56/56 layout rows passed" in r.stdout
+
+
+def test_slides_tspeed_table_passes_in_node():
+    assert shutil.which("node"), "node is required to run the slides transition speed table"
+    r = subprocess.run(  # noqa: S603 - fixed argv, repo-owned script
+        [shutil.which("node"), str(ROOT / "tests/js/slides_tspeed.js")],
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert "14/14 tspeed rows passed" in r.stdout

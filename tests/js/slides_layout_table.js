@@ -76,7 +76,7 @@ ok("two items on one slot are refused", m((x) => { x.slides[2].elements[1].ph = 
 ok("ph on an image item is refused", m((x) => { x.slides[2].elements[0].type = "shape"; }) === null);
 ok("lays with an unknown key, a bad field value or too many slots is refused", m((x) => { x.lays.wide = []; }) === null && m((x) => { x.lays.title[0].size = 3; }) === null && m((x) => { x.lays.title[0].size = 60.5; }) === null && m((x) => { x.lays.title = [{}, {}, {}]; }) === null && m((x) => { x.lays = []; }) === null);
 ok("v9 metadata under an old version number is accepted and the version is recomputed to 9", m((x) => { x.v = 4; }).v === 9);
-ok("version 10 is still refused", m((x) => { x.v = 10; }) === null);
+ok("version 11 is still refused", m((x) => { x.v = 11; }) === null);
 ok("lays alone (no slide linked) keeps version 9 so older code refuses it", (() => { const x = S.ops.unlinkSlide(E, 2); return x.v === 9 && x.lays; })());
 // theme, master and animation stay intact on a linked slide
 let T = S.ops.setTheme(E, "dark"); ok("theme change keeps links and layouts", T.slides[2].lay === "title" && T.lays && S.validate(T) && T.v === 9);

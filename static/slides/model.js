@@ -66,8 +66,8 @@
   }
   // returns a clean deck or null; unknown fields are dropped and numbers are clamped
   function validate(d) {
-    if (!d || typeof d !== "object" || Array.isArray(d) || (has(d, "v") && [1, 2, 3, 4, 5, 6, 7, 8, 9].indexOf(d.v) < 0) || !Array.isArray(d.slides) || !d.slides.length || d.slides.length > MAX_SLIDES) return null;
-    var TRANS = ["none", "fade"], ids = Object.create(null), out = { v: 1, theme: has(THEMES, d.theme) ? d.theme : "light", slides: [] }, masterEls = [], anyHide = false, anyTrans = false, anyStyle = false, nImg = 0, anyAnim = false, anyAfter = false, anyBg = false, anyLay = false, outLays = null;
+    if (!d || typeof d !== "object" || Array.isArray(d) || (has(d, "v") && [1, 2, 3, 4, 5, 6, 7, 8, 9, 10].indexOf(d.v) < 0) || !Array.isArray(d.slides) || !d.slides.length || d.slides.length > MAX_SLIDES) return null;
+    var TRANS = ["none", "fade"], ids = Object.create(null), out = { v: 1, theme: has(THEMES, d.theme) ? d.theme : "light", slides: [] }, masterEls = [], anyHide = false, anyTrans = false, anyTspeed = false, anyStyle = false, nImg = 0, anyAnim = false, anyAfter = false, anyBg = false, anyLay = false, outLays = null;
     if (has(d, "lays")) {
       var L0 = d.lays; if (!L0 || typeof L0 !== "object" || Array.isArray(L0)) return null; outLays = {};
       var lk = Object.keys(L0); for (var a1 = 0; a1 < lk.length; a1++) {
@@ -97,6 +97,7 @@
       if (s.hideMaster === true) { ns.hideMaster = true; anyHide = true; }
       if (wantBg) { ns.bg = wantBg; anyBg = true; }
       if (has(s, "transition")) { if (TRANS.indexOf(s.transition) < 0) return null; if (s.transition === "fade") { ns.transition = "fade"; anyTrans = true; } }
+      if (has(s, "tspeed")) { if ((s.tspeed !== "slow" && s.tspeed !== "fast") || ns.transition !== "fade") return null; ns.tspeed = s.tspeed; anyTspeed = true; }
       if (has(s, "anim")) {
         // object animation: an ordered list of {el, fx}; each item at most once, only items on this slide, one click per entry
         if (!Array.isArray(s.anim) || s.anim.length > MAX_EL) return null;
@@ -132,6 +133,8 @@
     // Version 9 when a slide is linked to a layout or a layout was edited: older code only knows 1 to 8 and refuses 9, so it never drops a link silently.
     if (outLays) out.lays = outLays;
     if (anyLay) out.v = 9;
+    // Version 10 when a slide's fade has its own speed: older code only knows 1 to 9 and refuses 10, so it never drops a speed silently.
+    if (anyTspeed) out.v = 10;
     return out;
   }
   // how many text fields in a raw (unvalidated) deck are longer than the limits and so will be shortened
@@ -230,7 +233,9 @@
     deleteElement: function (d, i, id) { var s = d.slides[i]; if (!s) return null; var n = copy(d), l = n.slides[i].elements.length; n.slides[i].elements = n.slides[i].elements.filter(function (e) { return e.id !== id; }); if (n.slides[i].anim) { n.slides[i].anim = n.slides[i].anim.filter(function (a) { return a.el !== id; }); if (!n.slides[i].anim.length) delete n.slides[i].anim; } return n.slides[i].elements.length === l ? null : normVersion(n); },
     setHideMaster: function (d, i, hide) { var s = d.slides[i]; if (!s || typeof hide !== "boolean" || (s.hideMaster === true) === hide) return null; var n = copy(d); if (hide) n.slides[i].hideMaster = true; else delete n.slides[i].hideMaster; return normVersion(n); },
     // how a slide appears in Present: "none" or "fade". The PDF and the editor are not animated.
-    setTransition: function (d, i, name) { var s = d.slides[i]; if (!s || (name !== "none" && name !== "fade") || (s.transition === "fade" ? "fade" : "none") === name) return null; var n = copy(d); if (name === "fade") n.slides[i].transition = "fade"; else delete n.slides[i].transition; return normVersion(n); },
+    setTransition: function (d, i, name) { var s = d.slides[i]; if (!s || (name !== "none" && name !== "fade") || (s.transition === "fade" ? "fade" : "none") === name) return null; var n = copy(d); if (name === "fade") n.slides[i].transition = "fade"; else { delete n.slides[i].transition; delete n.slides[i].tspeed; } return normVersion(n); },
+    // how fast the fade runs in Present: "slow" (0.8 s), "normal" (0.4 s, the same as every deck before this) or "fast" (0.2 s). Only a slide that fades has a speed. Normal stores nothing.
+    setTransitionSpeed: function (d, i, name) { var s = d.slides[i]; if (!s || s.transition !== "fade" || (name !== "slow" && name !== "normal" && name !== "fast") || (s.tspeed || "normal") === name) return null; var n = copy(d); if (name === "normal") delete n.slides[i].tspeed; else n.slides[i].tspeed = name; return normVersion(n); },
     // Object animation in Present. fx is "appear", "fade" or "none" (which removes it). Each item is animated at most once; entries play in list order, one click each.
     setAnim: function (d, i, id, fx) {
       var s = d.slides[i]; if (!s || (fx !== "none" && FX.indexOf(fx) < 0) || !s.elements.some(function (e) { return e.id === id; })) return null;
@@ -257,7 +262,7 @@
     var any = n.slides.some(function (s) { return s.hideMaster === true; }), trans = n.slides.some(function (s) { return s.transition === "fade"; }), anim = n.slides.some(function (s) { return s.anim && s.anim.length; }), after = n.slides.some(function (s) { return s.anim && s.anim.some(function (x) { return x.after === true; }); });
     if (n.master && !n.master.elements.length) delete n.master;
     var sty = n.slides.some(function (s) { return s.elements.some(styled); }) || (n.master && n.master.elements.some(styled));
-    var img = n.slides.some(function (s) { return s.elements.some(isImg); }); var bgs = n.slides.some(function (s) { return !!s.bg; }); var lay = !!n.lays || n.slides.some(function (s) { return !!s.lay; }); n.v = lay ? 9 : bgs ? 8 : after ? 7 : anim ? 6 : img ? 5 : sty ? 4 : trans ? 3 : (n.master || any ? 2 : 1); return n;
+    var img = n.slides.some(function (s) { return s.elements.some(isImg); }); var bgs = n.slides.some(function (s) { return !!s.bg; }); var lay = !!n.lays || n.slides.some(function (s) { return !!s.lay; }); var tsp = n.slides.some(function (s) { return !!s.tspeed; }); n.v = tsp ? 10 : lay ? 9 : bgs ? 8 : after ? 7 : anim ? 6 : img ? 5 : sty ? 4 : trans ? 3 : (n.master || any ? 2 : 1); return n;
   }
   function viaMaster(d, fn, adding) {
     var els = d.master ? d.master.elements : [];
