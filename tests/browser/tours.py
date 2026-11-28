@@ -284,6 +284,7 @@ def register(g):
     register_sheets_find(g)
     register_sheets_maxifs(g)
     register_sheets_xlookup(g)
+    register_sheets_text_choice(g)
     register_palette(g)
     register_overlap(g)
     register_drive_device(g)
@@ -2144,6 +2145,40 @@ def register_sheets_xlookup(g):
                  unshown=["match_mode 1, -1 and 2", "result range errors and spill refusal", "binary search modes (refused)", "row lookups (node tests)"])
 
     g["DRILLS"]["tour_sheets_xlookup"] = tour
+
+
+def register_sheets_text_choice(g):
+    APP = g["APP"]
+
+    def tour(ctx):
+        def put(pg, cells):
+            for a, v in cells:
+                sel = 'input[data-addr="%s"]' % a
+                pg.click(sel)
+                pg.fill(sel, v)
+                pg.press(sel, "Tab")
+
+        def shown(pg, a):
+            pg.click('input[data-addr="%s"]' % a)
+            return pg.inner_text("#sheet-val").strip().replace("Result: ", "", 1)
+
+        def body(t, pg):
+            pg.goto(APP + "/sheets/")
+            pg.evaluate("localStorage.clear()")
+            pg.goto(APP + "/sheets/")
+            pg.wait_for_timeout(500)
+            t.step("PROPER capitalises each word: hello wORLD becomes Hello World", lambda: put(pg, [("E1", '=PROPER("hello wORLD")')]), expect=lambda: shown(pg, "E1") == "Hello World")
+            t.step("EXACT cares about case: Abc against abc is false", lambda: put(pg, [("E2", '=EXACT("Abc","abc")')]), expect=lambda: shown(pg, "E2") == "false")
+            t.step("REPT repeats text: ab three times is ababab", lambda: put(pg, [("E3", '=REPT("ab",3)')]), expect=lambda: shown(pg, "E3") == "ababab")
+            t.step("CHOOSE picks by position: 2 gives b", lambda: put(pg, [("E4", '=CHOOSE(2,"a","b","c")')]), expect=lambda: shown(pg, "E4") == "b")
+            t.step("IFNA replaces a failed lookup with none", lambda: put(pg, [("A1", "x"), ("E5", '=IFNA(MATCH("q",A1:A1,0),"none")')]), expect=lambda: shown(pg, "E5") == "none")
+            t.step("IFNA leaves other errors alone: a divide by zero stays #DIV/0!", lambda: put(pg, [("E6", '=IFNA(1/0,"none")')]), expect=lambda: shown(pg, "E6") == "#DIV/0!")
+            pg.click('input[data-addr="E1"]')
+
+        run_tour(ctx, "101_sheets_text_choice", body, notes="Device-local sheet (browser only). Real Django on TiDB (unistore) under uvicorn, headless Chromium 390x844 emulated. Edge cases are local choices, not checked against Google or Excel.",
+                 unshown=["PROPER after an apostrophe or digit", "REPT cap and negative counts", "CHOOSE out of range", "EXACT with numbers (node tests)"])
+
+    g["DRILLS"]["tour_sheets_text_choice"] = tour
 
 
 def register_sheets_refs(g):

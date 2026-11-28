@@ -164,6 +164,26 @@
     LEN: function (a) { var s = text(a[0]); return isErr(s) ? s : s.length; },
     UPPER: function (a) { var s = text(a[0]); return isErr(s) ? s : s.toUpperCase().slice(0, MAX_STR); },
     LOWER: function (a) { var s = text(a[0]); return isErr(s) ? s : s.toLowerCase(); },
+    /* EXACT, PROPER, REPT, CHOOSE. Written from Google's help pages; edge cases are this engine's own choices, not checked against Google or Excel.
+     * EXACT: true only when the two texts are identical, case included (numbers and booleans are compared as the text they show).
+     * PROPER: lower-cases everything, then upper-cases every letter that starts the text or follows a character that is not a letter,
+     * so "it's" becomes "It'S" and "3rd" becomes "3Rd". REPT: n is cut to a whole number; below 0 is #VALUE!; a result over the
+     * 10,000 character text cap is #VALUE!; empty text gives "". CHOOSE: index cut to a whole number from 1; outside the values is #VALUE!;
+     * the values are all evaluated first (an error in a value that was not chosen is not reported). */
+    EXACT: function (a) { var x = text(a[0]), y = text(a[1]); if (isErr(x)) return x; if (isErr(y)) return y; return x === y; },
+    PROPER: function (a) { var s = text(a[0]); if (isErr(s)) return s; return s.toLowerCase().replace(/(^|[^\p{L}])(\p{L})/gu, function (m, p, c) { return p + c.toUpperCase(); }).slice(0, MAX_STR); },
+    REPT: function (a) {
+      var s = text(a[0]), n = num(a[1]); if (isErr(s)) return s; if (isErr(n)) return n;
+      n = Math.trunc(n); if (n < 0) return new Err("#VALUE!");
+      if (s === "" || n === 0) return "";
+      if (s.length * n > MAX_STR) return new Err("#VALUE!");
+      return s.repeat(n);
+    },
+    CHOOSE: function (a) {
+      var i = num(sc2(a[0])); if (isErr(i)) return i;
+      i = Math.trunc(i); if (i < 1 || i > a.length - 1) return new Err("#VALUE!");
+      var v = sc2(a[i]); return v === undefined ? null : v;
+    },
     CONCAT: function (a) { var o = ""; for (var i = 0; i < a.length; i++) { var s = text(a[i]); if (isErr(s)) return s; o += s; if (o.length > MAX_STR) return new Err("#VALUE!"); } return o; },
     NOT: function (a) { var x = truth(a[0]); return isErr(x) ? x : !x; },
     AND: function (a) { for (var i = 0; i < a.length; i++) { var x = truth(a[i]); if (isErr(x)) return x; if (!x) return false; } return true; },
@@ -654,7 +674,7 @@
   FNX.ISTEXT = function (a) { var v = one(a[0]); return v === undefined ? new Err("#VALUE!") : typeof v === "string" && v !== ""; };
   FNX.ISBLANK = function (a) { var v = one(a[0]); return v === undefined ? new Err("#VALUE!") : v === null || v === ""; };
   FNX.ISERROR = function (a) { var v = one(a[0]); return v === undefined ? new Err("#VALUE!") : isErr(v); };
-  var ARITY = { HLOOKUP: [3, 4], IFS: [2, 40], SWITCH: [3, 40], SUMIFS: [3, 21], COUNTIFS: [2, 20], AVERAGEIFS: [3, 21], NA: [0, 0], XLOOKUP: [3, 6], MAXIFS: [3, 21], MINIFS: [3, 21], ROUNDUP: [1, 2], ROUNDDOWN: [1, 2], TRUNC: [1, 2], SIGN: [1, 1], PRODUCT: [1, 99], LARGE: [2, 2], SMALL: [2, 2], ISNUMBER: [1, 1], ISTEXT: [1, 1], ISBLANK: [1, 1], ISERROR: [1, 1], IFERROR: [1, 2], MEDIAN: [1, 99], STDEV: [1, 99], COUNTA: [1, 99], COUNTBLANK: [1, 99], MOD: [2, 2], POWER: [2, 2], SQRT: [1, 1], INT: [1, 1], FLOOR: [1, 2], CEILING: [1, 2], DATE: [3, 3], YEAR: [1, 1], MONTH: [1, 1], DAY: [1, 1], WEEKDAY: [1, 2], LEFT: [1, 2], RIGHT: [1, 2], MID: [3, 3], TRIM: [1, 1], SUBSTITUTE: [3, 4], FIND: [2, 3], INDEX: [2, 3], MATCH: [2, 3], VLOOKUP: [3, 4], SUMIF: [2, 3], COUNTIF: [2, 2], AVERAGEIF: [2, 3], SUM: [1, 99], AVERAGE: [1, 99], MIN: [1, 99], MAX: [1, 99], COUNT: [1, 99], ABS: [1, 1], ROUND: [1, 2], LEN: [1, 1], UPPER: [1, 1], LOWER: [1, 1], CONCAT: [1, 99], NOT: [1, 1], AND: [1, 99], OR: [1, 99], IF: [2, 3] };
+  var ARITY = { HLOOKUP: [3, 4], IFS: [2, 40], SWITCH: [3, 40], SUMIFS: [3, 21], COUNTIFS: [2, 20], AVERAGEIFS: [3, 21], IFNA: [2, 2], EXACT: [2, 2], PROPER: [1, 1], REPT: [2, 2], CHOOSE: [2, 30], NA: [0, 0], XLOOKUP: [3, 6], MAXIFS: [3, 21], MINIFS: [3, 21], ROUNDUP: [1, 2], ROUNDDOWN: [1, 2], TRUNC: [1, 2], SIGN: [1, 1], PRODUCT: [1, 99], LARGE: [2, 2], SMALL: [2, 2], ISNUMBER: [1, 1], ISTEXT: [1, 1], ISBLANK: [1, 1], ISERROR: [1, 1], IFERROR: [1, 2], MEDIAN: [1, 99], STDEV: [1, 99], COUNTA: [1, 99], COUNTBLANK: [1, 99], MOD: [2, 2], POWER: [2, 2], SQRT: [1, 1], INT: [1, 1], FLOOR: [1, 2], CEILING: [1, 2], DATE: [3, 3], YEAR: [1, 1], MONTH: [1, 1], DAY: [1, 1], WEEKDAY: [1, 2], LEFT: [1, 2], RIGHT: [1, 2], MID: [3, 3], TRIM: [1, 1], SUBSTITUTE: [3, 4], FIND: [2, 3], INDEX: [2, 3], MATCH: [2, 3], VLOOKUP: [3, 4], SUMIF: [2, 3], COUNTIF: [2, 2], AVERAGEIF: [2, 3], SUM: [1, 99], AVERAGE: [1, 99], MIN: [1, 99], MAX: [1, 99], COUNT: [1, 99], ABS: [1, 1], ROUND: [1, 2], LEN: [1, 1], UPPER: [1, 1], LOWER: [1, 1], CONCAT: [1, 99], NOT: [1, 1], AND: [1, 99], OR: [1, 99], IF: [2, 3] };
   function truth(v) {
     if (isErr(v)) return v;
     if (typeof v === "boolean") return v;
@@ -791,6 +811,10 @@
               if (same) return sc(ev(n.a[2 + 2 * q]));
             }
             return n.a.length % 2 === 0 ? sc(ev(n.a[n.a.length - 1])) : new Err("#N/A");
+          }
+          if (n.f === "IFNA") {  // lazy: the second argument runs only when the first is #N/A; any other error is returned
+            var nv = sc(ev(n.a[0]));
+            return isErr(nv) && nv.code === "#N/A" ? sc(ev(n.a[1])) : nv;
           }
           if (n.f === "IFERROR") {  // lazy: the fallback runs only when the first argument is an error
             var fv = sc(ev(n.a[0]));
