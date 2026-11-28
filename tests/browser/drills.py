@@ -114,10 +114,21 @@ def _wrap_reach(pg):
         setattr(pg, name, mk(orig))
 
 
+_DIALOG_HANDLERS = []
+
+
+def on_dialog_tracked(pg, fn):
+    """Register a dialog handler that the next fresh() removes again (public Playwright API only)."""
+    _DIALOG_HANDLERS.append(fn)
+    pg.on("dialog", fn)
+
+
 def fresh(ctx, path):
     pg = ctx.pages[0]
     # the page is shared by every drill: drop dialog handlers an earlier drill left, so one dialog is handled once
-    pg._impl_obj.remove_all_listeners("dialog")
+    for fn in _DIALOG_HANDLERS:
+        pg.remove_listener("dialog", fn)
+    _DIALOG_HANDLERS.clear()
     pg.unroute_all()  # an earlier drill may have left routes that serve old script files
     pg.goto(APP + path)
     pg.evaluate("localStorage.clear()")
@@ -799,7 +810,7 @@ def sheets_tabs_safety(ctx):
     rename("C")
     setc("A1", "c-data")
     msgs = []
-    pg.on("dialog", lambda d: (msgs.append(d.message), d.accept()))
+    on_dialog_tracked(pg, lambda d: (msgs.append(d.message), d.accept()))
     tab(1)
     pg.click("#tab-del")
     pg.click("#sheet-tabs button:nth-child(1)")
@@ -1380,7 +1391,7 @@ def sheets_rules_recovery(ctx):
         mode["msg"] = d.message
         d.accept() if mode["accept"] else d.dismiss()
 
-    pg.on("dialog", on_dialog)
+    on_dialog_tracked(pg, on_dialog)
 
     def press_reset(accept):
         mode["accept"] = accept
@@ -4192,7 +4203,7 @@ def slides_images(ctx):  # noqa: C901
     pg.reload()
     pg.wait_for_timeout(400)
     msgs = []
-    pg.on("dialog", lambda d: (msgs.append(d.message), d.accept()))
+    on_dialog_tracked(pg, lambda d: (msgs.append(d.message), d.accept()))
 
     def deck():
         return pg.evaluate("JSON.parse(localStorage.getItem(%s))" % KEY)
@@ -4709,7 +4720,7 @@ def slides_images_race(ctx):  # noqa: C901
     put("p2.png", _png(40, 20, (0, 200, 0)))
     pg.wait_for_timeout(1000)
     msgs = []
-    pg.on("dialog", lambda d: (msgs.append(d.message), d.accept()))
+    on_dialog_tracked(pg, lambda d: (msgs.append(d.message), d.accept()))
     with pg.expect_download() as dl:
         pg.click("#sl-export-pics")
     full = _json.loads(open(dl.value.path()).read())
@@ -8905,7 +8916,7 @@ def slides_oldpage_v5(ctx):  # noqa: C901
     """An older Slides page (the files from before pictures) must not touch a version 5 deck: it is left byte-identical and nothing is overwritten."""
     pg = fresh(ctx, "/slides/")
     KEY = "document.getElementById('slide-root').dataset.storeKey"
-    pg.on("dialog", lambda d: d.accept())
+    on_dialog_tracked(pg, lambda d: d.accept())
     pg.set_input_files(
         "#sl-img-file", files=[{"name": "c.png", "mimeType": "image/png", "buffer": _png(40, 20)}]
     )
@@ -9022,7 +9033,7 @@ def slides_images_pdfmem(ctx):  # noqa: C901
     e0["img"] = extra
     els.append(e0)
     open(TMP_REF5, "w").write(_json.dumps(d5))
-    pg.on("dialog", lambda dd: dd.accept())
+    on_dialog_tracked(pg, lambda dd: dd.accept())
     pg.set_input_files("#sl-import", TMP_REF5)
     pg.wait_for_timeout(1500)
     check(
