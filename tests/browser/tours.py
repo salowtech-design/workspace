@@ -6115,20 +6115,21 @@ def register_drive_link_fail(g):
             key = pg.evaluate("""() => { const k = document.getElementById('sheet-root').dataset.storeKey; localStorage.setItem(k, JSON.stringify({A1: '10', A2: '20'})); return k; }""")
             pg.reload(); pg.wait_for_selector("#sheet-root input", timeout=15000); pg.wait_for_timeout(500)
             stat = lambda: pg.inner_text("#dl-status")
-            own = lambda: pg.evaluate("() => fetch('/drive/mine/files/', {credentials: 'same-origin'}).then((r) => r.json())")
+            own = lambda: pg.evaluate("() => fetch('/drive/mine/files/', {credentials: 'same-origin'}).then((r) => r.json()).then((j) => { j.files = j.files.filter((f) => f.name === 'fail-sheet.json'); return j; })")  # only this tour's file, so it composes with tour_drive_link
             stored = lambda: json.loads(pg.evaluate("(k) => localStorage.getItem(k)", key) or "{}")
             def full():
                 pg.evaluate("() => { window.__put = IDBObjectStore.prototype.put; IDBObjectStore.prototype.put = function () { throw new DOMException('This device is out of room. Nothing was saved.', 'QuotaExceededError'); }; }")
-                pg.click("#dl-save"); pg.wait_for_timeout(1500)
+                pg.fill("#dl-name", "fail-sheet.json"); pg.click("#dl-save"); pg.wait_for_timeout(1500)
             t.step("Simulated full device: the byte write throws a quota error (the test replaces put). Save shows the device-storage failure message (not a saved message) and Drive has no record", full, expect=lambda: ("Saved to Drive" not in stat() and "would not use its file storage" in stat() and own()["files"] == [] and "recoverable" not in stat().lower()), wait=500)
             def restore_and_save():
                 pg.evaluate("() => { IDBObjectStore.prototype.put = window.__put; }")
-                pg.click("#dl-save"); pg.wait_for_timeout(1500)
+                pg.fill("#dl-name", "fail-sheet.json"); pg.click("#dl-save"); pg.wait_for_timeout(1500)
             t.step("Same device with the write working again: Save now succeeds and Drive records version 1 with the right size", restore_and_save, expect=lambda: "Saved to Drive" in stat() and [f["version"] for f in own()["files"]] == [1], wait=500)
             def tamper_open():
                 sha = own()["files"][0]["sha256"]
                 pg.evaluate("""(h) => new Promise((res, rej) => { const q = indexedDB.open('salow-drive-' + document.getElementById('drive-link').dataset.user); q.onsuccess = () => { const db = q.result; const names = Array.from(db.objectStoreNames); const tx = db.transaction(names[0], 'readwrite'); const st = tx.objectStore(names[0]); const bad = new TextEncoder().encode('{"A1":"tampered"}'); st.put({ sha256: h, size: bad.length, bytes: bad.buffer }); tx.oncomplete = () => { db.close(); res(); }; tx.onerror = () => rej(tx.error); }; q.onerror = () => rej(q.error); })""", sha)
                 pg.click("#dl-list"); pg.wait_for_timeout(1500)
+                pg.select_option("#dl-files", value=own()["files"][0]["id"])
                 pg.click("#dl-open"); pg.wait_for_timeout(1500)
             t.step("The copy in this browser no longer matches its checksum (replaced with other bytes): Open says it is damaged and was not opened, and the sheet is unchanged", tamper_open, expect=lambda: "damaged" in stat() and "Nothing was changed" in stat() and stored() == {"A1": "10", "A2": "20"}, wait=500)
         run_tour(ctx, "drive_link_fail", body, notes="Headless Chromium 390x844 emulated. Save to Drive when the device write fails, and Open when the stored copy does not match its checksum.")
@@ -6149,6 +6150,7 @@ def register_drive_link_stale(g):
             key = pg.evaluate("() => document.getElementById('sheet-root').dataset.storeKey")
             stat = lambda: pg.inner_text("#dl-status")
             own = lambda: pg.evaluate("() => fetch('/drive/mine/files/', {credentials: 'same-origin'}).then((r) => r.json())")
+            named = lambda n: [f for f in own()["files"] if f["name"] == n]  # only the record this step made
             stored = lambda: json.loads(pg.evaluate("(k) => localStorage.getItem(k)", key) or "{}")
             post = lambda url, body_: pg.evaluate("([u, b]) => fetch(u, {method: 'POST', credentials: 'same-origin', headers: {'X-CSRFToken': document.getElementById('drive-link').dataset.csrf, 'Content-Type': 'application/x-www-form-urlencoded'}, body: b}).then((r) => r.status)", [url, body_])
             def prepare(name):
@@ -6156,22 +6158,30 @@ def register_drive_link_stale(g):
                 pg.reload(); pg.wait_for_selector("#sheet-root input", timeout=15000); pg.wait_for_timeout(500)
                 pg.fill("#dl-name", name); pg.click("#dl-save"); pg.wait_for_timeout(1500)
                 pg.click("#dl-list"); pg.wait_for_timeout(1500)
+            def snap(name):
+                out = os.environ.get("DRILL_VIDEO", "") or "/tmp"
+                pg.evaluate("() => document.getElementById('dl-status').scrollIntoView({block: 'center'})"); pg.wait_for_timeout(400)
+                pg.screenshot(path=os.path.join(out, name + ".png"))
             def edit_sheet():
                 pg.fill('input[data-addr="A1"]', "99"); pg.press('input[data-addr="A1"]', "Tab"); pg.wait_for_timeout(500)
             def trashed():
                 prepare("stale-a.json")
-                fid = own()["files"][0]["id"]
+                fid = named("stale-a.json")[0]["id"]
                 post("/drive/file/%s/trash/" % fid, "")
                 edit_sheet()
+                pg.select_option("#dl-files", value=fid)
                 pg.click("#dl-open"); pg.wait_for_timeout(1500)
-            t.step("Pick stale-a.json from the list, then trash it in Drive without refreshing the list, edit the sheet, press Open: it says the file is no longer there and the sheet keeps the edit", trashed, expect=lambda: "no longer at the top" in stat() and "stale-a.json" not in [f["name"] for f in own()["files"]] and stored().get("A1") == "99", wait=500)
+                snap("stale_trashed_390")
+            t.step("Pick stale-a.json from the list, then trash it in Drive without refreshing the list, edit the sheet, press Open: it says the file is no longer there and the sheet keeps the edit", trashed, expect=lambda: "no longer at the top" in stat() and named("stale-a.json") == [] and stored().get("A1") == "99", wait=500)
             def superseded():
                 prepare("stale-b.json")
-                f = own()["files"][0]
+                f = named("stale-b.json")[0]
                 post("/drive/file/%s/version/" % f["id"], "base_version=1&size=7&sha256=" + "e" * 64)
                 edit_sheet()
+                pg.select_option("#dl-files", value=f["id"])
                 pg.click("#dl-open"); pg.wait_for_timeout(1500)
-            t.step("Pick stale-b.json, then Drive records a newer version before Open: it says the file was saved again and the sheet keeps the edit", superseded, expect=lambda: "saved again in Drive" in stat() and [f["version"] for f in own()["files"]] == [2] and stored().get("A1") == "99", wait=500)
+                snap("stale_newer_390")
+            t.step("Pick stale-b.json, then Drive records a newer version before Open: it says the file was saved again and the sheet keeps the edit", superseded, expect=lambda: "saved again in Drive" in stat() and [f["version"] for f in named("stale-b.json")] == [2] and stored().get("A1") == "99", wait=500)
         run_tour(ctx, "drive_link_stale", body, notes="Headless Chromium 390x844 emulated. Open from Drive when the Drive record changes after the picker was filled.")
     g["DRILLS"]["tour_drive_link_stale"] = tour
 
