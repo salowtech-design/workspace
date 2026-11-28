@@ -2990,14 +2990,19 @@ def register_slides_align(g):
             def go(mode):
                 pg.evaluate("() => document.getElementById('sl-props').scrollIntoView({block: 'start'})")
                 pg.click('[data-align="%s"]' % mode); pg.wait_for_timeout(300)
+            def snap(name):  # the slide preview itself, so the item's box is seen where it was placed
+                out = os.environ.get("DRILL_VIDEO", "") or "/tmp"
+                pg.locator("#sl-canvas-wrap").scroll_into_view_if_needed(); pg.wait_for_timeout(300)
+                pg.locator("#sl-canvas-wrap").screenshot(path=os.path.join(out, "align_" + name + ".png"))
             t.step("Align buttons are off until an item is selected", expect=lambda: pg.is_disabled('[data-align="left"]'), wait=1500)
-            t.step("Select the item and Align left: x is 0, y and size unchanged", lambda: (pg.locator("#sl-items li button").first.click(), go("left")), expect=lambda: box() == (0, 100, 300, 50, "Align me") and pg.input_value("#sl-x") == "0", wait=1500)
-            t.step("Align right: x is 660 (960 minus the width 300)", lambda: go("right"), expect=lambda: box()[0] == 660, wait=1500)
-            t.step("Align centre: x is 330", lambda: go("center"), expect=lambda: box()[0] == 330, wait=1500)
-            t.step("Align top, then bottom: y is 0, then 490 (540 minus the height 50)", lambda: (go("top"), go("bottom")), expect=lambda: box()[1] == 490, wait=1500)
-            t.step("Align middle: y is 245", lambda: go("middle"), expect=lambda: box()[1] == 245, wait=1500)
-            t.step("Align middle again: nothing changes and the status says so", lambda: go("middle"), expect=lambda: box() == (330, 245, 300, 50, "Align me") and "already there" in st(), wait=1500)
-            t.step("Undo takes the item back one align step (middle to bottom, y 490)", lambda: pg.click("#sl-undo"), expect=lambda: box()[1] == 490, wait=1500)
+            t.step("Select the item and Align left: x is 0, y and size unchanged", lambda: (pg.locator("#sl-items li button").first.click(), snap("0_before"), go("left"), snap("1_left")), expect=lambda: box() == (0, 100, 300, 50, "Align me") and pg.input_value("#sl-x") == "0", wait=1500)
+            t.step("Align right: x is 660 (960 minus the width 300)", lambda: (go("right"), snap("2_right")), expect=lambda: box()[0] == 660, wait=1500)
+            t.step("Align centre: x is 330", lambda: (go("center"), snap("3_center")), expect=lambda: box()[0] == 330, wait=1500)
+            t.step("Align top: y is 0, x stays 330", lambda: (go("top"), snap("4_top")), expect=lambda: box()[:2] == (330, 0), wait=1500)
+            t.step("Align bottom: y is 490 (540 minus the height 50)", lambda: (go("bottom"), snap("5_bottom")), expect=lambda: box()[1] == 490, wait=1500)
+            t.step("Align middle: y is 245", lambda: (go("middle"), snap("6_middle")), expect=lambda: box()[1] == 245, wait=1500)
+            t.step("Align middle again: nothing changes and the status says so", lambda: (go("middle"), snap("7_middle_again")), expect=lambda: box() == (330, 245, 300, 50, "Align me") and "already there" in st(), wait=1500)
+            t.step("Undo takes the item back one align step (middle to bottom, y 490)", lambda: (pg.click("#sl-undo"), pg.wait_for_timeout(300), snap("8_undo")), expect=lambda: box()[1] == 490, wait=1500)
         run_tour(ctx, "slides_align", body, notes="Device-local deck. Headless Chromium 390x844 emulated, real Django on TiDB unistore. Align the selected item's box to the slide.")
     g["DRILLS"]["tour_slides_align"] = tour
 
