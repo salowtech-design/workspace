@@ -214,7 +214,7 @@ def test_runner_executes_a_queued_run_once_and_a_second_pass_does_nothing():
     run.refresh_from_db()
     assert run.state == WfRun.State.SUCCEEDED and run.steps.count() == 1
     assert Notification.objects.filter(user=me).count() == 1
-    assert en.run_pending() == {"succeeded": 0, "failed": 0, "cancelled": 0, "skipped": 0}
+    assert en.run_pending() == {"succeeded": 0, "failed": 0, "cancelled": 0, "skipped": 0, "errors": 0, "owner_inactive": 0}
     assert Notification.objects.filter(user=me).count() == 1
 
 
@@ -242,7 +242,7 @@ def test_runner_leaves_a_run_with_a_live_lease_and_cancels_runs_of_a_disabled_wo
     WfRun.objects.filter(pk=held.pk).update(
         state=WfRun.State.RUNNING, attempt=1, lease_until=timezone.now() + dt.timedelta(minutes=3)
     )
-    assert en.run_pending() == {"succeeded": 0, "failed": 0, "cancelled": 0, "skipped": 0}
+    assert en.run_pending() == {"succeeded": 0, "failed": 0, "cancelled": 0, "skipped": 0, "errors": 0, "owner_inactive": 0}
     held.refresh_from_db()
     assert held.state == WfRun.State.RUNNING and held.attempt == 1
     wf2 = _wf(me, [NOTE])
@@ -278,4 +278,37 @@ def test_runner_command_runs_one_pass_and_reports_counts():
     en.start_run(wf, "c-1")
     out = StringIO()
     call_command("process_automation_runs", stdout=out)
-    assert "1 succeeded, 0 failed, 0 cancelled, 0 not taken" in out.getvalue()
+    assert "1 succeeded, 0 failed, 0 cancelled, 0 not taken, 0 raised, 0 left" in out.getvalue()
+
+
+def test_runner_isolates_a_run_that_raises_and_still_runs_the_healthy_one(monkeypatch):
+    me = _u("AU-R6")
+    poison = en.start_run(_wf(me, [NOTE]), "p-1")
+    healthy = en.start_run(_wf(me, [NOTE]), "p-2")
+    real = en.execute
+
+    def flaky(run_id, **kw):
+        if run_id == poison.pk:
+            raise RuntimeError("database went away")
+        return real(run_id, **kw)
+
+    monkeypatch.setattr(en, "execute", flaky)
+    out = en.run_pending()
+    poison.refresh_from_db(); healthy.refresh_from_db()
+    assert out["errors"] == 1 and out["succeeded"] == 1
+    assert healthy.state == WfRun.State.SUCCEEDED
+    assert poison.state == WfRun.State.QUEUED and poison.attempt == 0  # untouched, not marked failed
+
+
+def test_runner_takes_no_run_of_an_owner_who_is_not_active_and_changes_nothing():
+    me = _u("AU-R7")
+    wf = _wf(me, [NOTE])
+    run = en.start_run(wf, "o-1")
+    CustomUser.objects.filter(pk=me.pk).update(status="suspended")
+    out = en.run_pending()
+    run.refresh_from_db()
+    assert out["owner_inactive"] == 1 and out["succeeded"] == 0
+    assert run.state == WfRun.State.QUEUED and run.attempt == 0 and not run.steps.exists()
+    assert not Notification.objects.filter(user=me).exists()
+    CustomUser.objects.filter(pk=me.pk).update(status="active")
+    assert en.run_pending()["succeeded"] == 1

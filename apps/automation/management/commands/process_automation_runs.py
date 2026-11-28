@@ -18,7 +18,8 @@ class Command(BaseCommand):
             d = run_pending(opts["batch_size"])
             self.stdout.write(
                 "Automation runs: %(succeeded)d succeeded, %(failed)d failed, "
-                "%(cancelled)d cancelled, %(skipped)d not taken." % d
+                "%(cancelled)d cancelled, %(skipped)d not taken, %(errors)d raised, "
+                "%(owner_inactive)d left because the owner is not active." % d
             )
             if not opts["loop"]:
                 return

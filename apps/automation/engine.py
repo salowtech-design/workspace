@@ -10,6 +10,7 @@ Scope of this slice (nothing beyond it is claimed):
 
 import datetime
 import hashlib
+import logging
 import math
 
 from django.core.exceptions import ValidationError
@@ -286,23 +287,39 @@ def run_pending(limit=50, *, now=None):
     """The background runner's one pass: carry out runs that are waiting, and runs whose worker died.
 
     A run is picked up when it is queued, or running with a lease that has run out. A run another
-    worker is still holding is left alone. execute() claims each one with the fencing attempt, so two
-    runners (or a runner and a person's own press) never apply the same step twice. Returns a dict of
-    how many runs ended in each state, plus "skipped" for runs that were not ours to take.
+    worker still holds is left alone. execute() claims each one in one transaction under the
+    definition and run locks, with the fencing attempt, so two runners (or a runner and a person's
+    own press) do not apply the same step twice.
+
+    Fail closed on the owner: no one is signed in here, so a run is taken only while its workflow's
+    owner is still an active person. Runs of any other owner stay as they are (counted as
+    "owner_inactive") and nothing is applied, cancelled or expired on anyone's behalf. No age limit
+    is applied to old queued runs: that would be a policy choice.
+
+    One run that raises is counted as "errors" and logged by id only; its state is not rewritten
+    without a safe claim, and the pass goes on to the next run.
     """
     now = now or timezone.now()
+    pick = Q(state=WfRun.State.QUEUED) | Q(state=WfRun.State.RUNNING, lease_until__isnull=True) | Q(
+        state=WfRun.State.RUNNING, lease_until__lte=now
+    )
+    base = WfRun.objects.filter(pick)
     ids = list(
-        WfRun.objects.filter(
-            Q(state=WfRun.State.QUEUED)
-            | Q(state=WfRun.State.RUNNING, lease_until__isnull=True)
-            | Q(state=WfRun.State.RUNNING, lease_until__lte=now)
-        )
+        base.filter(definition__owner__status="active")
         .order_by("id")
         .values_list("id", flat=True)[: max(1, int(limit))]
     )
-    done = {"succeeded": 0, "failed": 0, "cancelled": 0, "skipped": 0}
+    done = {
+        "succeeded": 0, "failed": 0, "cancelled": 0, "skipped": 0, "errors": 0,
+        "owner_inactive": base.exclude(definition__owner__status="active").count(),
+    }  # fmt: skip
     for run_id in ids:
-        state = execute(run_id, now=now)
+        try:
+            state = execute(run_id, now=now)
+        except Exception:  # noqa: BLE001 - isolate one bad run; never rewrite its state here
+            logging.getLogger(__name__).exception("automation run %s raised in the runner", run_id)
+            done["errors"] += 1
+            continue
         if state in ("succeeded", "failed"):
             done[state] += 1
         elif WfRun.objects.filter(pk=run_id, state=WfRun.State.CANCELLED).exists():
