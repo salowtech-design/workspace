@@ -53,10 +53,30 @@
     if (ALIGNS.indexOf(e.al) >= 0) o.al = e.al;  // unset means left for text items and centre for shapes
     return o;
   }
+  // ---- Layout inheritance (version 9). A slide linked to a layout has lay = the layout key; its placeholder items carry ph = the slot number. The item still
+  // stores its own x, y, w, h and size, so drawing, Present and the PDF read it exactly as before. Editing a layout slot (deck.lays) moves only the linked item
+  // fields that still equal the old layout value; a field changed on the slide is a local override and is kept. Linking is always explicit. ----
+  var LAY_FIELDS = ["x", "y", "w", "h", "size"], LAY_LIM = { x: [0, W], y: [0, H], w: [10, W], h: [10, H], size: [8, 120] };
+  function layKeys() { return Object.keys(LAYOUTS).filter(function (k) { return LAYOUTS[k].items.length; }); }
+  function layOk(v) { return typeof v === "number" && v === Math.floor(v); }
+  function slotOf(d, key, i) {
+    var b = LAYOUTS[key].items[i], o = {}, ov = d && d.lays && d.lays[key] && d.lays[key][i] || {};
+    LAY_FIELDS.forEach(function (f) { o[f] = has(ov, f) ? ov[f] : b[f]; });
+    return o;
+  }
   // returns a clean deck or null; unknown fields are dropped and numbers are clamped
   function validate(d) {
-    if (!d || typeof d !== "object" || Array.isArray(d) || (has(d, "v") && [1, 2, 3, 4, 5, 6, 7, 8].indexOf(d.v) < 0) || !Array.isArray(d.slides) || !d.slides.length || d.slides.length > MAX_SLIDES) return null;
-    var TRANS = ["none", "fade"], ids = Object.create(null), out = { v: 1, theme: has(THEMES, d.theme) ? d.theme : "light", slides: [] }, masterEls = [], anyHide = false, anyTrans = false, anyStyle = false, nImg = 0, anyAnim = false, anyAfter = false, anyBg = false;
+    if (!d || typeof d !== "object" || Array.isArray(d) || (has(d, "v") && [1, 2, 3, 4, 5, 6, 7, 8, 9].indexOf(d.v) < 0) || !Array.isArray(d.slides) || !d.slides.length || d.slides.length > MAX_SLIDES) return null;
+    var TRANS = ["none", "fade"], ids = Object.create(null), out = { v: 1, theme: has(THEMES, d.theme) ? d.theme : "light", slides: [] }, masterEls = [], anyHide = false, anyTrans = false, anyStyle = false, nImg = 0, anyAnim = false, anyAfter = false, anyBg = false, anyLay = false, outLays = null;
+    if (has(d, "lays")) {
+      var L0 = d.lays; if (!L0 || typeof L0 !== "object" || Array.isArray(L0)) return null; outLays = {};
+      var lk = Object.keys(L0); for (var a1 = 0; a1 < lk.length; a1++) {
+        var key = lk[a1], arr = L0[key]; if (layKeys().indexOf(key) < 0 || !Array.isArray(arr) || arr.length > LAYOUTS[key].items.length) return null;
+        var na = []; for (var a2 = 0; a2 < arr.length; a2++) { var it = arr[a2]; if (!it || typeof it !== "object" || Array.isArray(it)) return null; var no = {}; for (var a3 = 0; a3 < LAY_FIELDS.length; a3++) { var f = LAY_FIELDS[a3]; if (!has(it, f)) continue; if (!layOk(it[f]) || it[f] < LAY_LIM[f][0] || it[f] > LAY_LIM[f][1]) return null; no[f] = it[f]; } na.push(no); }
+        outLays[key] = na;
+      }
+      if (!Object.keys(outLays).length) outLays = null; else anyLay = true;
+    }
     if (has(d, "master")) {
       var m = d.master; if (!m || typeof m !== "object" || Array.isArray(m) || !Array.isArray(m.elements) || m.elements.length > MAX_MASTER) return null;
       for (var k = 0; k < m.elements.length; k++) { var me = fixEl(m.elements[k], true); if (!me || ids[me.id]) return null; ids[me.id] = true; masterEls.push(me); if (styled(me)) anyStyle = true; }
@@ -64,12 +84,15 @@
     for (var i = 0; i < d.slides.length; i++) {
       var s = d.slides[i];
       if (!s || typeof s !== "object" || typeof s.id !== "string" || !ID_RE.test(s.id) || !Array.isArray(s.elements) || s.elements.length > MAX_EL || ids[s.id]) return null;
-      ids[s.id] = true; var els = [];
-      for (var j = 0; j < s.elements.length; j++) { var e = fixEl(s.elements[j]); if (!e || ids[e.id]) return null; ids[e.id] = true; els.push(e); if (styled(e)) anyStyle = true; if (isImg(e)) nImg++; }
+      ids[s.id] = true; var els = [], phSeen = Object.create(null), wantLay = null;
+      if (has(s, "lay")) { if (typeof s.lay !== "string" || layKeys().indexOf(s.lay) < 0) return null; wantLay = s.lay; anyLay = true; }
+      for (var j = 0; j < s.elements.length; j++) { var e = fixEl(s.elements[j]); if (!e || ids[e.id]) return null; ids[e.id] = true; els.push(e);
+        if (has(s.elements[j], "ph")) { var ph = s.elements[j].ph; if (!wantLay || e.type !== "text" || !layOk(ph) || ph < 0 || ph >= LAYOUTS[wantLay].items.length || phSeen[ph]) return null; phSeen[ph] = true; e.ph = ph; } if (styled(e)) anyStyle = true; if (isImg(e)) nImg++; }
       if (has(s, "hideMaster") && typeof s.hideMaster !== "boolean") return null;
       var wantBg = null;
       if (has(s, "bg")) { if (typeof s.bg !== "string" || BG_HEX.indexOf(s.bg) < 0) return null; wantBg = s.bg; }
       var ns = { id: s.id, elements: els, notes: typeof s.notes === "string" ? cut(s.notes, MAX_NOTES) : "" };
+      if (wantLay) ns.lay = wantLay;
       if (s.hideMaster === true) { ns.hideMaster = true; anyHide = true; }
       if (wantBg) { ns.bg = wantBg; anyBg = true; }
       if (has(s, "transition")) { if (TRANS.indexOf(s.transition) < 0) return null; if (s.transition === "fade") { ns.transition = "fade"; anyTrans = true; } }
@@ -105,6 +128,9 @@
     if (anyAfter) out.v = 7;
     // Version 8 when any slide has its own background colour: older code only knows 1 to 7 and refuses 8, so it never drops a background silently.
     if (anyBg) out.v = 8;
+    // Version 9 when a slide is linked to a layout or a layout was edited: older code only knows 1 to 8 and refuses 9, so it never drops a link silently.
+    if (outLays) out.lays = outLays;
+    if (anyLay) out.v = 9;
     return out;
   }
   // how many text fields in a raw (unvalidated) deck are longer than the limits and so will be shortened
@@ -120,6 +146,26 @@
   }
   function copy(d) { return JSON.parse(JSON.stringify(d)); }
   var ops = {
+    addLinkedSlide: function (d, at, layout) {
+      if (d.slides.length >= MAX_SLIDES || layKeys().indexOf(layout) < 0) return null;
+      var n = copy(d), s = newSlide(layout); s.lay = layout;
+      s.elements.forEach(function (e, i) { var o = slotOf(n, layout, i); LAY_FIELDS.forEach(function (f) { e[f] = o[f]; }); e.ph = i; });
+      n.slides.splice(at === undefined ? n.slides.length : at + 1, 0, s); return validate(n);
+    },
+    unlinkSlide: function (d, i) {
+      var s = d.slides[i]; if (!s || !s.lay) return null; var n = copy(d), t = n.slides[i]; delete t.lay; t.elements.forEach(function (e) { delete e.ph; }); return validate(n);
+    },
+    // fields: any of x, y, w, h, size. Only linked item fields equal to the old layout value follow; others are local overrides and stay.
+    setLayoutSlot: function (d, key, slot, fields) {
+      if (layKeys().indexOf(key) < 0 || !layOk(slot) || slot < 0 || slot >= LAYOUTS[key].items.length || !fields || typeof fields !== "object") return null;
+      var n = copy(d), old = slotOf(d, key, slot), nw = {}, any = false;
+      LAY_FIELDS.forEach(function (f) { nw[f] = old[f]; if (has(fields, f)) { var v = Math.round(Number(fields[f])); if (!isFinite(v)) v = old[f]; nw[f] = Math.min(LAY_LIM[f][1], Math.max(LAY_LIM[f][0], v)); } if (nw[f] !== old[f]) any = true; });
+      if (!any) return null;
+      n.lays = n.lays || {}; var arr = n.lays[key] = (n.lays[key] || []).slice(); while (arr.length <= slot) arr.push({}); arr[slot] = Object.assign({}, arr[slot]);
+      LAY_FIELDS.forEach(function (f) { if (nw[f] === LAYOUTS[key].items[slot][f]) delete arr[slot][f]; else arr[slot][f] = nw[f]; });
+      n.slides.forEach(function (s) { if (s.lay !== key) return; s.elements.forEach(function (e) { if (e.ph === slot) LAY_FIELDS.forEach(function (f) { if (e[f] === old[f]) e[f] = nw[f]; }); }); });
+      return validate(n);
+    },
     addSlide: function (d, at, layout) { if (d.slides.length >= MAX_SLIDES) return null; var n = copy(d), s = newSlide(layout); n.slides.splice(at === undefined ? n.slides.length : at + 1, 0, s); return n; },
     deleteSlide: function (d, i) { if (d.slides.length <= 1 || !d.slides[i]) return null; var n = copy(d); n.slides.splice(i, 1); return n; },
     // copy of slide i placed right after it, with fresh ids so ids stay unique; null at the slide or item caps
@@ -148,7 +194,7 @@
       if (has(patch, "b") && !patch.b) delete merged.b;
       if (has(patch, "i") && !patch.i) delete merged.i;
       if (has(patch, "al") && patch.al === "default") delete merged.al;
-      var fixed = fixEl(merged); n.slides[i].elements[k] = fixed; return normVersion(n);
+      var fixed = fixEl(merged); if (fixed && has(merged, "ph")) fixed.ph = merged.ph; n.slides[i].elements[k] = fixed; return normVersion(n);
     },
     // Copy of one item placed right above it, with a fresh id, moved 20 right and 20 down (or 20 left and up when that would leave the slide).
     // Text, size, fill, bold, italic, align and a picture's reference (the same stored bytes) are kept; its animation is not copied. Null at the 30 item cap, at the 20 picture cap, or for an unknown item.
@@ -157,7 +203,7 @@
       if (k < 0) return null;
       var src = s.elements[k];
       if (isImg(src)) { var count = 0; d.slides.forEach(function (x) { x.elements.forEach(function (e) { if (isImg(e)) count++; }); }); if (count >= MAX_IMAGES) return null; }
-      var n = copy(d), c = copy(src); c.id = uid();
+      var n = copy(d), c = copy(src); c.id = uid(); delete c.ph;
       c.x = c.x + 20 <= W - c.w ? c.x + 20 : Math.max(0, c.x - 20); c.y = c.y + 20 <= H - c.h ? c.y + 20 : Math.max(0, c.y - 20);
       n.slides[i].elements.splice(k + 1, 0, c); return { deck: normVersion(n), id: c.id };
     },
@@ -197,7 +243,7 @@
     var any = n.slides.some(function (s) { return s.hideMaster === true; }), trans = n.slides.some(function (s) { return s.transition === "fade"; }), anim = n.slides.some(function (s) { return s.anim && s.anim.length; }), after = n.slides.some(function (s) { return s.anim && s.anim.some(function (x) { return x.after === true; }); });
     if (n.master && !n.master.elements.length) delete n.master;
     var sty = n.slides.some(function (s) { return s.elements.some(styled); }) || (n.master && n.master.elements.some(styled));
-    var img = n.slides.some(function (s) { return s.elements.some(isImg); }); var bgs = n.slides.some(function (s) { return !!s.bg; }); n.v = bgs ? 8 : after ? 7 : anim ? 6 : img ? 5 : sty ? 4 : trans ? 3 : (n.master || any ? 2 : 1); return n;
+    var img = n.slides.some(function (s) { return s.elements.some(isImg); }); var bgs = n.slides.some(function (s) { return !!s.bg; }); var lay = !!n.lays || n.slides.some(function (s) { return !!s.lay; }); n.v = lay ? 9 : bgs ? 8 : after ? 7 : anim ? 6 : img ? 5 : sty ? 4 : trans ? 3 : (n.master || any ? 2 : 1); return n;
   }
   function viaMaster(d, fn, adding) {
     var els = d.master ? d.master.elements : [];
@@ -357,6 +403,6 @@
     return out;
   }
   function textHeight(lines, size) { return Math.ceil(lines.length * size * 1.2); }
-  var api = { bgOf: bgOf, bgUsable: bgUsable, bgReadable: bgReadable, themeConflicts: themeConflicts, takeReject: takeReject, BGS: BGS, MIN_CONTRAST: MIN_CONTRAST, snapBox: snapBox, SNAP: SNAP, autoNext: autoNext, AUTO_MS: AUTO_MS, showStep: showStep, hiddenIds: hiddenIds, animCount: animCount, FX: FX, LAYOUTS: LAYOUTS, countCut: countCut, cut: cut, MAX_NOTES: MAX_NOTES, fmtClock: fmtClock, wrapLines: wrapLines, textHeight: textHeight, showNav: showNav, W: W, H: H, THEMES: THEMES, FILLS: FILLS, MAX_SLIDES: MAX_SLIDES, MAX_EL: MAX_EL, newDeck: newDeck, validate: validate, ops: ops, color: color, textColor: textColor, onFill: onFill, contrast: contrast, loadDeck: loadDeck, describe: describe, describeEls: describeEls, masterOf: masterOf, MAX_MASTER: MAX_MASTER, History: History, copy: copy };
+  var api = { layoutSlot: function (d, key, slot) { return layKeys().indexOf(key) < 0 || !layOk(slot) || slot < 0 || slot >= LAYOUTS[key].items.length ? null : slotOf(d, key, slot); }, layKeys: layKeys, bgOf: bgOf, bgUsable: bgUsable, bgReadable: bgReadable, themeConflicts: themeConflicts, takeReject: takeReject, BGS: BGS, MIN_CONTRAST: MIN_CONTRAST, snapBox: snapBox, SNAP: SNAP, autoNext: autoNext, AUTO_MS: AUTO_MS, showStep: showStep, hiddenIds: hiddenIds, animCount: animCount, FX: FX, LAYOUTS: LAYOUTS, countCut: countCut, cut: cut, MAX_NOTES: MAX_NOTES, fmtClock: fmtClock, wrapLines: wrapLines, textHeight: textHeight, showNav: showNav, W: W, H: H, THEMES: THEMES, FILLS: FILLS, MAX_SLIDES: MAX_SLIDES, MAX_EL: MAX_EL, newDeck: newDeck, validate: validate, ops: ops, color: color, textColor: textColor, onFill: onFill, contrast: contrast, loadDeck: loadDeck, describe: describe, describeEls: describeEls, masterOf: masterOf, MAX_MASTER: MAX_MASTER, History: History, copy: copy };
   if (typeof module !== "undefined" && module.exports) module.exports = api; else root.SalowSlides = api;
 })(typeof self !== "undefined" ? self : this);

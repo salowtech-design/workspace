@@ -55,3 +55,15 @@ def test_slides_page_loads_images_js_before_editor_js_and_serves_it_on_the_works
     html = c.get("/slides/").content.decode()
     assert 0 < html.index("/static/slides/images.js") < html.index("/static/slides/editor.js")
     assert (ROOT / "static/slides/images.js").is_file()
+
+
+def test_slides_layout_table_passes_in_node():
+    assert shutil.which("node"), "node is required to run the slides layout table"
+    r = subprocess.run(  # noqa: S603 - fixed argv, repo-owned script
+        [shutil.which("node"), str(ROOT / "tests/js/slides_layout_table.js")],
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert "38/38 layout rows passed" in r.stdout
