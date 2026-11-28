@@ -1,0 +1,48 @@
+// Slides find and replace: model-level rows. Plain text, slides' own items only, nothing cut, one history step per replace.
+const S = require("../../static/slides/model.js");
+let n = 0, fails = 0;
+const ok = (d, c) => { n++; if (!c) { fails++; console.log("FAIL", d); } };
+const el = (id, text, type) => ({ id, type: type || "text", x: 0, y: 0, w: 300, h: 50, fill: "theme", size: 20, text });
+const mk = (...slides) => { const d = S.newDeck(); d.slides = slides.map((els, i) => ({ id: "s" + i, elements: els, notes: "Apple notes" })); return d; };
+const texts = (d) => d.slides.map((s) => s.elements.map((e) => e.text));
+const d0 = mk([el("a", "Apple pie"), el("b", "apple APPLE")], [el("c", "No fruit"), el("d", "Grape apple")]);
+
+ok("find counts every non-overlapping match, case-insensitive", S.findText(d0, "apple", false).total === 4);
+ok("find reports matches per slide", JSON.stringify(S.findText(d0, "apple", false).slides) === JSON.stringify([{ at: 0, n: 3 }, { at: 1, n: 1 }]));
+ok("match case counts only exact case", S.findText(d0, "apple", true).total === 2);
+ok("find limited to one slide", S.findText(d0, "apple", false, 1).total === 1);
+ok("empty query finds nothing", S.findText(d0, "", false).total === 0);
+ok("query over 100 characters finds nothing", S.findText(d0, "a".repeat(101), false).total === 0);
+ok("matches do not overlap", S.findText(mk([el("a", "aaaa")]), "aa", false).total === 2);
+const spec = mk([el("a", "a-b/c $1 (x) [y] a.b a*b \\ A-B")]);
+["-", "/", "$1", "(x)", "[y]", "a.b", "a*b", "\\"].forEach((q) => ok("special character is literal: " + q, S.findText(spec, q, false).total === 1 || q === "-" && S.findText(spec, q, false).total === 2));
+ok("a wildcard is not a wildcard", S.findText(d0, "a*e", false).total === 0);
+ok("picture descriptions are not searched", S.findText(mk([el("a", "apple", "image")]), "apple", false).total === 0);
+ok("master and notes are not searched", (() => { const d = mk([el("a", "x")]); d.master = { elements: [el("m", "apple")] }; return S.findText(d, "apple", false).total === 0; })());
+
+let r = S.replaceText(d0, "apple", "pear", false);
+ok("replace all changes every match and counts them", r.count === 4 && JSON.stringify(texts(r.deck)) === JSON.stringify([["pear pie", "pear pear"], ["No fruit", "Grape pear"]]));
+ok("replace leaves the original deck object unchanged", JSON.stringify(texts(d0)) === JSON.stringify([["Apple pie", "apple APPLE"], ["No fruit", "Grape apple"]]));
+ok("speaker notes are untouched by replace", r.deck.slides[0].notes === "Apple notes");
+r = S.replaceText(d0, "apple", "pear", false, 1);
+ok("replace on one slide leaves the other slide", r.count === 1 && texts(r.deck)[0][0] === "Apple pie" && texts(r.deck)[1][1] === "Grape pear");
+r = S.replaceText(d0, "apple", "pear", true);
+ok("match case replaces only exact case", r.count === 2 && texts(r.deck)[0][1] === "pear APPLE");
+r = S.replaceText(d0, "apple", "$& $1", false);
+ok("replacement is literal text, no pattern expansion", texts(r.deck)[0][0] === "$& $1 pie");
+r = S.replaceText(d0, "apple", "", false);
+ok("replace with nothing removes the match", texts(r.deck)[0][0] === " pie");
+r = S.replaceText(d0, "zzz", "x", false);
+ok("no match gives no deck and count 0", r.deck === null && r.count === 0);
+r = S.replaceText(d0, "Apple", "Apple", true);
+ok("replacing with the same text gives no deck", r.deck === null);
+const long = mk([el("a", "x".repeat(990) + "aa")]);
+r = S.replaceText(long, "aa", "b".repeat(20), false);
+ok("a result over 1000 characters is refused, nothing is cut", r.deck === null && r.tooLong.length === 1 && r.tooLong[0] === 1 && r.count === 1);
+r = S.replaceText(mk([el("a", "x".repeat(990) + "aa"), el("b", "aa")], [el("c", "aa")]), "aa", "b".repeat(20), false);
+ok("one refused item refuses the whole replace", r.deck === null && r.tooLong.length === 1);
+ok("replacement over 1000 characters is refused", S.replaceText(d0, "apple", "b".repeat(1001), false).deck === null);
+ok("emoji text is searched and replaced", (() => { const x = S.replaceText(mk([el("a", "hi \u{1F600} there \u{1F600}")]), "\u{1F600}", ":)", false); return x.count === 2 && texts(x.deck)[0][0] === "hi :) there :)"; })());
+ok("a replace is one history step and undo restores", (() => { const h = new S.History(d0, { save() { return true; } }, 100); const x = S.replaceText(h.deck, "apple", "pear", false); h.change(x.deck); const one = h.past.length === 1; h.undo(); return one && JSON.stringify(texts(h.deck)) === JSON.stringify(texts(d0)); })());
+console.log((fails ? "FAILED " : "") + (n - fails) + "/" + n + " slides find rows passed");
+process.exit(fails ? 1 : 0);

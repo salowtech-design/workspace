@@ -307,6 +307,20 @@
   });
   S.BGS.forEach(function (b) { var o = document.createElement("option"); o.value = b[0]; o.dataset.name = b[1]; o.textContent = b[1]; $("sl-bg").appendChild(o); });
   $("sl-bg").addEventListener("change", function () { if (editMaster) return; apply(S.ops.setBackground(H.deck, cur, this.value), this.value === "theme" ? "Slide background set to the theme background." : "Slide background colour set."); });
+  // Find and replace (plain text, slides' own items). Each replace is one history step; a refused replace changes nothing.
+  function findOut(m) { return m.total ? m.total + " match" + (m.total === 1 ? "" : "es") + " on slide" + (m.slides.length === 1 ? " " : "s ") + m.slides.map(function (x) { return (x.at + 1) + " (" + x.n + ")"; }).join(", ") + "." : "No matches."; }
+  function findNow() { var q = $("sl-find-q").value; if (!q) { $("sl-find-status").textContent = "Type what to find."; return; } $("sl-find-status").textContent = findOut(S.findText(H.deck, q, $("sl-find-case").checked)); }
+  function replaceNow(here) {
+    var fs = $("sl-find-status"), q = $("sl-find-q").value; if (!q) { fs.textContent = "Type what to find."; return; }
+    if (editMaster) { fs.textContent = "Leave the master first. Find and replace works on the slides, not the master."; return; }
+    var r = S.replaceText(H.deck, q, $("sl-find-r").value, $("sl-find-case").checked, here ? cur : undefined);
+    if (r.tooLong.length) { fs.textContent = "Nothing was replaced: on slide " + r.tooLong.join(", ") + " the text would pass " + S.MAX_TEXT + " characters. Use a shorter replacement."; return; }
+    if (!r.deck) { fs.textContent = r.count === 0 && !S.findText(H.deck, q, $("sl-find-case").checked, here ? cur : undefined).total ? "No matches" + (here ? " on this slide." : ".") : "The replacement gives the same text. Nothing changed."; return; }
+    if (apply(r.deck, "Replaced " + r.count + (r.count === 1 ? " match" : " matches") + (here ? " on this slide." : ".") + " You can undo this.")) fs.textContent = "Replaced " + r.count + (r.count === 1 ? " match" : " matches") + (here ? " on this slide" : "") + ". Undo brings the old text back until you reload.";
+  }
+  $("sl-find-go").addEventListener("click", findNow);
+  $("sl-rep-slide").addEventListener("click", function () { replaceNow(true); });
+  $("sl-rep-all").addEventListener("click", function () { replaceNow(false); });
   $("sl-undo").addEventListener("click", function () { if (H.undo()) { cur = Math.min(cur, H.deck.slides.length - 1); render(); } });
   $("sl-redo").addEventListener("click", function () { if (H.redo()) { cur = Math.min(cur, H.deck.slides.length - 1); render(); } });
   $("sl-clear").addEventListener("click", function () {

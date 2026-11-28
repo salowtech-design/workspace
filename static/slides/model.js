@@ -373,6 +373,26 @@
     h.redo = function () { if (h.blocked) { h.note = BLOCK; return false; } if (!h.future.length) return false; h.past.push(copy(h.deck)); h.deck = h.future.pop(); h.persist("Redone."); return true; };
   }
   // Slide show keys: returns the new slide index, or null when the key does nothing here. Escape is handled by the dialog.
+  // Find and replace over the text of the slides' own items (not the master, not picture descriptions, not speaker notes). Plain text only: no wildcards, no
+  // regex. Occurrences do not overlap, left to right. at = one slide index, or undefined for every slide. Nothing is cut: when any resulting text would pass
+  // MAX_TEXT, nothing is replaced and tooLong lists the slide numbers.
+  var FIND_MAX = 100;
+  function pat(q, mc) { return typeof q === "string" && q.length && Array.from(q).length <= FIND_MAX ? new RegExp(q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), mc === true ? "gu" : "giu") : null; }
+  function findText(d, q, mc, at) {
+    var re = pat(q, mc), out = { total: 0, slides: [] }; if (!re) return out;
+    d.slides.forEach(function (sl, i) { if (at !== undefined && at !== i) return; var c = 0; sl.elements.forEach(function (e) { if (e.type === "image") return; var m = e.text.match(re); if (m) c += m.length; }); if (c) { out.total += c; out.slides.push({ at: i, n: c }); } });
+    return out;
+  }
+  function replaceText(d, q, r, mc, at) {
+    var re = pat(q, mc), res = { deck: null, count: 0, tooLong: [] }; if (!re || typeof r !== "string" || Array.from(r).length > MAX_TEXT) return res;
+    var n = copy(d);
+    n.slides.forEach(function (sl, i) { if (at !== undefined && at !== i) return; sl.elements.forEach(function (e) {
+      if (e.type === "image") return; var m = e.text.match(re); if (!m) return;
+      var t = e.text.replace(re, function () { return r; }); res.count += m.length;
+      if (Array.from(t).length > MAX_TEXT) { if (res.tooLong.indexOf(i + 1) < 0) res.tooLong.push(i + 1); return; } e.text = t; }); });
+    if (res.tooLong.length || !res.count) { res.count = res.tooLong.length ? res.count : 0; return res; }
+    var v = validate(n); var base = validate(copy(d)); if (v && JSON.stringify(v) !== JSON.stringify(base)) res.deck = v; else res.count = 0; return res;
+  }
   function showNav(i, n, key) {
     var next = ["ArrowRight", "ArrowDown", "PageDown", " ", "Enter"], prev = ["ArrowLeft", "ArrowUp", "PageUp", "Backspace"];
     if (!(n > 0) || !(i >= 0 && i < n)) return null;
@@ -436,6 +456,6 @@
     return out;
   }
   function textHeight(lines, size) { return Math.ceil(lines.length * size * 1.2); }
-  var api = { layoutSlot: function (d, key, slot) { return layKeys().indexOf(key) < 0 || !layOk(slot) || slot < 0 || slot >= LAYOUTS[key].items.length ? null : slotOf(d, key, slot); }, layKeys: layKeys, bgOf: bgOf, bgUsable: bgUsable, bgReadable: bgReadable, themeConflicts: themeConflicts, takeReject: takeReject, BGS: BGS, MIN_CONTRAST: MIN_CONTRAST, snapBox: snapBox, SNAP: SNAP, autoNext: autoNext, AUTO_MS: AUTO_MS, showStep: showStep, hiddenIds: hiddenIds, animCount: animCount, FX: FX, LAYOUTS: LAYOUTS, countCut: countCut, cut: cut, MAX_NOTES: MAX_NOTES, fmtClock: fmtClock, wrapLines: wrapLines, textHeight: textHeight, showNav: showNav, W: W, H: H, THEMES: THEMES, FILLS: FILLS, MAX_SLIDES: MAX_SLIDES, MAX_EL: MAX_EL, newDeck: newDeck, validate: validate, ops: ops, color: color, textColor: textColor, onFill: onFill, contrast: contrast, loadDeck: loadDeck, describe: describe, describeEls: describeEls, masterOf: masterOf, MAX_MASTER: MAX_MASTER, History: History, copy: copy };
+  var api = { findText: findText, replaceText: replaceText, FIND_MAX: FIND_MAX, MAX_TEXT: MAX_TEXT, layoutSlot: function (d, key, slot) { return layKeys().indexOf(key) < 0 || !layOk(slot) || slot < 0 || slot >= LAYOUTS[key].items.length ? null : slotOf(d, key, slot); }, layKeys: layKeys, bgOf: bgOf, bgUsable: bgUsable, bgReadable: bgReadable, themeConflicts: themeConflicts, takeReject: takeReject, BGS: BGS, MIN_CONTRAST: MIN_CONTRAST, snapBox: snapBox, SNAP: SNAP, autoNext: autoNext, AUTO_MS: AUTO_MS, showStep: showStep, hiddenIds: hiddenIds, animCount: animCount, FX: FX, LAYOUTS: LAYOUTS, countCut: countCut, cut: cut, MAX_NOTES: MAX_NOTES, fmtClock: fmtClock, wrapLines: wrapLines, textHeight: textHeight, showNav: showNav, W: W, H: H, THEMES: THEMES, FILLS: FILLS, MAX_SLIDES: MAX_SLIDES, MAX_EL: MAX_EL, newDeck: newDeck, validate: validate, ops: ops, color: color, textColor: textColor, onFill: onFill, contrast: contrast, loadDeck: loadDeck, describe: describe, describeEls: describeEls, masterOf: masterOf, MAX_MASTER: MAX_MASTER, History: History, copy: copy };
   if (typeof module !== "undefined" && module.exports) module.exports = api; else root.SalowSlides = api;
 })(typeof self !== "undefined" ? self : this);

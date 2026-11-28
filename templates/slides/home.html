@@ -11,6 +11,10 @@
 <div id="sl-editing">
 <p class="slide-tools"><button class="btn" type="button" id="sl-undo" disabled>Undo</button> <button class="btn" type="button" id="sl-redo" disabled>Redo</button>
 <button class="btn" type="button" id="sl-present">Present</button> <label>Theme <select id="sl-theme"><option value="light">Light</option><option value="dark">Dark</option><option value="warm">Warm</option></select></label></p>
+<details class="slide-find" id="sl-find"><summary>Find and replace</summary>
+<p><label>Find <input type="text" id="sl-find-q" maxlength="100" autocomplete="off"></label> <label>Replace with <input type="text" id="sl-find-r" maxlength="1000" autocomplete="off"></label> <label><input type="checkbox" id="sl-find-case"> Match case</label></p>
+<p><button class="btn" type="button" id="sl-find-go">Find</button> <button class="btn" type="button" id="sl-rep-slide">Replace on this slide</button> <button class="btn" type="button" id="sl-rep-all">Replace in all slides</button></p>
+<p class="cal-meta" id="sl-find-status" role="status" aria-live="polite">Searches the text of items on the slides. Not the master, picture descriptions or speaker notes. Plain text only: no wildcards. Each replace is one Undo step.</p></details>
 <div class="slide-layout" id="slide-root" data-store-key="{{ store_key }}">
 <div class="slide-list" id="sl-list"></div>
 <div class="slide-main"><div id="sl-canvas-wrap"></div>

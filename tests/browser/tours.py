@@ -344,6 +344,7 @@ def register(g):
     register_drive_link_fail(g)
     register_drive_link_stale(g)
     register_sheets_new_formulas(g)
+    register_slides_find(g)
     register_drive_link_version_fail(g)
     register_drive_link_slides_retry(g)
     register_sheets_frozenfocus(g)
@@ -2885,6 +2886,37 @@ def register_slides_layout(g):
         run_tour(ctx, "slides_layout", body, notes="Device-local deck, headless Chromium 390x844 emulated, one run. Not shown: export and import of a linked deck and the PDF of a linked slide (covered in node only), undo of a layout edit.", unshown=["export and import (node only)", "pdf of a linked slide", "undo of a layout edit"])
 
     g["DRILLS"]["tour_slides_layout"] = tour
+
+
+def register_slides_find(g):
+    APP = g["APP"]
+
+    def tour(ctx):
+        def body(t, pg):
+            pg.on("pageerror", lambda e: print("PAGEERROR", str(e)[:300]))
+            pg.goto(APP + "/slides/")
+            pg.evaluate("localStorage.clear()")
+            pg.goto(APP + "/slides/")
+            pg.wait_for_selector("#sl-add-text", timeout=15000)
+            key = pg.evaluate("() => document.getElementById('slide-root').dataset.storeKey")
+            deck = {"v": 1, "theme": "light", "slides": [
+                {"id": "s0", "notes": "", "elements": [{"id": "a", "type": "text", "x": 40, "y": 40, "w": 600, "h": 80, "fill": "theme", "text": "Apple pie plan", "size": 32}, {"id": "b", "type": "text", "x": 40, "y": 160, "w": 600, "h": 80, "fill": "theme", "text": "apple and APPLE", "size": 32}]},
+                {"id": "s1", "notes": "", "elements": [{"id": "c", "type": "text", "x": 40, "y": 40, "w": 600, "h": 80, "fill": "theme", "text": "Second slide apple", "size": 32}]}]}
+            pg.evaluate("([k, v]) => localStorage.setItem(k, JSON.stringify(v))", [key, deck])
+            pg.reload(); pg.wait_for_selector("#sl-add-text", timeout=15000); pg.wait_for_timeout(600)
+            st = lambda: pg.inner_text("#sl-find-status")
+            stored = lambda: json.loads(pg.evaluate("(k) => localStorage.getItem(k)", key))
+            texts = lambda: [[e["text"] for e in sl["elements"]] for sl in stored()["slides"]]
+            def opened():
+                pg.evaluate("() => { document.getElementById('sl-find').open = true; document.getElementById('sl-find').scrollIntoView({block: 'start'}); }")
+            t.step("Find and replace opens, and Find apple counts 4 matches across slides 1 and 2", lambda: (opened(), pg.fill("#sl-find-q", "apple"), pg.click("#sl-find-go")), expect=lambda: st().startswith("4 matches on slides 1 (3), 2 (1)"), wait=1500)
+            t.step("Match case: Find apple now counts 2", lambda: (pg.check("#sl-find-case"), pg.click("#sl-find-go")), expect=lambda: st().startswith("2 matches"), wait=1500)
+            t.step("Replace in all slides with pear (Match case on): 2 matches replaced and saved", lambda: (pg.fill("#sl-find-r", "pear"), pg.click("#sl-rep-all")), expect=lambda: texts() == [["Apple pie plan", "pear and APPLE"], ["Second slide pear"]] and st().startswith("Replaced 2 matches"), wait=1800)
+            t.step("Undo brings the old text back in one step", lambda: pg.click("#sl-undo"), expect=lambda: texts()[0][1] == "apple and APPLE" and texts()[1][0] == "Second slide apple", wait=1500)
+            t.step("Replace on this slide only (Match case off): slide 1 changes, slide 2 does not", lambda: (pg.uncheck("#sl-find-case"), pg.click("#sl-rep-slide")), expect=lambda: texts() == [["pear pie plan", "pear and pear"], ["Second slide apple"]], wait=1800)
+            t.step("A find with no match says so and changes nothing", lambda: (pg.fill("#sl-find-q", "zzz"), pg.click("#sl-rep-all")), expect=lambda: st().startswith("No matches") and texts()[0][0] == "pear pie plan", wait=1500)
+        run_tour(ctx, "slides_find", body, notes="Device-local deck. Headless Chromium 390x844 emulated, real Django on TiDB unistore. Plain-text find and replace over the slides' own items.")
+    g["DRILLS"]["tour_slides_find"] = tour
 
 
 def register_slides_bg(g):
