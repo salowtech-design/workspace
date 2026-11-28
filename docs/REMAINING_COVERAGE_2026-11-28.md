@@ -44,6 +44,6 @@ Two-device and real-device testing and real TiKV or Cloud qualification are not 
 need research of the original scope before being called blocked.
 
 ## Update, 28 Nov 2026 14:55 IST (one run each, same environment as above, executor-watched)
-Re-recorded at current head: PDF (15 steps), Attendance (9), Certificates (19, employee refusal now asserts HTTP 403, the styled page and no issue form), Work Logs and Feed (15), Directory by department (4).
+Re-recorded on 28 Nov, with these recorded code heads (the later commits touch only tour captions, tour assertions and this doc, not these modules): PDF (15 steps, run at 9479ea3), Attendance (9, bbda1d0), Certificates (19, ca0c620; employee refusal asserts HTTP 403, the styled page and no issue form), Work Logs and Feed (15, bbda1d0), Directory by department (4, ca0c620), Automation pages (20, 876cdf7; runs execute in the web request, the background runner was not used).
 Uncovered by these clips (controls exist or are unbuilt, not exercised here): PDF text mark, signature, flatten, split, reorder, merge, forms, password files; Attendance real face matching and camera; Certificates Print/PDF, Raw SVG, reissue, expiry, filters; Work Logs manager review and filters (older tours, not re-run); Directory team detail, org chart, a person in several departments.
 This is not a statement that these modules are ready.
