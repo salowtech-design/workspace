@@ -8987,16 +8987,24 @@ def register_sheets_spill(g):
             t.step("Type keep in D3, then Copy first row down over C2:D3 (its first row has the virtual cell C2): refused with a message, D3 still holds keep", tryfill,
                    expect=lambda: "only shows a SORT result" in pg.inner_text("#sheet-status") and val("D3") == "keep" and val("C2") == "20", wait=1200)
             def trysort():
-                pg.fill("#sort-range", "C1:D5"); pg.fill("#sort-col", "C"); pg.click("#sort-go" if pg.query_selector("#sort-go") else "button:has-text('Sort')"); pg.wait_for_timeout(500)
+                pg.fill("#sort-range", "C1:D5"); pg.fill("#sort-col", "C"); pg.click("#sort-go"); pg.wait_for_timeout(500)
             t.step("Sort C1:D5 by column C (it includes the virtual C2 to C5): refused with a message, D3 still keep", trysort,
                    expect=lambda: "only show a SORT result" in pg.inner_text("#sheet-status") and val("D3") == "keep", wait=1200)
+            def copypaste():
+                pg.evaluate("() => { window.__copied = null; document.addEventListener('copy', function (e) { window.__copied = e.clipboardData.getData('text/plain'); }); }")
+                pg.click('input[data-addr="C2"]'); pg.wait_for_timeout(200); pg.keyboard.press("Control+c"); pg.wait_for_timeout(200)
+                saved["clip"] = pg.evaluate("() => window.__copied")
+                pg.click('input[data-addr="D4"]'); pg.wait_for_timeout(200); pg.keyboard.press("Control+v"); pg.press('input[data-addr="D4"]', "Tab"); pg.wait_for_timeout(500)
+                saved["stored2"] = pg.evaluate("() => Object.keys(localStorage).map(k => localStorage.getItem(k)).filter(v => v && v.indexOf('SORT(') >= 0)")
             saved = {}
+            t.step("Copy the block cell C2 (shows 20) with Control+C in the browser and paste into the typed target D4: D4 holds 20, C2 is still not stored", copypaste,
+                   expect=lambda: saved.get("clip") == "20" and val("D4") == "20" and len(saved["stored2"]) == 1 and '"C2"' not in saved["stored2"][0] and val("C2") == "20", wait=1200)
             def dl():
                 with pg.expect_download() as d:
                     pg.click("#sheet-csv")
                 saved["text"] = open(d.value.path(), encoding="utf-8", newline="").read()
                 saved["stored"] = pg.evaluate("() => Object.keys(localStorage).map(k => localStorage.getItem(k)).filter(v => v && v.indexOf('SORT(') >= 0)")
             t.step("Download values (.csv): the file has the sorted block C1 to C5 (10, 20, 30, 99, blank) and nothing from the block is stored", dl,
-                   expect=lambda: saved.get("text") == "30,,10,\r\n10,,20,\r\n20,,30,keep\r\n99,,99,\r\n,,,\r\n" and len(saved["stored"]) == 1 and all(('"C2"' not in v and '"C4"' not in v and '"C5"' not in v) for v in saved["stored"]), wait=1500)
+                   expect=lambda: saved.get("text") == "30,,10,\r\n10,,20,\r\n20,,30,keep\r\n99,,99,20\r\n,,,\r\n" and len(saved["stored"]) == 1 and all(('"C2"' not in v and '"C4"' not in v and '"C5"' not in v) for v in saved["stored"]), wait=1500)
         run_tour(ctx, "sheets_spill", body, notes="Headless Chromium 390x844 emulated. SORT typed into the real Sheets page. One run.")
     g["DRILLS"]["tour_sheets_spill"] = tour

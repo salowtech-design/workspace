@@ -259,6 +259,13 @@
     show();
   });
   table.addEventListener("input", function (e) { if (e.target.dataset && e.target.dataset.addr === cur) bar.value = e.target.value; });
+  // Copy on a cell that only shows a SORT result: the clipboard gets the value shown (not the empty typed text) and nothing stored changes.
+  // A typed cell copies natively, as before.
+  table.addEventListener("copy", function (e) {
+    var t = e.target, a = t.dataset && t.dataset.addr; if (!a || !e.clipboardData) return;
+    var sh = mkSheet(cells); if (!sh.isVirtual(a)) return;
+    var v = sh.get(a); e.clipboardData.setData("text/plain", F.isErr(v) ? v.code : String(v)); e.preventDefault();
+  });
   // Paste a block (tabs and line breaks) from another spreadsheet at the focused cell. A single value pastes normally.
   table.addEventListener("paste", function (e) {
     var t = e.target, a = t.dataset && t.dataset.addr; if (!a) return;
