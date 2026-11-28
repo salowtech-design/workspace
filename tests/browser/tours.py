@@ -211,7 +211,7 @@ def register(g):
 
         def body(t, pg):
             pg.goto(APP + "/drive/")
-            t.step("Drive: My Drive tab, with the notice that upload and download are not available yet", expect=lambda: "not available yet" in pg.inner_text("body"), wait=2500)
+            t.step("Drive: My Drive tab. Files you add stay on this device. Sending a file to someone else is not available yet.", expect=lambda: "not available yet" in pg.inner_text("body"), wait=2500)
             t.step("Type a folder name", lambda: pg.fill("input[placeholder='New folder name']", "Projects"))
             t.step("Create folder", lambda: pg.click("button:has-text('Create folder')"), expect=lambda: pg.locator("a.drive-name", has_text="Projects").count() == 1)
             t.step("Open the folder", lambda: pg.click("a.drive-name:has-text('Projects')"), expect=lambda: "Sharing" in pg.inner_text("body"))
