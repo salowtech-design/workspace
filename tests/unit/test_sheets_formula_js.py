@@ -41,6 +41,18 @@ def test_formula_batch2_passes_in_node():
     assert "63/63 rows passed" in r.stdout
 
 
+def test_formula_batch3_passes_in_node():
+    assert shutil.which("node"), "node is required to run the formula table"
+    r = subprocess.run(  # noqa: S603 - fixed argv, repo-owned script
+        [shutil.which("node"), str(ROOT / "tests/js/formula_batch3.js")],
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert "30/30 rows passed" in r.stdout
+
+
 def test_structure_table_passes_in_node():
     assert shutil.which("node"), "node is required to run the structure table"
     r = subprocess.run(  # noqa: S603 - fixed argv, repo-owned script

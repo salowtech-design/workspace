@@ -290,6 +290,18 @@
       if (isErr(i)) return i;
       var v = g.v[i * g.cols + (ci - 1)];
       return v === undefined ? null : v;
+    },
+    HLOOKUP: function (a) {  // VLOOKUP turned on its side: the key is searched along the first row, the answer comes from row index
+      var key = sc2(a[0]); if (isErr(key)) return key;
+      if (isErr(a[1])) return a[1];
+      var g = grid(a[1]), ri = pos(a[2]); if (isErr(ri)) return ri;
+      var sorted = true;
+      if (a.length > 3) { sorted = truth(sc2(a[3])); if (isErr(sorted)) return sorted; }
+      if (ri > g.rows) return new Err("#REF!");
+      var i = find(key, g.v, 0, 1, g.cols, sorted ? 1 : 0);
+      if (isErr(i)) return i;
+      var v = g.v[(ri - 1) * g.cols + i];
+      return v === undefined ? null : v;
     }
   };
   function find(key, vals, start, step, count, type) {  // index of the match among count cells, or #N/A
@@ -321,7 +333,7 @@
     if (name === "SUMIF") return sum;
     return count ? sum / count : new Err("#DIV/0!");
   }
-  FNX = { INDEX: LOOKUP.INDEX, MATCH: LOOKUP.MATCH, VLOOKUP: LOOKUP.VLOOKUP,
+  FNX = { INDEX: LOOKUP.INDEX, MATCH: LOOKUP.MATCH, VLOOKUP: LOOKUP.VLOOKUP, HLOOKUP: LOOKUP.HLOOKUP,
     SUMIF: function (a) { return condAgg("SUMIF", a); }, COUNTIF: function (a) { return condAgg("COUNTIF", a); }, AVERAGEIF: function (a) { return condAgg("AVERAGEIF", a); } };
 
   /* ---- text functions (Google Sheets help semantics, not its engine) ----
@@ -590,7 +602,7 @@
   FNX.ISTEXT = function (a) { var v = one(a[0]); return v === undefined ? new Err("#VALUE!") : typeof v === "string" && v !== ""; };
   FNX.ISBLANK = function (a) { var v = one(a[0]); return v === undefined ? new Err("#VALUE!") : v === null || v === ""; };
   FNX.ISERROR = function (a) { var v = one(a[0]); return v === undefined ? new Err("#VALUE!") : isErr(v); };
-  var ARITY = { SUMIFS: [3, 21], COUNTIFS: [2, 20], AVERAGEIFS: [3, 21], ROUNDUP: [1, 2], ROUNDDOWN: [1, 2], TRUNC: [1, 2], SIGN: [1, 1], PRODUCT: [1, 99], LARGE: [2, 2], SMALL: [2, 2], ISNUMBER: [1, 1], ISTEXT: [1, 1], ISBLANK: [1, 1], ISERROR: [1, 1], IFERROR: [1, 2], MEDIAN: [1, 99], STDEV: [1, 99], COUNTA: [1, 99], COUNTBLANK: [1, 99], MOD: [2, 2], POWER: [2, 2], SQRT: [1, 1], INT: [1, 1], FLOOR: [1, 2], CEILING: [1, 2], DATE: [3, 3], YEAR: [1, 1], MONTH: [1, 1], DAY: [1, 1], WEEKDAY: [1, 2], LEFT: [1, 2], RIGHT: [1, 2], MID: [3, 3], TRIM: [1, 1], SUBSTITUTE: [3, 4], FIND: [2, 3], INDEX: [2, 3], MATCH: [2, 3], VLOOKUP: [3, 4], SUMIF: [2, 3], COUNTIF: [2, 2], AVERAGEIF: [2, 3], SUM: [1, 99], AVERAGE: [1, 99], MIN: [1, 99], MAX: [1, 99], COUNT: [1, 99], ABS: [1, 1], ROUND: [1, 2], LEN: [1, 1], UPPER: [1, 1], LOWER: [1, 1], CONCAT: [1, 99], NOT: [1, 1], AND: [1, 99], OR: [1, 99], IF: [2, 3] };
+  var ARITY = { HLOOKUP: [3, 4], IFS: [2, 40], SWITCH: [3, 40], SUMIFS: [3, 21], COUNTIFS: [2, 20], AVERAGEIFS: [3, 21], ROUNDUP: [1, 2], ROUNDDOWN: [1, 2], TRUNC: [1, 2], SIGN: [1, 1], PRODUCT: [1, 99], LARGE: [2, 2], SMALL: [2, 2], ISNUMBER: [1, 1], ISTEXT: [1, 1], ISBLANK: [1, 1], ISERROR: [1, 1], IFERROR: [1, 2], MEDIAN: [1, 99], STDEV: [1, 99], COUNTA: [1, 99], COUNTBLANK: [1, 99], MOD: [2, 2], POWER: [2, 2], SQRT: [1, 1], INT: [1, 1], FLOOR: [1, 2], CEILING: [1, 2], DATE: [3, 3], YEAR: [1, 1], MONTH: [1, 1], DAY: [1, 1], WEEKDAY: [1, 2], LEFT: [1, 2], RIGHT: [1, 2], MID: [3, 3], TRIM: [1, 1], SUBSTITUTE: [3, 4], FIND: [2, 3], INDEX: [2, 3], MATCH: [2, 3], VLOOKUP: [3, 4], SUMIF: [2, 3], COUNTIF: [2, 2], AVERAGEIF: [2, 3], SUM: [1, 99], AVERAGE: [1, 99], MIN: [1, 99], MAX: [1, 99], COUNT: [1, 99], ABS: [1, 1], ROUND: [1, 2], LEN: [1, 1], UPPER: [1, 1], LOWER: [1, 1], CONCAT: [1, 99], NOT: [1, 1], AND: [1, 99], OR: [1, 99], IF: [2, 3] };
   function truth(v) {
     if (isErr(v)) return v;
     if (typeof v === "boolean") return v;
@@ -709,6 +721,24 @@
             var cnd = truth(sc(ev(n.a[0]))); if (isErr(cnd)) return cnd;
             if (cnd) return sc(ev(n.a[1]));
             return n.a.length > 2 ? sc(ev(n.a[2])) : false;
+          }
+          if (n.f === "IFS") {  // pairs of (test, value): the first true test wins and only its value runs; an odd count or no true test is #N/A
+            if (n.a.length % 2) return new Err("#N/A");
+            for (var k = 0; k < n.a.length; k += 2) {
+              var tc = truth(sc(ev(n.a[k]))); if (isErr(tc)) return tc;
+              if (tc) return sc(ev(n.a[k + 1]));
+            }
+            return new Err("#N/A");
+          }
+          if (n.f === "SWITCH") {  // expression, then (case, value) pairs, then an optional default; text compares without case and without wildcards
+            var ex = sc(ev(n.a[0])); if (isErr(ex)) return ex;
+            var pairs = (n.a.length - 1) >> 1;
+            for (var q = 0; q < pairs; q++) {
+              var cs = sc(ev(n.a[1 + 2 * q])); if (isErr(cs)) return cs;
+              var same = kind(ex) === null && kind(cs) === null ? true : kind(ex) !== null && kind(ex) === kind(cs) && cmpSame(ex, cs) === 0;
+              if (same) return sc(ev(n.a[2 + 2 * q]));
+            }
+            return n.a.length % 2 === 0 ? sc(ev(n.a[n.a.length - 1])) : new Err("#N/A");
           }
           if (n.f === "IFERROR") {  // lazy: the fallback runs only when the first argument is an error
             var fv = sc(ev(n.a[0]));
