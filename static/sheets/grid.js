@@ -711,7 +711,7 @@
     var rg = parseRange($("sort-range").value);
     if (!rg) { status.textContent = "Enter a range like A1:C10."; return; }
     if ((rg.c2 - rg.c1 + 1) * (rg.r2 - rg.r1 + 1) > 2000 || rg.c2 > 26 || rg.r2 > 1000) { status.textContent = "The range can hold up to 2000 cells."; return; }
-    var r = M.trimRange(cells, rg), fnote = r.formulas ? " " + r.formulas + " formula" + (r.formulas === 1 ? " was" : "s were") + " left as typed." : "";
+    var r = M.trimRange(cells, rg), fnote = (r.formulas ? " " + r.formulas + " formula" + (r.formulas === 1 ? " was" : "s were") + " left as typed." : "") + (r.kept ? " " + r.kept + " cell" + (r.kept === 1 ? " was" : "s were") + " left as typed because trimming would turn " + (r.kept === 1 ? "it" : "them") + " into a formula or TRUE/FALSE." : "");
     if (!r.changed) { status.textContent = "No extra spaces found. Nothing changed." + fnote; return; }
     if (!change(r.cells, "Trimmed spaces in " + r.changed + " cell" + (r.changed === 1 ? "" : "s") + ". Undo brings the old text back." + fnote)) status.textContent = "Nothing changed.";
   });

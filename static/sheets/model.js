@@ -184,19 +184,22 @@
     return { cells: next, removed: removed, rows: rg.r2 - first + 1 };
   }
   // Trim spaces in typed text cells of a range: leading and trailing spaces go and runs of spaces inside become one. Only text changes. Formulas
-  // are left as they are and counted, numbers typed as numbers and blank cells are untouched, and cells outside the range are not read.
+  // are left as they are and counted. A cell is also left as typed, and counted in "kept", when trimming would change what the sheet makes of it:
+  // text that would start with "=" (it would become a formula) or would read as TRUE or FALSE (it would become a logical value). Text that reads
+  // as a number keeps its value, because the sheet already ignores spaces around a number. Cells outside the range are not read.
   function trimRange(cells, rg) {
     if (!rg) return { error: "Enter a range like A1:C10." };
-    var next = copy(cells), changed = 0, formulas = 0, r, c;
+    var next = copy(cells), changed = 0, formulas = 0, kept = 0, r, c;
     for (r = rg.r1; r <= rg.r2; r++) for (c = rg.c1; c <= rg.c2; c++) {
       var a = colName(c) + r, v = cells[a];
       if (typeof v !== "string") continue;
       if (v.charAt(0) === "=") { formulas++; continue; }
       var t = v.replace(/ {2,}/g, " ").replace(/^ +| +$/g, "");
       if (t === v) continue;
+      if (t.charAt(0) === "=" || t.toUpperCase() === "TRUE" || t.toUpperCase() === "FALSE") { kept++; continue; }
       changed++; if (t === "") delete next[a]; else next[a] = t;
     }
-    return { cells: changed ? next : cells, changed: changed, formulas: formulas };
+    return { cells: changed ? next : cells, changed: changed, formulas: formulas, kept: kept };
   }
   // Which rows a filter shows. get(addr) gives the displayed value. The header row, if any, is always shown.
   // ops: contains, equals, gt, lt, nonblank, blank. gt and lt compare numbers only, so text never matches them.

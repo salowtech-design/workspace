@@ -206,4 +206,4 @@ def test_sheets_trim_rows_pass_in_node():
         timeout=60,
     )
     assert r.returncode == 0, r.stdout + r.stderr
-    assert "11/11 sheets trim rows passed" in r.stdout
+    assert "13/13 sheets trim rows passed" in r.stdout
