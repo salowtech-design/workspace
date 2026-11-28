@@ -344,6 +344,7 @@ def register(g):
     register_drive_link_fail(g)
     register_drive_link_stale(g)
     register_drive_link_version_fail(g)
+    register_drive_link_slides_retry(g)
     register_sheets_frozenfocus(g)
     register_pdf_alltext_stop(g)
     register_pdf_roundtrip(g)
@@ -6208,7 +6209,7 @@ def register_drive_link_version_fail(g):
             def net_fail():
                 pg.route("**/drive/file/*/version/", lambda r: r.abort())
                 pg.fill("#dl-name", "vfail.json"); pg.click("#dl-save"); pg.wait_for_timeout(2000)
-            t.step("The Drive version call fails on the network after the bytes are stored: the status does not say Saved, says the name has no saved version yet, and the file is not offered by Open", net_fail, expect=lambda: "Saved to Drive" not in stat() and "no saved version yet" in stat() and "not the content of the failed save" in stat() and own()["files"] == [], wait=500)
+            t.step("The Drive version call fails on the network after the bytes are stored: the status does not say Saved, says it is not known whether the version was saved, and the file is not offered by Open", net_fail, expect=lambda: "Saved to Drive" not in stat() and "not known whether this version was saved" in stat() and "no saved version" not in stat() and "not the content of the failed save" in stat() and own()["files"] == [], wait=500)
             def again():
                 pg.unroute("**/drive/file/*/version/")
                 pg.click("#dl-save"); pg.wait_for_timeout(2000)
@@ -6247,6 +6248,56 @@ def register_drive_link_version_fail(g):
             t.step("Same lost answer, but the sheet was edited before Save again: Drive refuses (it already has version 1 of the older content); the status does not say Saved and Drive keeps the older content at version 1", conflict_changed, expect=lambda: "Saved to Drive" not in stat() and "nothing was overwritten" in stat() and "Press Save again" not in stat() and [(f["version"], f["sha256"]) for f in named("vconf.json")] == [(1, sha('{"A1":"9"}'))], wait=500)
         run_tour(ctx, "drive_link_version_fail", body, notes="Headless Chromium 390x844 emulated. The Drive version call fails after the bytes are stored.")
     g["DRILLS"]["tour_drive_link_version_fail"] = tour
+
+
+def register_drive_link_slides_retry(g):
+    APP = g["APP"]
+
+    def tour(ctx):
+        def body(t, pg):
+            pg.on("pageerror", lambda e: print("PAGEERROR", str(e)[:300]))
+            pg.on("dialog", lambda d: d.accept())
+            pg.goto(APP + "/drive/")
+            pg.evaluate("localStorage.clear()")
+            pg.goto(APP + "/slides/")
+            pg.wait_for_selector("#sl-add-text", timeout=15000)
+            key = pg.evaluate("() => document.getElementById('slide-root').dataset.storeKey")
+            stat = lambda: pg.inner_text("#dl-status")
+            own = lambda: pg.evaluate("() => fetch('/drive/mine/files/', {credentials: 'same-origin'}).then((r) => r.json()).then((j) => { j.files = j.files.filter((f) => /^sr(retry|conf)\\.json$/.test(f.name)); return j; })")
+            named = lambda n: [f for f in own()["files"] if f["name"] == n]
+            deckjson = lambda: pg.evaluate("(k) => localStorage.getItem(k)", key)
+            sha = lambda txt: hashlib.sha256(txt.encode()).hexdigest()
+            def snap(name):
+                out = os.environ.get("DRILL_VIDEO", "") or "/tmp"
+                pg.evaluate("() => document.getElementById('dl-status').scrollIntoView({block: 'center'})"); pg.wait_for_timeout(400)
+                pg.screenshot(path=os.path.join(out, name + ".png"))
+            fail_call = lambda: pg.evaluate("() => { window.__f = window.fetch; window.fetch = function (u, o) { return /\\/version\\/$/.test(String(u)) ? Promise.reject(new TypeError('Failed to fetch')) : window.__f.apply(this, arguments); }; }")
+            lose_answer = lambda: pg.evaluate("() => { window.__f = window.fetch; window.fetch = function (u, o) { const p = window.__f.apply(this, arguments); return /\\/version\\/$/.test(String(u)) ? p.then(() => { throw new TypeError('Failed to fetch'); }) : p; }; }")
+            keep_answer = lambda: pg.evaluate("() => { if (window.__f) window.fetch = window.__f; }")
+            def text(v):
+                pg.fill("#sl-text", v); pg.press("#sl-text", "Tab"); pg.wait_for_timeout(400)
+            def retry_current():
+                pg.click("#sl-add-text"); text("first text")
+                fail_call()
+                pg.fill("#dl-name", "srretry.json"); pg.click("#dl-save"); pg.wait_for_timeout(1800)
+                keep_answer()
+                text("edited before the retry")
+                pg.click("#dl-save"); pg.wait_for_timeout(2000)
+                snap("slides_retry_390")
+                print("DBG-SR", stat()[:200], named("srretry.json"), sha(deckjson()), flush=True)
+            t.step("Slides: the Drive version call fails, the deck text is edited, Save again with the same name: Saved to Drive and the checksum is that of the edited deck", retry_current, expect=lambda: "Saved to Drive" in stat() and [f["sha256"] for f in named("srretry.json")] == [sha(deckjson())], wait=500)
+            def conflict():
+                text("second text")
+                lose_answer()
+                pg.fill("#dl-name", "srconf.json"); pg.click("#dl-save"); pg.wait_for_timeout(2500)
+                snap("slides_lostreply_390"); print("DBG-LOST", stat()[:400], flush=True)
+                keep_answer()
+                text("changed after the lost answer")
+                pg.click("#dl-save"); pg.wait_for_timeout(2500)
+                snap("slides_conflict_390")
+            t.step("Slides: Drive records the version but the answer is lost, the deck is edited, Save again: Drive refuses, the status says nothing was overwritten and Drive keeps one version 1", conflict, expect=lambda: "Saved to Drive" not in stat() and "nothing was overwritten" in stat() and [f["version"] for f in named("srconf.json")] == [1], wait=500)
+        run_tour(ctx, "drive_link_slides_retry", body, notes="Headless Chromium 390x844 emulated. Slides Save to Drive after a failed version call, with an edit before the retry, and with a lost answer and a conflict.")
+    g["DRILLS"]["tour_drive_link_slides_retry"] = tour
 
 
 def register_slides_underline(g):

@@ -27,14 +27,18 @@
       (resume ? D.addVersion(deps, pending.fileId, 0, file) : D.addFile(deps, file, "")).then(function (r) {
         if (r.ok) pending = null; else if (r.fileId && r.resumable && r.baseVersion === 0) pending = { name: name, fileId: r.fileId };
         var tail = r.ok ? " It is at the top of My Drive; only you can see it until you share it in Drive." : (pending && pending.name === name ? " Press Save again with the same name to save what the page shows now (not the content of the failed save), or look at your Drive list first." : "");
-        if (!r.ok && wasPending && r.stage === "version" && r.sha256) {  // Drive refused because a version exists: if it is exactly these bytes, the first attempt had reached Drive
+        var msg = r.message;
+        if (!r.ok && r.stage === "network") { msg = "The file is on this device. Drive could not be reached, so it is not known whether this version was saved."; }
+        if (!r.ok && wasPending && r.stage === "version" && r.sha256) {  // Drive refused: read the list to tell an earlier attempt that did arrive from a different saved version
           return getList().then(function (j) {
             var f = j.files.filter(function (x) { return x.id === wasPending.fileId; })[0];
-            if (f && f.sha256 === r.sha256 && f.version >= 1) { pending = null; say("Saved to Drive. Your earlier attempt had reached Drive, and the file is on this device. It is at the top of My Drive; only you can see it until you share it in Drive."); }
-            else { pending = null; say("The file is on this device. Drive already has this name with an earlier saved version, and it was not changed; nothing was overwritten. Save with a different name to keep what the page shows now."); }
-          }, function () { pending = null; say(r.message + " Nothing was overwritten. Save with a different name, or look at your Drive list."); });
+            pending = null;
+            if (f && f.version >= 1 && f.sha256 === r.sha256) say("Saved to Drive. Your earlier attempt had reached Drive, and the file is on this device. It is at the top of My Drive; only you can see it until you share it in Drive.");
+            else if (f && f.version >= 1) say("The file is on this device. Drive already has a saved version under this name with different content, and it was not changed; nothing was overwritten. Save with a different name to keep what the page shows now.");
+            else say("The file is on this device. Drive did not accept a new version, and nothing was overwritten. Look at your Drive list, or save with a different name.");
+          }, function () { pending = null; say("The file is on this device. Drive did not accept a new version, and nothing was overwritten. Look at your Drive list, or save with a different name."); });
         }
-        say(r.message + tail);
+        say(msg + tail);
       }, function (e) { say("Not saved: " + (e && e.message ? e.message : "unexpected error")); }).then(function () { saving = false; cfg.saveBtn.disabled = false; });
     }
     function getList() {
