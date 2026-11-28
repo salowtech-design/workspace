@@ -203,3 +203,79 @@ def test_lifecycle_is_audited_with_ids_and_counts():
     assert {"automation.create", "automation.enable"} <= actions
     fin = AuditLog.objects.get(action="automation.finish", target_id=str(run.pk))
     assert fin.payload_summary["state"] == "succeeded" and fin.payload_summary["steps"] == 1
+
+
+def test_runner_executes_a_queued_run_once_and_a_second_pass_does_nothing():
+    me = _u("AU-R1")
+    wf = _wf(me, [NOTE])
+    run = en.start_run(wf, "q-1")
+    assert run.state == WfRun.State.QUEUED
+    assert en.run_pending()["succeeded"] == 1
+    run.refresh_from_db()
+    assert run.state == WfRun.State.SUCCEEDED and run.steps.count() == 1
+    assert Notification.objects.filter(user=me).count() == 1
+    assert en.run_pending() == {"succeeded": 0, "failed": 0, "cancelled": 0, "skipped": 0}
+    assert Notification.objects.filter(user=me).count() == 1
+
+
+def test_runner_resumes_a_dead_workers_run_without_repeating_the_finished_step():
+    me = _u("AU-R2")
+    wf = _wf(me, [NOTE, {"type": "set_value", "key": "k", "value": 1}, NOTE])
+    run = en.start_run(wf, "q-2")
+    WfStepResult.objects.create(run=run, step_index=0, state="ok", output={}, idempotency_key=en._key(run, 0))
+    notify_before = Notification.objects.filter(user=me).count()
+    WfRun.objects.filter(pk=run.pk).update(
+        state=WfRun.State.RUNNING, next_step=1, attempt=1,
+        lease_until=timezone.now() - dt.timedelta(minutes=1),
+    )
+    assert en.run_pending()["succeeded"] == 1
+    run.refresh_from_db()
+    assert run.state == WfRun.State.SUCCEEDED and run.attempt == 2
+    assert sorted(run.steps.values_list("step_index", flat=True)) == [0, 1, 2]
+    assert Notification.objects.filter(user=me).count() == notify_before + 1  # only step 3 ran
+
+
+def test_runner_leaves_a_run_with_a_live_lease_and_cancels_runs_of_a_disabled_workflow():
+    me = _u("AU-R3")
+    wf = _wf(me, [NOTE])
+    held = en.start_run(wf, "q-3")
+    WfRun.objects.filter(pk=held.pk).update(
+        state=WfRun.State.RUNNING, attempt=1, lease_until=timezone.now() + dt.timedelta(minutes=3)
+    )
+    assert en.run_pending() == {"succeeded": 0, "failed": 0, "cancelled": 0, "skipped": 0}
+    held.refresh_from_db()
+    assert held.state == WfRun.State.RUNNING and held.attempt == 1
+    wf2 = _wf(me, [NOTE])
+    waiting = en.start_run(wf2, "q-4")
+    en.set_enabled(me, wf2, False)  # disabling already cancels it, so the runner has nothing to take
+    assert en.run_pending()["skipped"] == 0 and en.run_pending()["cancelled"] == 0
+    waiting.refresh_from_db()
+    assert waiting.state == WfRun.State.CANCELLED
+    # a queued run that slipped past the disable (switched off between listing and claiming)
+    WfRun.objects.filter(pk=waiting.pk).update(state=WfRun.State.QUEUED, finished_at=None)
+    out = en.run_pending()
+    waiting.refresh_from_db()
+    assert out["cancelled"] == 1 and waiting.state == WfRun.State.CANCELLED
+    assert not WfStepResult.objects.filter(run=waiting).exists()
+
+
+def test_runner_respects_the_batch_size():
+    me = _u("AU-R4")
+    wf = _wf(me, [NOTE])
+    for i in range(3):
+        en.start_run(wf, f"b-{i}")
+    assert en.run_pending(2)["succeeded"] == 2
+    assert WfRun.objects.filter(state=WfRun.State.QUEUED).count() == 1
+
+
+def test_runner_command_runs_one_pass_and_reports_counts():
+    from io import StringIO
+
+    from django.core.management import call_command
+
+    me = _u("AU-R5")
+    wf = _wf(me, [NOTE])
+    en.start_run(wf, "c-1")
+    out = StringIO()
+    call_command("process_automation_runs", stdout=out)
+    assert "1 succeeded, 0 failed, 0 cancelled, 0 not taken" in out.getvalue()

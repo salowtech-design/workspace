@@ -14,6 +14,7 @@ import math
 
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
+from django.db.models import Q
 from django.utils import timezone
 
 from apps.core.foundation.audit import audit
@@ -279,3 +280,33 @@ def execute(run_id, *, now=None):
 
 def now_fn():
     return timezone.now()
+
+
+def run_pending(limit=50, *, now=None):
+    """The background runner's one pass: carry out runs that are waiting, and runs whose worker died.
+
+    A run is picked up when it is queued, or running with a lease that has run out. A run another
+    worker is still holding is left alone. execute() claims each one with the fencing attempt, so two
+    runners (or a runner and a person's own press) never apply the same step twice. Returns a dict of
+    how many runs ended in each state, plus "skipped" for runs that were not ours to take.
+    """
+    now = now or timezone.now()
+    ids = list(
+        WfRun.objects.filter(
+            Q(state=WfRun.State.QUEUED)
+            | Q(state=WfRun.State.RUNNING, lease_until__isnull=True)
+            | Q(state=WfRun.State.RUNNING, lease_until__lte=now)
+        )
+        .order_by("id")
+        .values_list("id", flat=True)[: max(1, int(limit))]
+    )
+    done = {"succeeded": 0, "failed": 0, "cancelled": 0, "skipped": 0}
+    for run_id in ids:
+        state = execute(run_id, now=now)
+        if state in ("succeeded", "failed"):
+            done[state] += 1
+        elif WfRun.objects.filter(pk=run_id, state=WfRun.State.CANCELLED).exists():
+            done["cancelled"] += 1
+        else:
+            done["skipped"] += 1
+    return done

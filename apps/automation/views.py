@@ -1,7 +1,7 @@
 """Pages for a person's own workflows. Everything here is scoped to the signed-in owner.
 
 Not built and not implied by these pages: event triggers firing (the engine accepts them, but
-nothing delivers events to it), a background runner, sharing a workflow, deleting one, or any
+nothing delivers events to it), sharing a workflow, deleting one, or any
 step that touches another person or leaves the app."""
 
 import re
