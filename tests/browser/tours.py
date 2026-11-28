@@ -354,6 +354,7 @@ def register(g):
     register_sheets_batch8(g)
     register_sheets_spill(g)
     register_slides_find(g)
+    register_slides_versions(g)
     register_slides_paste(g)
     register_slides_align(g)
     register_sheets_tab_dup(g)
@@ -9008,3 +9009,39 @@ def register_sheets_spill(g):
                    expect=lambda: saved.get("text") == "30,,10,\r\n10,,20,\r\n20,,30,keep\r\n99,,99,20\r\n,,,\r\n" and len(saved["stored"]) == 1 and all(('"C2"' not in v and '"C4"' not in v and '"C5"' not in v) for v in saved["stored"]), wait=1500)
         run_tour(ctx, "sheets_spill", body, notes="Headless Chromium 390x844 emulated. SORT typed into the real Sheets page. One run.")
     g["DRILLS"]["tour_sheets_spill"] = tour
+
+
+def register_slides_versions(g):
+    """Named deck versions in the real Slides page: save, change, restore, undo the restore, reload, delete."""
+    APP = g["APP"]
+
+    def tour(ctx):
+        def body(t, pg):
+            pg.on("pageerror", lambda e: print("PAGEERROR", str(e)[:300]))
+            pg.goto(APP + "/slides/")
+            pg.evaluate("localStorage.clear()")
+            pg.goto(APP + "/slides/")
+            pg.wait_for_selector("#sl-add-text", timeout=15000)
+            key = pg.evaluate("() => document.getElementById('slide-root').dataset.storeKey")
+            stored = lambda: json.loads(pg.evaluate("(k) => localStorage.getItem(k)", key))
+            nel = lambda: len(stored()["slides"][0]["elements"])
+            vs = lambda: pg.inner_text("#sl-ver-status")
+            def snap(name):
+                out = os.environ.get("DRILL_VIDEO", "") or "/tmp"
+                pg.evaluate("() => { const c = document.getElementById('__cap'); if (c) c.style.display = 'none'; const d = document.getElementById('__dot'); if (d) d.style.display = 'none'; document.getElementById('sl-vers').open = true; document.getElementById('sl-vers').scrollIntoView({block: 'start'}); window.scrollBy(0, -120); }"); pg.wait_for_timeout(400)
+                pg.screenshot(path=os.path.join(out, name + ".png"))
+                pg.evaluate("() => { const c = document.getElementById('__cap'); if (c) c.style.display = ''; const d = document.getElementById('__dot'); if (d) d.style.display = ''; }")
+            def add(text):
+                pg.click("#sl-add-text"); pg.fill("#sl-text", text); pg.press("#sl-text", "Tab"); pg.wait_for_timeout(300)
+            add("One")
+            t.step("Add one text item, open Versions, save it as First (1 item)", lambda: (pg.evaluate("() => { document.getElementById('sl-vers').open = true; }"), pg.fill("#sl-ver-name", "First"), pg.click("#sl-ver-save"), pg.wait_for_timeout(300)),
+                   expect=lambda: "Saved the version First" in vs() and nel() == 1 and pg.locator("#sl-ver-list li").count() == 1, wait=1200)
+            t.step("Add a second item (2 items), then Restore First: the deck has 1 item again and the deck on screen matches", lambda: (add("Two"), pg.click('button[aria-label="Restore version First"]'), pg.wait_for_timeout(500), snap("slides_versions_restored")),
+                   expect=lambda: nel() == 1 and "Restored First" in vs(), wait=1200)
+            t.step("Undo the restore: 2 items are back", lambda: (pg.click("#sl-undo"), pg.wait_for_timeout(400)), expect=lambda: nel() == 2, wait=1200)
+            t.step("Reload: the version is still listed, and a duplicate name (first, any case) is refused", lambda: (pg.reload(), pg.wait_for_selector("#sl-add-text", timeout=15000), pg.evaluate("() => { document.getElementById('sl-vers').open = true; }"), pg.fill("#sl-ver-name", "first"), pg.click("#sl-ver-save"), pg.wait_for_timeout(300)),
+                   expect=lambda: pg.locator("#sl-ver-list li").count() == 1 and "already exists" in vs(), wait=1500)
+            t.step("Delete First: the list is empty and nothing is stored under the versions key", lambda: (pg.click('button[aria-label="Delete version First"]'), pg.wait_for_timeout(300)),
+                   expect=lambda: pg.locator("#sl-ver-list li").count() == 0 and pg.evaluate("(k) => localStorage.getItem(k + '.versions')", key) is None and nel() == 2, wait=1200)
+        run_tour(ctx, "slides_versions", body, notes="Headless Chromium 390x844 emulated. Named deck versions in the real Slides page. One run.")
+    g["DRILLS"]["tour_slides_versions"] = tour

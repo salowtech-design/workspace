@@ -354,6 +354,42 @@
   $("sl-find-go").addEventListener("click", findNow);
   $("sl-rep-slide").addEventListener("click", function () { replaceNow(true); });
   $("sl-rep-all").addEventListener("click", function () { replaceNow(false); });
+  // Versions (this browser only). Stored under KEY + ".versions"; an unreadable list is left untouched and the buttons stay off.
+  var VK = KEY + ".versions", vers = { items: [], unreadable: false };
+  try { vers = S.loadVers(localStorage.getItem(VK)); } catch (e) { vers = { items: [], unreadable: true }; }
+  function vsay(m) { $("sl-ver-status").textContent = m; }
+  function vsave(items) { try { var j = S.versJson(items); if (j === null) localStorage.removeItem(VK); else localStorage.setItem(VK, j); return true; } catch (e) { return false; } }
+  function vdraw() {
+    var ul = $("sl-ver-list"); ul.textContent = "";
+    vers.items.forEach(function (v, i) {
+      var li = document.createElement("li"), nm = document.createElement("span"), r = document.createElement("button"), d = document.createElement("button");
+      nm.textContent = v.n + " "; r.type = d.type = "button"; r.className = d.className = "btn"; r.textContent = "Restore"; d.textContent = "Delete";
+      r.setAttribute("aria-label", "Restore version " + v.n); d.setAttribute("aria-label", "Delete version " + v.n);
+      r.addEventListener("click", function () { vrestore(i); }); d.addEventListener("click", function () { vdelete(i); });
+      li.appendChild(nm); li.appendChild(r); li.appendChild(document.createTextNode(" ")); li.appendChild(d); ul.appendChild(li);
+    });
+    $("sl-ver-save").disabled = vers.unreadable;
+    if (vers.unreadable) vsay("The stored version list could not be read, so versions are off. Nothing was changed.");
+  }
+  function vlive() { if (vers.unreadable) { vsay("The stored version list could not be read, so versions are off. Nothing was changed."); return false; } if (H.blocked || editMaster) { vsay(editMaster ? "Leave the master first." : "Editing is paused, so nothing was changed."); return false; } return true; }
+  $("sl-ver-save").addEventListener("click", function () {
+    if (!vlive()) return;
+    var r = S.addVer(vers.items, $("sl-ver-name").value, H.deck); if (r.error) { vsay(r.error); return; }
+    if (!vsave(r.items)) { vsay("This browser would not store the version, so nothing was saved."); return; }
+    vers.items = r.items; $("sl-ver-name").value = ""; vdraw(); vsay("Saved the version " + r.items[r.items.length - 1].n + ".");
+  });
+  function vrestore(i) {
+    if (!vlive()) return; var d = S.verDeck(vers.items, i), nm = vers.items[i].n;
+    if (!d) { vsay("That version could not be read, so nothing was changed."); return; }
+    if (JSON.stringify(d) === JSON.stringify(H.deck)) { vsay("The deck already matches " + nm + ". Nothing changed."); return; }
+    if (apply(d, "Restored the version " + nm + ". You can undo this.")) { syncProps(); vsay("Restored " + nm + ". Undo brings the previous deck back until you reload."); }
+  }
+  function vdelete(i) {
+    if (vers.unreadable) return; var n = S.delVer(vers.items, i); if (!n) return; var nm = vers.items[i].n;
+    if (!vsave(n)) { vsay("This browser would not update the version list, so nothing was deleted."); return; }
+    vers.items = n; vdraw(); vsay("Deleted " + nm + ".");
+  }
+  vdraw();
   $("sl-undo").addEventListener("click", function () { if (H.undo()) { cur = Math.min(cur, H.deck.slides.length - 1); render(); } });
   $("sl-redo").addEventListener("click", function () { if (H.redo()) { cur = Math.min(cur, H.deck.slides.length - 1); render(); } });
   $("sl-clear").addEventListener("click", function () {

@@ -1,0 +1,27 @@
+// Named deck versions: the pure model. Node only.
+const S = require("../../static/slides/model.js");
+let fails = 0, n = 0;
+const eq = (d, g, w) => { n++; if (JSON.stringify(g) !== JSON.stringify(w)) { fails++; console.log("FAIL", d, JSON.stringify(g), "want", JSON.stringify(w)); } };
+const deck = S.newDeck();
+eq("empty list", S.loadVers(null), { items: [], unreadable: false });
+let r = S.addVer([], "  First   draft ", deck); eq("name is trimmed and spaces collapsed", r.items[0].n, "First draft");
+eq("a name is required", !!S.addVer([], "   ", deck).error, true);
+eq("a 41 character name is refused", !!S.addVer([], "x".repeat(41), deck).error, true);
+eq("a 40 character name is fine", !!S.addVer([], "x".repeat(40), deck).items, true);
+eq("names are unique without case", !!S.addVer(r.items, "FIRST DRAFT", deck).error, true);
+let items = []; for (let i = 0; i < 5; i++) items = S.addVer(items, "v" + i, deck).items;
+eq("the sixth version is refused", /up to 5/.test(S.addVer(items, "v5", deck).error), true);
+const raw = S.versJson(items);
+eq("round trip", S.loadVers(raw).items.map(v => v.n), ["v0", "v1", "v2", "v3", "v4"]);
+eq("round trip deck is a valid deck", JSON.stringify(S.verDeck(S.loadVers(raw).items, 2)) === JSON.stringify(S.validate(JSON.parse(JSON.stringify(deck)))), true);
+eq("a deck changed after saving does not change the version", (() => { const d2 = S.copy(deck); const v = S.addVer([], "a", d2).items; d2.slides[0].notes = "changed"; return S.verDeck(v, 0).slides[0].notes !== "changed"; })(), true);
+eq("delete one", S.delVer(items, 1).map(v => v.n), ["v0", "v2", "v3", "v4"]);
+eq("delete out of range", S.delVer(items, 9), null);
+eq("empty list stores nothing", S.versJson([]), null);
+eq("garbage is unreadable", S.loadVers("{nope").unreadable, true);
+eq("wrong version number is unreadable", S.loadVers('{"v":2,"items":[]}').unreadable, true);
+eq("a damaged stored deck is unreadable", S.loadVers('{"v":1,"items":[{"n":"a","d":"{\\"bad\\":1}"}]}').unreadable, true);
+eq("a duplicate name is unreadable", S.loadVers(JSON.stringify({ v: 1, items: [{ n: "a", d: JSON.stringify(deck) }, { n: "A", d: JSON.stringify(deck) }] })).unreadable, true);
+eq("more than 5 is unreadable", S.loadVers(JSON.stringify({ v: 1, items: Array.from({ length: 6 }, (_, i) => ({ n: "v" + i, d: JSON.stringify(deck) })) })).unreadable, true);
+eq("verDeck out of range", S.verDeck(items, 7), null);
+console.log(n + " rows, " + fails + " failed"); process.exit(fails ? 1 : 0);
