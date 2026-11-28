@@ -47,3 +47,13 @@ need research of the original scope before being called blocked.
 Re-recorded on 28 Nov, with these recorded code heads (the later commits touch only tour captions, tour assertions and this doc, not these modules): PDF (15 steps, run at 9479ea3), Attendance (9, bbda1d0), Certificates (19, ca0c620; employee refusal asserts HTTP 403, the styled page and no issue form), Work Logs and Feed (15, bbda1d0), Directory by department (4, ca0c620), Automation pages (20, 876cdf7; runs execute in the web request, the background runner was not used).
 Uncovered by these clips (controls exist or are unbuilt, not exercised here): PDF text mark, signature, flatten, split, reorder, merge, forms, password files; Attendance real face matching and camera; Certificates Print/PDF, Raw SVG, reissue, expiry, filters; Work Logs manager review and filters (older tours, not re-run); Directory team detail, org chart, a person in several departments.
 This is not a statement that these modules are ready.
+
+## Update, 28 Nov 2026 15:12 IST (one run each, headless Chromium 390x844 emulated, TiDB 8.5.1 unistore, one machine, executor-watched)
+Recorded at code head 6c24e89 (or code-equivalent for these modules; later commits touch only this doc):
+- IAM console tabs (20 steps): page loading and active-tab highlight only. Not shown: any create, change, revoke, reset or approval form, IAM host sign-in and recovery, Super Admin step-up, live event stream, Shield, backups, activation codes, service tokens.
+- Admin panel (11): approve one fallback request and reject another; manager-only view, HR role, check-out requests, self-review refusal, already-reviewed error and review notes not shown.
+- Calendar series (10): re-recorded with the corrected closing caption. No guests invited in the clip. Un-cancel and single-occurrence edit are not built.
+- Directory team detail (6): profile to team to member profile. No-team profile and role without team access not shown. No org chart tour exists.
+- Tasks project trash and restore (6), project rename (6), milestone edit (6): owner's view only; member and other-person views not shown.
+Still without a clip at the current head: Sheets and Slides main tours, Work Log filter and date tours, IAM step-up, forms and exit-session tours, Drive device-file, move and find, Chat attachments-free flows already covered earlier, org chart. Real two-device and Cloud/TiKV qualification: scope not yet grounded from the original PDFs and messages; not recorded as a user decision.
+These are scoped test observations, not a statement that any module is ready.
