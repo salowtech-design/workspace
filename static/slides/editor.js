@@ -270,11 +270,27 @@
   var clip = null;
   $("sl-copy-el").addEventListener("click", function () { var e = sel(); if (!e || editMaster) return; clip = S.copy(e); render(); status.textContent = "Item copied. Choose a slide and press Paste item. The copy is kept until you reload."; });
   $("sl-cut-el").addEventListener("click", function () { var e = sel(); if (!e || editMaster) return; var keep = S.copy(e); if (apply(eop("deleteElement", e.id), "Item cut. Choose a slide and press Paste item. Undo brings it back.")) { clip = keep; render(); } });
-  $("sl-paste-el").addEventListener("click", function () {
-    if (!clip || editMaster) return; var r = S.ops.pasteElement(H.deck, cur, clip);
+  // A picture item holds only a hash; the bytes stay in this browser's picture store, which nothing ever removes from (the store has open, put, get and sizes only).
+  // So a cut or deleted picture can always be pasted back. Two things can still be wrong at paste time, and both are checked here before the deck changes: the bytes
+  // may not be in this browser at all (an item copied from an imported deck that came without its pictures), and a hash that is no longer in the deck would add its
+  // size and pixels again, so the deck totals are checked the same way Add picture checks them.
+  function pasteNow(tries) {
+    var snap = H.deck, at = cur, r = S.ops.pasteElement(snap, at, clip);
     if (!r) { status.textContent = "Nothing was pasted: this slide is full (30 items) or the deck has 20 pictures."; return; }
-    selId = r.id; if (!apply(r.deck, "Item pasted. You can undo this.")) { selId = null; render(); }
-  });
+    function finish() {
+      if (H.deck !== snap || cur !== at) { if (tries > 3) { status.textContent = "Nothing was pasted: the deck kept changing while the picture was being checked."; return; } return pasteNow(tries + 1); }
+      selId = r.id; if (!apply(r.deck, "Item pasted. You can undo this.")) { selId = null; render(); }
+    }
+    if (clip.type !== "image") return finish();
+    if (!store) { status.textContent = "Nothing was pasted: this browser has no picture storage."; return; }
+    var hs = deckPicHashes();
+    store.sizes(hs.concat(hs.indexOf(clip.img) < 0 ? [clip.img] : [])).then(function (sz) {
+      if (sz.missing.indexOf(clip.img) >= 0) { status.textContent = "Nothing was pasted: this picture's file is not in this browser (it came from a deck imported without its pictures)."; return; }
+      if (hs.indexOf(clip.img) < 0 && (sz.total > MAXB || sz.pixels > IM.LIMITS.MAX_DECK_PIXELS)) { status.textContent = "Nothing was pasted: with this picture the deck's pictures would pass " + (sz.total > MAXB ? MAXB / 1e6 + " MB" : IM.LIMITS.MAX_DECK_PIXELS / 1e6 + " million pixels") + " in total."; return; }
+      finish();
+    }, function (e) { status.textContent = "Nothing was pasted: " + (e && e.message ? e.message : "the picture storage could not be read."); });
+  }
+  $("sl-paste-el").addEventListener("click", function () { if (!clip || editMaster) return; pasteNow(0); });
   $("sl-del-el").addEventListener("click", function () { var e = sel(); if (e) apply(eop("deleteElement", e.id), "Item deleted."); });
   // ---- Layout inheritance: linked slides follow an edited layout item (model: addLinkedSlide, setLayoutSlot, unlinkSlide) ----
   var LYF = ["x", "y", "w", "h", "size"];
