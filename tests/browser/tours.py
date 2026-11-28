@@ -337,6 +337,8 @@ def register(g):
     register_sheets_slices(g)
     register_sheets_virtual2(g)
     register_sheets_heavy8(g)
+    register_sheets_insert1000(g)
+    register_sheets_frozenfocus(g)
     register_pdf_alltext_stop(g)
     register_pdf_roundtrip(g)
     register_slides_order_recovery(g)
@@ -6035,6 +6037,69 @@ def register_sheets_heavy8(g):
         run_tour(ctx, "sheets_heavy8", body, notes="Headless Chromium 390x844 emulated. Eight adjacent cells of 490,000 work units each, a 60-repeat cell over the guard, a 200-cell chain; screen against CSV.")
     g["DRILLS"]["tour_sheets_heavy8"] = tour
 
+
+
+def register_sheets_insert1000(g):
+    APP = g["APP"]
+
+    def tour(ctx):
+        def body(t, pg):
+            pg.on("pageerror", lambda e: print("PAGEERROR", str(e)[:300]))
+            pg.goto(APP + "/sheets/")
+            pg.evaluate("localStorage.clear()")
+            pg.goto(APP + "/sheets/")
+            pg.wait_for_selector("#sheet-root", state="attached", timeout=15000)
+            pg.wait_for_selector("#sheet-root input", timeout=15000)
+            key = pg.evaluate("""() => { const k = document.getElementById('sheet-root').dataset.storeKey; const c = {}; for (let r = 1; r <= 999; r++) c['A' + r] = String(r); localStorage.setItem(k, JSON.stringify(c)); return k; }""")
+            pg.reload(); pg.wait_for_selector("#sheet-root input", timeout=15000); pg.wait_for_timeout(600)
+            stored = lambda: json.loads(pg.evaluate("(k) => localStorage.getItem(k)", key))
+            st = {}
+            show = lambda r: pg.evaluate("(r) => { const sc = document.getElementById('sheet-root'); const tr = sc.querySelector('table').rows[r]; sc.scrollTop = tr.offsetTop - 60; window.dispatchEvent(new Event('scroll')); }", r)
+            def ins_at(r):
+                show(r); pg.wait_for_timeout(700)
+                pg.click('#sheet-root input[data-addr="A%d"]' % r); pg.click("#row-ins"); pg.wait_for_timeout(900)
+            def a():
+                ins_at(500); st["a"] = stored()
+            t.step("Page level: A1 to A999 filled, row 1000 empty. Click A500 and Insert row above: the page stores A501 = 500 and A1000 = 999", a, expect=lambda: st["a"].get("A500") is None and st["a"].get("A501") == "500" and st["a"].get("A1000") == "999" and len(st["a"]) == 999 or (print("INS1", len(st["a"]), st["a"].get("A500"), st["a"].get("A501"), st["a"].get("A1000"), flush=True) or False), wait=300)
+            def b():
+                st["before"] = stored()
+                ins_at(500); st["st"] = pg.inner_text("#sheet-status"); st["after"] = stored()
+            t.step("Page level: row 1000 now holds a value, so Insert row above at A500 is refused: the stored sheet is byte-identical and the status says nothing was inserted", b, expect=lambda: st["after"] == st["before"] and "Nothing was inserted" in st["st"] or (print("INS2", st["st"][:200], st["after"] == st["before"], flush=True) or False), wait=300)
+        run_tour(ctx, "sheets_insert1000", body, notes="Headless Chromium 390x844 emulated. Insert row on the 1000-row grid.")
+    g["DRILLS"]["tour_sheets_insert1000"] = tour
+
+
+def register_sheets_frozenfocus(g):
+    APP = g["APP"]
+
+    def tour(ctx):
+        def body(t, pg):
+            pg.on("pageerror", lambda e: print("PAGEERROR", str(e)[:300]))
+            pg.goto(APP + "/sheets/")
+            pg.evaluate("localStorage.clear()")
+            pg.goto(APP + "/sheets/")
+            pg.wait_for_selector("#sheet-root input", timeout=15000)
+            pg.evaluate("""() => { const k = document.getElementById('sheet-root').dataset.storeKey; const c = {}; for (let r = 1; r <= 1000; r++) c['A' + r] = String(r); localStorage.setItem(k, JSON.stringify(c)); }""")
+            pg.reload(); pg.wait_for_selector("#sheet-root input", timeout=15000); pg.wait_for_timeout(600)
+            gap = lambda: pg.evaluate("""() => { const a = document.activeElement; if (!a || !a.dataset || !a.dataset.addr) return null; const t = document.querySelector('#sheet-root table'); const pin = t.rows[1].getBoundingClientRect(); const r = a.getBoundingClientRect(); const sc = document.getElementById('sheet-root').getBoundingClientRect(); return {addr: a.dataset.addr, top: Math.round(r.top), pinBottom: Math.round(pin.bottom), scTop: Math.round(sc.top), scBottom: Math.round(sc.bottom), bottom: Math.round(r.bottom)}; }""")
+            res = []
+            def go():
+                pg.fill("#frz-rows", "1"); pg.fill("#frz-cols", "0"); pg.click("#frz-apply"); pg.wait_for_timeout(500)
+                pg.evaluate("() => { const sc = document.getElementById('sheet-root'); const tr = sc.querySelector('table').rows[300]; sc.scrollTop = tr.offsetTop - 60; window.dispatchEvent(new Event('scroll')); }"); pg.wait_for_timeout(700)
+                pg.click('#sheet-root input[data-addr="A310"]')
+                for i in range(30):
+                    pg.keyboard.press("ArrowDown"); pg.wait_for_timeout(120)
+                    res.append(gap())
+                for i in range(60):
+                    pg.keyboard.press("ArrowUp"); pg.wait_for_timeout(120)
+                    res.append(gap())
+            def ok():
+                bad = [x for x in res if not x or x["top"] < x["pinBottom"] or x["bottom"] > x["scBottom"] + 1]
+                print("FOCUS checks", len(res), "bad", len(bad), bad[:3], flush=True)
+                return len(res) == 90 and not bad
+            t.step("Freeze row 1, move focus down 30 rows then up 60 rows with the arrow keys: every focused cell sits fully below the pinned row and inside the grid box", go, expect=ok, wait=300)
+        run_tour(ctx, "sheets_frozenfocus", body, notes="Headless Chromium 390x844 emulated. Frozen row 1, arrow-key focus.")
+    g["DRILLS"]["tour_sheets_frozenfocus"] = tour
 
 
 def register_sheets_virtual2(g):
