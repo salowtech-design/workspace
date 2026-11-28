@@ -692,6 +692,7 @@
     if ((rg.c2 - rg.c1 + 1) * (rg.r2 - rg.r1 + 1) > 2000 || rg.c2 > 26 || rg.r2 > 1000) { status.textContent = "A sort range can hold up to 2000 cells."; return; }
     var t2 = $("sort-col2").value.trim(), key2 = t2 ? colNum(t2) : 0;
     if (t2 && !key2) { status.textContent = "Enter one column letter for the second sort, or leave it empty."; return; }
+    if (mkSheet(cells).blockCells().some(function (k) { var q = F.parseAddr(k); return q && q.col >= rg.c1 && q.col <= rg.c2 && q.row >= rg.r1 && q.row <= rg.r2; })) { status.textContent = "Nothing was sorted: the range includes cells that only show a SORT result. Sort moves what is typed, not what is shown. Pick a range that does not include them."; return; }
     var r = M.sortRange(cells, F.parseAddr, rg, key, $("sort-dir").value === "desc", $("sort-header").checked, key2);
     if (r.error) { status.textContent = r.error; return; }
     var note = "Sorted " + r.rows + " rows by column " + String.fromCharCode(64 + key) + (key2 ? " then column " + String.fromCharCode(64 + key2) : "") + "; " + r.moved + " moved. Undo restores the old order." + (filt ? " The filter is still on." : "") + outsideFormulas(rg);

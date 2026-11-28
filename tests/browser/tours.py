@@ -8979,8 +8979,17 @@ def register_sheets_spill(g):
                    expect=lambda: len(stored()) == 1 and '"C2"' not in stored()[0] and val("C2") == "20" and val("C1") == "10", wait=1200)
             def tryfill():
                 typ("D3", "keep"); pg.fill("#fill-range", "C2:D3"); pg.click("#fill-down"); pg.wait_for_timeout(500)
+                pg.evaluate("() => { const c = document.getElementById('__cap'); if (c) c.style.display = 'none'; const d = document.getElementById('__dot'); if (d) d.style.display = 'none'; document.getElementById('sheet-status').scrollIntoView({block: 'start'}); window.scrollBy(0, -140); }"); pg.wait_for_timeout(400)
+                pg.screenshot(path=os.path.join(os.environ.get('DRILL_VIDEO', '') or '/tmp', 'sheets_spill_fill_refused.png'))
+                pg.evaluate("() => { const c = document.getElementById('__cap'); if (c) c.style.display = 'none'; const d = document.getElementById('__dot'); if (d) d.style.display = 'none'; document.querySelector('input[data-addr=\"C1\"]').scrollIntoView({block: 'center', inline: 'center'}); }"); pg.wait_for_timeout(400)
+                pg.screenshot(path=os.path.join(os.environ.get('DRILL_VIDEO', '') or '/tmp', 'sheets_spill_fill_refused_grid.png'))
+                pg.evaluate("() => { const c = document.getElementById('__cap'); if (c) c.style.display = ''; const d = document.getElementById('__dot'); if (d) d.style.display = ''; }")
             t.step("Type keep in D3, then Copy first row down over C2:D3 (its first row has the virtual cell C2): refused with a message, D3 still holds keep", tryfill,
                    expect=lambda: "only shows a SORT result" in pg.inner_text("#sheet-status") and val("D3") == "keep" and val("C2") == "20", wait=1200)
+            def trysort():
+                pg.fill("#sort-range", "C1:D5"); pg.fill("#sort-col", "C"); pg.click("#sort-go" if pg.query_selector("#sort-go") else "button:has-text('Sort')"); pg.wait_for_timeout(500)
+            t.step("Sort C1:D5 by column C (it includes the virtual C2 to C5): refused with a message, D3 still keep", trysort,
+                   expect=lambda: "only show a SORT result" in pg.inner_text("#sheet-status") and val("D3") == "keep", wait=1200)
             saved = {}
             def dl():
                 with pg.expect_download() as d:
