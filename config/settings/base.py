@@ -37,6 +37,7 @@ LOCAL_APPS = [
     "apps.pdfview.apps.PdfViewConfig",
     "apps.inbox.apps.InboxConfig",
     "apps.automation.apps.AutomationConfig",
+    "apps.addons.apps.AddonsConfig",
 ]
 
 INSTALLED_APPS = DJANGO_APPS + LOCAL_APPS
