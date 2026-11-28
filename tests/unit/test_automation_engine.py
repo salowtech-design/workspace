@@ -312,3 +312,36 @@ def test_runner_takes_no_run_of_an_owner_who_is_not_active_and_changes_nothing()
     assert not Notification.objects.filter(user=me).exists()
     CustomUser.objects.filter(pk=me.pk).update(status="active")
     assert en.run_pending()["succeeded"] == 1
+
+
+def test_owner_deactivated_after_listing_is_stopped_at_the_claim_and_between_steps(monkeypatch):
+    me = _u("AU-R8")
+    wf = _wf(me, [NOTE, NOTE, NOTE])
+    run = en.start_run(wf, "d-1")
+    # deactivated between listing and claim: execute() itself refuses, run untouched
+    CustomUser.objects.filter(pk=me.pk).update(status="suspended")
+    assert en.execute(run.pk) is None
+    run.refresh_from_db()
+    assert run.state == WfRun.State.QUEUED and run.attempt == 0 and not run.steps.exists()
+    CustomUser.objects.filter(pk=me.pk).update(status="active")
+    # deactivated after step 1 (between steps): no further step is applied
+    real = en._apply
+    calls = []
+
+    def apply_then_deactivate(r, step, ctx):
+        out = real(r, step, ctx)
+        calls.append(1)
+        CustomUser.objects.filter(pk=me.pk).update(status="suspended")
+        return out
+
+    monkeypatch.setattr(en, "_apply", apply_then_deactivate)
+    assert en.execute(run.pk) is None
+    run.refresh_from_db()
+    assert len(calls) == 1 and run.steps.count() == 1 and run.state == WfRun.State.RUNNING
+    assert Notification.objects.filter(user=me).count() == 1
+    # the pass leaves it alone, and after reactivation it resumes with the remaining two steps only
+    monkeypatch.setattr(en, "_apply", real)
+    assert en.run_pending(now=timezone.now() + dt.timedelta(minutes=10))["owner_inactive"] == 1
+    CustomUser.objects.filter(pk=me.pk).update(status="active")
+    assert en.run_pending(now=timezone.now() + dt.timedelta(minutes=10))["succeeded"] == 1
+    assert Notification.objects.filter(user=me).count() == 3

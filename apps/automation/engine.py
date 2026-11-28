@@ -161,6 +161,17 @@ def start_run(wf, trigger_key):
             return WfRun.objects.filter(definition=wf, trigger_key=trigger_key).first()
 
 
+def _owner_active(wf):
+    """Read the owner's status under a row lock, inside the caller's transaction. A deactivation writes
+    this row, so it either commits before this read (and we see it) or waits until we commit."""
+    from apps.accounts.models import CustomUser
+
+    status = (
+        CustomUser.objects.select_for_update().filter(pk=wf.owner_id).values_list("status", flat=True).first()
+    )
+    return status == "active"
+
+
 def _claim(run_id, now):
     """Returns (run, attempt) or None. The attempt number fences out any earlier worker."""
     with transaction.atomic():
@@ -170,6 +181,8 @@ def _claim(run_id, now):
         if run.state in (WfRun.State.SUCCEEDED, WfRun.State.FAILED, WfRun.State.CANCELLED):
             return None
         if run.state == WfRun.State.RUNNING and run.lease_until and run.lease_until > now:
+            return None
+        if not _owner_active(wf):  # fail closed: leave the run exactly as it is
             return None
         if not wf.enabled:
             run.state, run.finished_at = WfRun.State.CANCELLED, now
@@ -200,6 +213,7 @@ def _own(run_id, attempt, now):
         run.state != WfRun.State.RUNNING
         or run.attempt != attempt
         or not wf.enabled
+        or not _owner_active(wf)
         or not run.lease_until
         or run.lease_until <= now
     ):
@@ -291,9 +305,11 @@ def run_pending(limit=50, *, now=None):
     definition and run locks, with the fencing attempt, so two runners (or a runner and a person's
     own press) do not apply the same step twice.
 
-    Fail closed on the owner: no one is signed in here, so a run is taken only while its workflow's
-    owner is still an active person. Runs of any other owner stay as they are (counted as
-    "owner_inactive") and nothing is applied, cancelled or expired on anyone's behalf. No age limit
+    Fail closed on the owner: no one is signed in here. The list below only narrows the work; the
+    guarantee is in execute(), which reads the owner's status under a row lock in the claim and again
+    before every step and the final state. If the owner stops being active at any of those points the
+    run is left as it is (a claimed run keeps its lease until it runs out and is then left again) and
+    nothing further is applied, cancelled or expired on anyone's behalf. No age limit
     is applied to old queued runs: that would be a policy choice.
 
     One run that raises is counted as "errors" and logged by id only; its state is not rewritten
