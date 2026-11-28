@@ -11,11 +11,11 @@ from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
 from django.db.models.functions import Upper
-from django.conf import settings
 from django.http import Http404
 
 from apps.core.foundation.audit import audit
 from apps.core.foundation.permissions import can
+from apps.forms.policy import collection_on
 from apps.forms.models import (ANSWER_MAX, CHOICE_MAX, DESC_MAX, KINDS, QTEXT_MAX, TITLE_MAX, Answer, Audience, Form,
                                Question, Response)  # fmt: skip
 
@@ -35,23 +35,17 @@ def _text(value, limit, label, newlines=False, required=True):
     return value
 
 
-def _load(public_id, actor, lock=False):
+def _load(public_id, actor, lock=False, action="view"):
+    """404 for a missing form and for a refused one alike, so nothing tells a non-allowed person that it exists."""
     qs = Form.objects.select_for_update() if lock else Form.objects
     form = qs.filter(public_id=public_id).first()
-    if form is None or not (
-        form.owner_id == actor.pk
-        or form.audience.filter(person=actor).exists()
-        or form.responses.filter(person=actor).exists()
-    ):
+    if form is None or not can(actor, action, "forms.form", form):
         raise Http404
     return form
 
 
-def _owned(public_id, actor, lock=True):
-    form = _load(public_id, actor, lock)
-    if form.owner_id != actor.pk:
-        raise Http404
-    return form
+def _owned(public_id, actor, lock=True, action="edit"):
+    return _load(public_id, actor, lock, action)
 
 
 def create_form(actor, title, description=""):
@@ -137,6 +131,9 @@ def set_audience(actor, public_id, employee_ids):
     ids = list(dict.fromkeys(i.strip().upper() for i in employee_ids if i.strip()))
     if len(ids) > MAX_AUDIENCE:
         raise ValidationError(f"At most {MAX_AUDIENCE} people.")
+    owner_row = Form.objects.filter(public_id=public_id, owner=actor).first()
+    if owner_row is not None and owner_row.owner.employee_id.upper() in ids:
+        raise ValidationError("The owner previews the form. Answering your own form is not enabled.")
     users = list(get_user_model().objects.annotate(eid=Upper("employee_id")).filter(eid__in=ids, is_active=True, status="active"))
     if len(users) != len(ids):
         raise ValidationError("Some people could not be added. Check the employee IDs.")  # same text for every cause
@@ -153,14 +150,14 @@ def set_audience(actor, public_id, employee_ids):
 
 def _collection_on():
     """Real respondent collection stays off until the owner scopes the audience and identity privacy. Not a policy choice made here."""
-    return bool(getattr(settings, "FORMS_COLLECTION_APPROVED", False))
+    return collection_on()
 
 
 def publish(actor, public_id):
     if not _collection_on():
         raise ValidationError("Publishing is switched off until the owner approves who may answer and who sees answers. Use Preview.")
     with transaction.atomic():
-        form = _owned(public_id, actor)
+        form = _owned(public_id, actor, action="publish")
         _draft(form)
         if not form.questions.exists() or not form.audience.exists():
             raise ValidationError("Add at least one question and one person before publishing.")
@@ -173,7 +170,7 @@ def publish(actor, public_id):
 
 def close(actor, public_id):
     with transaction.atomic():
-        form = _owned(public_id, actor)
+        form = _owned(public_id, actor, action="close")
         if form.status == Form.OPEN:
             form.status = Form.CLOSED
             form.version += 1
@@ -188,7 +185,8 @@ def clean_answers(questions, posted):
     for q in questions:
         label = f"Question {q.position}"
         raw = posted.get(str(q.pk))
-        empty = raw in (None, "", []) or (isinstance(raw, list) and not any(str(x).strip() for x in raw))
+        empty = raw is None or (isinstance(raw, str) and not raw.strip()) or (
+            isinstance(raw, list) and not any(str(x).strip() for x in raw))  # fmt: skip
         if empty:
             if q.required:
                 problems.append(f"{label} needs an answer.")
@@ -232,7 +230,7 @@ def clean_answers(questions, posted):
 
 def preview_check(actor, public_id, posted):
     """Owner-only dry run of the fill page: validates the answers exactly like a real submit and stores nothing."""
-    form = _owned(public_id, actor, lock=False)
+    form = _owned(public_id, actor, lock=False, action="preview")
     return clean_answers(list(form.questions.order_by("position")), posted)
 
 
@@ -241,8 +239,6 @@ def submit_response(actor, public_id, posted):
         raise Http404
     with transaction.atomic():
         form = _load(public_id, actor, lock=True)
-        if form.owner_id == actor.pk and not form.audience.filter(person=actor).exists():
-            raise Http404  # the owner previews; they do not submit unless they put themselves on the audience
         if not can(actor, "fill", "forms.form", form):
             if form.responses.filter(person=actor).exists():
                 raise ValidationError("You have already answered this form.")
@@ -267,28 +263,39 @@ def get_form_for(actor, public_id):
     return _load(public_id, actor)
 
 
+def human(question, value):
+    """Show a stored answer to a person: a multi-choice list reads 'a, b'."""
+    if question.kind == "multi_choice" and value:
+        try:
+            return ", ".join(json.loads(value))
+        except ValueError:
+            return value
+    return value
+
+
 def my_response(actor, form):
     resp = form.responses.filter(person=actor).first()
     if resp is None:
         return None
     vals = {a.question_id: a.value for a in resp.answers.all()}
-    return [(q, vals.get(q.pk)) for q in form.questions.order_by("position")]
+    return [(q, human(q, vals.get(q.pk))) for q in form.questions.order_by("position")]
 
 
 def results(actor, public_id):
-    form = _owned(public_id, actor, lock=False)
+    form = _owned(public_id, actor, lock=False, action="results")
     questions = list(form.questions.order_by("position"))
-    rows = []
+    rows, raw_rows = [], []
     for r in form.responses.select_related("person").order_by("submitted_at", "pk"):
         vals = {a.question_id: a.value for a in r.answers.all()}
-        rows.append((r, [vals.get(q.pk, "") for q in questions]))
+        rows.append((r, [human(q, vals.get(q.pk, "")) for q in questions]))
+        raw_rows.append([vals.get(q.pk, "") for q in questions])
     counts = []
     for q in questions:
         if q.kind in ("single_choice", "multi_choice", "scale_1_5"):
             options = q.choices if q.kind != "scale_1_5" else ["1", "2", "3", "4", "5"]
             tally = {o: 0 for o in options}
-            for _r, vals in rows:
-                v = vals[questions.index(q)]
+            for raw in raw_rows:
+                v = raw[questions.index(q)]
                 for o in (json.loads(v) if (q.kind == "multi_choice" and v) else ([v] if v else [])):
                     if o in tally:
                         tally[o] += 1
@@ -310,7 +317,9 @@ def csv_text(actor, public_id):
     buf = io.StringIO()
     w = csv.writer(buf)
     w.writerow(["Employee ID", "Submitted"] + [csv_safe(q.text) for q in questions])
+    typed = ("number", "date", "scale_1_5")  # validated by clean_answers (ASCII number, ISO date, 1 to 5): a minus is data, not a formula
     for r, vals in rows:
-        w.writerow([csv_safe(r.person.employee_id), r.submitted_at.isoformat()] + [csv_safe(v) for v in vals])
+        cells = [v if q.kind in typed and v else csv_safe(v) for q, v in zip(questions, vals)]
+        w.writerow([csv_safe(r.person.employee_id), r.submitted_at.isoformat()] + cells)
     audit(actor, "forms.export", "form", form.pk, rows=len(rows))
     return buf.getvalue()

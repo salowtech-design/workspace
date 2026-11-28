@@ -66,13 +66,19 @@ def test_collection_is_off_by_default(w):
         fs.publish(o, f.public_id)
     assert "switched off" in str(e.value)
     r = _client(o, 1).post(f"/forms/{f.public_id}/", {"do": "publish"})
-    assert r.status_code == 302 and Form.objects.get(pk=f.pk).status == "draft"
+    assert r.status_code == 302 and Form.objects.get(pk=f.pk).status == "draft"  # the owner is sent back to the editor
     assert _changed(before, _snap()) == []
+    for st in ("draft", "open", "closed"):  # an audience member sees nothing of the form while collection is off
+        Form.objects.filter(pk=f.pk).update(status=st)
+        ca = _client(a, 11)
+        for path in ("", "fill/", "preview/", "results/", "results.csv"):
+            r = ca.get(f"/forms/{f.public_id}/{path}")
+            assert r.status_code == 404 and "Lunch poll" not in r.content.decode(), (st, path)
     Form.objects.filter(pk=f.pk).update(status="open")  # even a form forced open takes no answers while collection is off
     before = _snap()
     with pytest.raises(Http404):
         fs.submit_response(a, f.public_id, {_qs(f)["Name"]: "x"})
-    assert _client(a, 2).post(f"/forms/{f.public_id}/fill/", {f"q{_qs(f)['Name']}": "x"}).status_code in (200, 302, 404)
+    assert _client(a, 2).post(f"/forms/{f.public_id}/fill/", {f"q{_qs(f)['Name']}": "x"}).status_code == 404
     assert Response.objects.count() == 0 and Answer.objects.count() == 0
     assert [k for k in _changed(before, _snap()) if not k[0].startswith("core.")] == []
 
@@ -180,8 +186,47 @@ def test_answer_normalisation_and_csv_safety(w, settings):
     settings.FORMS_COLLECTION_APPROVED = True
     a = w["a"]
     fs.publish(o, f.public_id)
-    fs.submit_response(a, f.public_id, {by["Name"]: "=HYPERLINK(1)", by["Guests"]: "2"})
+    fs.submit_response(a, f.public_id, {by["Name"]: "=HYPERLINK(1)", by["Guests"]: "-2", by["Sides"]: ["b", "a"],
+                                        by["When"]: "2026-12-03", by["Rate"]: "4"})  # fmt: skip
     text = fs.csv_text(o, f.public_id)
     assert "'=HYPERLINK(1)" in text and ",=HYPERLINK" not in text
+    assert ",-2," in text and "'-2" not in text and "2026-12-03" in text and "'2026" not in text  # validated numbers keep their minus
+    assert "a, b" in text and "[" not in text.split("\n", 1)[1]
+    assert "a, b" in _client(o, 9).get(f"/forms/{f.public_id}/results/").content.decode()
     c = _client(o, 8).get(f"/forms/{f.public_id}/results.csv")
     assert c.status_code == 200 and c["Content-Type"].startswith("text/csv") and c["X-Content-Type-Options"] == "nosniff"
+
+
+def test_visibility_matrix_owner_self_answer_and_blank_optional(w, settings):
+    o, a, x, f = w["o"], w["a"], w["x"], w["f"]
+    q = _qs(f)
+    ca = _client(a, 12)
+    settings.FORMS_COLLECTION_APPROVED = True
+    assert ca.get(f"/forms/{f.public_id}/fill/").status_code == 404  # draft, flag on: still hidden
+    fs.publish(o, f.public_id)
+    page = ca.get(f"/forms/{f.public_id}/fill/")
+    assert page.status_code == 200 and "sees your name and your answers" in page.content.decode()
+    assert _client(x, 13).get(f"/forms/{f.public_id}/fill/").status_code == 404
+    fs.submit_response(a, f.public_id, {q["Name"]: "A", q["Meal"]: "   ", q["Guests"]: "  "})  # optional blanks are skipped
+    assert {x_.question.text for x_ in Answer.objects.all()} == {"Name"}
+    fs.close(o, f.public_id)
+    assert ca.get(f"/forms/{f.public_id}/fill/").status_code == 200  # a closed form shows a respondent only their own answers
+    assert _client(x, 14).get(f"/forms/{f.public_id}/fill/").status_code == 404
+    with pytest.raises(ValidationError) as e:
+        fs.set_audience(o, f.public_id, ["FM-O"])
+    assert "Answering your own form is not enabled" in str(e.value)
+    co = _client(o, 15)
+    r = co.get(f"/forms/{f.public_id}/fill/")
+    assert r.status_code == 302 and r["Location"].endswith("/preview/")
+    f2 = fs.create_form(o, "Second")
+    with pytest.raises(ValidationError) as e:
+        fs.set_audience(o, f2.public_id, ["FM-O"])
+    assert "not enabled" in str(e.value)
+
+
+def test_forms_not_served_on_the_iam_host(w):
+    f = w["f"]
+    for path in ("/forms/", f"/forms/{f.public_id}/", f"/forms/{f.public_id}/preview/"):
+        c = Client(HTTP_HOST="iam.salowtech.com", REMOTE_ADDR="10.4.0.50")
+        c.force_login(w["o"])
+        assert c.get(path).status_code == 404, path

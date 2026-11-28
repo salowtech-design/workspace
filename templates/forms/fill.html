@@ -1,7 +1,9 @@
 {% extends "base.html" %}
 {% block title %}{{ f.title }}: Forms{% endblock %}
+{% block extra_head %}<link rel="stylesheet" href="/static/css/forms.css">{% endblock %}
 {% block content %}
-<div class="card"><h2>{{ f.title }}</h2>{% if preview %}<p><strong>Preview.</strong> Only you can see this. Nothing is saved.</p><p><a href="{% url 'forms:editor' f.public_id %}">Back to editor</a></p>{% endif %}
+<div class="card frm"><h2>{{ f.title }}</h2>{% if preview %}<p class="frm-note"><strong>Preview.</strong> Only you can see this. Nothing is saved.</p><p><a href="{% url 'forms:editor' f.public_id %}">Back to editor</a></p>{% endif %}
+{% if not preview %}<p><strong>Before you answer:</strong> the person who made this form sees your name and your answers.</p>{% endif %}
 {% if f.description %}<p>{{ f.description }}</p>{% endif %}{% if note %}<p>{{ note }}</p>{% endif %}
 {% if mine %}<h3>Your answers</h3><ol>{% for q, v in mine %}<li>{{ q.text }}: {{ v|default:"(no answer)" }}</li>{% endfor %}</ol>
 {% elif not preview and f.status != 'open' %}<p>This form is not open.</p>

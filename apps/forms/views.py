@@ -83,7 +83,7 @@ def editor(request, pid):
 @login_required
 @require_http_methods(["GET", "POST"])
 def preview(request, pid):
-    form = fs._owned(pid, request.user, lock=False)
+    form = fs._owned(pid, request.user, lock=False, action="preview")
     questions = list(form.questions.order_by("position"))
     note = ""
     if request.method == "POST":
@@ -99,6 +99,8 @@ def preview(request, pid):
 @require_http_methods(["GET", "POST"])
 def fill(request, pid):
     form = fs.get_form_for(request.user, pid)
+    if form.owner_id == request.user.pk:
+        return redirect("forms:preview", pid=pid)  # the owner previews; answering your own form is not enabled
     questions = list(form.questions.order_by("position"))
     mine = fs.my_response(request.user, form)
     if request.method == "POST" and mine is None:

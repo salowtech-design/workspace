@@ -35,8 +35,9 @@ No delete path until retention is decided. No cascade delete.
 - Submit: lock the form row first, re-read, recheck open status and audience through the "forms.form" policy, validate every
   answer against its question, reject question ids that are not on the form, create the response, and map a duplicate-key error to
   "already answered". Number, date and scale answers are stored normalised (7.50 is stored as 7.5; ASCII digits only).
+- Visibility: while collection is off a non-owner gets 404 for every form page, whatever the audience list says; with collection on, 404 for draft and closed forms unless they already answered. The owner never answers their own form (adding the owner to the audience is refused; a self-answer is a future choice). Policy and services both go through can() with no administrator bypass.
 - Every check is in the service code. The tests were run on real TiDB; no rule depends on a database CHECK.
-- CSV: cells starting with = + - @ tab or CR get a leading apostrophe. Generated on the server from the rows the owner sees.
+- CSV: generated on the server (not in the browser) for the owner only. Text, choice and header cells that start with = + - @ tab or CR get a leading apostrophe; number, date and scale cells are validated first (ASCII digits, ISO date, 1 to 5), so a minus there stays data. Multi-choice answers read "a, b".
 - Audit rows for create, update, audience, publish, close, submit, export. Nothing notifies anyone. No email.
 
 ## Privacy defaults are PROPOSED, not decided
@@ -56,7 +57,8 @@ notifications are not part of this decision and stay out of the first slice, not
 
 ## UI
 List (my forms, forms for me), editor (questions in order, move up and down, one page), fill page, results table with counts
-and CSV download, status banners. Plain HTML forms and HTMX like the other modules.
+and CSV download, status banners. Plain HTML forms.
+Built: home with create, editor, owner Preview, results and CSV (no responses can exist while collection is off), and a fill page for a respondent. NOT built: a list of forms sent to me. Any signed-in active person can create a private draft: that is an implementation default, not an approved role policy. The fill page tells the respondent that the form's maker sees their name and answers; it is not reachable while collection is off.
 
 ## Tests planned
 Owner and non-audience refusal with owner same-payload controls and full-row snapshots (the style of the Drive and Calendar

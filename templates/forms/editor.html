@@ -1,16 +1,17 @@
 {% extends "base.html" %}
 {% block title %}{{ f.title }}: Forms{% endblock %}
+{% block extra_head %}<link rel="stylesheet" href="/static/css/forms.css">{% endblock %}
 {% block content %}
-<div class="card"><h2>{{ f.title }} <small>({{ f.status }})</small></h2>
+<div class="card frm"><h2>{{ f.title }} <small>({{ f.status }})</small></h2>
 <p><a href="{% url 'forms:home' %}">All forms</a> | <a href="{% url 'forms:preview' f.public_id %}">Preview</a>{% if f.status != 'draft' %} | <a href="{% url 'forms:results' f.public_id %}">Results</a>{% endif %}</p>
 {% if f.status == 'draft' %}
 <form method="post">{% csrf_token %}<input type="hidden" name="do" value="details"><label>Title<input type="text" name="title" maxlength="200" value="{{ f.title }}" required></label>
 <label>Description<textarea name="description" rows="2" maxlength="2000">{{ f.description }}</textarea></label><button class="btn" type="submit">Save details</button></form>
 <ol>{% for q in questions %}<li>{{ q.text }} <small>({{ q.kind }}{% if q.required %}, required{% endif %}{% if q.choices %}: {{ q.choices|join:" / " }}{% endif %})</small>
-<form method="post" style="display:inline">{% csrf_token %}<input type="hidden" name="question" value="{{ q.pk }}"><button name="do" value="up">Up</button><button name="do" value="down">Down</button><button name="do" value="remove">Remove</button></form></li>{% empty %}<li>No questions yet.</li>{% endfor %}</ol>
+<form method="post" class="frm-row">{% csrf_token %}<input type="hidden" name="question" value="{{ q.pk }}"><button name="do" value="up">Up</button><button name="do" value="down">Down</button><button name="do" value="remove">Remove</button></form></li>{% empty %}<li>No questions yet.</li>{% endfor %}</ol>
 <form method="post">{% csrf_token %}<input type="hidden" name="do" value="add"><label>Question<input type="text" name="text" maxlength="300" required></label>
 <label>Type<select name="kind">{% for k in kinds %}<option value="{{ k }}">{{ k }}</option>{% endfor %}</select></label>
-<label class="cal-check"><input type="checkbox" name="required"> Required</label>
+<label class="frm-check"><input type="checkbox" name="required"> Required</label>
 <label>Choices, one per line (choice questions only)<textarea name="choices" rows="3"></textarea></label><button class="btn" type="submit">Add question</button></form>
 <form method="post">{% csrf_token %}<input type="hidden" name="do" value="audience"><label>Proposed audience (employee IDs). Not in effect: nobody can answer until the owner approves collection.<textarea name="people" rows="2">{{ people }}</textarea></label><button class="btn" type="submit">Save audience</button></form>
 {% if collection_on %}<form method="post">{% csrf_token %}<button class="btn" name="do" value="publish">Publish (freezes questions and audience)</button></form>{% else %}<p>Publishing is switched off. Use Preview to try the form.</p>{% endif %}

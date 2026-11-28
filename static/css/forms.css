@@ -1,0 +1,10 @@
+.frm form{display:flex;flex-direction:column;gap:12px;max-width:520px;margin:0 0 16px}
+.frm label{display:flex;flex-direction:column;gap:4px;font-size:14px;font-weight:600}
+.frm label.frm-check{flex-direction:row;align-items:center;gap:10px;min-height:40px}
+.frm label.frm-check input{width:auto;margin:0}
+.frm input[type=text],.frm input[type=date],.frm textarea,.frm select{border:1px solid #d9c8bf;border-radius:8px;padding:8px 10px;font:inherit;background:#fff;width:100%;max-width:100%;box-sizing:border-box;min-height:40px}
+.frm button{min-height:40px;padding:6px 14px;font:inherit;border:1px solid #d9c8bf;border-radius:8px;background:#f3ece7;cursor:pointer}
+.frm ol{padding-left:22px}
+.frm ol li{margin:0 0 12px}
+.frm ol form.frm-row{flex-direction:row;flex-wrap:wrap;gap:8px;margin:6px 0 0}
+.frm .frm-note{border:1px solid #d9b38c;background:#fdf3e7;border-radius:8px;padding:10px 14px;font-size:.9rem}

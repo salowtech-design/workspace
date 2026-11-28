@@ -65,6 +65,7 @@ class HostSecurityIsolationMiddleware:
                 "/drive",
                 "/tasks",
                 "/calendar",
+                "/forms",
                 "/search",
                 "/chat",
                 "/sheets",

@@ -232,6 +232,7 @@ def register(g):
     g["DRILLS"]["tour_drive"] = drive_tour
     register_tasks(g, users)
     register_calendar(g, users)
+    register_forms_prep(g)
     register_sheets(g)
     register_slides(g)
     register_pdf(g)
@@ -8821,3 +8822,47 @@ def register_password_idle(g, users):
         run_tour(ctx, "93_password_change_idle_unlock", body, notes="Real Django on TiDB under uvicorn, headless Chromium 390x844 emulated. Synthetic account, generated passwords, typed only in unrecorded windows. Recording shows only the start page; results are automated captures with real screenshots.", unshown=["typing any password (off camera)", "other roles", "step-up or MFA re-enrolment after a password change"])
 
     g["DRILLS"]["tour_password_idle"] = tour
+
+
+def register_forms_prep(g):
+    """Forms private prep: owner-only create, edit, reorder, remove, preview (invalid, valid) at phone width. Collection is off,
+    so nothing is published and no other person is involved. Checks that nothing overflows sideways and no control is clipped."""
+    APP = g["APP"]
+
+    def tour(ctx):
+        out = {"shots": []}
+
+        def fit(pg, label):
+            bad = pg.evaluate(
+                """() => { const W = document.documentElement.clientWidth, r = [];
+                if (document.querySelector('.frm').scrollWidth > document.querySelector('.frm').clientWidth + 1) r.push('form card wider than itself');
+                for (const e of document.querySelectorAll('.frm button, .frm a, .frm input, .frm select, .frm textarea')) {
+                  const b = e.getBoundingClientRect(); if (!b.width || !b.height) continue;
+                  if (b.left < -1 || b.right > W + 1) r.push((e.innerText || e.name || e.tagName).slice(0, 20) + ' outside'); }
+                return r; }"""
+            )
+            out[label] = bad
+            pg.screenshot(path="/downloads/forms_%s.png" % label, full_page=True)
+            out["shots"].append("/downloads/forms_%s.png" % label)
+            return not bad
+
+        def body(t, pg):
+            pg.goto(APP + "/forms/")
+            t.step("Forms home: says collecting answers is off", expect=lambda: "switched off" in pg.inner_text("body") and fit(pg, "1_home"), wait=1800)
+            t.step("Create a form", lambda: (pg.fill("input[name=title]", "Lunch poll"), pg.click("button:has-text('New form')")), expect=lambda: "Lunch poll" in pg.inner_text("h2"))
+            t.step("Add a required short text question", lambda: (pg.fill("input[name=text]", "Your name"), pg.check("input[name=required]"), pg.click("button:has-text('Add question')")), expect=lambda: "Your name" in pg.inner_text("ol"))
+            t.step("Add a single choice question with two choices", lambda: (pg.fill("input[name=text]", "Meal"), pg.select_option("select[name=kind]", "single_choice"), pg.fill("textarea[name=choices]", "Rice\nRoti"), pg.click("button:has-text('Add question')")), expect=lambda: "Rice / Roti" in pg.inner_text("ol"))
+            t.step("Add a number question", lambda: (pg.fill("input[name=text]", "Guests"), pg.select_option("select[name=kind]", "number"), pg.fill("textarea[name=choices]", ""), pg.click("button:has-text('Add question')")), expect=lambda: pg.locator("ol li").count() == 3 and fit(pg, "2_editor"))
+            t.step("Move Guests up", lambda: pg.locator("ol li").nth(2).locator("button:has-text('Up')").click(), expect=lambda: pg.locator("ol li").nth(1).inner_text().startswith("Guests"))
+            t.step("Remove Meal", lambda: pg.locator("ol li", has_text="Meal").locator("button:has-text('Remove')").click(), expect=lambda: "Meal" not in pg.inner_text("ol") and pg.locator("ol li").count() == 2)
+            t.step("Publish is not offered while collection is off", expect=lambda: pg.locator("button:has-text('Publish')").count() == 0 and "Publishing is switched off" in pg.inner_text("body"))
+            t.step("Open Preview", lambda: pg.click("a:has-text('Preview')"), expect=lambda: "Nothing is saved" in pg.inner_text("body") and fit(pg, "3_preview"))
+            t.step("Check an invalid answer set (required name empty, number 'abc')", lambda: (pg.fill("input[name^=q] >> nth=1", "abc"), pg.click("button:has-text('Check answers')")), expect=lambda: "Question 1 needs an answer." in pg.inner_text("body") and "Enter a plain number." in pg.inner_text("body") and fit(pg, "4_invalid"))
+            t.step("Check a valid answer set", lambda: (pg.fill("input[name^=q] >> nth=0", "Asha"), pg.fill("input[name^=q] >> nth=1", "3"), pg.click("button:has-text('Check answers')")), expect=lambda: "would be accepted" in pg.inner_text("body") and fit(pg, "5_valid"))
+            t.step("Back to the editor: still a draft, no response stored", lambda: pg.click("a:has-text('Back to editor')"), expect=lambda: "(draft)" in pg.inner_text("h2"))
+            t.note("Collection (publish and submit) is off. Nothing here was shared with anyone. Headless Chromium 390x844 emulated.", 3)
+
+        run_tour(ctx, "95_forms_private_prep", body, notes="Real Django on TiDB, headless Chromium 390x844 emulated, signed-in synthetic owner ST-LIVE-1. Forms collection is off by setting, so only the owner's draft, edit and preview are shown. Layout check per page: no sideways overflow, no control outside the screen. One run.", unshown=["publish and submit (off)", "audience entry (not shown)", "results and CSV (no responses can exist)"])
+        json.dump(out, open("/downloads/forms_layout_check.json", "w"), indent=1)
+
+    g["DRILLS"]["tour_forms_prep"] = tour
