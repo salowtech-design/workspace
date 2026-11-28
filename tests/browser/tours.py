@@ -347,6 +347,7 @@ def register(g):
     register_slides_find(g)
     register_slides_paste(g)
     register_slides_align(g)
+    register_sheets_tab_dup(g)
     register_drive_link_version_fail(g)
     register_drive_link_slides_retry(g)
     register_sheets_frozenfocus(g)
@@ -3005,6 +3006,33 @@ def register_slides_align(g):
             t.step("Undo takes the item back one align step (middle to bottom, y 490)", lambda: (pg.click("#sl-undo"), pg.wait_for_timeout(300), snap("8_undo")), expect=lambda: box()[1] == 490, wait=1500)
         run_tour(ctx, "slides_align", body, notes="Device-local deck. Headless Chromium 390x844 emulated, real Django on TiDB unistore. Align the selected item's box to the slide.")
     g["DRILLS"]["tour_slides_align"] = tour
+
+
+def register_sheets_tab_dup(g):
+    APP = g["APP"]
+
+    def tour(ctx):
+        def body(t, pg):
+            pg.on("pageerror", lambda e: print("PAGEERROR", str(e)[:300]))
+            pg.goto(APP + "/sheets/")
+            pg.evaluate("localStorage.clear()")
+            pg.goto(APP + "/sheets/")
+            pg.wait_for_selector("#sheet-root input", timeout=15000)
+            key = pg.evaluate("() => document.getElementById('sheet-root').dataset.storeKey")
+            pg.evaluate("([k, v]) => localStorage.setItem(k, JSON.stringify(v))", [key, {"A1": "5", "B1": "=A1*2", "A2": "keep"}])
+            pg.reload(); pg.wait_for_selector("#sheet-root input", timeout=15000); pg.wait_for_timeout(600)
+            val = lambda a: pg.input_value('input[data-addr="%s"]' % a)
+            tab_names = lambda: json.loads(pg.evaluate("(k) => localStorage.getItem(k + '.tabs')", key))["tabs"]
+            raw = lambda tid: json.loads(pg.evaluate("([k, i]) => localStorage.getItem(i === 't0' ? k : k + '.tab.' + i)", [key, tid]) or "{}")
+            def go_tab(n):
+                pg.locator("[data-tab]").nth(n).click(); pg.wait_for_timeout(400)
+            t.step("Duplicate tab copies the cells to a new tab named 'Sheet 1 copy' and opens it", lambda: (pg.click("#tab-dup"), pg.wait_for_timeout(600)), expect=lambda: [x["name"] for x in tab_names()] == ["Sheet 1", "Sheet 1 copy"] and val("A1") == "5" and val("B1") == "10" and val("A2") == "keep", wait=1800)
+            t.step("The status says what was not copied", expect=lambda: "Copied the cells of Sheet 1 to the new tab Sheet 1 copy" in pg.inner_text("#tab-status") and "were not copied" in pg.inner_text("#tab-status"), wait=1200)
+            t.step("Editing the copy leaves the original tab's stored cells unchanged", lambda: (pg.fill('input[data-addr="A1"]', "7"), pg.press('input[data-addr="A1"]', "Tab"), pg.wait_for_timeout(400)), expect=lambda: raw(tab_names()[1]["id"]).get("A1") == "7" and raw("t0").get("A1") == "5", wait=1800)
+            t.step("Back on the first tab the values are the original ones", lambda: go_tab(0), expect=lambda: val("A1") == "5" and val("B1") == "10", wait=1800)
+            t.step("A second copy of the first tab is named 'Sheet 1 copy 2' and sits right after it", lambda: (pg.click("#tab-dup"), pg.wait_for_timeout(600)), expect=lambda: [x["name"] for x in tab_names()] == ["Sheet 1", "Sheet 1 copy 2", "Sheet 1 copy"], wait=1800)
+        run_tour(ctx, "sheets_tab_dup", body, notes="Device-local sheet. Headless Chromium 390x844 emulated, real Django on TiDB unistore. Duplicate tab copies cells only.")
+    g["DRILLS"]["tour_sheets_tab_dup"] = tour
 
 
 def register_slides_bg(g):

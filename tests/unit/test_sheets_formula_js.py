@@ -159,3 +159,15 @@ def test_chain_table_passes_in_node():
     )
     assert r.returncode == 0, r.stdout + r.stderr
     assert "34/34 chain rows passed" in r.stdout
+
+
+def test_sheets_tab_dup_rows_pass_in_node():
+    assert shutil.which("node"), "node is required to run the sheets tab duplicate rows"
+    r = subprocess.run(  # noqa: S603 - fixed argv, repo-owned script
+        [shutil.which("node"), str(ROOT / "tests/js/sheets_tab_dup.js")],
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert "14/14 sheets tab duplicate rows passed" in r.stdout

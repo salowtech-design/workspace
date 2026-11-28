@@ -835,7 +835,7 @@
     });
     var ct = meta.tabs.filter(function (t) { return t.id === meta.active; })[0]; if (document.activeElement !== tabName) tabName.value = ct.name;
     var dl = $("tab-raw"); dl.hidden = !(unreadableTabs[meta.active] && rawTabs[meta.active] !== undefined);
-    $("tab-add").disabled = tabsLocked || meta.tabs.length >= M.MAX_TABS; $("tab-rename").disabled = tabsLocked; $("tab-del").disabled = tabsLocked || meta.tabs.length <= 1;
+    $("tab-add").disabled = tabsLocked || meta.tabs.length >= M.MAX_TABS; $("tab-rename").disabled = tabsLocked; $("tab-dup").disabled = tabsLocked || meta.tabs.length >= M.MAX_TABS || !!unreadableTabs[meta.active]; $("tab-del").disabled = tabsLocked || meta.tabs.length <= 1;
     $("tab-restore").disabled = tabsLocked || !lastDeleted || meta.tabs.length >= M.MAX_TABS;
   }
   function switchTo(id, keep) {
@@ -857,6 +857,18 @@
     if (!commitMeta(next)) return;
     H = histFor(meta.active); chartRange = null; out.textContent = ""; cur = null; filt = null; sync(); renderTabs();
     tabMsg.textContent = "Added a tab. A formula can read it by name, like =Name!A1."; tabName.focus(); tabName.select();
+  });
+  $("tab-dup").addEventListener("click", function () {
+    if (heldMsg()) { tabMsg.textContent = status.textContent; return; }
+    if (unreadableTabs[meta.active]) { tabMsg.textContent = "The stored cells of this tab could not be read, so it cannot be copied."; return; }
+    var from = meta.tabs.filter(function (t) { return t.id === meta.active; })[0].name, next = M.duplicateTab(meta, meta.active, keyUsed);
+    if (!next) { tabMsg.textContent = "A file holds up to " + M.MAX_TABS + " tabs, so this tab was not copied."; return; }
+    var key = tabKey(next.active);
+    try { localStorage.setItem(key, JSON.stringify(H.cells)); } catch (e) { tabMsg.textContent = "This browser would not store the copy, so nothing was changed."; return; }
+    if (!commitMeta(next)) { try { localStorage.removeItem(key); } catch (e2) { /* the new id is not in the tab list, and keyUsed keeps it from being handed out */ } return; }
+    H = histFor(meta.active); chartRange = null; out.textContent = ""; cur = null; filt = null; sync(); renderTabs();
+    var nn = meta.tabs.filter(function (t) { return t.id === meta.active; })[0].name;
+    tabMsg.textContent = "Copied the cells of " + from + " to the new tab " + nn + ". Formats, colour and validation rules, frozen rows, column widths and saved versions were not copied, and a formula that names " + from + " still reads the original.";
   });
   $("tab-rename").addEventListener("click", function () {
     var r = M.renameTab(meta, meta.active, tabName.value); if (r.error) { tabMsg.textContent = r.error; return; }
