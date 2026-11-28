@@ -168,7 +168,7 @@
     var isPic = !!(e && e.type === "image"); ["sl-size", "sl-fill", "sl-bold", "sl-italic", "sl-underline", "sl-align"].forEach(function (id) { $(id).disabled = isPic; });
     $("sl-export-warn").hidden = !deckHashes(d).length;
     $("sl-text-label").textContent = isPic ? "Description (for screen readers, not drawn)" : "Text";
-    var pos = e ? tgt().indexOf(e) : -1; $("sl-back").disabled = pos <= 0; $("sl-fwd").disabled = pos < 0 || pos >= tgt().length - 1;
+    var pos = e ? tgt().indexOf(e) : -1; $("sl-back").disabled = pos <= 0; $("sl-fwd").disabled = pos < 0 || pos >= tgt().length - 1; $("sl-tofront").disabled = pos < 0 || pos >= tgt().length - 1; $("sl-toback").disabled = pos <= 0;
     ["text", "size", "x", "y", "w", "h", "fill"].forEach(function (f) { var inp = $("sl-" + f); if (document.activeElement !== inp) inp.value = e ? e[f] : ""; });
     $("sl-bold").checked = !!(e && e.b); $("sl-italic").checked = !!(e && e.i); $("sl-underline").checked = !!(e && e.u); $("sl-align").value = e && e.al ? e.al : "default";
     var nt = $("sl-notes"); if (document.activeElement !== nt) nt.value = d.slides[cur].notes || "";
@@ -260,6 +260,9 @@
   });
   [["sl-back", -1, "Item sent backward."], ["sl-fwd", 1, "Item brought forward."]].forEach(function (c) {
     $(c[0]).addEventListener("click", function () { var e = sel(); if (e && apply(eop("moveElement", e.id, c[1]), c[2])) { var b = $(c[0]); if (b.disabled) $("sl-del-el").focus(); else b.focus(); } });
+  });
+  [["sl-toback", "back", "Item sent to the back."], ["sl-tofront", "front", "Item brought to the front."]].forEach(function (c) {
+    $(c[0]).addEventListener("click", function () { var e = sel(); if (e && apply(eop("stackElement", e.id, c[1]), c[2])) { var b = $(c[0]); if (b.disabled) $("sl-del-el").focus(); else b.focus(); } });
   });
   $("sl-dup-el").addEventListener("click", function () {
     var e = sel(); if (!e) return; var r = eop("duplicateElement", e.id);

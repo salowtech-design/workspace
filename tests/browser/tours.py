@@ -350,6 +350,7 @@ def register(g):
     register_sheets_tab_dup(g)
     register_sheets_tab_move(g)
     register_sheets_dedup(g)
+    register_slides_stack(g)
     register_drive_link_version_fail(g)
     register_drive_link_slides_retry(g)
     register_sheets_frozenfocus(g)
@@ -3091,6 +3092,41 @@ def register_sheets_dedup(g):
             t.step("Running it on a range with no duplicates says so and changes nothing", lambda: (pg.fill("#sort-range", "A1:B3"), pg.click("#dedup-go"), pg.wait_for_timeout(400)), expect=lambda: "No duplicate rows found" in pg.inner_text("#sheet-status") and stored() == seed, wait=1500)
         run_tour(ctx, "sheets_dedup", body, notes="Device-local sheet. Headless Chromium 390x844 emulated, real Django on TiDB unistore. Remove duplicate rows on typed values.")
     g["DRILLS"]["tour_sheets_dedup"] = tour
+
+
+def register_slides_stack(g):
+    APP = g["APP"]
+
+    def tour(ctx):
+        def body(t, pg):
+            pg.on("pageerror", lambda e: print("PAGEERROR", str(e)[:300]))
+            pg.goto(APP + "/slides/")
+            pg.evaluate("localStorage.clear()")
+            pg.goto(APP + "/slides/")
+            pg.wait_for_selector("#sl-add-text", timeout=15000)
+            key = pg.evaluate("() => document.getElementById('slide-root').dataset.storeKey")
+            r = lambda i, x, y, fill: {"id": i, "type": "rect", "x": x, "y": y, "w": 360, "h": 240, "fill": fill, "text": "", "size": 32}
+            deck = {"v": 1, "theme": "light", "slides": [{"id": "s0", "notes": "", "elements": [r("red", 100, 100, "#7a2e22"), r("blue", 260, 160, "#2e6f95"), r("green", 420, 220, "#3b7d4f")]}]}
+            pg.evaluate("([k, v]) => localStorage.setItem(k, JSON.stringify(v))", [key, deck])
+            pg.reload(); pg.wait_for_selector("#sl-add-text", timeout=15000); pg.wait_for_timeout(600)
+            order = lambda: "".join(e["id"][0] for e in json.loads(pg.evaluate("(k) => localStorage.getItem(k)", key))["slides"][0]["elements"])
+            st = lambda: pg.inner_text("#sl-status")
+            def snap(name):
+                out = os.environ.get("DRILL_VIDEO", "") or "/tmp"
+                pg.locator("#sl-canvas-wrap").scroll_into_view_if_needed(); pg.wait_for_timeout(300)
+                pg.locator("#sl-canvas-wrap").screenshot(path=os.path.join(out, "stack_" + name + ".png"))
+            def click(i):
+                pg.evaluate("() => document.getElementById('sl-props').scrollIntoView({block: 'start'})"); pg.click("#" + i); pg.wait_for_timeout(300)
+            def pick(n):
+                pg.locator("#sl-items li button").nth(n).click(); pg.wait_for_timeout(200)
+            t.step("Both stack buttons are off until an item is selected", lambda: snap("0_before"), expect=lambda: pg.is_disabled("#sl-tofront") and pg.is_disabled("#sl-toback"), wait=1500)
+            t.step("Select the red (bottom) item: Send to back is off, Bring to front is on", lambda: pick(0), expect=lambda: pg.is_disabled("#sl-toback") and not pg.is_disabled("#sl-tofront"), wait=1500)
+            t.step("Bring to front: red is drawn last, over blue and green", lambda: (click("sl-tofront"), snap("1_red_front")), expect=lambda: order() == "bgr" and "brought to the front" in st() and pg.is_disabled("#sl-tofront"), wait=1500)
+            t.step("Select blue (now the bottom item) and Bring to front: order is green, red, blue", lambda: (pick(0), click("sl-tofront"), snap("2_blue_front")), expect=lambda: order() == "grb", wait=1500)
+            t.step("Send blue to the back: order is blue, green, red", lambda: (click("sl-toback"), snap("3_blue_back")), expect=lambda: order() == "bgr" and pg.is_disabled("#sl-toback"), wait=1500)
+            t.step("Undo takes blue back to the front (green, red, blue)", lambda: (pg.click("#sl-undo"), pg.wait_for_timeout(300), snap("4_undo")), expect=lambda: order() == "grb", wait=1500)
+        run_tour(ctx, "slides_stack", body, notes="Device-local deck. Headless Chromium 390x844 emulated, real Django on TiDB unistore. Send to back and bring to front change only the drawing order.")
+    g["DRILLS"]["tour_slides_stack"] = tour
 
 
 def register_slides_bg(g):

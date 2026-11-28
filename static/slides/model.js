@@ -256,6 +256,12 @@
       if (k < 0 || k + dir < 0 || k + dir >= s.elements.length) return null;
       var n = copy(d), a = n.slides[i].elements; var t = a[k]; a[k] = a[k + dir]; a[k + dir] = t; return n;
     },
+    // to is "front" (drawn last, on top of everything) or "back" (drawn first, underneath everything). Only the order changes. Null when the item is already there.
+    stackElement: function (d, i, id, to) {
+      var s = d.slides[i]; if (!s || (to !== "front" && to !== "back")) return null; var k = -1; s.elements.forEach(function (e, x) { if (e.id === id) k = x; });
+      if (k < 0 || (to === "front" && k === s.elements.length - 1) || (to === "back" && k === 0)) return null;
+      var n = copy(d), a = n.slides[i].elements, it = a.splice(k, 1)[0]; if (to === "front") a.push(it); else a.unshift(it); return n;
+    },
     deleteElement: function (d, i, id) { var s = d.slides[i]; if (!s) return null; var n = copy(d), l = n.slides[i].elements.length; n.slides[i].elements = n.slides[i].elements.filter(function (e) { return e.id !== id; }); if (n.slides[i].anim) { n.slides[i].anim = n.slides[i].anim.filter(function (a) { return a.el !== id; }); if (!n.slides[i].anim.length) delete n.slides[i].anim; } return n.slides[i].elements.length === l ? null : normVersion(n); },
     setHideMaster: function (d, i, hide) { var s = d.slides[i]; if (!s || typeof hide !== "boolean" || (s.hideMaster === true) === hide) return null; var n = copy(d); if (hide) n.slides[i].hideMaster = true; else delete n.slides[i].hideMaster; return normVersion(n); },
     // how a slide appears in Present: "none" or "fade". The PDF and the editor are not animated.
@@ -306,6 +312,7 @@
   ops.master_addElement = function (d, type) { return viaMaster(d, function (t) { return ops.addElement(t, 0, type); }, true); };
   ops.master_alignElement = function (d, id, mode) { return viaMaster(d, function (t) { return ops.alignElement(t, 0, id, mode); }); };
   ops.master_updateElement = function (d, id, patch) { return viaMaster(d, function (t) { return ops.updateElement(t, 0, id, patch); }); };
+  ops.master_stackElement = function (d, id, to) { return viaMaster(d, function (t) { return ops.stackElement(t, 0, id, to); }); };
   ops.master_moveElement = function (d, id, dir) { return viaMaster(d, function (t) { return ops.moveElement(t, 0, id, dir); }); };
   ops.master_duplicateElement = function (d, id) { return viaMaster(d, function (t) { return ops.duplicateElement(t, 0, id); }, true); };
   ops.master_deleteElement = function (d, id) { return viaMaster(d, function (t) { return ops.deleteElement(t, 0, id); }); };

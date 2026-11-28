@@ -1,0 +1,23 @@
+// Slides send to back / bring to front: model rows for ops.stackElement.
+const S = require("../../static/slides/model.js");
+let n = 0, fails = 0;
+const ok = (d, c) => { n++; if (!c) { fails++; console.log("FAIL", d); } };
+const el = (id, x) => ({ id, type: "text", x, y: 10, w: 100, h: 40, fill: "theme", size: 20, text: id });
+const deck = (...els) => { const d = S.newDeck(); d.slides = [{ id: "s0", elements: els, notes: "" }]; return d; };
+const d0 = deck(el("a", 0), el("b", 100), el("c", 200), el("d", 300));
+const ids = (d) => d.slides[0].elements.map((e) => e.id).join("");
+ok("front moves a middle item to the end", ids(S.ops.stackElement(d0, 0, "b", "front")) === "acdb");
+ok("back moves a middle item to the start", ids(S.ops.stackElement(d0, 0, "c", "back")) === "cabd");
+ok("front moves the first item over all the others", ids(S.ops.stackElement(d0, 0, "a", "front")) === "bcda");
+ok("back moves the last item under all the others", ids(S.ops.stackElement(d0, 0, "d", "back")) === "dabc");
+ok("front on the top item gives null", S.ops.stackElement(d0, 0, "d", "front") === null);
+ok("back on the bottom item gives null", S.ops.stackElement(d0, 0, "a", "back") === null);
+ok("an unknown item, slide or position gives null", S.ops.stackElement(d0, 0, "zz", "front") === null && S.ops.stackElement(d0, 3, "a", "front") === null && S.ops.stackElement(d0, 0, "a", "up") === null && S.ops.stackElement(d0, 0, "a") === null);
+ok("the source deck is unchanged", ids(d0) === "abcd");
+ok("only the order changes (every item is deep-equal to before)", (() => { const x = S.ops.stackElement(d0, 0, "b", "front"); return d0.slides[0].elements.every((e) => JSON.stringify(x.slides[0].elements.find((f) => f.id === e.id)) === JSON.stringify(e)); })());
+ok("a single item gives null both ways", (() => { const d = deck(el("o", 0)); return S.ops.stackElement(d, 0, "o", "front") === null && S.ops.stackElement(d, 0, "o", "back") === null; })());
+ok("a layout-linked item keeps its link", (() => { let d = S.ops.addLinkedSlide(S.newDeck(), 0, "title"); const els = d.slides[1].elements; if (els.length < 2) return true; const first = els[0]; const x = S.ops.stackElement(d, 1, first.id, "front"); const g = x.slides[1].elements.find((e) => e.id === first.id); return g.ph === first.ph && x.slides[1].elements[x.slides[1].elements.length - 1].id === first.id; })());
+ok("master items go through master_stackElement", (() => { let d = d0; const a = S.ops.master_addElement(d, "text"); if (!a) return false; const b = S.ops.master_addElement(a.deck, "text"); if (!b) return false; const x = S.ops.master_stackElement(b.deck, a.id, "front"); return !!x && x.master.elements[x.master.elements.length - 1].id === a.id; })());
+ok("a restacked deck passes validate and is one Undo step", (() => { const h = new S.History(d0, { save() { return true; } }, 100); h.change(S.ops.stackElement(d0, 0, "b", "front")); const one = h.past.length === 1; h.undo(); return one && ids(h.deck) === "abcd" && S.validate(JSON.parse(JSON.stringify(S.ops.stackElement(d0, 0, "b", "front")))) !== null; })());
+console.log((fails ? "FAILED " : "") + (n - fails) + "/" + n + " slides stack rows passed");
+process.exit(fails ? 1 : 0);
